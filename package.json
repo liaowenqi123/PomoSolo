@@ -6,7 +6,9 @@
   "scripts": {
     "start": "chcp 65001 >nul && set PYTHONIOENCODING=utf-8 && electron .",
     "supabase": "cd supabase-test && npm start",
-    "build": "npx @electron/packager . 番茄钟 --platform=win32 --arch=x64 --out=dist --overwrite --icon=src/tomato-page-1.ico --ignore=\"[/\\\\\\\\]music-player$|[/\\\\\\\\]music-player[/\\\\\\\\]|[/\\\\\\\\]foreground_inspection$|[/\\\\\\\\]foreground_inspection[/\\\\\\\\]|[/\\\\\\\\]supabase-test$|[/\\\\\\\\]supabase-test[/\\\\\\\\]\" --extra-resource=music-player/music.exe --extra-resource=music-player/music --extra-resource=foreground_inspection/foreground_inspection.exe --extra-resource=foreground_inspection/list_config.json --extra-resource=foreground_inspection/model_config.json --no-prune"
+    "build": "npx @electron/packager . 番茄钟 --platform=win32 --arch=x64 --out=dist --overwrite --icon=src/tomato-page-1.ico --ignore=\"[/\\\\\\\\]music-player$|[/\\\\\\\\]music-player[/\\\\\\\\]|[/\\\\\\\\]foreground_inspection$|[/\\\\\\\\]foreground_inspection[/\\\\\\\\]|[/\\\\\\\\]supabase-test$|[/\\\\\\\\]supabase-test[/\\\\\\\\]\" --extra-resource=music-player/music.exe --extra-resource=music-player/music --extra-resource=foreground_inspection/foreground_inspection.exe --extra-resource=foreground_inspection/list_config.json --extra-resource=foreground_inspection/model_config.json --no-prune",
+    "build:installer": "electron-builder --win",
+    "build:msi": "electron-builder --win msi"
   },
   "keywords": [
     "pomodoro",
@@ -17,11 +19,81 @@
   "license": "MIT",
   "devDependencies": {
     "@electron/packager": "^19.0.5",
-    "electron": "^34.0.0"
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",
     "axios": "^1.13.6",
     "chart.js": "^4.5.1"
+  },
+  "build": {
+    "appId": "com.pomodoro.timer",
+    "productName": "番茄钟",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/node_modules/*.d.ts",
+      "!**/node_modules/.bin",
+      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
+      "!.editorconfig",
+      "!**/._*",
+      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
+      "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
+      "!**/{appveyor.yml,.travis.yml,circle.yml}",
+      "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}",
+      "!music-player/**/*",
+      "!foreground_inspection/**/*",
+      "!supabase-test/**/*",
+      "!dist/**/*",
+      "!build/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "music-player/music.exe",
+        "to": "music.exe"
+      },
+      {
+        "from": "music-player/music",
+        "to": "music"
+      },
+      {
+        "from": "foreground_inspection/foreground_inspection.exe",
+        "to": "foreground_inspection.exe"
+      },
+      {
+        "from": "foreground_inspection/list_config.json",
+        "to": "list_config.json"
+      },
+      {
+        "from": "foreground_inspection/model_config.json",
+        "to": "model_config.json"
+      }
+    ],
+    "win": {
+      "icon": "src/tomato-page-1-256.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "src/tomato-page-1-256.ico",
+      "uninstallerIcon": "src/tomato-page-1-256.ico",
+      "installerHeaderIcon": "src/tomato-page-1-256.ico",
+      "installerHeader": "src/installer-header.bmp",
+      "installerSidebar": "src/installer-sidebar.bmp",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "番茄钟"
+    }
   }
 }
