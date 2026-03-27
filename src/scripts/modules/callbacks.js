@@ -67,6 +67,11 @@
         if (status === 'paused') {
           Presets.setEnabled(false)
           WheelPicker.setEnabled(false)
+          // 暂停时保存当前模式的状态
+          if (AppState.appMode === 'single' && window.Timer) {
+            const currentMode = Mode.getMode()
+            window.Timer.saveWorkBreakState(currentMode)
+          }
         } else if (status === 'ready') {
           Presets.setEnabled(true)
           WheelPicker.setEnabled(true)
@@ -190,40 +195,18 @@
         return !Timer.getIsRunning()
       },
       onModeChange: (mode) => {
-        // 切换模式时重置计时器
-        const defaultTime = mode === 'work' ? AppState.defaultWorkTime : AppState.defaultBreakTime
-        Timer.setTime(defaultTime)
-        Timer.reset()
+        // 只恢复新模式的状态，不保存旧模式的状态
+        // 因为状态已经在暂停时保存过了
+        if (window.Timer) {
+          window.Timer.restoreWorkBreakState(mode)
+        }
         
-        // 切换预设列表
-        Presets.setMode(mode)
-        WheelPicker.setValue(defaultTime)
+        // 切换预设列表显示，保持activePreset不变以保持备注显示
+        Presets.setMode(mode, true)
         
-        // 在单次模式下，切换工作/休息模式时自动选择该模式的第一个预设
-        if (AppState.appMode === 'single' && window.Presets) {
-          const presets = DataStore.getPresets()
-          if (presets[mode] && presets[mode].length > 0) {
-            // 优先选择25分钟预设
-            let selectedIndex = presets[mode].findIndex(preset => {
-              const presetMinutes = typeof preset === 'number' ? preset : preset.minutes
-              return presetMinutes === 25
-            })
-            
-            // 如果没有25分钟预设，选择第一个
-            if (selectedIndex < 0) {
-              selectedIndex = 0
-            }
-            
-            const selectedPreset = presets[mode][selectedIndex]
-            const selectedMinutes = typeof selectedPreset === 'number' ? selectedPreset : selectedPreset.minutes
-            const selectedNote = typeof selectedPreset === 'object' ? selectedPreset.note : null
-            
-            window.Presets.selectPreset(selectedMinutes, selectedNote, selectedIndex)
-            // 绑定备注编辑按钮的点击事件
-            if (window.Presets.initializeNoteEditButton) {
-              window.Presets.initializeNoteEditButton()
-            }
-          }
+        // 重新初始化备注显示，确保显示新模式的备注
+        if (window.Presets && window.Presets.reinitializeNoteDisplay) {
+          window.Presets.reinitializeNoteDisplay()
         }
       }
     }

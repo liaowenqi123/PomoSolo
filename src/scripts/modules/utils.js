@@ -80,8 +80,6 @@
       presets: { ...DEFAULT_PRESETS },
       planList: [],
       audioDevice: null,
-      // 单次模式独立备注（和预设无关）
-      singleModeNote: '',
       // 菜园子系统
       garden: {
         coins: 0,

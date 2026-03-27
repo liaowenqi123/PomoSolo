@@ -224,9 +224,34 @@
       item.classList.toggle('active', parseInt(item.dataset.minutes) === minutes)
     })
     
-    // 单次模式下，备注独立于预设，不随预设选择改变
-    // 计划模式时隐藏备注
-    if (AppState.appMode !== 'single') {
+    // 单次模式下，显示该预设的备注
+    if (AppState.appMode === 'single') {
+      const timerNoteInput = document.getElementById('timerNoteInput')
+      const timerNoteDisplay = document.getElementById('timerNoteDisplay')
+      const timerNoteText = document.getElementById('timerNoteText')
+      
+      if (timerNoteInput && timerNoteDisplay) {
+        // 获取预设的备注
+        const preset = currentPresets[currentMode][index]
+        const presetNote = typeof preset === 'object' ? (preset.note || '') : ''
+        
+        // 显示备注
+        timerNoteInput.style.display = 'none'
+        timerNoteDisplay.style.display = 'flex'
+        timerNoteText.textContent = presetNote
+        
+        // 根据字数调整位置
+        const len = presetNote.length
+        if (len <= 2) {
+          timerNoteDisplay.style.top = '40px'
+        } else if (len <= 4) {
+          timerNoteDisplay.style.top = '45px'
+        } else {
+          timerNoteDisplay.style.top = '50px'
+        }
+      }
+    } else {
+      // 计划模式时隐藏备注
       const timerNoteInput = document.getElementById('timerNoteInput')
       const timerNoteDisplay = document.getElementById('timerNoteDisplay')
       if (timerNoteInput) timerNoteInput.style.display = 'none'
@@ -314,10 +339,32 @@
       e.stopPropagation()
       const title = updatedInput.value.trim()
       
-      // 保存到独立的单次模式备注字段
-      const data = DataStore.getData()
-      data.singleModeNote = title
-      await DataStore.saveImmediate()
+      // 获取当前选中的预设
+      const activeMinutes = activePreset
+      
+      // 如果没有选择预设，不做任何操作
+      if (activeMinutes === null) {
+        return
+      }
+      
+      // 获取当前预设的索引
+      const index = currentPresets[currentMode].findIndex(preset => {
+        const presetMinutes = typeof preset === 'number' ? preset : preset.minutes
+        return presetMinutes === activeMinutes
+      })
+      
+      if (index < 0) return
+      
+      // 更新预设对象中的备注
+      const preset = currentPresets[currentMode][index]
+      if (typeof preset === 'number') {
+        currentPresets[currentMode][index] = { minutes: preset, note: title || null }
+      } else {
+        preset.note = title || null
+      }
+      
+      // 保存到数据库
+      await DataStore.updatePresets(currentPresets)
       
       // 切换到显示模式
       timerNoteInput.style.display = 'none'
@@ -354,23 +401,41 @@
     
     if (!timerNoteInput || !timerNoteDisplay) return
     
-    // 单次模式：显示独立的备注
+    // 单次模式：显示当前选中预设的备注
     if (AppState.appMode === 'single') {
-      const data = DataStore.getData()
-      const note = data.singleModeNote || ''
+      // 如果有选中的预设，显示其备注
+      if (activePreset !== null) {
+        const index = currentPresets[currentMode].findIndex(preset => {
+          const presetMinutes = typeof preset === 'number' ? preset : preset.minutes
+          return presetMinutes === activePreset
+        })
+        
+        if (index >= 0) {
+          const preset = currentPresets[currentMode][index]
+          const note = typeof preset === 'object' ? (preset.note || '') : ''
+          
+          timerNoteInput.style.display = 'none'
+          timerNoteDisplay.style.display = 'flex'
+          timerNoteText.textContent = note
+          
+          // 根据字数调整位置
+          const len = note.length
+          if (len <= 2) {
+            timerNoteDisplay.style.top = '40px'
+          } else if (len <= 4) {
+            timerNoteDisplay.style.top = '45px'
+          } else {
+            timerNoteDisplay.style.top = '50px'
+          }
+          return
+        }
+      }
+      
+      // 没有选中的预设，显示空的笔emoji
       timerNoteInput.style.display = 'none'
       timerNoteDisplay.style.display = 'flex'
-      timerNoteText.textContent = note
-      
-      // 根据字数调整位置：字数少时上移
-      const len = note.length
-      if (len <= 2) {
-        timerNoteDisplay.style.top = '40px'
-      } else if (len <= 4) {
-        timerNoteDisplay.style.top = '45px'
-      } else {
-        timerNoteDisplay.style.top = '50px'
-      }
+      timerNoteText.textContent = ''
+      timerNoteDisplay.style.top = '40px'
       return
     }
     
@@ -474,9 +539,11 @@
   }
 
   // 设置当前模式
-  function setMode(mode) {
+  function setMode(mode, preserveActivePreset = false) {
     currentMode = mode
-    activePreset = null
+    if (!preserveActivePreset) {
+      activePreset = null
+    }
     render()
   }
 
@@ -512,9 +579,27 @@
     // 加载预设数据
     const presets = DataStore.getPresets()
     if (presets && (presets.work?.length > 0 || presets.break?.length > 0)) {
-      currentPresets = { ...presets }
+      // 确保所有预设都是对象格式 { minutes, note }
+      currentPresets = {
+        work: (presets.work || []).map(preset => {
+          if (typeof preset === 'number') {
+            return { minutes: preset, note: null }
+          }
+          return preset
+        }),
+        break: (presets.break || []).map(preset => {
+          if (typeof preset === 'number') {
+            return { minutes: preset, note: null }
+          }
+          return preset
+        })
+      }
     } else {
-      currentPresets = { ...defaultPresets }
+      // 转换默认预设为对象格式
+      currentPresets = {
+        work: defaultPresets.work.map(m => ({ minutes: m, note: null })),
+        break: defaultPresets.break.map(m => ({ minutes: m, note: null }))
+      }
     }
     
     // 初始渲染
@@ -542,9 +627,24 @@
       const timerNoteDisplay = document.getElementById('timerNoteDisplay')
       const timerNoteTitleInput = document.getElementById('timerNoteTitleInput')
       
-      // 获取独立的单次模式备注
-      const data = DataStore.getData()
-      const note = data.singleModeNote || ''
+      // 获取当前选中的预设
+      const activeMinutes = activePreset
+      
+      // 如果没有选择预设，不做任何操作
+      if (activeMinutes === null) {
+        return
+      }
+      
+      // 获取当前预设的索引
+      const index = currentPresets[currentMode].findIndex(preset => {
+        const presetMinutes = typeof preset === 'number' ? preset : preset.minutes
+        return presetMinutes === activeMinutes
+      })
+      
+      if (index < 0) return
+      
+      const preset = currentPresets[currentMode][index]
+      const note = typeof preset === 'object' ? (preset.note || '') : ''
       
       timerNoteDisplay.style.display = 'none'
       timerNoteInput.style.display = 'flex'

@@ -40,6 +40,28 @@
     }
   }
 
+  // 工作/休息模式的倒计时状态保存
+  let workBreakStates = {
+    work: {
+      totalTime: 25 * 60,
+      timeLeft: 25 * 60,
+      isPaused: false,
+      pausedElapsedTime: 0,
+      timerStartTime: 0,
+      gardenSecondCounter: 0,
+      minuteCounter: 0
+    },
+    break: {
+      totalTime: 5 * 60,
+      timeLeft: 5 * 60,
+      isPaused: false,
+      pausedElapsedTime: 0,
+      timerStartTime: 0,
+      gardenSecondCounter: 0,
+      minuteCounter: 0
+    }
+  }
+
   const radius = 116
   const circumference = 2 * Math.PI * radius
 
@@ -152,6 +174,12 @@
     elements.startBtn.textContent = '开始'
     elements.progressCircle.style.strokeDashoffset = 0
     
+    // 重置后保存当前模式的状态
+    if (AppState && AppState.appMode === 'single') {
+      const currentMode = Mode.getMode()
+      saveWorkBreakState(currentMode)
+    }
+    
     if (callbacks.onStatusChange) {
       callbacks.onStatusChange('ready')
     }
@@ -221,6 +249,44 @@
     updateDisplay()
   }
 
+  // 获取指定模式的保存状态
+  function getState(mode) {
+    return modeStates[mode] || null
+  }
+
+  // 保存工作/休息模式的计时器状态
+  function saveWorkBreakState(mode) {
+    if (!workBreakStates[mode]) return
+    workBreakStates[mode] = {
+      totalTime: totalTime,
+      timeLeft: timeLeft,
+      isPaused: isPaused,
+      pausedElapsedTime: pausedElapsedTime,
+      timerStartTime: timerStartTime,
+      gardenSecondCounter: gardenSecondCounter,
+      minuteCounter: minuteCounter
+    }
+  }
+
+  // 恢复工作/休息模式的计时器状态
+  function restoreWorkBreakState(mode) {
+    if (!workBreakStates[mode]) return
+    const state = workBreakStates[mode]
+    totalTime = state.totalTime
+    timeLeft = state.timeLeft
+    isPaused = state.isPaused
+    pausedElapsedTime = state.pausedElapsedTime
+    timerStartTime = state.timerStartTime
+    gardenSecondCounter = state.gardenSecondCounter
+    minuteCounter = state.minuteCounter
+    updateDisplay()
+  }
+
+  // 获取工作/休息模式的保存状态
+  function getWorkBreakState(mode) {
+    return workBreakStates[mode] || null
+  }
+
   function init(els, cbs) {
     elements = els
     callbacks = cbs || {}
@@ -253,6 +319,10 @@
     getIsRunning: getIsRunning,
     getIsPaused: getIsPaused,
     saveState: saveState,
-    restoreState: restoreState
+    restoreState: restoreState,
+    getState: getState,
+    saveWorkBreakState: saveWorkBreakState,
+    restoreWorkBreakState: restoreWorkBreakState,
+    getWorkBreakState: getWorkBreakState
   }
 })()

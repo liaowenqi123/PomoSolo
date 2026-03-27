@@ -188,21 +188,30 @@
     // 根据计划第一项设置时间
     PlanMode.render()
     const firstItem = PlanMode.getFirstItem()
-    if (firstItem) {
-      // 只在计划模式首次初始化时设置时间，之后恢复保存的状态
-      if (window.Timer) {
-        // 先设置新的时间
-        window.Timer.setTime(firstItem.minutes)
-        // 然后恢复计划模式的状态（如果有的话）
+    
+    if (window.Timer) {
+      // 检查计划模式是否有保存的状态
+      const planState = window.Timer.getState('plan')
+      
+      if (planState && planState.timeLeft > 0 && planState.timeLeft !== planState.totalTime) {
+        // 如果有保存的状态且不是初始状态，直接恢复
         window.Timer.restoreState('plan')
+      } else {
+        // 第一次进入计划模式或状态为初始值，根据第一项设置时间
+        if (firstItem) {
+          window.Timer.setTime(firstItem.minutes)
+          updateContainerColor(firstItem.type === 'break')
+        } else {
+          window.Timer.setTime(25)
+          updateContainerColor(false)
+        }
       }
+    }
+    
+    if (firstItem) {
       WheelPicker.setValue(firstItem.minutes)
       updateContainerColor(firstItem.type === 'break')
     } else {
-      if (window.Timer) {
-        window.Timer.setTime(25)
-        window.Timer.restoreState('plan')
-      }
       WheelPicker.setValue(25)
       updateContainerColor(false)
     }
