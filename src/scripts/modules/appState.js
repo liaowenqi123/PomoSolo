@@ -143,6 +143,13 @@
   }
 
   function switchToSingleMode() {
+    // 保存计划模式的计时器状态
+    if (window.Timer) {
+      window.Timer.saveState('plan')
+      // 恢复单次模式的计时器状态
+      window.Timer.restoreState('single')
+    }
+    
     // 更新 UI
     updateModeSliderUI(false)
     updateContentVisibility('single')
@@ -162,6 +169,11 @@
   }
 
   function switchToPlanMode() {
+    // 保存单次模式的计时器状态
+    if (window.Timer) {
+      window.Timer.saveState('single')
+    }
+    
     // 隐藏单次模式的备注
     const timerNoteInput = document.getElementById('timerNoteInput')
     const timerNoteDisplay = document.getElementById('timerNoteDisplay')
@@ -177,11 +189,20 @@
     PlanMode.render()
     const firstItem = PlanMode.getFirstItem()
     if (firstItem) {
-      Timer.setTime(firstItem.minutes)
+      // 只在计划模式首次初始化时设置时间，之后恢复保存的状态
+      if (window.Timer) {
+        // 先设置新的时间
+        window.Timer.setTime(firstItem.minutes)
+        // 然后恢复计划模式的状态（如果有的话）
+        window.Timer.restoreState('plan')
+      }
       WheelPicker.setValue(firstItem.minutes)
       updateContainerColor(firstItem.type === 'break')
     } else {
-      Timer.setTime(25)
+      if (window.Timer) {
+        window.Timer.setTime(25)
+        window.Timer.restoreState('plan')
+      }
       WheelPicker.setValue(25)
       updateContainerColor(false)
     }

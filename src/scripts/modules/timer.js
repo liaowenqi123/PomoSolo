@@ -18,6 +18,28 @@
   let pausedElapsedTime = 0  // 暂停时已经过的时间（秒）
   let gardenSecondCounter = 0  // 菜园子秒数累积器
 
+  // 模式状态保存 - 用于在单次和计划模式间切换时保持状态
+  let modeStates = {
+    single: {
+      totalTime: 25 * 60,
+      timeLeft: 25 * 60,
+      isPaused: false,
+      pausedElapsedTime: 0,
+      timerStartTime: 0,
+      gardenSecondCounter: 0,
+      minuteCounter: 0
+    },
+    plan: {
+      totalTime: 25 * 60,
+      timeLeft: 25 * 60,
+      isPaused: false,
+      pausedElapsedTime: 0,
+      timerStartTime: 0,
+      gardenSecondCounter: 0,
+      minuteCounter: 0
+    }
+  }
+
   const radius = 116
   const circumference = 2 * Math.PI * radius
 
@@ -171,6 +193,34 @@
     return isPaused
   }
 
+  // 保存当前模式的计时器状态
+  function saveState(mode) {
+    if (!modeStates[mode]) return
+    modeStates[mode] = {
+      totalTime: totalTime,
+      timeLeft: timeLeft,
+      isPaused: isPaused,
+      pausedElapsedTime: pausedElapsedTime,
+      timerStartTime: timerStartTime,
+      gardenSecondCounter: gardenSecondCounter,
+      minuteCounter: minuteCounter
+    }
+  }
+
+  // 恢复指定模式的计时器状态
+  function restoreState(mode) {
+    if (!modeStates[mode]) return
+    const state = modeStates[mode]
+    totalTime = state.totalTime
+    timeLeft = state.timeLeft
+    isPaused = state.isPaused
+    pausedElapsedTime = state.pausedElapsedTime
+    timerStartTime = state.timerStartTime
+    gardenSecondCounter = state.gardenSecondCounter
+    minuteCounter = state.minuteCounter
+    updateDisplay()
+  }
+
   function init(els, cbs) {
     elements = els
     callbacks = cbs || {}
@@ -201,6 +251,8 @@
     getTimeLeft: getTimeLeft,
     getTotalTime: getTotalTime,
     getIsRunning: getIsRunning,
-    getIsPaused: getIsPaused
+    getIsPaused: getIsPaused,
+    saveState: saveState,
+    restoreState: restoreState
   }
 })()
