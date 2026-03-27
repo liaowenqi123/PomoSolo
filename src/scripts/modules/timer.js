@@ -143,6 +143,11 @@
         if (callbacks.onComplete) {
           callbacks.onComplete()
         }
+        
+        // 倒计时完成后，状态变为ready，启用预设
+        if (callbacks.onStatusChange) {
+          callbacks.onStatusChange('ready')
+        }
       }
     }, 200)  // 更频繁地检查（200ms），确保显示更流畅
   }
