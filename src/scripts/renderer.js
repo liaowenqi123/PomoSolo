@@ -25,7 +25,7 @@
   // ============初始化主题模块============
   if (window.Theme) {
     Theme.init({
-      themeToggleBtn: document.getElementById('themeToggleBtn')
+      themeToggleBtn: document.getElementById('ui-theme-toggle-btn')
     });
   }
   // ============ 初始化预设模块 ============
@@ -95,14 +95,14 @@
   // ============ 初始化统计功能 ============
   Statistics.init({
     statsBtn: DOM.statsBtn,
-    statsModal: document.getElementById('statsModal'),
-    statsModalClose: document.getElementById('statsModalClose'),
-    statsChart: document.getElementById('statsChart'),
-    statsChartContainer: document.getElementById('statsChartContainer'),
-    statsTotalSessions: document.getElementById('statsTotalSessions'),
-    statsTotalMinutes: document.getElementById('statsTotalMinutes'),
-    statsAvgMinutes: document.getElementById('statsAvgMinutes'),
-    statsTableBody: document.getElementById('statsTableBody')
+    statsModal: document.getElementById('stats-modal'),
+    statsModalClose: document.getElementById('stats-modal-close'),
+    statsChart: document.getElementById('stats-chart'),
+    statsChartContainer: document.getElementById('stats-chart-container'),
+    statsTotalSessions: document.getElementById('stats-total-sessions'),
+    statsTotalMinutes: document.getElementById('stats-total-minutes'),
+    statsAvgMinutes: document.getElementById('stats-avg-minutes'),
+    statsTableBody: document.getElementById('stats-table-body')
   })
 
   // ============ 初始化云端登录模块 ============
@@ -373,7 +373,7 @@
     isMiniMode = true
     // 隐藏主容器，显示迷你模式
     document.querySelector('.container').style.display = 'none'
-    document.getElementById('miniMode').style.display = 'flex'
+    document.getElementById('mini-mode').style.display = 'flex'
     // 调整窗口大小并置顶
     window.electronAPI.enterMiniMode()
   }
@@ -383,7 +383,7 @@
     isMiniMode = false
     // 显示主容器，隐藏迷你模式
     document.querySelector('.container').style.display = 'flex'
-    document.getElementById('miniMode').style.display = 'none'
+    document.getElementById('mini-mode').style.display = 'none'
     // 恢复窗口大小
     window.electronAPI.exitMiniMode()
   }
@@ -414,7 +414,7 @@
   }
 
   // 迷你模式展开按钮事件
-  const expandMiniBtn = document.getElementById('expandMiniBtn')
+  const expandMiniBtn = document.getElementById('mini-expand-btn')
   if (expandMiniBtn) {
     expandMiniBtn.addEventListener('click', () => {
       if (isMiniMode) {
@@ -466,8 +466,8 @@
   }
 
   // ============ 顶部按钮展开/收起功能 ============
-  const expandBtn = document.getElementById('expandBtn')
-  const hiddenButtons = document.getElementById('hiddenButtons')
+  const expandBtn = document.getElementById('music-expand-btn')
+  const hiddenButtons = document.getElementById('ui-hidden-buttons')
   let isExpanded = false
 
   if (expandBtn && hiddenButtons) {
@@ -491,9 +491,9 @@
   // ============ 侧边栏收起/展开功能 ============
   
   // ============ 计划模式备注区域展开/收起功能 ============
-  const planNoteCollapseBtn = document.getElementById('planNoteCollapseBtn')
-  const planNoteSection = document.getElementById('planNoteSection')
-  const planModeContent = document.getElementById('planModeContent')
+  const planNoteCollapseBtn = document.getElementById('plan-note-collapse-btn')
+  const planNoteSection = document.getElementById('plan-note-section')
+  const planModeContent = document.getElementById('plan-mode-content')
   let isPlanNoteCollapsed = false
 
   if (planNoteCollapseBtn && planNoteSection) {
@@ -513,7 +513,7 @@
   }
   
   // ============ 侧边栏收起/展开功能 ============
-  const sidebarCollapseBtn = document.getElementById('sidebarCollapseBtn')
+  const sidebarCollapseBtn = document.getElementById('ui-sidebar-collapse-btn')
   let isSidebarCollapsed = false
 
   if (sidebarCollapseBtn && DOM.container) {
@@ -560,10 +560,10 @@
   // 显示自定义确认弹窗
   window.showConfirmModal = function(message) {
     return new Promise((resolve) => {
-      const modal = document.getElementById('confirmModal')
+      const modal = document.getElementById('confirm-interrupt-modal')
       const messageEl = modal.querySelector('.confirm-message')
-      const cancelBtn = document.getElementById('confirmCancelBtn')
-      const okBtn = document.getElementById('confirmOkBtn')
+      const cancelBtn = document.getElementById('confirm-interrupt-cancel-btn')
+      const okBtn = document.getElementById('confirm-interrupt-ok-btn')
 
       // 设置消息
       messageEl.textContent = message

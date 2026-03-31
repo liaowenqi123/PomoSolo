@@ -14,8 +14,8 @@
     
     if (appMode === 'plan') {
       return {
-        titleInput: document.getElementById('planNoteTitleInput'),
-        detailInput: document.getElementById('planNoteDetailInput')
+        titleInput: document.getElementById('plan-note-title-input'),
+        detailInput: document.getElementById('plan-note-detail-input')
       }
     } else {
       return {
@@ -28,12 +28,12 @@
   // 显示查看模态框
   function showViewModal() {
     if (!currentNote.title) return
-    document.getElementById('viewNoteTitle').textContent = currentNote.title
-    document.getElementById('viewNoteDetail').textContent = currentNote.detail || '（无详细备注）'
-    const modal = document.getElementById('noteViewModal')
+    document.getElementById('note-view-title').textContent = currentNote.title
+    document.getElementById('note-view-detail').textContent = currentNote.detail || '（无详细备注）'
+    const modal = document.getElementById('note-view-modal')
     modal.classList.add('show')
 
-    const closeBtn = document.getElementById('noteViewCloseBtn')
+    const closeBtn = document.getElementById('note-view-close-btn')
     const closeHandler = () => {
       modal.classList.remove('show')
       cleanup()

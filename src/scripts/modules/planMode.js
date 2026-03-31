@@ -102,7 +102,7 @@
 
   // 编辑计划的备注
   function editNoteForPlan(index, currentNote) {
-    const modal = document.getElementById('noteViewModal')
+    const modal = document.getElementById('note-view-modal')
     const contentDiv = modal.querySelector('.note-view')
     const titleEl = modal.querySelector('h3')
     

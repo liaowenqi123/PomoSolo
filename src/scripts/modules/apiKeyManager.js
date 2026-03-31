@@ -1,16 +1,24 @@
 /**
- * 云端登录管理模块 - 渲染进程
- * 处理用户登录/注册和 API Key 获取
- * 支持记住密码和自动登录
+ * API 配置管理模块 - 渲染进程
+ * 支持两种模式：
+ * - 云端登录模式：通过 Supabase 登录获取 API Key（仅内存）
+ * - 本地配置模式：手动输入 API Key 并持久化存储
+ * 
+ * 两种模式互斥：
+ * - 切换到云端模式：删除本地 API Key
+ * - 切换到本地模式：清除云端登录凭据
  */
 
 const CloudAuth = (function() {
   'use strict'
 
   let elements = {}
+  let confirmElements = {}
   let onLoginCallback = null
   let currentDeepseekKey = null  // 内存中保存 API Key
   let isAutoLoggingIn = false    // 是否正在自动登录
+  let currentMode = 'cloud'      // 当前模式：'cloud' | 'local'
+  let pendingModeSwitch = null   // 待确认的模式切换
 
   /**
    * 初始化
@@ -18,14 +26,119 @@ const CloudAuth = (function() {
   async function init() {
     bindElements()
     bindEvents()
+    
+    // 先加载保存的模式
+    await loadMode()
+    
+    // 测试云端连接
     testConnection()
     
-    // 尝试自动登录
-    const autoLoggedIn = await tryAutoLogin()
+    // 根据模式初始化
+    if (currentMode === 'local') {
+      // 本地模式：尝试加载本地保存的 API Key
+      await tryLoadLocalApiKey()
+    } else {
+      // 云端模式：尝试自动登录
+      const autoLoggedIn = await tryAutoLogin()
+      if (!autoLoggedIn) {
+        await checkSession()
+      }
+    }
+  }
+
+  /**
+   * 加载保存的模式
+   */
+  async function loadMode() {
+    if (!window.electronAPI) return
     
-    // 如果没有自动登录，检查现有会话
-    if (!autoLoggedIn) {
-      await checkSession()
+    try {
+      const mode = await window.electronAPI.getApiMode()
+      currentMode = mode || 'cloud'
+      updateModeUI()
+    } catch (err) {
+      console.error('[CloudAuth] 加载模式失败:', err)
+    }
+  }
+
+  /**
+   * 更新模式切换 UI（拨杆）
+   */
+  function updateModeUI() {
+    const modeToggle = document.getElementById('mode-toggle')
+    const modeLabelCloud = document.getElementById('mode-label-cloud')
+    const modeLabelLocal = document.getElementById('mode-label-local')
+    
+    if (modeToggle) {
+      // local 模式时 checkbox 为 checked
+      modeToggle.checked = (currentMode === 'local')
+    }
+    
+    // 更新标签高亮
+    if (modeLabelCloud) {
+      modeLabelCloud.classList.toggle('active', currentMode === 'cloud')
+    }
+    if (modeLabelLocal) {
+      modeLabelLocal.classList.toggle('active', currentMode === 'local')
+    }
+    
+    // 切换面板显示
+    const cloudPanel = document.getElementById('auth-cloud-panel')
+    const localPanel = document.getElementById('auth-local-panel')
+    const modalIcon = document.getElementById('auth-modal-icon')
+    const modalTitle = document.getElementById('auth-modal-title')
+    
+    if (currentMode === 'local') {
+      if (cloudPanel) cloudPanel.style.display = 'none'
+      if (localPanel) localPanel.style.display = 'block'
+      if (modalIcon) modalIcon.textContent = '⚙️'
+      if (modalTitle) modalTitle.textContent = '本地配置'
+    } else {
+      if (cloudPanel) cloudPanel.style.display = 'block'
+      if (localPanel) localPanel.style.display = 'none'
+      if (modalIcon) modalIcon.textContent = '☁️'
+      if (modalTitle) modalTitle.textContent = '云端登录'
+    }
+  }
+
+  /**
+   * 尝试加载本地保存的 API Key
+   */
+  async function tryLoadLocalApiKey() {
+    if (!window.electronAPI) return
+    
+    try {
+      const apiKey = await window.electronAPI.getApiKey()
+      if (apiKey) {
+        currentDeepseekKey = apiKey
+        // 填充输入框
+        const input = document.getElementById('auth-local-api-key-input')
+        const confirm = document.getElementById('auth-local-api-key-confirm')
+        if (input) input.value = apiKey
+        if (confirm) confirm.value = apiKey
+        
+        // 隐藏弹窗
+        hideModal(false)
+        
+        // 调用回调
+        if (onLoginCallback) {
+          onLoginCallback(null, apiKey)
+        }
+        
+        // 更新顶部按钮
+        if (elements.loginHeaderBtn) {
+          elements.loginHeaderBtn.textContent = '🔑'
+          elements.loginHeaderBtn.title = '本地配置模式'
+        }
+        
+        console.log('[CloudAuth] 已加载本地 API Key')
+      } else {
+        // 没有保存的 API Key，显示配置弹窗
+        showModal(false)
+      }
+    } catch (err) {
+      console.error('[CloudAuth] 加载本地 API Key 失败:', err)
+      showModal(false)
     }
   }
 
@@ -34,28 +147,47 @@ const CloudAuth = (function() {
    */
   function bindElements() {
     elements = {
-      modal: document.getElementById('loginModal'),
-      modalClose: document.getElementById('loginModalClose'),
+      modal: document.getElementById('auth-modal'),
+      modalClose: document.getElementById('auth-modal-close'),
       authPanel: document.getElementById('authPanel'),
-      loggedInPanel: document.getElementById('loggedInPanel'),
-      welcomeText: document.getElementById('welcomeText'),
-      userMetaText: document.getElementById('userMetaText'),
-      connectionStatus: document.getElementById('connectionStatus'),
+      loggedInPanel: document.getElementById('auth-logged-in-panel'),
+      welcomeText: document.getElementById('auth-welcome-text'),
+      userMetaText: document.getElementById('auth-user-meta'),
+      connectionStatus: document.getElementById('auth-connection-status'),
       authMessage: document.getElementById('authMessage'),
       // 登录表单
-      loginUsername: document.getElementById('loginUsername'),
-      loginPassword: document.getElementById('loginPassword'),
-      rememberPassword: document.getElementById('rememberPassword'),
-      autoLogin: document.getElementById('autoLogin'),
-      loginBtn: document.getElementById('loginBtn'),
+      loginUsername: document.getElementById('auth-username'),
+      loginPassword: document.getElementById('auth-password'),
+      rememberPassword: document.getElementById('auth-remember-password'),
+      autoLogin: document.getElementById('auth-auto-login'),
+      loginBtn: document.getElementById('auth-login-btn'),
       // 注册表单
-      registerUsername: document.getElementById('registerUsername'),
-      registerPassword: document.getElementById('registerPassword'),
-      registerBtn: document.getElementById('registerBtn'),
+      registerUsername: document.getElementById('auth-register-username'),
+      registerPassword: document.getElementById('auth-register-password'),
+      registerBtn: document.getElementById('auth-register-btn'),
       // 退出按钮
-      logoutBtn: document.getElementById('logoutBtn'),
+      logoutBtn: document.getElementById('auth-logout-btn'),
       // 顶部登录按钮
-      loginHeaderBtn: document.getElementById('loginBtn2')
+      loginHeaderBtn: document.getElementById('auth-header-btn'),
+      // 本地配置相关
+      localApiKeyInput: document.getElementById('auth-local-api-key-input'),
+      localApiKeyConfirm: document.getElementById('auth-local-api-key-confirm'),
+      showApiKey: document.getElementById('auth-show-api-key'),
+      saveLocalApiKeyBtn: document.getElementById('auth-save-api-key-btn'),
+      localConfigMessage: document.getElementById('auth-local-message'),
+      deepseekLink: document.getElementById('auth-deepseek-link'),
+      // 模式切换拨杆
+      modeToggle: document.getElementById('mode-toggle')
+    }
+    
+    // 确认弹窗元素
+    confirmElements = {
+      modal: document.getElementById('confirm-mode-switch-modal'),
+      icon: document.getElementById('confirm-mode-switch-icon'),
+      title: document.getElementById('confirm-mode-switch-title'),
+      message: document.getElementById('confirm-mode-switch-message'),
+      cancelBtn: document.getElementById('confirm-mode-switch-cancel-btn'),
+      okBtn: document.getElementById('confirm-mode-switch-ok-btn')
     }
   }
 
@@ -73,7 +205,48 @@ const CloudAuth = (function() {
       elements.modalClose.addEventListener('click', hideModal)
     }
 
-    // Tab 切换
+    // 模式切换拨杆 - 监听 mousedown 事件在容器上
+    const toggleContainer = document.querySelector('.mode-toggle-container')
+    if (toggleContainer) {
+      toggleContainer.addEventListener('mousedown', function(e) {
+        // 只有点击拨杆本身才触发
+        const toggle = elements.modeToggle
+        if (!toggle) return
+        
+        // 检查是否点击的是拨杆区域（slider 或 checkbox）
+        const isToggleClick = e.target === toggle || 
+                              e.target.classList.contains('mode-toggle-slider') ||
+                              e.target.closest('.mode-toggle-switch')
+        
+        if (!isToggleClick) return
+        
+        // 阻止默认行为
+        e.preventDefault()
+        
+        // 计算目标模式
+        const targetMode = currentMode === 'cloud' ? 'local' : 'cloud'
+        
+        // 保存待切换的模式
+        pendingModeSwitch = targetMode
+        
+        // 显示确认弹窗
+        if (targetMode === 'local') {
+          showConfirmModal(
+            '⚙️',
+            '切换到本地配置模式',
+            '切换后云端登录凭据将被清除，需要重新输入 API Key。\n确定要切换吗？'
+          )
+        } else {
+          showConfirmModal(
+            '☁️',
+            '切换到云端登录模式',
+            '切换后本地保存的 API Key 将被删除。\n确定要切换吗？'
+          )
+        }
+      })
+    }
+
+    // Tab 切换（登录/注册）
     document.querySelectorAll('.login-tab').forEach(tab => {
       tab.addEventListener('click', () => {
         document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'))
@@ -81,7 +254,7 @@ const CloudAuth = (function() {
         
         const tabName = tab.dataset.tab
         document.querySelectorAll('.login-form').forEach(f => f.classList.remove('active'))
-        document.getElementById(tabName + 'FormPanel').classList.add('active')
+        document.getElementById('auth-' + tabName + '-form').classList.add('active')
         
         hideMessage()
       })
@@ -141,6 +314,236 @@ const CloudAuth = (function() {
           elements.autoLogin.checked = false
         }
       })
+    }
+
+    // 本地配置相关事件
+    if (elements.saveLocalApiKeyBtn) {
+      elements.saveLocalApiKeyBtn.addEventListener('click', handleSaveLocalApiKey)
+    }
+
+    if (elements.showApiKey) {
+      elements.showApiKey.addEventListener('change', () => {
+        const type = elements.showApiKey.checked ? 'text' : 'password'
+        if (elements.localApiKeyInput) elements.localApiKeyInput.type = type
+        if (elements.localApiKeyConfirm) elements.localApiKeyConfirm.type = type
+      })
+    }
+
+    // DeepSeek 链接
+    if (elements.deepseekLink) {
+      elements.deepseekLink.addEventListener('click', (e) => {
+        e.preventDefault()
+        if (window.electronAPI && window.electronAPI.openExternal) {
+          window.electronAPI.openExternal('https://platform.deepseek.com')
+        }
+      })
+    }
+
+    // 回车键保存本地配置
+    if (elements.localApiKeyConfirm) {
+      elements.localApiKeyConfirm.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') handleSaveLocalApiKey()
+      })
+    }
+
+    // 确认弹窗事件
+    if (confirmElements.cancelBtn) {
+      confirmElements.cancelBtn.addEventListener('click', hideConfirmModal)
+    }
+    if (confirmElements.okBtn) {
+      confirmElements.okBtn.addEventListener('click', confirmModeSwitch)
+    }
+    if (confirmElements.modal) {
+      confirmElements.modal.addEventListener('click', (e) => {
+        if (e.target === confirmElements.modal) {
+          hideConfirmModal()
+        }
+      })
+    }
+  }
+
+  /**
+   * 显示确认弹窗
+   */
+  function showConfirmModal(icon, title, message) {
+    if (confirmElements.icon) confirmElements.icon.textContent = icon
+    if (confirmElements.title) confirmElements.title.textContent = title
+    if (confirmElements.message) confirmElements.message.textContent = message
+    if (confirmElements.modal) {
+      confirmElements.modal.classList.add('show')
+    }
+  }
+
+  /**
+   * 隐藏确认弹窗
+   */
+  function hideConfirmModal() {
+    if (confirmElements.modal) {
+      confirmElements.modal.classList.remove('show')
+    }
+    pendingModeSwitch = null
+  }
+
+  /**
+   * 确认模式切换
+   */
+  function confirmModeSwitch() {
+    if (!pendingModeSwitch) return
+    
+    const newMode = pendingModeSwitch
+    
+    // 立即隐藏确认弹窗
+    hideConfirmModal()
+    
+    // 更新模式
+    currentMode = newMode
+    
+    // 更新拨杆状态
+    if (elements.modeToggle) {
+      elements.modeToggle.checked = (currentMode === 'local')
+    }
+    
+    // 更新标签高亮
+    const modeLabelCloud = document.getElementById('mode-label-cloud')
+    const modeLabelLocal = document.getElementById('mode-label-local')
+    if (modeLabelCloud) {
+      modeLabelCloud.classList.toggle('active', currentMode === 'cloud')
+    }
+    if (modeLabelLocal) {
+      modeLabelLocal.classList.toggle('active', currentMode === 'local')
+    }
+    
+    // 切换面板显示
+    const cloudPanel = document.getElementById('auth-cloud-panel')
+    const localPanel = document.getElementById('auth-local-panel')
+    const modalIcon = document.getElementById('auth-modal-icon')
+    const modalTitle = document.getElementById('auth-modal-title')
+    
+    if (currentMode === 'local') {
+      if (cloudPanel) cloudPanel.style.display = 'none'
+      if (localPanel) localPanel.style.display = 'block'
+      if (modalIcon) modalIcon.textContent = '⚙️'
+      if (modalTitle) modalTitle.textContent = '本地配置'
+    } else {
+      if (cloudPanel) cloudPanel.style.display = 'block'
+      if (localPanel) localPanel.style.display = 'none'
+      if (modalIcon) modalIcon.textContent = '☁️'
+      if (modalTitle) modalTitle.textContent = '云端登录'
+    }
+    
+    // 清空当前内存中的 API Key
+    currentDeepseekKey = null
+    
+    // 清空输入框
+    if (elements.localApiKeyInput) elements.localApiKeyInput.value = ''
+    if (elements.localApiKeyConfirm) elements.localApiKeyConfirm.value = ''
+    
+    // 重置云端登录表单
+    showAuthPanel()
+    if (elements.loginUsername) elements.loginUsername.value = ''
+    if (elements.loginPassword) elements.loginPassword.value = ''
+    if (elements.rememberPassword) elements.rememberPassword.checked = false
+    if (elements.autoLogin) elements.autoLogin.checked = false
+    
+    // 更新顶部按钮
+    if (elements.loginHeaderBtn) {
+      if (newMode === 'local') {
+        elements.loginHeaderBtn.textContent = '🔑'
+        elements.loginHeaderBtn.title = '本地配置模式'
+      } else {
+        elements.loginHeaderBtn.textContent = '☁️'
+        elements.loginHeaderBtn.title = '云端登录'
+      }
+    }
+    
+    // 异步执行清理和保存操作（不阻塞 UI）
+    if (window.electronAPI) {
+      window.electronAPI.setApiMode(newMode).catch(err => 
+        console.error('[CloudAuth] 保存模式失败:', err)
+      )
+      
+      if (newMode === 'local') {
+        window.electronAPI.clearCredentials().catch(err => 
+          console.error('[CloudAuth] 清除凭据失败:', err)
+        )
+        window.electronAPI.cloudLogout().catch(err => 
+          console.error('[CloudAuth] 退出登录失败:', err)
+        )
+      } else {
+        window.electronAPI.saveApiKey(null).catch(err => 
+          console.error('[CloudAuth] 清除 API Key 失败:', err)
+        )
+      }
+    }
+    
+    console.log('[CloudAuth] 已切换到', newMode, '模式')
+  }
+
+  /**
+   * 处理保存本地 API Key
+   */
+  async function handleSaveLocalApiKey() {
+    const apiKey = elements.localApiKeyInput?.value.trim()
+    const confirm = elements.localApiKeyConfirm?.value.trim()
+
+    if (!apiKey) {
+      showLocalMessage('请输入 API Key', 'error')
+      return
+    }
+
+    if (apiKey !== confirm) {
+      showLocalMessage('两次输入的 API Key 不一致', 'error')
+      return
+    }
+
+    if (!apiKey.startsWith('sk-')) {
+      showLocalMessage('API Key 格式不正确，应以 sk- 开头', 'error')
+      return
+    }
+
+    elements.saveLocalApiKeyBtn.disabled = true
+    elements.saveLocalApiKeyBtn.textContent = '保存中...'
+
+    try {
+      const success = await window.electronAPI.saveApiKey(apiKey)
+      
+      if (success) {
+        currentDeepseekKey = apiKey
+        showLocalMessage('配置成功！', 'success')
+        
+        // 隐藏弹窗
+        setTimeout(() => {
+          hideModal()
+        }, 500)
+        
+        // 调用回调
+        if (onLoginCallback) {
+          onLoginCallback(null, apiKey)
+        }
+        
+        // 更新顶部按钮
+        if (elements.loginHeaderBtn) {
+          elements.loginHeaderBtn.textContent = '🔑'
+          elements.loginHeaderBtn.title = '本地配置模式'
+        }
+      } else {
+        showLocalMessage('保存失败', 'error')
+      }
+    } catch (err) {
+      showLocalMessage('保存失败: ' + err.message, 'error')
+    } finally {
+      elements.saveLocalApiKeyBtn.disabled = false
+      elements.saveLocalApiKeyBtn.textContent = '保存配置'
+    }
+  }
+
+  /**
+   * 显示本地配置消息
+   */
+  function showLocalMessage(text, type) {
+    if (elements.localConfigMessage) {
+      elements.localConfigMessage.textContent = text
+      elements.localConfigMessage.className = 'login-message ' + type
     }
   }
 
@@ -343,7 +746,7 @@ const CloudAuth = (function() {
     
     let metaText = `ID: ${user.id}`
     if (user.admin) {
-      metaText += ' | 👑 Admin'
+      metaText += ' | Admin'
     }
     elements.userMetaText.textContent = metaText
 
@@ -536,6 +939,13 @@ const CloudAuth = (function() {
     return currentDeepseekKey !== null
   }
 
+  /**
+   * 获取当前模式
+   */
+  function getMode() {
+    return currentMode
+  }
+
   return {
     init,
     showModal,
@@ -543,7 +953,8 @@ const CloudAuth = (function() {
     onLogin,
     isLoggedIn,
     getApiKey,
-    hasApiKey
+    hasApiKey,
+    getMode
   }
 })()
 

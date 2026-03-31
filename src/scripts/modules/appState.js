@@ -92,13 +92,13 @@
     const disabled = state.focusModeEnabled
     
     // 计划模式的备注输入框
-    const planNoteTitleInput = document.getElementById('planNoteTitleInput')
-    const planNoteDetailInput = document.getElementById('planNoteDetailInput')
+    const planNoteTitleInput = document.getElementById('plan-note-title-input')
+    const planNoteDetailInput = document.getElementById('plan-note-detail-input')
     
     // 计时器上方的备注输入框
-    const timerNoteTitleInput = document.getElementById('timerNoteTitleInput')
-    const timerNoteInput = document.getElementById('timerNoteInput')
-    const timerNoteDisplay = document.getElementById('timerNoteDisplay')
+    const timerNoteTitleInput = document.getElementById('timer-note-title-input')
+    const timerNoteInput = document.getElementById('timer-note-input')
+    const timerNoteDisplay = document.getElementById('timer-note-display')
     
     if (planNoteTitleInput) {
       planNoteTitleInput.disabled = disabled
@@ -175,8 +175,8 @@
     }
     
     // 隐藏单次模式的备注
-    const timerNoteInput = document.getElementById('timerNoteInput')
-    const timerNoteDisplay = document.getElementById('timerNoteDisplay')
+    const timerNoteInput = document.getElementById('timer-note-input')
+    const timerNoteDisplay = document.getElementById('timer-note-display')
     if (timerNoteInput) timerNoteInput.style.display = 'none'
     if (timerNoteDisplay) timerNoteDisplay.style.display = 'none'
     
@@ -238,7 +238,7 @@
   }
 
   function updateContentVisibility(mode) {
-    const planNoteSection = document.getElementById('planNoteSection')
+    const planNoteSection = document.getElementById('plan-note-section')
     
     if (mode === 'single') {
       DOM.singleModeContent.style.display = 'block'

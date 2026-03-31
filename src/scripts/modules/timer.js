@@ -78,8 +78,8 @@
     elements.progressCircle.style.strokeDashoffset = circumference * (1 - progress)
     
     // 同步更新迷你模式显示
-    const miniTimeDisplay = document.getElementById('miniTimeDisplay')
-    const miniProgressCircle = document.getElementById('miniProgressCircle')
+    const miniTimeDisplay = document.getElementById('mini-time-display')
+    const miniProgressCircle = document.getElementById('mini-progress-circle')
     if (miniTimeDisplay && miniProgressCircle) {
       miniTimeDisplay.textContent = formatTime(timeLeft)
       miniProgressCircle.style.strokeDashoffset = miniCircumference * (1 - progress)
@@ -300,7 +300,7 @@
     elements.progressCircle.style.strokeDashoffset = 0
     
     // 初始化迷你模式的进度圆
-    const miniProgressCircle = document.getElementById('miniProgressCircle')
+    const miniProgressCircle = document.getElementById('mini-progress-circle')
     if (miniProgressCircle) {
       miniProgressCircle.style.strokeDasharray = miniCircumference
       miniProgressCircle.style.strokeDashoffset = 0

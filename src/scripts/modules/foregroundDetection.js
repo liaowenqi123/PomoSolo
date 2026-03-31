@@ -26,16 +26,16 @@
   async function init() {
     // 获取 DOM 元素
     elements = {
-      warningModal: document.getElementById('warningModal'),
-      warningWindowTitle: document.getElementById('warningWindowTitle'),
-      warningCount: document.getElementById('warningCount'),
-      btnNotEntertainment: document.getElementById('btnNotEntertainment'),
-      btnDismissWarning: document.getElementById('btnDismissWarning'),
+      warningModal: document.getElementById('focus-warning-modal'),
+      warningWindowTitle: document.getElementById('focus-warning-window-title'),
+      warningCount: document.getElementById('focus-warning-count'),
+      btnNotEntertainment: document.getElementById('focus-not-entertainment-btn'),
+      btnDismissWarning: document.getElementById('focus-dismiss-warning-btn'),
       // API Key 错误弹窗
-      apiKeyErrorModal: document.getElementById('apiKeyErrorModal'),
-      apiKeyErrorMessage: document.getElementById('apiKeyErrorMessage'),
-      apiKeyErrorPath: document.getElementById('apiKeyErrorPath'),
-      btnApiKeyErrorOk: document.getElementById('btnApiKeyErrorOk')
+      apiKeyErrorModal: document.getElementById('error-api-key-modal'),
+      apiKeyErrorMessage: document.getElementById('error-api-key-message'),
+      apiKeyErrorPath: document.getElementById('error-api-key-path'),
+      btnApiKeyErrorOk: document.getElementById('error-api-key-ok-btn')
     }
 
     // 绑定事件

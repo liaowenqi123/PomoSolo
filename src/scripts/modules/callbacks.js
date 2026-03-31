@@ -24,10 +24,10 @@
         
         // 单次模式下，自动确认备注输入
         if (AppState.appMode === 'single') {
-          const timerNoteInput = document.getElementById('timerNoteInput')
-          const timerNoteDisplay = document.getElementById('timerNoteDisplay')
-          const timerNoteTitleInput = document.getElementById('timerNoteTitleInput')
-          const timerNoteText = document.getElementById('timerNoteText')
+          const timerNoteInput = document.getElementById('timer-note-input')
+          const timerNoteDisplay = document.getElementById('timer-note-display')
+          const timerNoteTitleInput = document.getElementById('timer-note-title-input')
+          const timerNoteText = document.getElementById('timer-note-text')
           
           if (timerNoteInput && timerNoteInput.style.display !== 'none' && timerNoteTitleInput) {
             const title = timerNoteTitleInput.value.trim()
@@ -137,7 +137,7 @@
             window.electronAPI.showNotification('🍅 番茄钟完成', '恭喜！你完成了一个番茄时间，休息一下吧~')
             
             // 获取当前备注
-            const timerNoteText = document.getElementById('timerNoteText')
+            const timerNoteText = document.getElementById('timer-note-text')
             const currentNote = timerNoteText && timerNoteText.textContent ? timerNoteText.textContent.trim() : ''
             
             Stats.increment(Math.round(Timer.getTotalTime() / 60), currentNote)

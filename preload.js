@@ -6,6 +6,9 @@ const { contextBridge, ipcRenderer } = require('electron')
 
   // 通过 contextBridge 安全地暴露 API 给渲染进程
   contextBridge.exposeInMainWorld('electronAPI', {
+  // 打开外部链接
+  openExternal: (url) => ipcRenderer.send('open-external', url),
+  
   // 关闭窗口
   closeWindow: () => ipcRenderer.send('close-window'),
   
@@ -23,13 +26,19 @@ const { contextBridge, ipcRenderer } = require('electron')
   // 写入数据
   writeData: (data) => ipcRenderer.invoke('write-data', data),
 
-  // ============ API Key 管理 API（保留兼容） ============
-  
+  // ============ API Key 管理 API ============
+
   // 获取API Key
   getApiKey: () => ipcRenderer.invoke('get-api-key'),
-  
+
   // 保存API Key
   saveApiKey: (apiKey) => ipcRenderer.invoke('save-api-key', apiKey),
+
+  // 获取 API 模式 ('cloud' | 'local')
+  getApiMode: () => ipcRenderer.invoke('get-api-mode'),
+
+  // 设置 API 模式
+  setApiMode: (mode) => ipcRenderer.invoke('set-api-mode', mode),
 
   // ============ 云端登录 API ============
   

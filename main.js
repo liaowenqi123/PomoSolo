@@ -2,7 +2,7 @@
  * 番茄钟 - 主进程
  */
 
-const { app, BrowserWindow, ipcMain, Notification, Tray, nativeImage, Menu } = require('electron')
+const { app, BrowserWindow, ipcMain, Notification, Tray, nativeImage, Menu, shell } = require('electron')
 const path = require('path')
 const musicProcess = require('./src/modules/musicProcess')
 const aiAssistant = require('./src/modules/aiAssistant')
@@ -224,6 +224,10 @@ function createGardenWindow() {
 
 // ============ 基础窗口操作 IPC 处理 ============
 
+ipcMain.on('open-external', (event, url) => {
+  shell.openExternal(url)
+})
+
 ipcMain.on('close-window', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender)
   if (win) {
@@ -335,10 +339,6 @@ ipcMain.handle('cloud-logout', async () => {
 // ============ API Key 管理 IPC 处理（保留兼容） ============
 
 ipcMain.handle('get-api-key', () => {
-  const session = cloudAuth.getSession()
-  if (session && session.admin) {
-    return null // admin 用户需要从云端获取
-  }
   const data = dataManager.readData()
   return data.apiKey || null
 })
@@ -351,6 +351,29 @@ ipcMain.handle('save-api-key', (event, apiKey) => {
   if (success) {
     aiAssistant.setApiKey(apiKey)
     foregroundInspection.setApiKey(apiKey)
+  }
+  
+  return success
+})
+
+ipcMain.handle('get-api-mode', () => {
+  const data = dataManager.readData()
+  return data.apiMode || 'cloud'
+})
+
+ipcMain.handle('set-api-mode', (event, mode) => {
+  const data = dataManager.readData()
+  data.apiMode = mode
+  const success = dataManager.writeData(data)
+  
+  // 如果切换到云端模式且没有登录，清除本地 API Key 的效果
+  if (success && mode === 'cloud') {
+    // 清除 AI 助手和前台检测的 API Key（需要重新登录获取）
+    const session = cloudAuth.getSession()
+    if (!session || !session.admin) {
+      aiAssistant.setApiKey(null)
+      foregroundInspection.setApiKey(null)
+    }
   }
   
   return success

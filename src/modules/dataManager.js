@@ -39,7 +39,8 @@ function ensureDataDir() {
  */
 function createDefaultData() {
   return {
-    apiKey: null, // DeepSeek API Key（已废弃，保留兼容）
+    apiKey: null, // DeepSeek API Key（本地配置模式时使用）
+    apiMode: 'cloud', // 'cloud' 云端登录模式 | 'local' 本地配置模式
     stats: {
       date: new Date().toDateString(),
       todayCount: 0,

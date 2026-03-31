@@ -16,22 +16,22 @@
   <link rel="stylesheet" href="styles/statistics.css">
 </head>
     <!-- 备注查看模态框 -->
-    <div class="note-modal" id="noteViewModal">
+    <div class="note-modal" id="note-view-modal">
       <div class="note-modal-content">
         <h3>备注详情</h3>
         <div class="note-view">
-          <div class="note-view-title" id="viewNoteTitle"></div>
-          <div class="note-view-detail" id="viewNoteDetail"></div>
+          <div class="note-view-title" id="note-view-title"></div>
+          <div class="note-view-detail" id="note-view-detail"></div>
         </div>
         <div class="note-modal-buttons">
-          <button class="btn-note-close" id="noteViewCloseBtn">关闭</button>
+          <button class="btn-note-close" id="note-view-close-btn">关闭</button>
         </div>
       </div>
     </div>
 <body>
   <div class="window-frame">
     <!-- 迷你模式容器 -->
-    <div class="mini-mode" id="miniMode" style="display: none;">
+    <div class="mini-mode" id="mini-mode" style="display: none;">
       <div class="mini-draggable"></div>
       <!-- 番茄叶子装饰 -->
       <div class="mini-leaves">
@@ -44,10 +44,10 @@
         <div class="mini-timer-container">
           <svg class="mini-progress-ring" viewBox="0 0 130 130">
             <circle class="bg" cx="65" cy="65" r="62"></circle>
-            <circle class="progress" cx="65" cy="65" r="62" id="miniProgressCircle"></circle>
+            <circle class="progress" cx="65" cy="65" r="62" id="mini-progress-circle"></circle>
           </svg>
           <div class="mini-timer-inner">
-            <div class="mini-time-display" id="miniTimeDisplay">25:00</div>
+            <div class="mini-time-display" id="mini-time-display">25:00</div>
           </div>
         </div>
         <!-- 种子装饰 -->
@@ -59,14 +59,14 @@
           <span class="mini-seed" style="top: 75%; left: 40%;"></span>
         </div>
       </div>
-      <button class="btn-expand-mini" id="expandMiniBtn" title="展开">⬆</button>
+      <button class="btn-expand-mini" id="mini-expand-btn" title="展开">⬆</button>
     </div>
     
     <div class="container">
       <div class="draggable"></div>
       <button class="btn-close">×</button>
       <button class="btn-minimize">−</button>
-      <button class="btn-pin" id="btnPin" title="始终置顶">📍</button>
+      <button class="btn-pin" id="focus-pin-btn" title="始终置顶">📍</button>
       
       <!-- 模式切换滑块 -->
       <div class="mode-slider-container">
@@ -82,21 +82,21 @@
       <!-- 左侧边栏 -->
       <div class="sidebar">
         <!-- 单次模式：时间预设 -->
-        <div class="single-mode-content" id="singleModeContent">
+        <div class="single-mode-content" id="ui-single-mode-content">
           <h2 class="sidebar-title">时间预设</h2>
           
           <!-- 预设列表 -->
-          <div class="preset-list scrollable" id="presetList">
+          <div class="preset-list scrollable" id="preset-list">
             <!-- 由 JS 动态生成 -->
           </div>
         </div>
         
         <!-- 计划模式：任务列表 -->
-        <div class="plan-mode-content" id="planModeContent" style="display: none;">
+        <div class="plan-mode-content" id="plan-mode-content" style="display: none;">
           <h2 class="sidebar-title">番茄计划</h2>
           
           <!-- 计划列表 -->
-          <div class="plan-list scrollable" id="planList">
+          <div class="plan-list scrollable" id="plan-list">
             <!-- 由 JS 动态生成 -->
           </div>
         </div>
@@ -104,69 +104,69 @@
         <!-- 添加预设/计划 -->
         <div class="add-preset-section">
           <div class="wheel-picker-container">
-            <div class="wheel-picker" id="wheelPicker">
-              <div class="wheel-picker-column" id="wheelColumn"></div>
+            <div class="wheel-picker" id="ui-wheel-picker">
+              <div class="wheel-picker-column" id="ui-wheel-column"></div>
             </div>
             <span>分钟</span>
             <!-- 单次模式：一个加号 -->
-            <button class="btn-add-preset" id="addPresetBtn">+</button>
+            <button class="btn-add-preset" id="preset-add-btn">+</button>
           </div>
           <!-- 计划模式：两个加号在下方 -->
-          <div class="plan-add-buttons" id="planAddButtons" style="display: none;">
-            <button class="btn-add-plan btn-add-work" id="addWorkBtn" title="添加工作时间">+ 工作</button>
-            <button class="btn-add-plan btn-add-break" id="addBreakBtn" title="添加休息时间">+ 休息</button>
+          <div class="plan-add-buttons" id="plan-add-buttons" style="display: none;">
+            <button class="btn-add-plan btn-add-work" id="plan-add-work-btn" title="添加工作时间">+ 工作</button>
+            <button class="btn-add-plan btn-add-break" id="plan-add-break-btn" title="添加休息时间">+ 休息</button>
           </div>
           
           <!-- 计划模式备注输入区域 -->
-          <div class="plan-note-section" id="planNoteSection" style="display: none;">
-            <div class="plan-note-collapse-btn" id="planNoteCollapseBtn" title="收起">
+          <div class="plan-note-section" id="plan-note-section" style="display: none;">
+            <div class="plan-note-collapse-btn" id="plan-note-collapse-btn" title="收起">
               <span class="plan-note-collapse-icon">▲</span>
             </div>
-            <div class="plan-note-wrapper" id="planNoteWrapper">
+            <div class="plan-note-wrapper" id="plan-note-wrapper">
               <div class="plan-note-content">
                 <div class="note-input-header">📝 备注（可选）</div>
-                <input type="text" class="note-title-input" id="planNoteTitleInput" placeholder="标题" maxlength="50">
-                <textarea class="note-detail-input" id="planNoteDetailInput" placeholder="详细内容" rows="2"></textarea>
+                <input type="text" class="note-title-input" id="plan-note-title-input" placeholder="标题" maxlength="50">
+                <textarea class="note-detail-input" id="plan-note-detail-input" placeholder="详细内容" rows="2"></textarea>
               </div>
             </div>
           </div>
           
           <!-- 提示信息 -->
-          <div class="toast-notification" id="toastNotification"></div>
+          <div class="toast-notification" id="ui-toast"></div>
         </div>
 
         <!-- 统计信息 -->
         <div class="sidebar-stats">
           <div class="stat-item">
             <span class="stat-label">今日完成</span>
-            <span class="stat-value" id="todayCount">0</span>
+            <span class="stat-value" id="timer-today-count">0</span>
             <span class="stat-unit">个</span>
           </div>
           <div class="stat-item">
             <span class="stat-label">累计专注</span>
-            <span class="stat-value" id="totalMinutes">0</span>
+            <span class="stat-value" id="timer-total-minutes">0</span>
             <span class="stat-unit">分钟</span>
           </div>
         </div>
       </div>
       
       <!-- 侧边栏收起按钮 -->
-      <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" title="收起侧边栏">
+      <button class="sidebar-collapse-btn" id="ui-sidebar-collapse-btn" title="收起侧边栏">
         <span class="sidebar-collapse-icon">◀</span>
       </button>
       
       <!-- 右侧主区域 -->
       <div class="main-content">
-        <div class="header-buttons" id="headerButtons">
-          <button class="btn-header" id="tutorialBtn" title="教程">📖</button>
-          <div class="header-buttons-hidden" id="hiddenButtons">
-            <button class="btn-header" id="themeToggleBtn" title="切换深色模式">🌙</button>
-            <button class="btn-header" id="statsBtn" title="数据统计">📈</button>
-            <button class="btn-header" id="aiBtn" title="AI规划助手">🤖</button>
-            <button class="btn-header" id="gardenBtn" title="菜园子">🌱</button>
-            <button class="btn-header" id="loginBtn2" title="云端登录">☁️</button>
+        <div class="header-buttons" id="ui-header-buttons">
+          <button class="btn-header" id="ui-tutorial-btn" title="教程">📖</button>
+          <div class="header-buttons-hidden" id="ui-hidden-buttons">
+            <button class="btn-header" id="ui-theme-toggle-btn" title="切换深色模式">🌙</button>
+            <button class="btn-header" id="stats-btn" title="数据统计">📈</button>
+            <button class="btn-header" id="ai-btn" title="AI规划助手">🤖</button>
+            <button class="btn-header" id="ui-garden-btn" title="菜园子">🌱</button>
+            <button class="btn-header" id="auth-header-btn" title="云端登录">☁️</button>
           </div>
-          <button class="btn-header btn-expand" id="expandBtn" title="展开"></button>
+          <button class="btn-header btn-expand" id="music-expand-btn" title="展开"></button>
         </div>
         <div class="timer-section">
           <h1 class="title">🍅 番茄钟</h1>
@@ -184,81 +184,81 @@
           
           <div class="timer-container">
             <!-- 备注输入区域（在计时器圆圈上方） -->
-            <div class="timer-note-input" id="timerNoteInput" style="display: none;">
-              <input type="text" class="timer-note-title" id="timerNoteTitleInput" placeholder="备注..." maxlength="10">
-              <button class="timer-note-confirm" id="timerNoteConfirm">✓</button>
+            <div class="timer-note-input" id="timer-note-input" style="display: none;">
+              <input type="text" class="timer-note-title" id="timer-note-title-input" placeholder="备注..." maxlength="10">
+              <button class="timer-note-confirm" id="timer-note-confirm">✓</button>
             </div>
             
             <!-- 备注显示区域（默认显示笔emoji） -->
-            <div class="timer-note-display" id="timerNoteDisplay">
-              <span class="timer-note-text" id="timerNoteText"></span>
-              <button class="timer-note-edit-btn" id="timerNoteEditBtn">✏️</button>
+            <div class="timer-note-display" id="timer-note-display">
+              <span class="timer-note-text" id="timer-note-text"></span>
+              <button class="timer-note-edit-btn" id="timer-note-edit-btn">✏️</button>
             </div>
             
             <svg class="progress-ring" viewBox="0 0 240 240">
               <circle class="bg" cx="120" cy="120" r="116"></circle>
-              <circle class="progress" cx="120" cy="120" r="116" id="progressCircle"></circle>
+              <circle class="progress" cx="120" cy="120" r="116" id="timer-progress-circle"></circle>
             </svg>
             <div class="timer-inner">
-              <div class="time-display" id="timeDisplay">25:00</div>
+              <div class="time-display" id="timer-display">25:00</div>
             </div>
           </div>
           
           <!-- 专注模式开关 -->
           <div class="focus-mode-container">
             <span class="focus-mode-label">专注模式</span>
-            <div class="focus-mode-switch" id="focusModeSwitch">
+            <div class="focus-mode-switch" id="focus-mode-switch">
               <div class="focus-mode-slider"></div>
             </div>
-            <span class="focus-mode-status" id="focusModeStatus">关闭</span>
+            <span class="focus-mode-status" id="focus-mode-status">关闭</span>
           </div>
           
           <div class="buttons">
-            <button class="btn btn-start" id="startBtn">开始</button>
+            <button class="btn btn-start" id="timer-start-btn">开始</button>
             <button class="btn btn-reset">重置</button>
           </div>
           
-          <p class="status" id="status">准备开始专注工作</p>
+          <p class="status" id="timer-status">准备开始专注工作</p>
         </div>
 
         <!-- 音乐播放器 -->
-        <div class="music-player" id="musicPlayer">
-          <div class="music-collapse-btn" id="musicCollapseBtn" title="收起">
+        <div class="music-player" id="music-player">
+          <div class="music-collapse-btn" id="music-collapse-btn" title="收起">
             <span class="music-collapse-icon">▼</span>
           </div>
-          <div class="music-collapsed-track" id="musicCollapsedTrack">未播放</div>
-          <div class="music-visualizer" id="musicVisualizer">
+          <div class="music-collapsed-track" id="music-collapsed-track">未播放</div>
+          <div class="music-visualizer" id="music-visualizer">
             <span class="visualizer-bar"></span>
             <span class="visualizer-bar"></span>
             <span class="visualizer-bar"></span>
             <span class="visualizer-bar"></span>
           </div>
           <div class="music-wrapper">
-            <div class="music-content" id="musicContent">
+            <div class="music-content" id="music-content">
             <div class="music-info">
             <span class="music-icon">🎵</span>
-            <span class="music-track-name" id="trackName">未播放</span>
+            <span class="music-track-name" id="music-track-name">未播放</span>
             <div class="volume-control">
-              <button class="music-device-btn" id="volumeBtn" title="音量">🔊</button>
-              <div class="music-volume-slider" id="volumeSlider">
-                <input type="range" id="volumeRange" min="0" max="100" value="100" class="volume-range">
+              <button class="music-device-btn" id="music-volume-btn" title="音量">🔊</button>
+              <div class="music-volume-slider" id="music-volume-slider">
+                <input type="range" id="music-volume-range" min="0" max="100" value="100" class="volume-range">
               </div>
             </div>
-            <button class="music-device-btn" id="deviceBtn" title="选择输出设备">🎧</button>
-            <div class="music-device-list" id="deviceList"></div>
+            <button class="music-device-btn" id="music-device-btn" title="选择输出设备">🎧</button>
+            <div class="music-device-list" id="music-device-list"></div>
           </div>
           <div class="music-progress-container">
-            <span class="music-time" id="currentTime">0:00</span>
-            <div class="music-progress-bar" id="progressBar">
-              <div class="music-progress-fill" id="progressFill"></div>
-              <div class="music-progress-handle" id="progressHandle"></div>
+            <span class="music-time" id="music-current-time">0:00</span>
+            <div class="music-progress-bar" id="music-progress-bar">
+              <div class="music-progress-fill" id="music-progress-fill"></div>
+              <div class="music-progress-handle" id="music-progress-handle"></div>
             </div>
-            <span class="music-time" id="duration">0:00</span>
+            <span class="music-time" id="music-duration">0:00</span>
           </div>
           <div class="music-controls">
-            <button class="music-btn music-prev" id="prevBtn">⏮</button>
-            <button class="music-btn music-play" id="playBtn" data-playing="false">▶</button>
-            <button class="music-btn music-next" id="nextBtn">⏭</button>
+            <button class="music-btn music-prev" id="music-prev-btn">⏮</button>
+            <button class="music-btn music-play" id="music-play-btn" data-playing="false">▶</button>
+            <button class="music-btn music-next" id="music-next-btn">⏭</button>
           </div>
           </div>
           </div>
@@ -267,9 +267,9 @@
     </div>
     
     <!-- 教程弹窗 -->
-    <div class="tutorial-modal" id="tutorialModal">
+    <div class="tutorial-modal" id="tutorial-modal">
       <div class="tutorial-content">
-        <button class="tutorial-close" id="tutorialClose">×</button>
+        <button class="tutorial-close" id="tutorial-close">×</button>
         <h2>📖 使用说明</h2>
         
         <!-- 分页标签 -->
@@ -391,35 +391,35 @@
     </div>
 
     <!-- AI助手弹窗 -->
-    <div class="ai-modal" id="aiModal">
+    <div class="ai-modal" id="ai-modal">
       <div class="ai-modal-content">
-        <button class="ai-modal-close" id="aiModalClose">×</button>
+        <button class="ai-modal-close" id="ai-modal-close">×</button>
         <h2>🤖 AI规划助手</h2>
         
         <div class="ai-input-section">
           <label class="ai-input-label">告诉AI您的工作或学习需求：</label>
           <textarea 
             class="ai-input" 
-            id="aiInput" 
+            id="ai-input" 
             placeholder="例如：我要准备考试，需要学习3小时，每学习45分钟休息10分钟"
           ></textarea>
           <div class="ai-input-hint">💡 提示：描述您的任务内容、时长需求，AI会为您规划合理的番茄钟计划</div>
         </div>
         
-        <button class="ai-generate-btn" id="aiGenerateBtn">✨ 生成计划</button>
+        <button class="ai-generate-btn" id="ai-generate-btn">✨ 生成计划</button>
         
-        <div class="ai-result-section" id="aiResult">
+        <div class="ai-result-section" id="ai-result">
           <!-- AI生成的结果将显示在这里 -->
         </div>
         
-        <button class="ai-apply-btn" id="aiApplyBtn">✅ 应用计划</button>
+        <button class="ai-apply-btn" id="ai-apply-btn">✅ 应用计划</button>
       </div>
     </div>
 
     <!-- 统计弹窗 -->
-    <div class="statistics-modal" id="statsModal">
+    <div class="statistics-modal" id="stats-modal">
       <div class="statistics-modal-content">
-        <button class="statistics-modal-close" id="statsModalClose">×</button>
+        <button class="statistics-modal-close" id="stats-modal-close">×</button>
         <h2>📊 数据统计</h2>
         
         <!-- 时间范围选择 -->
@@ -432,15 +432,15 @@
         <!-- 统计概览 -->
         <div class="stats-overview">
           <div class="stats-card">
-            <div class="stats-card-value" id="statsTotalSessions">0</div>
+            <div class="stats-card-value" id="stats-total-sessions">0</div>
             <div class="stats-card-label">专注次数</div>
           </div>
           <div class="stats-card">
-            <div class="stats-card-value" id="statsTotalMinutes">0</div>
+            <div class="stats-card-value" id="stats-total-minutes">0</div>
             <div class="stats-card-label">专注时长（分钟）</div>
           </div>
           <div class="stats-card">
-            <div class="stats-card-value" id="statsAvgMinutes">0</div>
+            <div class="stats-card-value" id="stats-avg-minutes">0</div>
             <div class="stats-card-label">平均时长（分钟）</div>
           </div>
         </div>
@@ -453,8 +453,8 @@
         </div>
         
         <!-- 图表容器 -->
-        <div class="stats-chart-container" id="statsChartContainer">
-          <canvas id="statsChart"></canvas>
+        <div class="stats-chart-container" id="stats-chart-container">
+          <canvas id="stats-chart"></canvas>
         </div>
         
         <!-- 详细数据表格 -->
@@ -468,7 +468,7 @@
                 <th>平均（分钟）</th>
               </tr>
             </thead>
-            <tbody id="statsTableBody">
+            <tbody id="stats-table-body">
               <!-- 动态生成 -->
             </tbody>
           </table>
@@ -477,120 +477,170 @@
     </div>
 
     <!-- 前台检测警告弹窗 -->
-    <div class="warning-modal" id="warningModal">
+    <div class="warning-modal" id="focus-warning-modal">
       <div class="warning-modal-content">
         <div class="warning-icon">⚠️</div>
         <h3 class="warning-title">检测到娱乐前台</h3>
-        <p class="warning-window-title" id="warningWindowTitle"></p>
-        <p class="warning-count" id="warningCount">警告次数：1/3</p>
+        <p class="warning-window-title" id="focus-warning-window-title"></p>
+        <p class="warning-count" id="focus-warning-count">警告次数：1/3</p>
         <div class="warning-buttons">
-          <button class="warning-btn warning-btn-whitelist" id="btnNotEntertainment">不是娱乐</button>
-          <button class="warning-btn warning-btn-dismiss" id="btnDismissWarning">知道了</button>
+          <button class="warning-btn warning-btn-whitelist" id="focus-not-entertainment-btn">不是娱乐</button>
+          <button class="warning-btn warning-btn-dismiss" id="focus-dismiss-warning-btn">知道了</button>
         </div>
       </div>
     </div>
 
     <!-- API Key 错误弹窗 -->
-    <div class="api-key-error-modal" id="apiKeyErrorModal">
+    <div class="api-key-error-modal" id="error-api-key-modal">
       <div class="api-key-error-content">
         <div class="api-key-error-header">
           <span class="api-key-error-icon">🔑</span>
           <h3>前台检测 API Key 配置错误</h3>
         </div>
         <div class="api-key-error-body">
-          <p class="api-key-error-message" id="apiKeyErrorMessage">API key 未配置或无效</p>
-          <p class="api-key-error-path" id="apiKeyErrorPath"></p>
+          <p class="api-key-error-message" id="error-api-key-message">API key 未配置或无效</p>
+          <p class="api-key-error-path" id="error-api-key-path"></p>
           <p class="api-key-error-hint">请手动配置 API key，等待后续优化支持界面配置</p>
         </div>
         <div class="api-key-error-buttons">
-          <button class="btn-api-key-error" id="btnApiKeyErrorOk">知道了</button>
+          <button class="btn-api-key-error" id="error-api-key-ok-btn">知道了</button>
         </div>
       </div>
     </div>
 
     <!-- 自定义确认弹窗 -->
-    <div class="confirm-modal" id="confirmModal">
+    <div class="confirm-modal" id="confirm-interrupt-modal">
       <div class="confirm-content">
         <div class="confirm-icon">⚠️</div>
         <div class="confirm-title">确认中断</div>
         <div class="confirm-message">确定要中断专注吗？所有正在生长的作物将会枯萎！</div>
         <div class="confirm-buttons">
-          <button class="confirm-btn confirm-btn-cancel" id="confirmCancelBtn">取消</button>
-          <button class="confirm-btn confirm-btn-confirm" id="confirmOkBtn">确认</button>
+          <button class="confirm-btn confirm-btn-cancel" id="confirm-interrupt-cancel-btn">取消</button>
+          <button class="confirm-btn confirm-btn-confirm" id="confirm-interrupt-ok-btn">确认</button>
         </div>
       </div>
     </div>
 
-    <!-- 云端登录弹窗 -->
-    <div class="api-key-modal" id="loginModal">
+    <!-- API 配置弹窗 -->
+    <div class="api-key-modal" id="auth-modal">
       <div class="api-key-modal-content">
-        <button class="ai-modal-close" id="loginModalClose" style="position:absolute;top:12px;right:12px;font-size:20px;cursor:pointer;background:none;border:none;color:#999;">×</button>
+        <button class="ai-modal-close" id="auth-modal-close" style="position:absolute;top:12px;right:12px;font-size:20px;cursor:pointer;background:none;border:none;color:#999;">×</button>
         <div class="api-key-modal-header">
-          <span class="api-key-modal-icon">☁️</span>
-          <h2>云端登录</h2>
+          <span class="api-key-modal-icon" id="auth-modal-icon">🔑</span>
+          <h2 id="auth-modal-title">API 配置</h2>
         </div>
-        
-        <!-- 未登录状态 -->
-        <div id="authPanel">
-          <div class="login-tabs">
-            <div class="login-tab active" data-tab="login">登录</div>
-            <div class="login-tab" data-tab="register">注册</div>
-          </div>
-          
-          <!-- 登录表单 -->
-          <div class="login-form active" id="loginFormPanel">
-            <div class="api-key-input-group">
-              <label class="api-key-label">用户名</label>
-              <input type="text" class="api-key-input" id="loginUsername" placeholder="请输入用户名">
-            </div>
-            <div class="api-key-input-group">
-              <label class="api-key-label">密码</label>
-              <input type="password" class="api-key-input" id="loginPassword" placeholder="请输入密码">
-            </div>
-            <div class="login-options">
-              <label class="login-checkbox">
-                <input type="checkbox" id="rememberPassword">
-                <span>记住密码</span>
-              </label>
-              <label class="login-checkbox">
-                <input type="checkbox" id="autoLogin">
-                <span>自动登录</span>
-              </label>
-            </div>
-            <button class="api-key-btn api-key-btn-save login-btn" id="loginBtn">登录</button>
-          </div>
-          
-          <!-- 注册表单 -->
-          <div class="login-form" id="registerFormPanel">
-            <div class="api-key-input-group">
-              <label class="api-key-label">用户名</label>
-              <input type="text" class="api-key-input" id="registerUsername" placeholder="至少2个字符">
-            </div>
-            <div class="api-key-input-group">
-              <label class="api-key-label">密码</label>
-              <input type="password" class="api-key-input" id="registerPassword" placeholder="至少6位">
-            </div>
-            <button class="api-key-btn api-key-btn-save login-btn" id="registerBtn">注册</button>
-          </div>
-          
-          <div id="authMessage" class="login-message"></div>
+
+        <!-- 模式切换拨杆 -->
+        <div class="mode-toggle-container">
+          <span class="api-mode-label" id="mode-label-cloud">☁️ 云端登录</span>
+          <label class="mode-toggle-switch">
+            <input type="checkbox" id="mode-toggle">
+            <span class="mode-toggle-slider"></span>
+          </label>
+          <span class="api-mode-label" id="mode-label-local">⚙️ 本地配置</span>
         </div>
-        
-        <!-- 已登录状态 -->
-        <div id="loggedInPanel" style="display: none;">
-          <div class="user-info-card">
-            <div class="user-info-header">
-              <span class="user-avatar">👤</span>
-              <div class="user-info-text">
-                <div class="user-info-name" id="welcomeText">欢迎!</div>
-                <div class="user-info-meta" id="userMetaText"></div>
+
+        <!-- 云端登录面板 -->
+        <div id="auth-cloud-panel">
+          <!-- 未登录状态 -->
+          <div id="authPanel">
+            <div class="login-tabs">
+              <div class="login-tab active" data-tab="login">登录</div>
+              <div class="login-tab" data-tab="register">注册</div>
+            </div>
+
+            <!-- 登录表单 -->
+            <div class="login-form active" id="auth-login-form">
+              <div class="api-key-input-group">
+                <label class="api-key-label">用户名</label>
+                <input type="text" class="api-key-input" id="auth-username" placeholder="请输入用户名">
+              </div>
+              <div class="api-key-input-group">
+                <label class="api-key-label">密码</label>
+                <input type="password" class="api-key-input" id="auth-password" placeholder="请输入密码">
+              </div>
+              <div class="login-options">
+                <label class="login-checkbox">
+                  <input type="checkbox" id="auth-remember-password">
+                  <span>记住密码</span>
+                </label>
+                <label class="login-checkbox">
+                  <input type="checkbox" id="auth-auto-login">
+                  <span>自动登录</span>
+                </label>
+              </div>
+              <button class="api-key-btn api-key-btn-save login-btn" id="auth-login-btn">登录</button>
+            </div>
+
+            <!-- 注册表单 -->
+            <div class="login-form" id="auth-register-form">
+              <div class="api-key-input-group">
+                <label class="api-key-label">用户名</label>
+                <input type="text" class="api-key-input" id="auth-register-username" placeholder="至少2个字符">
+              </div>
+              <div class="api-key-input-group">
+                <label class="api-key-label">密码</label>
+                <input type="password" class="api-key-input" id="auth-register-password" placeholder="至少6位">
+              </div>
+              <button class="api-key-btn api-key-btn-save login-btn" id="auth-register-btn">注册</button>
+            </div>
+
+            <div id="authMessage" class="login-message"></div>
+          </div>
+
+          <!-- 已登录状态 -->
+          <div id="auth-logged-in-panel" style="display: none;">
+            <div class="user-info-card">
+              <div class="user-info-header">
+                <span class="user-avatar">👤</span>
+                <div class="user-info-text">
+                  <div class="user-info-name" id="auth-welcome-text">欢迎!</div>
+                  <div class="user-info-meta" id="auth-user-meta"></div>
+                </div>
               </div>
             </div>
+            <button class="api-key-btn api-key-btn-cancel logout-btn" id="auth-logout-btn">退出登录</button>
           </div>
-          <button class="api-key-btn api-key-btn-cancel logout-btn" id="logoutBtn">退出登录</button>
+
+          <div id="auth-connection-status" class="connection-status">● 正在连接...</div>
         </div>
-        
-        <div id="connectionStatus" class="connection-status">● 正在连接...</div>
+
+        <!-- 本地配置面板 -->
+        <div id="auth-local-panel" style="display: none;">
+          <div class="local-config-info">
+            <p>手动配置 DeepSeek API Key，将保存到本地。</p>
+            <p class="local-config-hint">获取 API Key: <a href="#" id="auth-deepseek-link">https://platform.deepseek.com</a></p>
+          </div>
+          <div class="api-key-input-group">
+            <label class="api-key-label">DeepSeek API Key</label>
+            <input type="password" class="api-key-input" id="auth-local-api-key-input" placeholder="sk-...">
+          </div>
+          <div class="api-key-input-group">
+            <label class="api-key-label">确认 API Key</label>
+            <input type="password" class="api-key-input" id="auth-local-api-key-confirm" placeholder="再次输入 API Key">
+          </div>
+          <div class="login-options">
+            <label class="login-checkbox">
+              <input type="checkbox" id="auth-show-api-key">
+              <span>显示 API Key</span>
+            </label>
+          </div>
+          <button class="api-key-btn api-key-btn-save login-btn" id="auth-save-api-key-btn">保存配置</button>
+          <div id="auth-local-message" class="login-message"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 模式切换确认弹窗 -->
+    <div class="confirm-modal" id="confirm-mode-switch-modal">
+      <div class="confirm-modal-content">
+        <div class="confirm-modal-icon" id="confirm-mode-switch-icon">⚠️</div>
+        <h3 class="confirm-modal-title" id="confirm-mode-switch-title">切换模式</h3>
+        <p class="confirm-modal-message" id="confirm-mode-switch-message">切换到本地配置模式将清除云端登录信息，确定要切换吗？</p>
+        <div class="confirm-modal-buttons">
+          <button class="confirm-btn confirm-btn-cancel" id="confirm-mode-switch-cancel-btn">取消</button>
+          <button class="confirm-btn confirm-btn-confirm" id="confirm-mode-switch-ok-btn">确定切换</button>
+        </div>
       </div>
     </div>
   </div>

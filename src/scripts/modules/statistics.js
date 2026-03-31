@@ -471,8 +471,8 @@ const Statistics = (function() {
    */
   function hideEmptyState() {
     if (elements.statsChartContainer) {
-      elements.statsChartContainer.innerHTML = '<canvas id="statsChart"></canvas>'
-      elements.statsChart = document.getElementById('statsChart')
+      elements.statsChartContainer.innerHTML = '<canvas id="stats-chart"></canvas>'
+      elements.statsChart = document.getElementById('stats-chart')
     }
   }
 

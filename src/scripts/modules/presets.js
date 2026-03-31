@@ -76,9 +76,9 @@
   // 编辑预设的备注
   function editNoteForPreset(index, currentNote) {
     // 填充当前备注到弹窗
-    const modal = document.getElementById('noteViewModal')
+    const modal = document.getElementById('note-view-modal')
     const contentDiv = modal.querySelector('.note-view')
-    const closeBtn = document.getElementById('noteViewCloseBtn')
+    const closeBtn = document.getElementById('note-view-close-btn')
     
     // 改为可编辑的输入框
     contentDiv.innerHTML = `
@@ -188,16 +188,16 @@
   // 显示备注详情（只读）
   function showNoteDetail(note) {
     if (!note || (!note.title && !note.detail)) return
-    const titleEl = document.getElementById('viewNoteTitle')
-    const detailEl = document.getElementById('viewNoteDetail')
+    const titleEl = document.getElementById('note-view-title')
+    const detailEl = document.getElementById('note-view-detail')
     
     titleEl.textContent = note.title || '（无标题）'
     detailEl.textContent = note.detail || '（无详细备注）'
     
-    const modal = document.getElementById('noteViewModal')
+    const modal = document.getElementById('note-view-modal')
     modal.classList.add('show')
 
-    const closeBtn = document.getElementById('noteViewCloseBtn')
+    const closeBtn = document.getElementById('note-view-close-btn')
     const closeHandler = () => {
       modal.classList.remove('show')
       cleanup()
@@ -226,9 +226,9 @@
     
     // 单次模式下，显示该预设的备注
     if (AppState.appMode === 'single') {
-      const timerNoteInput = document.getElementById('timerNoteInput')
-      const timerNoteDisplay = document.getElementById('timerNoteDisplay')
-      const timerNoteText = document.getElementById('timerNoteText')
+      const timerNoteInput = document.getElementById('timer-note-input')
+      const timerNoteDisplay = document.getElementById('timer-note-display')
+      const timerNoteText = document.getElementById('timer-note-text')
       
       if (timerNoteInput && timerNoteDisplay) {
         // 获取预设的备注
@@ -252,8 +252,8 @@
       }
     } else {
       // 计划模式时隐藏备注
-      const timerNoteInput = document.getElementById('timerNoteInput')
-      const timerNoteDisplay = document.getElementById('timerNoteDisplay')
+      const timerNoteInput = document.getElementById('timer-note-input')
+      const timerNoteDisplay = document.getElementById('timer-note-display')
       if (timerNoteInput) timerNoteInput.style.display = 'none'
       if (timerNoteDisplay) timerNoteDisplay.style.display = 'none'
     }
@@ -266,11 +266,11 @@
   
   // 绑定确认按钮事件（单次模式独立备注）
   function bindConfirmButton(index) {
-    const confirmBtn = document.getElementById('timerNoteConfirm')
-    const timerNoteInput = document.getElementById('timerNoteInput')
-    const timerNoteDisplay = document.getElementById('timerNoteDisplay')
-    const timerNoteTitleInput = document.getElementById('timerNoteTitleInput')
-    const timerNoteText = document.getElementById('timerNoteText')
+    const confirmBtn = document.getElementById('timer-note-confirm')
+    const timerNoteInput = document.getElementById('timer-note-input')
+    const timerNoteDisplay = document.getElementById('timer-note-display')
+    const timerNoteTitleInput = document.getElementById('timer-note-title-input')
+    const timerNoteText = document.getElementById('timer-note-text')
     
     if (!confirmBtn) return
     
@@ -281,8 +281,8 @@
     const newInput = timerNoteTitleInput.cloneNode(true)
     timerNoteTitleInput.parentNode.replaceChild(newInput, timerNoteTitleInput)
     
-    const updatedConfirmBtn = document.getElementById('timerNoteConfirm')
-    const updatedInput = document.getElementById('timerNoteTitleInput')
+    const updatedConfirmBtn = document.getElementById('timer-note-confirm')
+    const updatedInput = document.getElementById('timer-note-title-input')
     
     // 输入法组合状态
     let isComposing = false
@@ -395,9 +395,9 @@
 
   // 重新初始化当前模式的备注显示
   function reinitializeNoteDisplay() {
-    const timerNoteInput = document.getElementById('timerNoteInput')
-    const timerNoteDisplay = document.getElementById('timerNoteDisplay')
-    const timerNoteText = document.getElementById('timerNoteText')
+    const timerNoteInput = document.getElementById('timer-note-input')
+    const timerNoteDisplay = document.getElementById('timer-note-display')
+    const timerNoteText = document.getElementById('timer-note-text')
     
     if (!timerNoteInput || !timerNoteDisplay) return
     
@@ -491,7 +491,7 @@
   
   // 显示提示信息
   function showToast(message) {
-    const toast = document.getElementById('toastNotification')
+    const toast = document.getElementById('ui-toast')
     if (!toast) return
     
     toast.textContent = message
@@ -521,8 +521,8 @@
       reinitializeNoteDisplay()
     } else {
       // 计划模式隐藏备注
-      const timerNoteInput = document.getElementById('timerNoteInput')
-      const timerNoteDisplay = document.getElementById('timerNoteDisplay')
+      const timerNoteInput = document.getElementById('timer-note-input')
+      const timerNoteDisplay = document.getElementById('timer-note-display')
       if (timerNoteInput) timerNoteInput.style.display = 'none'
       if (timerNoteDisplay) timerNoteDisplay.style.display = 'none'
     }
@@ -611,21 +611,21 @@
   
   // 初始化笔emoji的点击事件（单次模式独立备注）
   function initializeNoteEditButton() {
-    const editBtn = document.getElementById('timerNoteEditBtn')
+    const editBtn = document.getElementById('timer-note-edit-btn')
     if (!editBtn) return
     
     // 清除旧的事件监听器
     const newEditBtn = editBtn.cloneNode(true)
     editBtn.parentNode.replaceChild(newEditBtn, editBtn)
     
-    const updatedEditBtn = document.getElementById('timerNoteEditBtn')
+    const updatedEditBtn = document.getElementById('timer-note-edit-btn')
     updatedEditBtn.addEventListener('click', (e) => {
       e.preventDefault()
       e.stopPropagation()
       
-      const timerNoteInput = document.getElementById('timerNoteInput')
-      const timerNoteDisplay = document.getElementById('timerNoteDisplay')
-      const timerNoteTitleInput = document.getElementById('timerNoteTitleInput')
+      const timerNoteInput = document.getElementById('timer-note-input')
+      const timerNoteDisplay = document.getElementById('timer-note-display')
+      const timerNoteTitleInput = document.getElementById('timer-note-title-input')
       
       // 获取当前选中的预设
       const activeMinutes = activePreset
