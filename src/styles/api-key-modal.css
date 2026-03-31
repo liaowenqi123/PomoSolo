@@ -63,10 +63,10 @@
 
 .api-key-modal-content {
   background: linear-gradient(180deg, #fff5f5 0%, #ffffff 100%);
-  border-radius: 24px;
-  padding: 32px 28px;
-  width: 90%;
-  max-width: 380px;
+  border-radius: 20px;
+  padding: 24px 20px;
+  width: 85%;
+  max-width: 320px;
   box-shadow: 0 20px 60px rgba(231, 76, 60, 0.25), 0 8px 24px rgba(0, 0, 0, 0.1);
   position: relative;
   border: 1px solid rgba(231, 76, 60, 0.1);
@@ -142,18 +142,18 @@
 .api-key-modal-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 24px;
+  gap: 10px;
+  margin-bottom: 18px;
 }
 
 .api-key-modal-icon {
-  font-size: 32px;
+  font-size: 26px;
   filter: drop-shadow(0 2px 4px rgba(231, 76, 60, 0.3));
 }
 
 .api-key-modal-header h2 {
   margin: 0;
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 600;
   background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
   -webkit-background-clip: text;
@@ -171,10 +171,10 @@
 /* 登录 Tab 切换 */
 .login-tabs {
   display: flex;
-  margin-bottom: 24px;
+  margin-bottom: 18px;
   background: rgba(231, 76, 60, 0.08);
-  border-radius: 12px;
-  padding: 4px;
+  border-radius: 10px;
+  padding: 3px;
 }
 
 .dark-mode .login-tabs {
@@ -183,14 +183,14 @@
 
 .login-tab {
   flex: 1;
-  padding: 12px;
+  padding: 10px;
   text-align: center;
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
   font-weight: 500;
   color: #888;
   transition: all 0.3s ease;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .login-tab:hover {
@@ -222,17 +222,17 @@
 /* 登录选项（记住密码、自动登录） */
 .login-options {
   display: flex;
-  gap: 16px;
-  margin-bottom: 16px;
-  margin-top: -4px;
+  gap: 12px;
+  margin-bottom: 12px;
+  margin-top: -2px;
 }
 
 .login-checkbox {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
   color: #888;
   user-select: none;
   transition: color 0.2s ease;
@@ -243,8 +243,8 @@
 }
 
 .login-checkbox input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   cursor: pointer;
   accent-color: #e74c3c;
 }
@@ -259,13 +259,13 @@
 
 /* 输入框组 */
 .api-key-input-group {
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 
 .api-key-label {
   display: block;
-  margin-bottom: 8px;
-  font-size: 13px;
+  margin-bottom: 6px;
+  font-size: 12px;
   font-weight: 500;
   color: #555;
 }
@@ -276,10 +276,10 @@
 
 .api-key-input {
   width: 100%;
-  padding: 12px 16px;
+  padding: 10px 14px;
   border: 2px solid #ffeaea;
-  border-radius: 12px;
-  font-size: 14px;
+  border-radius: 10px;
+  font-size: 13px;
   transition: all 0.3s ease;
   background: #fffafa;
 }
@@ -309,15 +309,15 @@
 /* 登录按钮 */
 .login-btn {
   width: 100%;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 /* 消息提示 */
 .login-message {
-  margin-top: 16px;
-  padding: 12px;
-  border-radius: 10px;
-  font-size: 13px;
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 12px;
   text-align: center;
   display: none;
 }
@@ -351,9 +351,9 @@
 /* 用户信息卡片 */
 .user-info-card {
   background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-  border-radius: 16px;
-  padding: 20px;
-  margin-bottom: 20px;
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
   color: white;
   box-shadow: 0 8px 24px rgba(231, 76, 60, 0.3);
 }
@@ -366,15 +366,15 @@
 .user-info-header {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 
 .user-avatar {
-  font-size: 28px;
+  font-size: 24px;
   background: rgba(255, 255, 255, 0.25);
   border-radius: 50%;
-  width: 52px;
-  height: 52px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -382,37 +382,37 @@
 }
 
 .user-info-name {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
 }
 
 .user-info-meta {
-  font-size: 12px;
+  font-size: 11px;
   opacity: 0.85;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 /* API Key 面板 */
 .api-key-panel {
-  margin-top: 16px;
+  margin-top: 12px;
   background: rgba(0, 0, 0, 0.15);
-  border-radius: 10px;
-  padding: 14px;
+  border-radius: 8px;
+  padding: 12px;
   backdrop-filter: blur(4px);
 }
 
 .api-key-panel h3 {
-  font-size: 12px;
+  font-size: 11px;
   color: #ffd700;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .api-key-display {
   background: rgba(0, 0, 0, 0.2);
-  padding: 10px 12px;
-  border-radius: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
   font-family: 'Consolas', monospace;
-  font-size: 11px;
+  font-size: 10px;
   color: #f0f0f0;
   word-break: break-all;
   border: 1px solid rgba(255, 215, 0, 0.3);
@@ -446,9 +446,9 @@
 /* 连接状态 */
 .connection-status {
   text-align: center;
-  font-size: 11px;
+  font-size: 10px;
   color: #aaa;
-  margin-top: 16px;
+  margin-top: 12px;
 }
 
 .connection-status.connected {
@@ -461,10 +461,10 @@
 
 /* 按钮通用样式 */
 .api-key-btn {
-  padding: 12px 24px;
+  padding: 10px 20px;
   border: none;
-  border-radius: 12px;
-  font-size: 14px;
+  border-radius: 10px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.3s ease;
@@ -517,11 +517,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  margin-bottom: 20px;
-  padding: 12px 16px;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 10px 12px;
   background: rgba(231, 76, 60, 0.06);
-  border-radius: 14px;
+  border-radius: 12px;
 }
 
 .dark-mode .mode-toggle-container {
@@ -529,7 +529,7 @@
 }
 
 .api-mode-label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: #999;
   transition: color 0.2s ease;
@@ -611,9 +611,9 @@
 /* ============ 本地配置面板 ============ */
 .local-config-info {
   background: rgba(231, 76, 60, 0.06);
-  border-radius: 12px;
-  padding: 14px 16px;
-  margin-bottom: 18px;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
 }
 
 .dark-mode .local-config-info {
@@ -621,8 +621,8 @@
 }
 
 .local-config-info p {
-  margin: 0 0 6px 0;
-  font-size: 12px;
+  margin: 0 0 4px 0;
+  font-size: 11px;
   color: #666;
   line-height: 1.5;
 }
@@ -674,10 +674,10 @@
 
 .confirm-modal-content {
   background: linear-gradient(180deg, #fff5f5 0%, #ffffff 100%);
-  border-radius: 20px;
-  padding: 28px 24px;
-  width: 90%;
-  max-width: 320px;
+  border-radius: 16px;
+  padding: 22px 20px;
+  width: 85%;
+  max-width: 280px;
   text-align: center;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
   border: 1px solid rgba(231, 76, 60, 0.1);
@@ -689,13 +689,13 @@
 }
 
 .confirm-modal-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
+  font-size: 40px;
+  margin-bottom: 10px;
 }
 
 .confirm-modal-title {
-  margin: 0 0 12px 0;
-  font-size: 18px;
+  margin: 0 0 10px 0;
+  font-size: 16px;
   font-weight: 600;
   color: #333;
 }
@@ -705,8 +705,8 @@
 }
 
 .confirm-modal-message {
-  margin: 0 0 24px 0;
-  font-size: 13px;
+  margin: 0 0 18px 0;
+  font-size: 12px;
   color: #666;
   line-height: 1.6;
   white-space: pre-line;
@@ -718,15 +718,15 @@
 
 .confirm-modal-buttons {
   display: flex;
-  gap: 12px;
+  gap: 10px;
 }
 
 .confirm-btn {
   flex: 1;
-  padding: 12px 16px;
+  padding: 10px 14px;
   border: none;
-  border-radius: 12px;
-  font-size: 14px;
+  border-radius: 10px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.15s ease;

@@ -113,9 +113,7 @@ const CloudAuth = (function() {
         currentDeepseekKey = apiKey
         // 填充输入框
         const input = document.getElementById('auth-local-api-key-input')
-        const confirm = document.getElementById('auth-local-api-key-confirm')
         if (input) input.value = apiKey
-        if (confirm) confirm.value = apiKey
         
         // 隐藏弹窗
         hideModal(false)
@@ -171,7 +169,6 @@ const CloudAuth = (function() {
       loginHeaderBtn: document.getElementById('auth-header-btn'),
       // 本地配置相关
       localApiKeyInput: document.getElementById('auth-local-api-key-input'),
-      localApiKeyConfirm: document.getElementById('auth-local-api-key-confirm'),
       showApiKey: document.getElementById('auth-show-api-key'),
       saveLocalApiKeyBtn: document.getElementById('auth-save-api-key-btn'),
       localConfigMessage: document.getElementById('auth-local-message'),
@@ -325,7 +322,6 @@ const CloudAuth = (function() {
       elements.showApiKey.addEventListener('change', () => {
         const type = elements.showApiKey.checked ? 'text' : 'password'
         if (elements.localApiKeyInput) elements.localApiKeyInput.type = type
-        if (elements.localApiKeyConfirm) elements.localApiKeyConfirm.type = type
       })
     }
 
@@ -340,8 +336,8 @@ const CloudAuth = (function() {
     }
 
     // 回车键保存本地配置
-    if (elements.localApiKeyConfirm) {
-      elements.localApiKeyConfirm.addEventListener('keypress', (e) => {
+    if (elements.localApiKeyInput) {
+      elements.localApiKeyInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') handleSaveLocalApiKey()
       })
     }
@@ -436,7 +432,6 @@ const CloudAuth = (function() {
     
     // 清空输入框
     if (elements.localApiKeyInput) elements.localApiKeyInput.value = ''
-    if (elements.localApiKeyConfirm) elements.localApiKeyConfirm.value = ''
     
     // 重置云端登录表单
     showAuthPanel()
@@ -484,15 +479,9 @@ const CloudAuth = (function() {
    */
   async function handleSaveLocalApiKey() {
     const apiKey = elements.localApiKeyInput?.value.trim()
-    const confirm = elements.localApiKeyConfirm?.value.trim()
 
     if (!apiKey) {
       showLocalMessage('请输入 API Key', 'error')
-      return
-    }
-
-    if (apiKey !== confirm) {
-      showLocalMessage('两次输入的 API Key 不一致', 'error')
       return
     }
 
