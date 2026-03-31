@@ -142,9 +142,10 @@ async function testConnection() {
 /**
  * 获取会话信息（包含 DeepSeek API Key）
  * @param {object} aiAssistant - AI 助手模块引用
+ * @param {object} songDownloader - 歌曲下载模块引用
  * @returns {{ success: boolean, session?: object|null, deepseekKey?: string|null }}
  */
-async function getSessionWithKey(aiAssistant) {
+async function getSessionWithKey(aiAssistant, songDownloader) {
   if (!currentSession) {
     return { success: true, session: null, deepseekKey: null }
   }
@@ -161,9 +162,13 @@ async function getSessionWithKey(aiAssistant) {
 
       if (keyData && keyData.length > 0) {
         deepseekKey = keyData[0].api_key
-        // 只更新 AI 助手的 API Key（前台检测在专注模式启动时设置）
+        // 更新 AI 助手的 API Key
         if (aiAssistant) {
           aiAssistant.setApiKey(deepseekKey)
+        }
+        // 更新下载模块的 API Key
+        if (songDownloader) {
+          songDownloader.setApiKey(deepseekKey)
         }
       }
     } catch (err) {
@@ -179,9 +184,10 @@ async function getSessionWithKey(aiAssistant) {
  * @param {string} username - 用户名
  * @param {string} password - 密码
  * @param {object} aiAssistant - AI 助手模块引用
+ * @param {object} songDownloader - 歌曲下载模块引用
  * @returns {{ success: boolean, user?: object, deepseekKey?: string|null, error?: string }}
  */
-async function login(username, password, aiAssistant) {
+async function login(username, password, aiAssistant, songDownloader) {
   if (!supabase) {
     return { success: false, error: 'Supabase 未初始化' }
   }
@@ -232,9 +238,13 @@ async function login(username, password, aiAssistant) {
 
       if (keyData && keyData.length > 0) {
         deepseekKey = keyData[0].api_key
-        // 只更新 AI 助手的 API Key（前台检测在专注模式启动时设置）
+        // 更新 AI 助手的 API Key
         if (aiAssistant) {
           aiAssistant.setApiKey(deepseekKey)
+        }
+        // 更新下载模块的 API Key
+        if (songDownloader) {
+          songDownloader.setApiKey(deepseekKey)
         }
         console.log('[CloudAuth] Admin 用户登录，已获取 DeepSeek API Key（仅内存）')
       }
@@ -318,9 +328,10 @@ async function register(username, password) {
  * 退出登录
  * @param {object} aiAssistant - AI 助手模块引用
  * @param {object} foregroundInspection - 前台检测模块引用
+ * @param {object} songDownloader - 歌曲下载模块引用
  * @returns {{ success: boolean }}
  */
-function logout(aiAssistant, foregroundInspection) {
+function logout(aiAssistant, foregroundInspection, songDownloader) {
   currentSession = null
   // 清除 AI 助手的 API Key
   if (aiAssistant) {
@@ -329,6 +340,10 @@ function logout(aiAssistant, foregroundInspection) {
   // 清除前台检测的 API Key（发送空值）
   if (foregroundInspection) {
     foregroundInspection.setApiKey(null)
+  }
+  // 清除下载模块的 API Key
+  if (songDownloader) {
+    songDownloader.setApiKey(null)
   }
   console.log('[CloudAuth] 已退出登录，已清除内存中的 API Key')
   return { success: true }

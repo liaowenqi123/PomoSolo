@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="styles/ai-helper.css">
   <link rel="stylesheet" href="styles/api-key-modal.css">
   <link rel="stylesheet" href="styles/statistics.css">
+  <link rel="stylesheet" href="styles/charts.css">
 </head>
     <!-- 备注查看模态框 -->
     <div class="note-modal" id="note-view-modal">
@@ -246,6 +247,7 @@
             </div>
             <button class="music-device-btn" id="music-device-btn" title="选择输出设备">🎧</button>
             <div class="music-device-list" id="music-device-list"></div>
+            <button class="music-btn-small music-playlist-btn" id="music-playlist-btn" title="播放列表">☰</button>
           </div>
           <div class="music-progress-container">
             <span class="music-time" id="music-current-time">0:00</span>
@@ -256,15 +258,18 @@
             <span class="music-time" id="music-duration">0:00</span>
           </div>
           <div class="music-controls">
+            <button class="music-btn-small music-charts-btn" id="music-charts-btn" title="热歌榜单">📊</button>
             <button class="music-btn music-prev" id="music-prev-btn">⏮</button>
             <button class="music-btn music-play" id="music-play-btn" data-playing="false">▶</button>
             <button class="music-btn music-next" id="music-next-btn">⏭</button>
-            <button class="music-btn music-mode" id="music-mode-btn" title="随机播放">🔀</button>
-            <button class="music-btn music-playlist-btn" id="music-playlist-btn" title="播放列表">☰</button>
+            <button class="music-btn-small music-mode" id="music-mode-btn" title="随机播放">🔀</button>
           </div>
           <!-- 播放列表面板 -->
           <div class="music-playlist-panel" id="music-playlist-panel">
-            <div class="playlist-header">播放列表</div>
+            <div class="playlist-header">
+              <span>播放列表</span>
+              <button class="playlist-refresh-btn" id="music-refresh-btn" title="刷新列表">🔄</button>
+            </div>
             <div class="playlist-items" id="music-playlist-items"></div>
           </div>
           </div>
@@ -420,6 +425,73 @@
         </div>
         
         <button class="ai-apply-btn" id="ai-apply-btn">✅ 应用计划</button>
+      </div>
+    </div>
+
+    <!-- 音乐榜单弹窗 -->
+    <div class="charts-modal" id="charts-modal">
+      <div class="charts-modal-content">
+        <button class="charts-modal-close" id="charts-modal-close">×</button>
+        <div class="charts-header">
+          <div class="charts-header-left">
+            <h2>🎵 热歌榜单</h2>
+            <div class="charts-download-toggle">
+              <span class="charts-download-label">下载模式</span>
+              <label class="charts-toggle-switch charts-download-switch">
+                <input type="checkbox" id="charts-download-toggle">
+                <span class="charts-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="charts-source-toggle">
+            <span class="charts-source-label" id="charts-source-label-netease">网易云</span>
+            <label class="charts-toggle-switch">
+              <input type="checkbox" id="charts-source-toggle">
+              <span class="charts-toggle-slider"></span>
+            </label>
+            <span class="charts-source-label" id="charts-source-label-qq">QQ音乐</span>
+          </div>
+        </div>
+        <div class="charts-loading" id="charts-loading">
+          <span class="charts-spinner"></span>
+          <span>正在获取榜单...</span>
+        </div>
+        <div class="charts-error" id="charts-error" style="display: none;"></div>
+        <div class="charts-table-container" id="charts-table-container">
+          <table class="charts-table">
+            <thead>
+              <tr>
+                <th class="charts-rank">排名</th>
+                <th class="charts-title">歌曲</th>
+                <th class="charts-artist">歌手</th>
+                <th class="charts-album">专辑</th>
+                <th class="charts-download-th" id="charts-download-th" style="display: none;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="charts-tbody">
+              <!-- 动态生成 -->
+            </tbody>
+          </table>
+        </div>
+        <button class="charts-refresh-btn" id="charts-refresh-btn">🔄 刷新</button>
+      </div>
+    </div>
+
+    <!-- 下载免责声明弹窗 -->
+    <div class="disclaimer-modal" id="disclaimer-modal">
+      <div class="disclaimer-modal-content">
+        <div class="disclaimer-text">
+          <p><strong>⚠️ 功能声明</strong></p>
+          <p>本功能为技术演示，仅用于学习和研究目的。</p>
+          <p>请勿使用本功能下载受版权保护的内容。您添加的音乐应为您本人拥有合法权利的作品，或来源于明确允许下载的公开资源。</p>
+          <p>开发者不提供、不存储任何音乐文件，不推荐任何特定歌曲。</p>
+          <p>因使用本功能产生的任何法律责任，由使用者自行承担。</p>
+          <p>继续使用即表示您已阅读并同意以上声明。</p>
+        </div>
+        <div class="disclaimer-buttons">
+          <button class="disclaimer-btn disclaimer-btn-cancel" id="disclaimer-cancel-btn">取消</button>
+          <button class="disclaimer-btn disclaimer-btn-confirm" id="disclaimer-confirm-btn">我已了解</button>
+        </div>
       </div>
     </div>
 
@@ -677,6 +749,7 @@
   <script src="scripts/modules/statistics.js"></script>
   <script src="scripts/modules/garden.js"></script>
   <script src="scripts/modules/foregroundDetection.js"></script>
+  <script src="scripts/modules/charts.js"></script>
   
   <!-- 主入口 -->
   <script src="scripts/renderer.js"></script>

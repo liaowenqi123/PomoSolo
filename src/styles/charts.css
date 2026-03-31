@@ -1,0 +1,471 @@
+/* 音乐榜单弹窗样式 */
+
+.charts-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+  backdrop-filter: blur(3px);
+  border-radius: 20px;
+  padding: 20px;
+}
+
+.charts-modal.open {
+  display: flex;
+}
+
+.charts-modal-content {
+  background: linear-gradient(145deg, #2a2a3e, #1e1e2e);
+  border-radius: 20px;
+  padding: 18px;
+  max-width: 480px;
+  width: 90%;
+  max-height: 75vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  position: relative;
+}
+
+.charts-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: color 0.2s;
+  z-index: 10;
+}
+
+.charts-modal-close:hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.charts-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  flex-shrink: 0;
+  gap: 8px;
+  padding-right: 24px;
+}
+
+.charts-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.charts-header h2 {
+  margin: 0;
+  font-size: 15px;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.charts-download-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.charts-download-label {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.charts-download-switch {
+  width: 28px;
+  height: 16px;
+}
+
+.charts-download-switch .charts-toggle-slider::before {
+  height: 10px;
+  width: 10px;
+}
+
+.charts-download-switch input:checked + .charts-toggle-slider {
+  background-color: #5a9fd4;
+}
+
+/* 来源切换拨杆 */
+.charts-source-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.charts-source-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  transition: color 0.2s;
+}
+
+.charts-source-label.active {
+  color: #ff8a8a;
+  font-weight: 600;
+}
+
+.charts-toggle-switch {
+  position: relative;
+  width: 30px;
+  height: 16px;
+}
+
+.charts-toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.charts-toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.15);
+  transition: 0.3s;
+  border-radius: 20px;
+}
+
+.charts-toggle-slider::before {
+  position: absolute;
+  content: "";
+  height: 10px;
+  width: 10px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.3s;
+  border-radius: 50%;
+}
+
+.charts-toggle-switch input:checked + .charts-toggle-slider {
+  background-color: #ff8a8a;
+}
+
+.charts-toggle-switch input:checked + .charts-toggle-slider::before {
+  transform: translateX(14px);
+}
+
+/* 加载状态 */
+.charts-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 30px;
+  color: rgba(255, 255, 255, 0.7);
+  gap: 10px;
+  font-size: 12px;
+}
+
+.charts-spinner {
+  width: 26px;
+  height: 26px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: #ff8a8a;
+  border-radius: 50%;
+  animation: charts-spin 0.8s linear infinite;
+}
+
+@keyframes charts-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 错误状态 */
+.charts-error {
+  text-align: center;
+  padding: 30px;
+  color: #ff9a9a;
+  font-size: 12px;
+}
+
+/* 表格容器 */
+.charts-table-container {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.charts-table-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.charts-table-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.charts-table-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+}
+
+/* 表格 */
+.charts-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+.charts-table thead tr {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.charts-table th {
+  padding: 8px 6px;
+  text-align: left;
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.charts-table td {
+  padding: 8px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  vertical-align: middle;
+}
+
+.charts-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.charts-rank {
+  width: 40px;
+  text-align: center;
+}
+
+.charts-rank-value {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.charts-rank-value.medal-gold {
+  color: #ffd700;
+}
+
+.charts-rank-value.medal-silver {
+  color: #e0e0e0;
+}
+
+.charts-rank-value.medal-bronze {
+  color: #e8a838;
+}
+
+.charts-title {
+  width: 32%;
+}
+
+.charts-song-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.95);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.charts-artist {
+  width: 28%;
+}
+
+.charts-song-artist {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.charts-album {
+  width: 22%;
+}
+
+.charts-song-album {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+/* 刷新按钮 */
+.charts-refresh-btn {
+  margin-top: 12px;
+  padding: 6px 14px;
+  background: #ff8a8a;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+  align-self: center;
+}
+
+.charts-refresh-btn:hover {
+  background: #ffa0a0;
+  transform: translateY(-1px);
+}
+
+.charts-refresh-btn:active {
+  transform: translateY(0);
+}
+
+.charts-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 下载按钮列 */
+.charts-download-th {
+  width: 36px;
+  text-align: center;
+}
+
+.charts-download-td {
+  text-align: center;
+}
+
+.charts-download-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: none;
+  background: rgba(90, 159, 212, 0.2);
+  color: #5a9fd4;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0;
+}
+
+.charts-download-btn:hover {
+  background: rgba(90, 159, 212, 0.4);
+  transform: scale(1.1);
+}
+
+.charts-download-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.charts-download-btn.downloading {
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* 免责声明弹窗 */
+.disclaimer-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 3000;
+  backdrop-filter: blur(3px);
+  border-radius: 20px;
+  padding: 20px;
+}
+
+.disclaimer-modal.open {
+  display: flex;
+}
+
+.disclaimer-modal-content {
+  background: linear-gradient(145deg, #2a2a3e, #1e1e2e);
+  border-radius: 20px;
+  padding: 24px;
+  max-width: 400px;
+  width: 85%;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.disclaimer-modal-content h3 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  color: #ffd700;
+  text-align: center;
+}
+
+.disclaimer-text {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.8;
+  margin-bottom: 20px;
+}
+
+.disclaimer-text p {
+  margin: 8px 0;
+}
+
+.disclaimer-text strong {
+  color: #ff9a9a;
+}
+
+.disclaimer-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+.disclaimer-btn {
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+}
+
+.disclaimer-btn-cancel {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.disclaimer-btn-cancel:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.disclaimer-btn-confirm {
+  background: #5a9fd4;
+  color: white;
+}
+
+.disclaimer-btn-confirm:hover {
+  background: #6ab0e8;
+}

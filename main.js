@@ -333,11 +333,11 @@ ipcMain.handle('cloud-test-connection', async () => {
 })
 
 ipcMain.handle('cloud-get-session', async () => {
-  return await cloudAuth.getSessionWithKey(aiAssistant)
+  return await cloudAuth.getSessionWithKey(aiAssistant, songDownloader)
 })
 
 ipcMain.handle('cloud-login', async (event, { username, password }) => {
-  return await cloudAuth.login(username, password, aiAssistant)
+  return await cloudAuth.login(username, password, aiAssistant, songDownloader)
 })
 
 ipcMain.handle('cloud-register', async (event, { username, password }) => {
@@ -345,7 +345,7 @@ ipcMain.handle('cloud-register', async (event, { username, password }) => {
 })
 
 ipcMain.handle('cloud-logout', async () => {
-  return cloudAuth.logout(aiAssistant, foregroundInspection)
+  return cloudAuth.logout(aiAssistant, foregroundInspection, songDownloader)
 })
 
 // ============ API Key 管理 IPC 处理（保留兼容） ============
@@ -363,6 +363,7 @@ ipcMain.handle('save-api-key', (event, apiKey) => {
   if (success) {
     aiAssistant.setApiKey(apiKey)
     foregroundInspection.setApiKey(apiKey)
+    songDownloader.setApiKey(apiKey)
   }
   
   return success
@@ -439,6 +440,48 @@ ipcMain.on('music-get-playlist', () => {
 
 ipcMain.on('music-play-song', (event, name) => {
   musicProcess.playSong(name)
+})
+
+// ============ 音乐榜单 IPC 处理 ============
+
+const chartsFetcher = require('./src/modules/chartsFetcher')
+const songDownloader = require('./src/modules/songDownloader')
+
+ipcMain.handle('charts-fetch', async (event, source) => {
+  try {
+    const songs = await chartsFetcher.fetchCharts(source)
+    return { success: true, songs }
+  } catch (error) {
+    console.error('[Charts] 抓取失败:', error)
+    return { success: false, error: error.message }
+  }
+})
+
+// 设置下载器路径
+ipcMain.on('set-downloader-path', (event, exePath) => {
+  songDownloader.setDownloaderPath(exePath)
+})
+
+// 设置 API Key
+ipcMain.on('set-download-api-key', (event, apiKey) => {
+  songDownloader.setApiKey(apiKey)
+})
+
+// 下载歌曲
+ipcMain.handle('download-song', async (event, title, artist) => {
+  // 确保下载器路径已设置
+  if (!songDownloader.getDownloaderPath?.()) {
+    // 根据是否打包设置路径
+    let downloaderPath
+    if (app.isPackaged) {
+      downloaderPath = path.join(process.resourcesPath, 'manual_downloader.exe')
+    } else {
+      downloaderPath = path.join(__dirname, 'music-player', 'manual_downloader.exe')
+    }
+    songDownloader.setDownloaderPath(downloaderPath)
+  }
+  
+  return await songDownloader.downloadSong(title, artist)
 })
 
 // ============ AI助手 IPC 处理 ============
@@ -640,6 +683,16 @@ ipcMain.on('update-mini-position', (event) => {
 app.whenReady().then(() => {
   // 初始化云端认证
   cloudAuth.init()
+  
+  // 检查本地 API Key 模式并初始化各模块
+  const savedData = dataManager.readData()
+  if (savedData.apiMode === 'local' && savedData.apiKey) {
+    console.log('[Main] 检测到本地 API Key 模式，正在初始化...')
+    aiAssistant.setApiKey(savedData.apiKey)
+    foregroundInspection.setApiKey(savedData.apiKey)
+    songDownloader.setApiKey(savedData.apiKey)
+  }
+  
   // 加载迷你模式位置
   loadMiniModePosition()
   createWindow()

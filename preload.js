@@ -137,6 +137,20 @@ const { contextBridge, ipcRenderer } = require('electron')
     ipcRenderer.removeAllListeners('music-song-missing')
   },
 
+  // ============ 音乐榜单 API ============
+  
+  // 获取榜单
+  chartsFetch: (source) => ipcRenderer.invoke('charts-fetch', source),
+  
+  // 下载歌曲
+  downloadSong: (title, artist) => ipcRenderer.invoke('download-song', title, artist),
+  
+  // 设置下载器路径
+  setDownloaderPath: (exePath) => ipcRenderer.send('set-downloader-path', exePath),
+  
+  // 设置下载 API Key
+  setDownloadApiKey: (apiKey) => ipcRenderer.send('set-download-api-key', apiKey),
+
   // ============ 菜园子窗口 API ============
   
   // 打开菜园子窗口

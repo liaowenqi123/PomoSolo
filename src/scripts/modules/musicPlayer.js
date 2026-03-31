@@ -57,7 +57,8 @@ const MusicPlayer = (function() {
     visualizerBars: null,
     playlistBtn: null,
     playlistPanel: null,
-    playlistItems: null
+    playlistItems: null,
+    refreshBtn: null
   }
 
   // ============ 工具函数 ============
@@ -220,6 +221,23 @@ const MusicPlayer = (function() {
     } else {
       elements.playlistPanel.classList.remove('open')
     }
+  }
+  
+  function refreshPlaylist() {
+    if (!elements.refreshBtn) return
+    
+    // 添加旋转动画
+    elements.refreshBtn.classList.add('refreshing')
+    
+    // 请求刷新播放列表
+    window.electronAPI.musicGetPlaylist()
+    
+    // 500ms后移除动画
+    setTimeout(() => {
+      if (elements.refreshBtn) {
+        elements.refreshBtn.classList.remove('refreshing')
+      }
+    }, 500)
   }
   
   function renderPlaylist() {
@@ -565,6 +583,14 @@ const MusicPlayer = (function() {
     // 播放列表点击
     if (elements.playlistItems) {
       elements.playlistItems.addEventListener('click', handlePlaylistClick)
+    }
+    
+    // 刷新按钮
+    if (elements.refreshBtn) {
+      elements.refreshBtn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        refreshPlaylist()
+      })
     }
   }
 

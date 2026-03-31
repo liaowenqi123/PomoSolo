@@ -10,6 +10,7 @@ music-player/dist/
 music-player/__pycache__/
 music-player/*.spec
 music-player/music/
+music-player/*.bat
 
 foreground_inspection/build/
 foreground_inspection/dist/

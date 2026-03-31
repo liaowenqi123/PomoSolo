@@ -145,12 +145,34 @@
     visualizerBars: DOM.visualizerBars,
     playlistBtn: DOM.playlistBtn,
     playlistPanel: DOM.playlistPanel,
-    playlistItems: DOM.playlistItems
+    playlistItems: DOM.playlistItems,
+    refreshBtn: DOM.refreshBtn
   })
 
   // ============ 初始化前台检测模块 ============
   if (window.ForegroundDetection) {
     await window.ForegroundDetection.init()
+  }
+
+  // ============ 初始化音乐榜单模块 ============
+  if (window.Charts) {
+    Charts.init({
+      modal: DOM.chartsModal,
+      closeBtn: DOM.chartsModalClose,
+      toggle: DOM.chartsSourceToggle,
+      labelNetease: DOM.chartsSourceLabelNetease,
+      labelQQ: DOM.chartsSourceLabelQQ,
+      loading: DOM.chartsLoading,
+      error: DOM.chartsError,
+      tableContainer: DOM.chartsTableContainer,
+      tbody: DOM.chartsTbody,
+      refreshBtn: DOM.chartsRefreshBtn,
+      downloadToggle: DOM.chartsDownloadToggle,
+      downloadTh: DOM.chartsDownloadTh,
+      disclaimerModal: DOM.disclaimerModal,
+      disclaimerCancelBtn: DOM.disclaimerCancelBtn,
+      disclaimerConfirmBtn: DOM.disclaimerConfirmBtn
+    })
   }
 
   // ============ 事件绑定 ============
@@ -350,6 +372,14 @@
   if (DOM.gardenBtn) {
     DOM.gardenBtn.addEventListener('click', () => {
       window.electronAPI.openGarden()
+    })
+  }
+
+  // 榜单按钮事件
+  if (DOM.chartsBtn) {
+    DOM.chartsBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      Charts.toggle()
     })
   }
 
