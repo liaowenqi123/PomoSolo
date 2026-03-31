@@ -71,8 +71,8 @@ class PlayerState:
         
         # 播放模式：'shuffle' 随机 | 'order' 顺序循环
         self.play_mode = 'shuffle'
-        self.order_playlist = []  # 顺序播放列表（不打乱）
-        self.order_index = -1     # 顺序播放的当前索引
+        self.order_playlist = []  # 顺序播放列表（不打乱，按文件名排序）
+        self.current_song_index = -1  # 当前歌曲在物理列表(order_playlist)中的位置
         
         # 预加载的音频数据
         self.preloaded_data = None
@@ -272,6 +272,13 @@ def init_shuffled_playlist():
     
     return True
 
+def get_song_index(song_name):
+    """获取歌曲在物理列表中的索引"""
+    try:
+        return state.order_playlist.index(song_name)
+    except ValueError:
+        return -1
+
 def get_next_song():
     """获取下一首歌（根据播放模式）"""
     if not state.shuffled_playlist:
@@ -285,13 +292,17 @@ def get_next_song():
             random.shuffle(state.shuffled_playlist)
             state.playlist_index = 0
         state.play_history.append(state.playlist_index)
-        return state.shuffled_playlist[state.playlist_index]
+        song = state.shuffled_playlist[state.playlist_index]
+        # 追踪当前歌曲在物理列表中的位置
+        state.current_song_index = get_song_index(song)
+        return song
     else:
-        # 顺序模式
-        state.order_index += 1
-        if state.order_index >= len(state.order_playlist):
-            state.order_index = 0  # 循环到开头
-        return state.order_playlist[state.order_index]
+        # 顺序模式：基于当前歌曲位置播放下一首
+        if state.current_song_index < 0:
+            state.current_song_index = 0
+        else:
+            state.current_song_index = (state.current_song_index + 1) % len(state.order_playlist)
+        return state.order_playlist[state.current_song_index]
 
 def get_prev_song():
     """获取上一首歌（根据播放模式）"""
@@ -304,13 +315,17 @@ def get_prev_song():
         if len(state.play_history) > 1:
             state.play_history.pop()
             state.playlist_index = state.play_history[-1]
-        return state.shuffled_playlist[state.playlist_index]
+        song = state.shuffled_playlist[state.playlist_index]
+        # 追踪当前歌曲在物理列表中的位置
+        state.current_song_index = get_song_index(song)
+        return song
     else:
-        # 顺序模式
-        state.order_index -= 1
-        if state.order_index < 0:
-            state.order_index = len(state.order_playlist) - 1  # 循环到末尾
-        return state.order_playlist[state.order_index]
+        # 顺序模式：基于当前歌曲位置播放上一首
+        if state.current_song_index < 0:
+            state.current_song_index = len(state.order_playlist) - 1
+        else:
+            state.current_song_index = (state.current_song_index - 1) % len(state.order_playlist)
+        return state.order_playlist[state.current_song_index]
 
 # ============ 播放函数 ============
 def play_a_song(name, start_position=0):
@@ -560,13 +575,11 @@ def process_command(command_obj):
         with state.lock:
             if mode in ['shuffle', 'order']:
                 state.play_mode = mode
-                # 切换到随机模式时重置随机列表
+                # 切换到随机模式时重置随机列表（但保持 current_song_index）
                 if mode == 'shuffle':
                     state.playlist_index = -1
                     state.play_history = []
-                # 切换到顺序模式时重置顺序索引
-                else:
-                    state.order_index = -1
+                # 切换到顺序模式时，current_song_index 已经追踪了当前歌曲位置，无需重置
         # 发送状态更新
         state.send_status()
     
