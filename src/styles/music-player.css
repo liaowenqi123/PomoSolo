@@ -525,18 +525,18 @@
 .music-playlist-panel {
   position: absolute;
   bottom: 100%;
-  left: 0;
-  right: 0;
+  left: 50%;
+  transform: translateX(-50%) translateY(10px);
   margin-bottom: 8px;
+  width: 180px;
   background: rgba(40, 40, 50, 0.98);
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.15);
-  max-height: 250px;
+  max-height: 320px;
   overflow: hidden;
   z-index: 100;
   opacity: 0;
   visibility: hidden;
-  transform: translateY(10px);
   transition: all 0.2s ease;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
@@ -544,24 +544,24 @@
 .music-playlist-panel.open {
   opacity: 1;
   visibility: visible;
-  transform: translateY(0);
+  transform: translateX(-50%) translateY(0);
 }
 
 .playlist-header {
-  padding: 10px 12px;
-  font-size: 11px;
+  padding: 8px 10px;
+  font-size: 10px;
   color: rgba(255, 255, 255, 0.6);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.05);
 }
 
 .playlist-items {
-  max-height: 210px;
+  max-height: 280px;
   overflow-y: auto;
 }
 
 .playlist-items::-webkit-scrollbar {
-  width: 5px;
+  width: 4px;
 }
 
 .playlist-items::-webkit-scrollbar-track {
@@ -570,16 +570,16 @@
 
 .playlist-items::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
+  border-radius: 2px;
 }
 
 .playlist-item {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
+  padding: 6px 10px;
   cursor: pointer;
   transition: background 0.15s ease;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
 }
 
 .playlist-item:last-child {
@@ -600,7 +600,7 @@
 
 .playlist-item-name {
   flex: 1;
-  font-size: 11px;
+  font-size: 10px;
   color: rgba(255, 255, 255, 0.9);
   white-space: nowrap;
   overflow: hidden;
@@ -612,14 +612,14 @@
 }
 
 .playlist-item-playing {
-  font-size: 10px;
+  font-size: 9px;
   color: #ff8a8a;
-  margin-left: 6px;
+  margin-left: 4px;
 }
 
 .playlist-empty {
-  padding: 20px;
+  padding: 16px;
   text-align: center;
   color: rgba(255, 255, 255, 0.5);
-  font-size: 11px;
+  font-size: 10px;
 }

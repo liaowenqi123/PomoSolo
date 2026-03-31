@@ -613,6 +613,10 @@ const MusicPlayer = (function() {
       }
       updateProgressUI()
       updatePrevButton()
+      // 更新播放列表高亮
+      if (state.isPlaylistOpen) {
+        window.electronAPI.musicGetPlaylist()
+      }
     })
 
     // 监听播放状态
