@@ -24,7 +24,8 @@ const MusicPlayer = (function() {
     volume: 1.0,  // 音量 0-1
     isVolumeSliderOpen: false,  // 音量滑块是否展开
     lastVolumeSendTime: 0,  // 上次发送音量的时间戳（节流用）
-    isCollapsed: false  // 是否收起
+    isCollapsed: false,  // 是否收起
+    playMode: 'shuffle'  // 播放模式：'shuffle' 随机 | 'order' 顺序循环
   }
   
   // 播放超时时间（毫秒）
@@ -35,6 +36,7 @@ const MusicPlayer = (function() {
     playBtn: null,
     nextBtn: null,
     prevBtn: null,
+    modeBtn: null,
     progressBar: null,
     progressFill: null,
     progressHandle: null,
@@ -183,6 +185,20 @@ const MusicPlayer = (function() {
       } else {
         elements.prevBtn.classList.add('disabled')
         elements.prevBtn.disabled = true
+      }
+    }
+  }
+
+  function updateModeButton() {
+    if (elements.modeBtn) {
+      if (state.playMode === 'shuffle') {
+        elements.modeBtn.textContent = '🔀'
+        elements.modeBtn.title = '随机播放（点击切换顺序播放）'
+        elements.modeBtn.classList.add('active')
+      } else {
+        elements.modeBtn.textContent = '🔁'
+        elements.modeBtn.title = '顺序播放（点击切换随机播放）'
+        elements.modeBtn.classList.remove('active')
       }
     }
   }
@@ -418,6 +434,14 @@ const MusicPlayer = (function() {
       })
     }
 
+    // 播放模式切换按钮
+    if (elements.modeBtn) {
+      elements.modeBtn.addEventListener('click', () => {
+        const newMode = state.playMode === 'shuffle' ? 'order' : 'shuffle'
+        window.electronAPI.musicSetPlayMode(newMode)
+      })
+    }
+
     // 进度条点击
     if (elements.progressBar) {
       elements.progressBar.addEventListener('click', handleProgressClick)
@@ -495,6 +519,10 @@ const MusicPlayer = (function() {
       if (data.has_prev !== undefined) {
         state.hasPrev = data.has_prev
       }
+      if (data.play_mode !== undefined) {
+        state.playMode = data.play_mode
+        updateModeButton()
+      }
       updateProgressUI()
       updatePlayButton()
       updatePrevButton()
@@ -571,6 +599,12 @@ const MusicPlayer = (function() {
       updateVolumeUI()
     })
     
+    // 监听播放模式变化事件
+    window.electronAPI.onMusicPlayMode((data) => {
+      state.playMode = data.mode
+      updateModeButton()
+    })
+    
   }
 
   // ============ 公共API ============
@@ -590,6 +624,9 @@ const MusicPlayer = (function() {
       window.electronAPI.musicGetStatus()
       // 请求设备列表
       window.electronAPI.musicGetDevices()
+      
+      // 初始化模式按钮
+      updateModeButton()
       
       console.log('[MusicPlayer] 已初始化')
     },

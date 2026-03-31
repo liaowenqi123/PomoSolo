@@ -79,6 +79,7 @@ const { contextBridge, ipcRenderer } = require('electron')
   musicGetStatus: () => ipcRenderer.send('music-get-status'),
   musicGetDevices: () => ipcRenderer.send('music-get-devices'),
   musicSetDevice: (deviceId) => ipcRenderer.send('music-set-device', deviceId),
+  musicSetPlayMode: (mode) => ipcRenderer.send('music-set-play-mode', mode),
   
   // 音乐播放器事件监听
   onMusicReady: (callback) => {
@@ -108,6 +109,9 @@ const { contextBridge, ipcRenderer } = require('electron')
   onMusicVolumeChange: (callback) => {
     ipcRenderer.on('music-volume-change', (event, data) => callback(data))
   },
+  onMusicPlayMode: (callback) => {
+    ipcRenderer.on('music-play-mode', (event, data) => callback(data))
+  },
   
   // 移除监听器
   removeMusicListeners: () => {
@@ -120,6 +124,7 @@ const { contextBridge, ipcRenderer } = require('electron')
     ipcRenderer.removeAllListeners('music-no-music')
     ipcRenderer.removeAllListeners('music-play-error')
     ipcRenderer.removeAllListeners('music-volume-change')
+    ipcRenderer.removeAllListeners('music-play-mode')
   },
 
   // ============ 菜园子窗口 API ============

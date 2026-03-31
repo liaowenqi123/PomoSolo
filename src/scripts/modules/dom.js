@@ -67,6 +67,7 @@
     playBtn: document.getElementById('music-play-btn'),
     nextBtn: document.getElementById('music-next-btn'),
     prevBtn: document.getElementById('music-prev-btn'),
+    modeBtn: document.getElementById('music-mode-btn'),
     progressBar: document.getElementById('music-progress-bar'),
     progressFill: document.getElementById('music-progress-fill'),
     progressHandle: document.getElementById('music-progress-handle'),

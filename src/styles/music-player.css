@@ -420,6 +420,20 @@
   background: rgba(255, 255, 255, 0.35);
 }
 
+.music-mode {
+  font-size: 14px;
+  opacity: 0.7;
+}
+
+.music-mode:hover {
+  opacity: 1;
+}
+
+.music-mode.active {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.3);
+}
+
 /* ============ 音量控制 ============ */
 .volume-control {
   position: relative;

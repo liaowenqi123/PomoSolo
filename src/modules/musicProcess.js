@@ -21,6 +21,7 @@ class MusicProcess {
     this.onPlayErrorCallback = null
     this.onProcessDeadCallback = null  // 进程死亡回调
     this.onVolumeChangeCallback = null  // 音量变化回调
+    this.onPlayModeCallback = null  // 播放模式变化回调
   }
 
   /**
@@ -167,6 +168,11 @@ class MusicProcess {
             this.onVolumeChangeCallback(data)
           }
           break
+        case 'play_mode':
+          if (this.onPlayModeCallback) {
+            this.onPlayModeCallback(data)
+          }
+          break
         default:
           console.log('[MusicProcess] 未知事件:', event)
       }
@@ -261,6 +267,14 @@ class MusicProcess {
     return this.sendCommand({ command: 'set_device', device_id: deviceId })
   }
 
+  /**
+   * 设置播放模式
+   * @param {string} mode - 'shuffle' 随机 | 'order' 顺序循环
+   */
+  setPlayMode(mode) {
+    return this.sendCommand({ command: 'set_play_mode', mode })
+  }
+
   // ============ 回调设置 ============
 
   onReady(callback) {
@@ -297,6 +311,10 @@ class MusicProcess {
 
   onVolumeChange(callback) {
     this.onVolumeChangeCallback = callback
+  }
+
+  onPlayMode(callback) {
+    this.onPlayModeCallback = callback
   }
 }
 

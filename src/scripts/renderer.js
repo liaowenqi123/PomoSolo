@@ -127,6 +127,7 @@
     playBtn: DOM.playBtn,
     nextBtn: DOM.nextBtn,
     prevBtn: DOM.prevBtn,
+    modeBtn: DOM.modeBtn,
     progressBar: DOM.progressBar,
     progressFill: DOM.progressFill,
     progressHandle: DOM.progressHandle,

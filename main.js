@@ -149,6 +149,10 @@ function createWindow() {
     win.webContents.send('music-volume-change', data)
   })
   
+  musicProcess.onPlayMode((data) => {
+    win.webContents.send('music-play-mode', data)
+  })
+  
   // 启动前台检测进程
   let foregroundExePath
   if (app.isPackaged) {
@@ -415,6 +419,10 @@ ipcMain.on('music-set-device', (event, deviceId) => {
   const data = dataManager.readData()
   data.audioDevice = deviceId
   dataManager.writeData(data)
+})
+
+ipcMain.on('music-set-play-mode', (event, mode) => {
+  musicProcess.setPlayMode(mode)
 })
 
 // ============ AI助手 IPC 处理 ============

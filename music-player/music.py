@@ -69,6 +69,11 @@ class PlayerState:
         self.device_changed = False
         self.lock = threading.Lock()
         
+        # 播放模式：'shuffle' 随机 | 'order' 顺序循环
+        self.play_mode = 'shuffle'
+        self.order_playlist = []  # 顺序播放列表（不打乱）
+        self.order_index = -1     # 顺序播放的当前索引
+        
         # 预加载的音频数据
         self.preloaded_data = None
         self.preloaded_fs = None
@@ -91,7 +96,8 @@ class PlayerState:
                 "name": self.track_name,
                 "current": self.current_time,
                 "duration": self.duration,
-                "has_prev": len(self.play_history) > 1
+                "has_prev": len(self.play_history) > 1,
+                "play_mode": self.play_mode
             })
             
     def send_devices(self):
@@ -247,38 +253,64 @@ def list_files_in_directory(directory_path):
     return file_names
 
 def init_shuffled_playlist():
-    """初始化随机播放列表"""
+    """初始化播放列表（随机和顺序）"""
     state.file_list = list_files_in_directory(state.directory_path)
     if not state.file_list:
         state.shuffled_playlist = []
+        state.order_playlist = []
         return False
+    
+    # 随机播放列表
     state.shuffled_playlist = state.file_list.copy()
     random.shuffle(state.shuffled_playlist)
     state.playlist_index = -1
     state.play_history = []
+    
+    # 顺序播放列表（按文件名排序）
+    state.order_playlist = sorted(state.file_list)
+    state.order_index = -1
+    
     return True
 
 def get_next_song():
-    """获取下一首歌"""
+    """获取下一首歌（根据播放模式）"""
     if not state.shuffled_playlist:
         if not init_shuffled_playlist():
             return None
-    state.playlist_index += 1
-    if state.playlist_index >= len(state.shuffled_playlist):
-        random.shuffle(state.shuffled_playlist)
-        state.playlist_index = 0
-    state.play_history.append(state.playlist_index)
-    return state.shuffled_playlist[state.playlist_index]
+    
+    if state.play_mode == 'shuffle':
+        # 随机模式
+        state.playlist_index += 1
+        if state.playlist_index >= len(state.shuffled_playlist):
+            random.shuffle(state.shuffled_playlist)
+            state.playlist_index = 0
+        state.play_history.append(state.playlist_index)
+        return state.shuffled_playlist[state.playlist_index]
+    else:
+        # 顺序模式
+        state.order_index += 1
+        if state.order_index >= len(state.order_playlist):
+            state.order_index = 0  # 循环到开头
+        return state.order_playlist[state.order_index]
 
 def get_prev_song():
-    """获取上一首歌"""
+    """获取上一首歌（根据播放模式）"""
     if not state.shuffled_playlist:
         if not init_shuffled_playlist():
             return None
-    if len(state.play_history) > 1:
-        state.play_history.pop()
-        state.playlist_index = state.play_history[-1]
-    return state.shuffled_playlist[state.playlist_index]
+    
+    if state.play_mode == 'shuffle':
+        # 随机模式
+        if len(state.play_history) > 1:
+            state.play_history.pop()
+            state.playlist_index = state.play_history[-1]
+        return state.shuffled_playlist[state.playlist_index]
+    else:
+        # 顺序模式
+        state.order_index -= 1
+        if state.order_index < 0:
+            state.order_index = len(state.order_playlist) - 1  # 循环到末尾
+        return state.order_playlist[state.order_index]
 
 # ============ 播放函数 ============
 def play_a_song(name, start_position=0):
@@ -521,6 +553,26 @@ def process_command(command_obj):
         if device_id is not None:
             if set_output_device(device_id):
                 state.send_devices()
+    
+    elif command == "set_play_mode":
+        mode = command_obj.get("mode", "shuffle")
+        print(f"set_play_mode命令: {mode}", file=sys.stderr)
+        with state.lock:
+            if mode in ['shuffle', 'order']:
+                state.play_mode = mode
+                # 切换到随机模式时重置随机列表
+                if mode == 'shuffle':
+                    state.playlist_index = -1
+                    state.play_history = []
+                # 切换到顺序模式时重置顺序索引
+                else:
+                    state.order_index = -1
+        # 发送状态更新
+        state.send_status()
+    
+    elif command == "get_play_mode":
+        with state.lock:
+            state.send_event("play_mode", {"mode": state.play_mode})
 
 def stdin_reader():
     """读取来自Electron的命令"""
