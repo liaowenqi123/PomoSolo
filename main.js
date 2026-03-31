@@ -153,6 +153,14 @@ function createWindow() {
     win.webContents.send('music-play-mode', data)
   })
   
+  musicProcess.onPlaylist((data) => {
+    win.webContents.send('music-playlist', data)
+  })
+  
+  musicProcess.onSongMissing((data) => {
+    win.webContents.send('music-song-missing', data)
+  })
+  
   // 启动前台检测进程
   let foregroundExePath
   if (app.isPackaged) {
@@ -423,6 +431,14 @@ ipcMain.on('music-set-device', (event, deviceId) => {
 
 ipcMain.on('music-set-play-mode', (event, mode) => {
   musicProcess.setPlayMode(mode)
+})
+
+ipcMain.on('music-get-playlist', () => {
+  musicProcess.getPlaylist()
+})
+
+ipcMain.on('music-play-song', (event, name) => {
+  musicProcess.playSong(name)
 })
 
 // ============ AI助手 IPC 处理 ============

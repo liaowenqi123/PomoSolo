@@ -142,7 +142,10 @@
     volumeRange: DOM.volumeRange,
     collapseBtn: DOM.collapseBtn,
     collapsedTrack: DOM.collapsedTrack,
-    visualizerBars: DOM.visualizerBars
+    visualizerBars: DOM.visualizerBars,
+    playlistBtn: DOM.playlistBtn,
+    playlistPanel: DOM.playlistPanel,
+    playlistItems: DOM.playlistItems
   })
 
   // ============ 初始化前台检测模块 ============

@@ -25,7 +25,10 @@ const MusicPlayer = (function() {
     isVolumeSliderOpen: false,  // 音量滑块是否展开
     lastVolumeSendTime: 0,  // 上次发送音量的时间戳（节流用）
     isCollapsed: false,  // 是否收起
-    playMode: 'shuffle'  // 播放模式：'shuffle' 随机 | 'order' 顺序循环
+    playMode: 'shuffle',  // 播放模式：'shuffle' 随机 | 'order' 顺序循环
+    playlist: [],  // 播放列表
+    currentSongIndex: -1,  // 当前歌曲在列表中的索引
+    isPlaylistOpen: false  // 播放列表弹窗是否打开
   }
   
   // 播放超时时间（毫秒）
@@ -51,7 +54,10 @@ const MusicPlayer = (function() {
     volumeRange: null,
     collapseBtn: null,
     collapsedTrack: null,
-    visualizerBars: null
+    visualizerBars: null,
+    playlistBtn: null,
+    playlistPanel: null,
+    playlistItems: null
   }
 
   // ============ 工具函数 ============
@@ -199,6 +205,63 @@ const MusicPlayer = (function() {
         elements.modeBtn.textContent = '🔁'
         elements.modeBtn.title = '顺序播放（点击切换随机播放）'
         elements.modeBtn.classList.remove('active')
+      }
+    }
+  }
+
+  // ============ 播放列表 ============
+  
+  function togglePlaylist() {
+    state.isPlaylistOpen = !state.isPlaylistOpen
+    if (state.isPlaylistOpen) {
+      elements.playlistPanel.classList.add('open')
+      // 请求最新播放列表
+      window.electronAPI.musicGetPlaylist()
+    } else {
+      elements.playlistPanel.classList.remove('open')
+    }
+  }
+  
+  function renderPlaylist() {
+    if (!elements.playlistItems) return
+    
+    if (!state.playlist || state.playlist.length === 0) {
+      elements.playlistItems.innerHTML = '<div class="playlist-empty">暂无音乐</div>'
+      return
+    }
+    
+    const html = state.playlist.map((song, index) => {
+      const isCurrent = song === state.trackName
+      const classes = ['playlist-item']
+      if (isCurrent) classes.push('current')
+      
+      // 截取文件名（去掉扩展名）
+      const displayName = song.replace(/\.[^/.]+$/, '')
+      
+      return `<div class="${classes.join(' ')}" data-song="${song}" data-index="${index}">
+        <span class="playlist-item-name">${displayName}</span>
+        ${isCurrent ? '<span class="playlist-item-playing">▶</span>' : ''}
+      </div>`
+    }).join('')
+    
+    elements.playlistItems.innerHTML = html
+  }
+  
+  function handlePlaylistClick(e) {
+    const item = e.target.closest('.playlist-item')
+    if (!item) return
+    
+    const songName = item.dataset.song
+    if (songName && songName !== state.trackName) {
+      window.electronAPI.musicPlaySong(songName)
+    }
+  }
+  
+  function closePlaylistOnClickOutside(e) {
+    if (state.isPlaylistOpen && elements.playlistBtn && elements.playlistPanel) {
+      if (!elements.playlistBtn.contains(e.target) && !elements.playlistPanel.contains(e.target)) {
+        state.isPlaylistOpen = false
+        elements.playlistPanel.classList.remove('open')
       }
     }
   }
@@ -482,15 +545,26 @@ const MusicPlayer = (function() {
                           e.preventDefault()
                         }
                       })
-                    }    // 点击外部关闭设备列表和音量滑块
+                    }    // 点击外部关闭设备列表、音量滑块和播放列表
     document.addEventListener('click', (e) => {
       closeDeviceListOnClickOutside(e)
       closeVolumeSliderOnClickOutside(e)
+      closePlaylistOnClickOutside(e)
     })
     
     // 收起/展开按钮
     if (elements.collapseBtn) {
       elements.collapseBtn.addEventListener('click', toggleCollapse)
+    }
+    
+    // 播放列表按钮
+    if (elements.playlistBtn) {
+      elements.playlistBtn.addEventListener('click', togglePlaylist)
+    }
+    
+    // 播放列表点击
+    if (elements.playlistItems) {
+      elements.playlistItems.addEventListener('click', handlePlaylistClick)
     }
   }
 
@@ -603,6 +677,27 @@ const MusicPlayer = (function() {
     window.electronAPI.onMusicPlayMode((data) => {
       state.playMode = data.mode
       updateModeButton()
+    })
+    
+    // 监听播放列表事件
+    window.electronAPI.onMusicPlaylist((data) => {
+      state.playlist = data.songs || []
+      state.currentSongIndex = data.current_index !== undefined ? data.current_index : -1
+      renderPlaylist()
+    })
+    
+    // 监听歌曲消失事件
+    window.electronAPI.onMusicSongMissing((data) => {
+      console.log('[MusicPlayer] 歌曲消失:', data)
+      // 可以在这里显示一个临时提示
+      if (elements.trackNameEl) {
+        const originalText = elements.trackNameEl.textContent
+        elements.trackNameEl.textContent = `⚠️ ${data.message || '原歌曲已消失'}`
+        elements.trackNameEl.style.color = 'rgba(255, 180, 100, 0.95)'
+        setTimeout(() => {
+          elements.trackNameEl.style.color = ''
+        }, 3000)
+      }
     })
     
   }

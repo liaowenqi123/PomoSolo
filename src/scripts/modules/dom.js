@@ -83,6 +83,9 @@
     collapseBtn: document.getElementById('music-collapse-btn'),
     collapsedTrack: document.getElementById('music-collapsed-track'),
     visualizerBars: document.querySelectorAll('.visualizer-bar'),
+    playlistBtn: document.getElementById('music-playlist-btn'),
+    playlistPanel: document.getElementById('music-playlist-panel'),
+    playlistItems: document.getElementById('music-playlist-items'),
     
     // 按钮
     btnClose: document.querySelector('.btn-close'),

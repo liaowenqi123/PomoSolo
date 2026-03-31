@@ -80,6 +80,8 @@ const { contextBridge, ipcRenderer } = require('electron')
   musicGetDevices: () => ipcRenderer.send('music-get-devices'),
   musicSetDevice: (deviceId) => ipcRenderer.send('music-set-device', deviceId),
   musicSetPlayMode: (mode) => ipcRenderer.send('music-set-play-mode', mode),
+  musicGetPlaylist: () => ipcRenderer.send('music-get-playlist'),
+  musicPlaySong: (name) => ipcRenderer.send('music-play-song', name),
   
   // 音乐播放器事件监听
   onMusicReady: (callback) => {
@@ -112,6 +114,12 @@ const { contextBridge, ipcRenderer } = require('electron')
   onMusicPlayMode: (callback) => {
     ipcRenderer.on('music-play-mode', (event, data) => callback(data))
   },
+  onMusicPlaylist: (callback) => {
+    ipcRenderer.on('music-playlist', (event, data) => callback(data))
+  },
+  onMusicSongMissing: (callback) => {
+    ipcRenderer.on('music-song-missing', (event, data) => callback(data))
+  },
   
   // 移除监听器
   removeMusicListeners: () => {
@@ -125,6 +133,8 @@ const { contextBridge, ipcRenderer } = require('electron')
     ipcRenderer.removeAllListeners('music-play-error')
     ipcRenderer.removeAllListeners('music-volume-change')
     ipcRenderer.removeAllListeners('music-play-mode')
+    ipcRenderer.removeAllListeners('music-playlist')
+    ipcRenderer.removeAllListeners('music-song-missing')
   },
 
   // ============ 菜园子窗口 API ============

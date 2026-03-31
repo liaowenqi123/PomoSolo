@@ -510,3 +510,116 @@
   border: none;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
+
+/* ============ 播放列表 ============ */
+
+.music-playlist-btn {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.music-playlist-btn:hover {
+  opacity: 1;
+}
+
+.music-playlist-panel {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  margin-bottom: 8px;
+  background: rgba(40, 40, 50, 0.98);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  max-height: 250px;
+  overflow: hidden;
+  z-index: 100;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(10px);
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.music-playlist-panel.open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.playlist-header {
+  padding: 10px 12px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.playlist-items {
+  max-height: 210px;
+  overflow-y: auto;
+}
+
+.playlist-items::-webkit-scrollbar {
+  width: 5px;
+}
+
+.playlist-items::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.playlist-items::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.playlist-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.playlist-item:last-child {
+  border-bottom: none;
+}
+
+.playlist-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.playlist-item.current {
+  background: rgba(255, 107, 107, 0.2);
+}
+
+.playlist-item.current:hover {
+  background: rgba(255, 107, 107, 0.3);
+}
+
+.playlist-item-name {
+  flex: 1;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.playlist-item.current .playlist-item-name {
+  color: #ff8a8a;
+}
+
+.playlist-item-playing {
+  font-size: 10px;
+  color: #ff8a8a;
+  margin-left: 6px;
+}
+
+.playlist-empty {
+  padding: 20px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+}

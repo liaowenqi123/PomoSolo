@@ -72,6 +72,7 @@ class PlayerState:
         self.prev_one = False
         self.exit_program = False
         self.device_changed = False
+        self.jump_to_song = None      # 跳转到指定歌曲（歌曲名）
         
         # 播放列表
         self.directory_path = "music/"
@@ -695,6 +696,26 @@ def process_command(cmd_obj):
     elif command == "get_play_mode":
         with state.lock:
             state.send_event("play_mode", {"mode": state.play_mode})
+    
+    elif command == "get_playlist":
+        """获取播放列表"""
+        PlaylistManager.refresh_playlist()
+        with state.lock:
+            state.send_event("playlist", {
+                "songs": state.order_playlist,
+                "current_song": state.track_name,
+                "current_index": state.current_song_index
+            })
+    
+    elif command == "play_song":
+        """播放指定歌曲"""
+        song_name = cmd_obj.get("name")
+        if song_name:
+            print(f"play_song命令: {song_name}", file=sys.stderr)
+            with state.lock:
+                # 设置跳转歌曲标志
+                state.jump_to_song = song_name
+                state.next_one = True  # 触发切歌
 
 
 def stdin_reader():
@@ -799,11 +820,28 @@ def main():
             break
         
         elif result == "next":
-            current_song, error = PlaylistManager.get_next_song()
+            # 检查是否需要跳转到指定歌曲
+            jump_song = None
+            with state.lock:
+                if state.jump_to_song:
+                    jump_song = state.jump_to_song
+                    state.jump_to_song = None
+            
+            if jump_song:
+                # 跳转到指定歌曲
+                PlaylistManager.refresh_playlist()
+                if jump_song in state.order_playlist:
+                    current_song = jump_song
+                    state.current_song_index = state.order_playlist.index(jump_song)
+                else:
+                    # 歌曲不存在，随机选一首
+                    current_song = PlaylistManager.get_random_song()
+            else:
+                current_song, error = PlaylistManager.get_next_song()
+                if error == "no_music":
+                    state.send_event("no_music", {"message": "没有可播放的音乐"})
+                    state.playing = False
             current_position = 0
-            if error == "no_music":
-                state.send_event("no_music", {"message": "没有可播放的音乐"})
-                state.playing = False
         
         elif result == "prev":
             current_song, error = PlaylistManager.get_prev_song()

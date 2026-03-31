@@ -22,6 +22,8 @@ class MusicProcess {
     this.onProcessDeadCallback = null  // 进程死亡回调
     this.onVolumeChangeCallback = null  // 音量变化回调
     this.onPlayModeCallback = null  // 播放模式变化回调
+    this.onPlaylistCallback = null  // 播放列表回调
+    this.onSongMissingCallback = null  // 歌曲消失回调
   }
 
   /**
@@ -173,6 +175,16 @@ class MusicProcess {
             this.onPlayModeCallback(data)
           }
           break
+        case 'playlist':
+          if (this.onPlaylistCallback) {
+            this.onPlaylistCallback(data)
+          }
+          break
+        case 'song_missing':
+          if (this.onSongMissingCallback) {
+            this.onSongMissingCallback(data)
+          }
+          break
         default:
           console.log('[MusicProcess] 未知事件:', event)
       }
@@ -275,6 +287,21 @@ class MusicProcess {
     return this.sendCommand({ command: 'set_play_mode', mode })
   }
 
+  /**
+   * 获取播放列表
+   */
+  getPlaylist() {
+    return this.sendCommand({ command: 'get_playlist' })
+  }
+
+  /**
+   * 播放指定歌曲
+   * @param {string} name - 歌曲文件名
+   */
+  playSong(name) {
+    return this.sendCommand({ command: 'play_song', name })
+  }
+
   // ============ 回调设置 ============
 
   onReady(callback) {
@@ -315,6 +342,14 @@ class MusicProcess {
 
   onPlayMode(callback) {
     this.onPlayModeCallback = callback
+  }
+
+  onPlaylist(callback) {
+    this.onPlaylistCallback = callback
+  }
+
+  onSongMissing(callback) {
+    this.onSongMissingCallback = callback
   }
 }
 
