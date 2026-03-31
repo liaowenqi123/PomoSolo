@@ -12,6 +12,7 @@
   left: 50%;
   transform: translateX(-50%);
   overflow: visible;  /* 始终允许菜单显示 */
+  z-index: 100;  /* 确保子元素能正确层叠 */
 }
 
 /* 展开状态：wrapper 不裁剪，允许菜单弹出 */
@@ -451,7 +452,7 @@
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   padding: 10px 6px;
-  z-index: 200;
+  z-index: 1000;
   opacity: 0;
   visibility: hidden;
   transform: translateX(50%) translateY(8px);
@@ -534,7 +535,7 @@
   border: 1px solid rgba(255, 255, 255, 0.15);
   max-height: 320px;
   overflow: hidden;
-  z-index: 200;
+  z-index: 1000;
   opacity: 0;
   visibility: hidden;
   transition: all 0.2s ease;
