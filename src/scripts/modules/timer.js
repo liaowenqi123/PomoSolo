@@ -167,6 +167,20 @@
   }
 
   function reset() {
+    // 在重置前检查是否有已流逝的时间需要记录
+    const elapsedSeconds = totalTime - timeLeft
+    if (elapsedSeconds > 0 && window.Stats && window.Stats.recordPartialFocus) {
+      // 获取当前备注
+      let note = ''
+      const noteTextEl = document.getElementById('timer-note-text')
+      if (noteTextEl) {
+        note = noteTextEl.textContent || ''
+      }
+      
+      // 记录部分完成的专注时间
+      window.Stats.recordPartialFocus(elapsedSeconds, note)
+    }
+    
     clearInterval(timerId)
     isRunning = false
     isPaused = false

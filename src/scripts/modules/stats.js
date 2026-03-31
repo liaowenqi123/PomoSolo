@@ -52,6 +52,53 @@
     updateDisplay()
   }
 
+  /**
+   * 记录部分完成的专注时间（当用户重置计时器时）
+   * @param {number} seconds 已流逝的秒数
+   * @param {string} note 备注
+   */
+  async function recordPartialFocus(seconds, note = '') {
+    if (seconds <= 0) return
+    
+    const minutes = Math.floor(seconds / 60)
+    if (minutes <= 0) return
+    
+    const stats = DataStore.getStats()
+    const data = DataStore.getData()
+    
+    // 更新统计
+    const newStats = {
+      date: new Date().toDateString(),
+      todayCount: (stats.todayCount || 0) + 1,
+      totalMinutes: (stats.totalMinutes || 0) + minutes
+    }
+    
+    await DataStore.updateStats(newStats)
+    
+    // 记录到历史数据
+    const today = new Date().toISOString().split('T')[0]
+    const now = new Date().toISOString()
+    
+    if (!data.statisticsHistory) {
+      data.statisticsHistory = []
+    }
+    
+    // 添加部分完成记录
+    data.statisticsHistory.push({
+      date: today,
+      timestamp: now,
+      minutes: minutes,
+      note: note || '部分完成',
+      partial: true, // 标记为部分完成
+      originalSeconds: seconds
+    })
+    
+    // 保存历史数据
+    await window.electronAPI.writeData(data)
+    
+    updateDisplay()
+  }
+
   function getTodayCount() {
     const stats = DataStore.getStats()
     return stats.todayCount || 0
@@ -72,6 +119,7 @@
     init: init,
     updateDisplay: updateDisplay,
     increment: increment,
+    recordPartialFocus: recordPartialFocus,
     getTodayCount: getTodayCount,
     getTotalMinutes: getTotalMinutes
   }
