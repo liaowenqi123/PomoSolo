@@ -28,6 +28,12 @@
   // 显示查看模态框
   function showViewModal() {
     if (!currentNote.title) return
+    
+    // 展开侧边栏（如果收起状态）
+    if (window.expandSidebarIfNeeded) {
+      window.expandSidebarIfNeeded()
+    }
+    
     document.getElementById('note-view-title').textContent = currentNote.title
     document.getElementById('note-view-detail').textContent = currentNote.detail || '（无详细备注）'
     const modal = document.getElementById('note-view-modal')

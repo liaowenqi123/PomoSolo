@@ -79,6 +79,11 @@ const AIHelper = (function() {
    * 显示确认对话框
    */
   function showConfirmDialog() {
+    // 展开侧边栏（如果收起状态）
+    if (window.expandSidebarIfNeeded) {
+      window.expandSidebarIfNeeded()
+    }
+    
     const dialog = document.createElement('div')
     dialog.className = 'ai-confirm-dialog'
     dialog.innerHTML = `
@@ -128,6 +133,11 @@ const AIHelper = (function() {
    * 显示AI助手弹窗
    */
   function showAIModal() {
+    // 展开侧边栏（如果收起状态）
+    if (window.expandSidebarIfNeeded) {
+      window.expandSidebarIfNeeded()
+    }
+    
     if (elements.aiModal) {
       // 确保状态已重置
       isProcessing = false

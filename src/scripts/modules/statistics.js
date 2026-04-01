@@ -73,6 +73,11 @@ const Statistics = (function() {
    * 显示统计弹窗
    */
   function showStatsModal() {
+    // 展开侧边栏（如果收起状态）
+    if (window.expandSidebarIfNeeded) {
+      window.expandSidebarIfNeeded()
+    }
+    
     if (elements.statsModal) {
       elements.statsModal.classList.add('show')
       

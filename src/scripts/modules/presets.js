@@ -75,6 +75,11 @@
 
   // 编辑预设的备注
   function editNoteForPreset(index, currentNote) {
+    // 展开侧边栏（如果收起状态）
+    if (window.expandSidebarIfNeeded) {
+      window.expandSidebarIfNeeded()
+    }
+    
     // 填充当前备注到弹窗
     const modal = document.getElementById('note-view-modal')
     const contentDiv = modal.querySelector('.note-view')
@@ -188,6 +193,12 @@
   // 显示备注详情（只读）
   function showNoteDetail(note) {
     if (!note || (!note.title && !note.detail)) return
+    
+    // 展开侧边栏（如果收起状态）
+    if (window.expandSidebarIfNeeded) {
+      window.expandSidebarIfNeeded()
+    }
+    
     const titleEl = document.getElementById('note-view-title')
     const detailEl = document.getElementById('note-view-detail')
     

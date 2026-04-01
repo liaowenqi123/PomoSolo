@@ -7,6 +7,10 @@
   function init() {
     // 打开弹窗
     DOM.tutorialBtn.addEventListener('click', () => {
+      // 展开侧边栏（如果收起状态）
+      if (window.expandSidebarIfNeeded) {
+        window.expandSidebarIfNeeded()
+      }
       DOM.tutorialModal.classList.add('show')
     })
 

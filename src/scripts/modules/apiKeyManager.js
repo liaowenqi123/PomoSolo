@@ -362,6 +362,11 @@ const CloudAuth = (function() {
    * 显示确认弹窗
    */
   function showConfirmModal(icon, title, message) {
+    // 展开侧边栏（如果收起状态）
+    if (window.expandSidebarIfNeeded) {
+      window.expandSidebarIfNeeded()
+    }
+    
     if (confirmElements.icon) confirmElements.icon.textContent = icon
     if (confirmElements.title) confirmElements.title.textContent = title
     if (confirmElements.message) confirmElements.message.textContent = message
@@ -665,6 +670,11 @@ const CloudAuth = (function() {
    * @param {boolean} withAnimation - 是否显示动画（默认true）
    */
   function showModal(withAnimation = true) {
+    // 展开侧边栏（如果收起状态）
+    if (window.expandSidebarIfNeeded) {
+      window.expandSidebarIfNeeded()
+    }
+    
     if (elements.modal) {
       if (withAnimation) {
         elements.modal.classList.add('show')

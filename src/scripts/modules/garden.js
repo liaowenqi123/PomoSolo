@@ -530,6 +530,11 @@
    * 打开商店
    */
   function openShop() {
+    // 展开侧边栏（如果收起状态）
+    if (window.expandSidebarIfNeeded) {
+      window.expandSidebarIfNeeded()
+    }
+    
     if (elements.shopModal) {
       elements.shopModal.classList.add('show')
       renderShopBuy()
@@ -734,6 +739,11 @@
    * 打开签到弹窗
    */
   function openSigninModal() {
+    // 展开侧边栏（如果收起状态）
+    if (window.expandSidebarIfNeeded) {
+      window.expandSidebarIfNeeded()
+    }
+    
     if (elements.signinModal) {
       elements.signinModal.classList.add('show')
       renderSigninModal()

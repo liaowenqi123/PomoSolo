@@ -552,13 +552,24 @@
   
   // ============ 侧边栏收起/展开功能 ============
   const sidebarCollapseBtn = document.getElementById('ui-sidebar-collapse-btn')
-  let isSidebarCollapsed = false
+  
+  // 暴露到全局，供其他模块访问
+  window.isSidebarCollapsed = false
+  
+  // 展开侧边栏（如果当前是收起状态）
+  window.expandSidebarIfNeeded = function() {
+    if (window.isSidebarCollapsed && sidebarCollapseBtn && DOM.container) {
+      window.isSidebarCollapsed = false
+      DOM.container.classList.remove('sidebar-collapsed')
+      sidebarCollapseBtn.title = '收起侧边栏'
+    }
+  }
 
   if (sidebarCollapseBtn && DOM.container) {
     sidebarCollapseBtn.addEventListener('click', () => {
-      isSidebarCollapsed = !isSidebarCollapsed
+      window.isSidebarCollapsed = !window.isSidebarCollapsed
       
-      if (isSidebarCollapsed) {
+      if (window.isSidebarCollapsed) {
         DOM.container.classList.add('sidebar-collapsed')
         sidebarCollapseBtn.title = '展开侧边栏'
       } else {
@@ -598,6 +609,11 @@
   // 显示自定义确认弹窗
   window.showConfirmModal = function(message) {
     return new Promise((resolve) => {
+      // 展开侧边栏（如果收起状态）
+      if (window.expandSidebarIfNeeded) {
+        window.expandSidebarIfNeeded()
+      }
+      
       const modal = document.getElementById('confirm-interrupt-modal')
       const messageEl = modal.querySelector('.confirm-message')
       const cancelBtn = document.getElementById('confirm-interrupt-cancel-btn')

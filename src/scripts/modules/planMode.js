@@ -102,6 +102,11 @@
 
   // 编辑计划的备注
   function editNoteForPlan(index, currentNote) {
+    // 展开侧边栏（如果收起状态）
+    if (window.expandSidebarIfNeeded) {
+      window.expandSidebarIfNeeded()
+    }
+    
     const modal = document.getElementById('note-view-modal')
     const contentDiv = modal.querySelector('.note-view')
     const titleEl = modal.querySelector('h3')

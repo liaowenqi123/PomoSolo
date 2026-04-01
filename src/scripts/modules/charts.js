@@ -249,6 +249,10 @@ const Charts = (function() {
   // ============ 弹窗控制 ============
 
   function open() {
+    // 展开侧边栏（如果收起状态）
+    if (window.expandSidebarIfNeeded) {
+      window.expandSidebarIfNeeded()
+    }
     state.isOpen = true
     if (elements.modal) {
       elements.modal.classList.add('open')

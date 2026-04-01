@@ -220,6 +220,11 @@
    * 显示警告弹窗
    */
   function showWarningModal() {
+    // 展开侧边栏（如果收起状态）
+    if (window.expandSidebarIfNeeded) {
+      window.expandSidebarIfNeeded()
+    }
+    
     // 如果处于迷你模式，先退出
     if (window.MiniMode && window.MiniMode.isActive()) {
       window.MiniMode.exit()
@@ -253,6 +258,11 @@
    * 显示 API Key 错误弹窗
    */
   function showApiKeyErrorModal(data) {
+    // 展开侧边栏（如果收起状态）
+    if (window.expandSidebarIfNeeded) {
+      window.expandSidebarIfNeeded()
+    }
+    
     if (elements.apiKeyErrorModal) {
       // 设置错误信息
       if (elements.apiKeyErrorMessage) {
