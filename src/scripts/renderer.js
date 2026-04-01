@@ -183,10 +183,14 @@
   // 根据当前阶段执行不同操作：
   // - READY 阶段：开始计时
   // - RUNNING 阶段：暂停/继续（专注模式下禁止暂停）
-  // - FINISHED 阶段：重置后开始新的计时
+  // - FINISHED 阶段：不允许点击，需要先重置
   const newStartHandler = function() {
     const phase = Timer.getPhase()
-    const isPaused = Timer.getIsPaused()
+
+    if (phase === Timer.PHASE.FINISHED) {
+      // FINISHED 阶段不允许点击开始按钮，需要先点击重置
+      return
+    }
 
     if (phase === Timer.PHASE.RUNNING) {
       // 运行阶段 -> 暂停/继续（专注模式下禁用，Timer.toggle 内部已处理）
@@ -194,7 +198,7 @@
       return
     }
 
-    // READY 或 FINISHED 阶段 -> 开始计时
+    // READY 阶段 -> 开始计时
     // 如果是计划模式且计划列表为空，则不允许开始
     if (AppState.appMode === 'plan' && !PlanMode.hasPlan()) {
       alert('请先添加计划任务')
@@ -223,13 +227,13 @@
   })
 
   // 专注模式开关事件
-  // 只有在 READY 或 FINISHED 阶段才能切换
+  // 只有在 READY 阶段才能切换
   if (DOM.focusModeSwitch) {
     DOM.focusModeSwitch.addEventListener('click', () => {
       const phase = Timer.getPhase()
       
-      // 只有在非运行阶段才能切换专注模式
-      if (phase === Timer.PHASE.RUNNING) {
+      // 只有在准备阶段才能切换专注模式
+      if (phase !== Timer.PHASE.READY) {
         return
       }
       
