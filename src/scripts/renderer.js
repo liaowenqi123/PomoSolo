@@ -28,6 +28,12 @@
       themeToggleBtn: document.getElementById('ui-theme-toggle-btn')
     });
   }
+  
+  // ============ 初始化设置模块 ============
+  if (window.Settings) {
+    Settings.init()
+  }
+  
   // ============ 初始化预设模块 ============
   await Presets.init(
     {
@@ -401,11 +407,28 @@
     })
   }
 
+  // 设置按钮事件
+  const settingsBtn = document.getElementById('ui-settings-btn')
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', () => {
+      if (window.Settings) {
+        Settings.open()
+      }
+    })
+  }
+
   // 最小化窗口按钮
-  // 如果在运行阶段，进入迷你模式；否则正常最小化
+  // 根据设置决定运行时的行为
   DOM.btnMinimize.addEventListener('click', () => {
-    if (Timer.getPhase() === Timer.PHASE.RUNNING) {
-      enterMiniMode()
+    const phase = Timer.getPhase()
+    if (phase === Timer.PHASE.RUNNING) {
+      // 检查设置：是进入迷你模式还是直接最小化
+      const minimizeBehavior = window.Settings ? Settings.getSetting('minimizeBehavior') : 'mini'
+      if (minimizeBehavior === 'mini') {
+        enterMiniMode()
+      } else {
+        window.electronAPI.minimizeWindow()
+      }
     } else {
       window.electronAPI.minimizeWindow()
     }
@@ -527,7 +550,9 @@
 
   if (expandBtn && hiddenButtons) {
     expandBtn.addEventListener('click', () => {
-      isExpanded = !isExpanded
+      // 从 DOM 读取实际状态，而不是依赖变量（避免与设置模块不同步）
+      const actualExpanded = hiddenButtons.classList.contains('expanded')
+      isExpanded = !actualExpanded
       
       if (isExpanded) {
         // 展开：箭头旋转，容器展开露出按钮

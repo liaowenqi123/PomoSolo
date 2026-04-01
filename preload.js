@@ -250,5 +250,13 @@ const { contextBridge, ipcRenderer } = require('electron')
   // 监听托盘退出应用事件
   onQuitAppFromTray: (callback) => {
     ipcRenderer.on('quit-app-from-tray', () => callback())
-  }
+  },
+  
+  // ============ 开机自启动 API ============
+  
+  // 设置开机自启动
+  setAutoStart: (enabled) => ipcRenderer.invoke('set-auto-start', enabled),
+  
+  // 获取开机自启动状态
+  getAutoStart: () => ipcRenderer.invoke('get-auto-start')
 })

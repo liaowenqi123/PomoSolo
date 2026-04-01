@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="styles/api-key-modal.css">
   <link rel="stylesheet" href="styles/statistics.css">
   <link rel="stylesheet" href="styles/charts.css">
+  <link rel="stylesheet" href="styles/settings.css">
 </head>
     <!-- 备注查看模态框 -->
     <div class="note-modal" id="note-view-modal">
@@ -160,6 +161,7 @@
       <div class="main-content">
         <div class="header-buttons" id="ui-header-buttons">
           <button class="btn-header" id="ui-tutorial-btn" title="教程">📖</button>
+          <button class="btn-header" id="ui-settings-btn" title="设置">⚙️</button>
           <div class="header-buttons-hidden" id="ui-hidden-buttons">
             <button class="btn-header" id="ui-theme-toggle-btn" title="切换深色模式">🌙</button>
             <button class="btn-header" id="stats-btn" title="数据统计">📈</button>
@@ -718,6 +720,183 @@
         </div>
       </div>
     </div>
+
+    <!-- 设置弹窗 -->
+    <div class="settings-modal" id="settings-modal">
+      <div class="settings-modal-content">
+        <button class="settings-modal-close" id="settings-modal-close">×</button>
+        <h2 class="settings-modal-title">⚙️ 设置</h2>
+        
+        <!-- 计时器设置 -->
+        <div class="settings-section">
+          <h3 class="settings-section-title">⏱️ 计时器设置</h3>
+          <div class="settings-item">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">🖼️</span>
+              <span>运行时最小化行为</span>
+            </div>
+            <div class="settings-item-control">
+              <select id="settings-minimize-behavior" class="settings-select">
+                <option value="mini">进入迷你模式</option>
+                <option value="minimize">直接最小化到任务栏</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 界面显示 -->
+        <div class="settings-section">
+          <h3 class="settings-section-title">🖥️ 界面显示</h3>
+          <div class="settings-item">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">🌙</span>
+              <span>深色模式按钮</span>
+            </div>
+            <div class="settings-item-control">
+              <label class="settings-toggle">
+                <input type="checkbox" id="settings-dark-mode">
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-item">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">🌱</span>
+              <span>菜园子按钮</span>
+            </div>
+            <div class="settings-item-control">
+              <label class="settings-toggle">
+                <input type="checkbox" id="settings-show-garden-btn">
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-item">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">📊</span>
+              <span>统计按钮</span>
+            </div>
+            <div class="settings-item-control">
+              <label class="settings-toggle">
+                <input type="checkbox" id="settings-show-stats-btn">
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-item">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">🤖</span>
+              <span>AI 规划助手按钮</span>
+            </div>
+            <div class="settings-item-control">
+              <label class="settings-toggle">
+                <input type="checkbox" id="settings-show-ai-btn">
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-item">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">◀</span>
+              <span>侧边栏收起按钮</span>
+            </div>
+            <div class="settings-item-control">
+              <label class="settings-toggle">
+                <input type="checkbox" id="settings-show-sidebar-collapse-btn">
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-item">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">▶</span>
+              <span>功能按钮展开/收起</span>
+            </div>
+            <div class="settings-item-control">
+              <label class="settings-toggle">
+                <input type="checkbox" id="settings-show-header-expand-btn">
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 音乐播放器 -->
+        <div class="settings-section">
+          <h3 class="settings-section-title">🎶 音乐播放器</h3>
+          <div class="settings-item">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">🔀</span>
+              <span>随机/顺序播放按钮</span>
+            </div>
+            <div class="settings-item-control">
+              <label class="settings-toggle">
+                <input type="checkbox" id="settings-show-shuffle-btn">
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-item">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">🔊</span>
+              <span>音量调节按钮</span>
+            </div>
+            <div class="settings-item-control">
+              <label class="settings-toggle">
+                <input type="checkbox" id="settings-show-volume-slider">
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-item">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">🎧</span>
+              <span>设备切换按钮</span>
+            </div>
+            <div class="settings-item-control">
+              <label class="settings-toggle">
+                <input type="checkbox" id="settings-show-device-btn">
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-item">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">🎵</span>
+              <span>热榜歌单按钮</span>
+            </div>
+            <div class="settings-item-control">
+              <label class="settings-toggle">
+                <input type="checkbox" id="settings-show-charts-btn">
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 系统 -->
+        <div class="settings-section">
+          <h3 class="settings-section-title">💻 系统</h3>
+          <div class="settings-item">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">🚀</span>
+              <span>开机自启动</span>
+            </div>
+            <div class="settings-item-control">
+              <label class="settings-toggle">
+                <input type="checkbox" id="settings-auto-start">
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+        
+        <div class="settings-buttons">
+          <button class="settings-reset-btn" id="settings-reset-btn">恢复默认</button>
+          <button class="settings-save-btn" id="settings-save-btn">保存设置</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- 按依赖顺序加载 JS 模块 -->
@@ -750,6 +929,7 @@
   <script src="scripts/modules/garden.js"></script>
   <script src="scripts/modules/foregroundDetection.js"></script>
   <script src="scripts/modules/charts.js"></script>
+  <script src="scripts/modules/settings.js"></script>
   
   <!-- 主入口 -->
   <script src="scripts/renderer.js"></script>

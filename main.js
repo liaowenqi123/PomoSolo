@@ -312,6 +312,21 @@ ipcMain.handle('write-data', (event, data) => {
   return dataManager.writeData(data)
 })
 
+// ============ 开机自启动 IPC 处理 ============
+
+ipcMain.handle('set-auto-start', (event, enabled) => {
+  app.setLoginItemSettings({
+    openAtLogin: enabled,
+    openAsHidden: false
+  })
+  return true
+})
+
+ipcMain.handle('get-auto-start', () => {
+  const settings = app.getLoginItemSettings()
+  return settings.openAtLogin
+})
+
 // ============ 凭据存储 IPC 处理 ============
 
 ipcMain.handle('save-credentials', (event, credentials) => {

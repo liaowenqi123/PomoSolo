@@ -108,7 +108,26 @@
           weekRecords: [false, false, false, false, false, false, false]  // 本周签到记录
         }
       },
-      theme: 'light'  
+      theme: 'light',
+      // 设置
+      settings: {
+        // 计时器设置
+        minimizeBehavior: 'mini',  // 'mini' 迷你模式 | 'minimize' 最小化到任务栏
+        // 界面显示
+        showDarkModeBtn: true,     // 显示深色模式按钮
+        showGardenBtn: true,       // 显示菜园子按钮
+        showStatsBtn: true,        // 显示统计按钮
+        showAiBtn: true,           // 显示AI助手按钮
+        showSidebarCollapseBtn: true, // 显示侧边栏收起按钮
+        showHeaderExpandBtn: true, // 显示功能按钮展开/收起按钮
+        // 音乐播放器
+        showShuffleBtn: true,      // 显示随机/顺序播放按钮
+        showVolumeBtn: true,       // 显示音量调节按钮
+        showDeviceBtn: true,       // 显示设备切换按钮
+        showChartsBtn: true,       // 显示热榜歌单按钮
+        // 系统
+        autoStart: false           // 开机自启动
+      }
     }
   }
 

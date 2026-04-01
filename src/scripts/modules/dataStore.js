@@ -157,6 +157,18 @@
     return await saveImmediate()
   }
 
+  // 获取设置数据
+  function getSettings() {
+    return cachedData ? (cachedData.settings || Utils.createDefaultData().settings) : Utils.createDefaultData().settings
+  }
+
+  // 更新设置数据
+  async function updateSettings(settings) {
+    if (!cachedData) return false
+    cachedData.settings = { ...cachedData.settings, ...settings }
+    return await saveImmediate()
+  }
+
   // 导出到全局
   window.DataStore = {
     load: load,
@@ -171,6 +183,8 @@
     updatePlanList: updatePlanList,
     getGarden: getGarden,
     updateGarden: updateGarden,
+    getSettings: getSettings,
+    updateSettings: updateSettings,
     getTheme: () => cachedData ? (cachedData.theme || 'light') : 'light',
     updateTheme: (theme) => {
       if (!cachedData) return false;

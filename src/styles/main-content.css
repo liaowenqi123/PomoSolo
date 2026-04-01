@@ -359,15 +359,16 @@
   gap: 4px;
   max-height: 0;
   overflow: hidden;
-  transition: max-height 0.3s ease;
+  transition: max-height 0.3s ease, clip-path 0.3s ease, margin 0.3s ease;
   /* 用clip-path创建圆形遮罩 */
   clip-path: circle(0% at center);
-  transition: max-height 0.3s ease, clip-path 0.3s ease;
+  margin-top: -4px; /* 收起时抵消上方的 flex gap，使间距与其他按钮一致 */
 }
 
 .header-buttons-hidden.expanded {
   max-height: 150px; /* 足够容纳5个按钮 */
   clip-path: circle(150% at center);
+  margin-top: 0; /* 展开时恢复正常间距 */
 }
 
 /* 展开/收起按钮 */
