@@ -180,23 +180,21 @@
   DOM.startBtn.removeEventListener('click', Timer.toggle);
   
   // 定义新的开始按钮处理函数
+  // 根据当前阶段执行不同操作：
+  // - READY 阶段：开始计时
+  // - RUNNING 阶段：暂停/继续（专注模式下禁止暂停）
+  // - FINISHED 阶段：重置后开始新的计时
   const newStartHandler = function() {
-    const isRunning = Timer.getIsRunning()
+    const phase = Timer.getPhase()
     const isPaused = Timer.getIsPaused()
 
-    if (isRunning) {
-      // 正在运行 -> 暂停（专注模式下禁用，Timer.toggle 内部已处理）
+    if (phase === Timer.PHASE.RUNNING) {
+      // 运行阶段 -> 暂停/继续（专注模式下禁用，Timer.toggle 内部已处理）
       Timer.toggle()
       return
     }
 
-    if (isPaused) {
-      // 暂停状态 -> 继续（不需要备注）
-      Timer.toggle()
-      return
-    }
-
-    // 准备状态 -> 开始计时（备注可选）
+    // READY 或 FINISHED 阶段 -> 开始计时
     // 如果是计划模式且计划列表为空，则不允许开始
     if (AppState.appMode === 'plan' && !PlanMode.hasPlan()) {
       alert('请先添加计划任务')
@@ -225,10 +223,13 @@
   })
 
   // 专注模式开关事件
+  // 只有在 READY 或 FINISHED 阶段才能切换
   if (DOM.focusModeSwitch) {
     DOM.focusModeSwitch.addEventListener('click', () => {
-      // 番茄钟运行中或暂停中不允许切换专注模式
-      if (Timer.getIsRunning() || Timer.getIsPaused()) {
+      const phase = Timer.getPhase()
+      
+      // 只有在非运行阶段才能切换专注模式
+      if (phase === Timer.PHASE.RUNNING) {
         return
       }
       
@@ -309,30 +310,40 @@
   })
 
   // 重置按钮
+  // 根据当前阶段执行不同操作：
+  // - READY 阶段：无效果
+  // - RUNNING 阶段：中断计时，可能触发惩罚
+  // - FINISHED 阶段：确认完成，进入下一轮准备
   DOM.btnReset.addEventListener('click', async () => {
-    // 先保存当前计时器运行状态（在重置之前）
-    const wasRunning = Timer.getIsRunning()
+    const phase = Timer.getPhase()
+    const PHASE = Timer.PHASE
+    
+    // READY 阶段不执行任何操作
+    if (phase === PHASE.READY) {
+      return
+    }
     
     // 停止前台检测
     if (window.ForegroundDetection) {
       window.ForegroundDetection.stopDetection()
     }
     
-    // 专注模式下，如果计时器正在运行，弹出确认框
-    if (AppState.focusModeEnabled && wasRunning) {
+    // RUNNING 阶段（专注模式下）需要确认
+    if (phase === PHASE.RUNNING && AppState.focusModeEnabled) {
       const confirmed = await window.showConfirmModal('确定要中断专注吗？所有正在生长的作物将会枯萎！')
       if (!confirmed) {
-        return // 用户取消，不执行重置
+        return // 用户取消
       }
       // 显示惩罚提示
       DOM.statusEl.textContent = '⚠️ 专注中断！作物已枯萎'
-      // 触发惩罚：所有正在生长的作物枯萎
+      // 触发惩罚
       if (window.Garden) {
         window.Garden.handleResetPunishment()
       }
     }
     
-    // 先停止计时器
+    // FINISHED 阶段：正常重置，无需确认
+    // 执行重置（进入 READY 阶段）
     Timer.reset()
     
     NoteManager.clearNote()
@@ -353,14 +364,17 @@
   })
 
   // 关闭窗口按钮
+  // 专注模式下运行阶段需要确认
   DOM.btnClose.addEventListener('click', async () => {
-    // 专注模式下，如果计时器正在运行，弹出确认框
-    if (AppState.focusModeEnabled && Timer.getIsRunning()) {
+    const phase = Timer.getPhase()
+    
+    // 专注模式下，如果在运行阶段，需要确认
+    if (AppState.focusModeEnabled && phase === Timer.PHASE.RUNNING) {
       const confirmed = await window.showConfirmModal('确定要关闭吗？所有正在生长的作物将会枯萎！')
       if (!confirmed) {
-        return // 用户取消，不关闭
+        return // 用户取消
       }
-      // 触发惩罚：所有正在生长的作物枯萎
+      // 触发惩罚
       if (window.Garden) {
         await window.Garden.handleResetPunishment()
       }
@@ -384,12 +398,11 @@
   }
 
   // 最小化窗口按钮
+  // 如果在运行阶段，进入迷你模式；否则正常最小化
   DOM.btnMinimize.addEventListener('click', () => {
-    // 如果计时器正在运行，进入迷你模式
-    if (Timer.getIsRunning()) {
+    if (Timer.getPhase() === Timer.PHASE.RUNNING) {
       enterMiniMode()
     } else {
-      // 否则正常最小化
       window.electronAPI.minimizeWindow()
     }
   })
@@ -580,13 +593,13 @@
   }
 
   // ============ 滚轮调整时间功能 ============
-  // 仅在单次模式下、未开始计时时，滚动时间区域可调整分钟数
+  // 仅在单次模式下、准备阶段时，滚动时间区域可调整分钟数
   const timerContainer = document.querySelector('.timer-section .timer-container')
   if (timerContainer) {
     timerContainer.addEventListener('wheel', (e) => {
-      // 判断条件：单次模式 + 未开始计时 + 未暂停
+      // 判断条件：单次模式 + 准备阶段
       if (AppState.appMode !== 'single') return
-      if (Timer.getIsRunning() || Timer.getIsPaused()) return
+      if (Timer.getPhase() !== Timer.PHASE.READY) return
       
       e.preventDefault()
       

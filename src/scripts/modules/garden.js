@@ -95,11 +95,17 @@
 
   /**
    * 加载菜园数据
+   * 优先使用 DataStore 的缓存数据
    */
   async function loadGardenData() {
     try {
-      const data = await window.electronAPI.readData()
-      gardenData = data.garden || Utils.createDefaultData().garden
+      // 优先使用 DataStore 的缓存数据，避免数据不一致
+      if (window.DataStore) {
+        gardenData = window.DataStore.getGarden()
+      } else {
+        const data = await window.electronAPI.readData()
+        gardenData = data.garden || Utils.createDefaultData().garden
+      }
     } catch (e) {
       console.error('加载菜园数据失败:', e)
       gardenData = Utils.createDefaultData().garden
@@ -108,12 +114,19 @@
 
   /**
    * 保存菜园数据
+   * 使用 DataStore 来保存，确保数据一致性
    */
   async function saveGardenData() {
     try {
-      const data = await window.electronAPI.readData()
-      data.garden = gardenData
-      await window.electronAPI.writeData(data)
+      // 使用 DataStore 来保存，确保与其他模块的数据一致
+      if (window.DataStore) {
+        await window.DataStore.updateGarden(gardenData)
+      } else {
+        // 回退方案：直接读写文件
+        const data = await window.electronAPI.readData()
+        data.garden = gardenData
+        await window.electronAPI.writeData(data)
+      }
     } catch (e) {
       console.error('保存菜园数据失败:', e)
     }

@@ -862,8 +862,8 @@ const CloudAuth = (function() {
    * 处理退出登录
    */
   async function handleLogout() {
-    // 检查番茄钟是否在运行
-    if (window.Timer && window.Timer.getIsRunning && window.Timer.getIsRunning()) {
+    // 检查番茄钟是否在运行阶段
+    if (window.Timer && window.Timer.getPhase && window.Timer.getPhase() === window.Timer.PHASE.RUNNING) {
       showMessage('请先停止番茄钟再退出登录', 'error')
       return
     }

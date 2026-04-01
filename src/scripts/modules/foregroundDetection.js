@@ -192,8 +192,16 @@
 
   /**
    * 处理检测到娱乐前台
+   * 注意：只有在计时器运行阶段才会处理警告
    */
   function handleEntertainmentDetected(data) {
+    // 检查计时器是否仍在运行阶段
+    // 如果不在运行阶段，忽略此次检测（可能是延迟到达的事件）
+    if (!window.Timer || window.Timer.getPhase() !== window.Timer.PHASE.RUNNING) {
+      console.log('[ForegroundDetection] 计时器不在运行阶段，忽略娱乐检测')
+      return
+    }
+    
     // 如果警告弹窗已经显示，不再重复显示
     if (state.warningModalVisible) {
       return
@@ -334,8 +342,18 @@
 
   /**
    * 触发惩罚
+   * 注意：只有在计时器运行阶段才会触发惩罚
    */
   function triggerPunishment() {
+    // 再次检查计时器是否仍在运行阶段
+    // 防止在计时结束后（FINISHED阶段）仍然触发惩罚
+    if (!window.Timer || window.Timer.getPhase() !== window.Timer.PHASE.RUNNING) {
+      console.log('[ForegroundDetection] 计时器不在运行阶段，取消惩罚')
+      // 重置警告计数
+      state.warningCount = 0
+      return
+    }
+    
     console.log('[ForegroundDetection] 触发惩罚：警告次数已达上限')
     
     // 隐藏警告弹窗

@@ -70,9 +70,11 @@
         DOM.container.classList.remove('focus-mode')
       }
     }
-    // 专注模式拨杆在番茄钟运行时不允许拨动（通过禁用点击事件实现）
+    // 专注模式拨杆在运行阶段不允许拨动（通过禁用点击事件实现）
     if (DOM.focusModeSwitch) {
-      if (state.focusModeEnabled && Timer.getIsRunning()) {
+      // 使用新的阶段系统：只有在 RUNNING 阶段才禁用
+      const isRunning = window.Timer && window.Timer.getPhase() === window.Timer.PHASE.RUNNING
+      if (state.focusModeEnabled && isRunning) {
         DOM.focusModeSwitch.style.pointerEvents = 'none'
         DOM.focusModeSwitch.style.opacity = '0.6'
       } else {
@@ -129,9 +131,11 @@
   
   /**
    * 切换应用模式（单次/计划）
+   * 只能在准备阶段切换，运行阶段和结束等待阶段都不允许切换
    */
   function switchAppMode(mode) {
-    if (Timer.getIsRunning()) return // 运行中不允许切换
+    // 只能在准备阶段切换
+    if (Timer.getPhase() !== Timer.PHASE.READY) return
     
     state.appMode = mode
     

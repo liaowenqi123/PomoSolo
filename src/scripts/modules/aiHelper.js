@@ -311,7 +311,7 @@ const AIHelper = (function() {
     
     // 显示应用按钮，并根据番茄钟状态设置禁用状态
     if (elements.aiApplyBtn) {
-      const isTimerRunning = window.Timer && window.Timer.getIsRunning()
+      const isTimerRunning = window.Timer && window.Timer.getPhase() === window.Timer.PHASE.RUNNING
       
       elements.aiApplyBtn.style.display = 'block'
       elements.aiApplyBtn.disabled = isTimerRunning
@@ -335,8 +335,8 @@ const AIHelper = (function() {
    * 应用计划到番茄钟
    */
   async function handleApplyPlan() {
-    // 检查番茄钟是否正在运行
-    if (window.Timer && window.Timer.getIsRunning()) {
+    // 检查番茄钟是否在运行阶段
+    if (window.Timer && window.Timer.getPhase() === window.Timer.PHASE.RUNNING) {
       showError('请先停止当前番茄钟再应用计划')
       return
     }
