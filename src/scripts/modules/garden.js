@@ -370,8 +370,14 @@
     
     // 保存并渲染
     await saveGardenData()
-    selectedSeed = null
-    updateTip('种植成功！专注计时会让作物成长')
+    
+    // 检查种子是否还有剩余，如果没有则取消选中
+    if (seeds[cropKey] <= 0) {
+      selectedSeed = null
+      updateTip('种植成功！种子已用完')
+    } else {
+      updateTip(`种植成功！还剩 ${seeds[cropKey]} 颗 ${CROP_CONFIG[cropKey].name}种子，继续点击空格子种植`)
+    }
     render()
   }
 
