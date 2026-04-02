@@ -67,6 +67,258 @@
   }
 
   /**
+   * 成就配置
+   */
+  const ACHIEVEMENT_CONFIG = {
+    // 专注成就
+    focus1h: { 
+      id: 'focus1h',
+      category: 'focus',
+      name: '初心者', 
+      description: '累计专注 1 小时',
+      target: 60,  // 分钟
+      icon: '⏱️',
+      rewards: { seeds: { carrot: 3 }, coins: 10 }
+    },
+    focus5h: { 
+      id: 'focus5h',
+      category: 'focus',
+      name: '专注新手', 
+      description: '累计专注 5 小时',
+      target: 300,
+      icon: '⏱️',
+      rewards: { seeds: { tomato: 2 }, coins: 20 }
+    },
+    focus25h: { 
+      id: 'focus25h',
+      category: 'focus',
+      name: '专注达人', 
+      description: '累计专注 25 小时',
+      target: 1500,
+      icon: '🎯',
+      rewards: { seeds: { sunflower: 1 }, coins: 50 }
+    },
+    focus50h: { 
+      id: 'focus50h',
+      category: 'focus',
+      name: '专注大师', 
+      description: '累计专注 50 小时',
+      target: 3000,
+      icon: '🏆',
+      rewards: { seeds: { rose: 1 }, coins: 100 }
+    },
+    focus100h: { 
+      id: 'focus100h',
+      category: 'focus',
+      name: '专注传奇', 
+      description: '累计专注 100 小时',
+      target: 6000,
+      icon: '👑',
+      rewards: { seeds: { osmanthus: 1 }, coins: 200 }
+    },
+    
+    // 收获成就
+    harvest1: { 
+      id: 'harvest1',
+      category: 'harvest',
+      name: '初次丰收', 
+      description: '收获 1 个作物',
+      target: 1,
+      icon: '🌾',
+      rewards: { seeds: {}, coins: 5 }
+    },
+    harvest10: { 
+      id: 'harvest10',
+      category: 'harvest',
+      name: '小有收成', 
+      description: '收获 10 个作物',
+      target: 10,
+      icon: '🌾',
+      rewards: { seeds: { carrot: 2 }, coins: 15 }
+    },
+    harvest50: { 
+      id: 'harvest50',
+      category: 'harvest',
+      name: '丰收达人', 
+      description: '收获 50 个作物',
+      target: 50,
+      icon: '🌻',
+      rewards: { seeds: { tomato: 2 }, coins: 30 }
+    },
+    harvest100: { 
+      id: 'harvest100',
+      category: 'harvest',
+      name: '丰收大师', 
+      description: '收获 100 个作物',
+      target: 100,
+      icon: '🏆',
+      rewards: { seeds: { sunflower: 2 }, coins: 60 }
+    },
+    harvest500: { 
+      id: 'harvest500',
+      category: 'harvest',
+      name: '丰收传奇', 
+      description: '收获 500 个作物',
+      target: 500,
+      icon: '👑',
+      rewards: { seeds: { osmanthus: 2 }, coins: 200 }
+    },
+    
+    // 种植成就
+    plant1: { 
+      id: 'plant1',
+      category: 'plant',
+      name: '新手农夫', 
+      description: '种植 1 次',
+      target: 1,
+      icon: '🌱',
+      rewards: { seeds: { carrot: 1 }, coins: 0 }
+    },
+    plant10: { 
+      id: 'plant10',
+      category: 'plant',
+      name: '勤劳农夫', 
+      description: '种植 10 次',
+      target: 10,
+      icon: '🌱',
+      rewards: { seeds: {}, coins: 10 }
+    },
+    plant50: { 
+      id: 'plant50',
+      category: 'plant',
+      name: '种植达人', 
+      description: '种植 50 次',
+      target: 50,
+      icon: '🌿',
+      rewards: { seeds: { tomato: 2 }, coins: 20 }
+    },
+    plant100: { 
+      id: 'plant100',
+      category: 'plant',
+      name: '种植大师', 
+      description: '种植 100 次',
+      target: 100,
+      icon: '🏆',
+      rewards: { seeds: { sunflower: 1 }, coins: 50 }
+    },
+    plant500: { 
+      id: 'plant500',
+      category: 'plant',
+      name: '种植传奇', 
+      description: '种植 500 次',
+      target: 500,
+      icon: '👑',
+      rewards: { seeds: { rose: 1 }, coins: 100 }
+    },
+    
+    // 收藏成就
+    collect1: { 
+      id: 'collect1',
+      category: 'collect',
+      name: '初次收藏', 
+      description: '收获任意 1 种作物',
+      target: 1,
+      icon: '📦',
+      rewards: { seeds: {}, coins: 5 }
+    },
+    collect3: { 
+      id: 'collect3',
+      category: 'collect',
+      name: '多样收藏', 
+      description: '收获 3 种不同作物',
+      target: 3,
+      icon: '🎁',
+      rewards: { seeds: {}, coins: 30 }
+    },
+    collect5: { 
+      id: 'collect5',
+      category: 'collect',
+      name: '全集收藏', 
+      description: '收获全部 5 种作物',
+      target: 5,
+      icon: '👑',
+      rewards: { seeds: { osmanthus: 1 }, coins: 100 }
+    },
+    
+    // 财富成就
+    coins100: { 
+      id: 'coins100',
+      category: 'wealth',
+      name: '小富翁', 
+      description: '累计获得 100 金币',
+      target: 100,
+      icon: '💰',
+      rewards: { seeds: { carrot: 3 }, coins: 0 }
+    },
+    coins500: { 
+      id: 'coins500',
+      category: 'wealth',
+      name: '中富翁', 
+      description: '累计获得 500 金币',
+      target: 500,
+      icon: '💰',
+      rewards: { seeds: { tomato: 2 }, coins: 0 }
+    },
+    coins1000: { 
+      id: 'coins1000',
+      category: 'wealth',
+      name: '大富翁', 
+      description: '累计获得 1000 金币',
+      target: 1000,
+      icon: '💎',
+      rewards: { seeds: { rose: 1 }, coins: 0 }
+    },
+    coins5000: { 
+      id: 'coins5000',
+      category: 'wealth',
+      name: '富豪', 
+      description: '累计获得 5000 金币',
+      target: 5000,
+      icon: '👑',
+      rewards: { seeds: { osmanthus: 2 }, coins: 0 }
+    },
+    
+    // 坚持成就
+    signin7: { 
+      id: 'signin7',
+      category: 'persist',
+      name: '坚持一周', 
+      description: '连续签到 7 天',
+      target: 7,
+      icon: '📅',
+      rewards: { seeds: { sunflower: 1 }, coins: 0 }
+    },
+    signin30: { 
+      id: 'signin30',
+      category: 'persist',
+      name: '坚持一月', 
+      description: '连续签到 30 天',
+      target: 30,
+      icon: '📅',
+      rewards: { seeds: { rose: 1 }, coins: 0 }
+    },
+    signin100: { 
+      id: 'signin100',
+      category: 'persist',
+      name: '坚持百日', 
+      description: '连续签到 100 天',
+      target: 100,
+      icon: '👑',
+      rewards: { seeds: { osmanthus: 2 }, coins: 0 }
+    }
+  }
+
+  // 成就分类配置
+  const ACHIEVEMENT_CATEGORIES = {
+    focus: { name: '专注', icon: '⏱️' },
+    harvest: { name: '收获', icon: '🌾' },
+    plant: { name: '种植', icon: '🌱' },
+    collect: { name: '收藏', icon: '📦' },
+    wealth: { name: '财富', icon: '💰' },
+    persist: { name: '坚持', icon: '📅' }
+  }
+
+  /**
    * 创建默认数据结构
    * @returns {Object} 默认数据对象
    */
@@ -106,6 +358,15 @@
           continuousDays: 0,        // 连续签到天数
           totalDays: 0,             // 累计签到天数
           weekRecords: [false, false, false, false, false, false, false]  // 本周签到记录
+        },
+        // 成就系统
+        achievements: {},  // 已解锁的成就 { achievementId: { unlocked: true, unlockedAt: '2024-01-01' } }
+        achievementStats: {
+          totalFocusMinutes: 0,     // 累计专注分钟数
+          totalHarvestCount: 0,     // 累计收获次数
+          totalPlantCount: 0,       // 累计种植次数
+          totalCoinsEarned: 0,      // 累计获得的金币
+          cropTypesCollected: []    // 已收集的作物类型 ['carrot', 'tomato', ...]
         }
       },
       theme: 'light',
@@ -139,6 +400,8 @@
     CROP_CONFIG: CROP_CONFIG,
     DAILY_REWARD: DAILY_REWARD,
     CONTINUOUS_REWARDS: CONTINUOUS_REWARDS,
-    WEEKLY_REWARDS: WEEKLY_REWARDS
+    WEEKLY_REWARDS: WEEKLY_REWARDS,
+    ACHIEVEMENT_CONFIG: ACHIEVEMENT_CONFIG,
+    ACHIEVEMENT_CATEGORIES: ACHIEVEMENT_CATEGORIES
   }
 })()

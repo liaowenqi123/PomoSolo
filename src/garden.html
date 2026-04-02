@@ -19,6 +19,7 @@
           <span id="coinCount">0</span>
         </div>
         <button class="garden-signin-btn" id="signinBtn" title="签到">📅</button>
+        <button class="garden-achievement-btn" id="achievementBtn" title="成就墙">🏆</button>
         <button class="garden-shop-btn" id="shopBtn" title="商店">🏪</button>
       </div>
       <button class="garden-btn-close" id="gardenCloseBtn">×</button>
@@ -137,6 +138,45 @@
       
       <!-- 签到按钮 -->
       <button class="signin-btn" id="signinConfirmBtn">✅ 立即签到</button>
+    </div>
+  </div>
+
+  <!-- 成就墙弹窗 -->
+  <div class="achievement-modal" id="achievementModal">
+    <div class="achievement-content">
+      <div class="achievement-header">
+        <span class="achievement-title">🏆 成就墙</span>
+        <button class="achievement-close" id="achievementCloseBtn">×</button>
+      </div>
+      
+      <!-- 成就统计 -->
+      <div class="achievement-stats">
+        <div class="achievement-stat">
+          <span class="achievement-stat-value" id="achievementUnlocked">0</span>
+          <span class="achievement-stat-label">已解锁</span>
+        </div>
+        <div class="achievement-stat-divider">|</div>
+        <div class="achievement-stat">
+          <span class="achievement-stat-value" id="achievementTotal">0</span>
+          <span class="achievement-stat-label">总成就</span>
+        </div>
+      </div>
+      
+      <!-- 成就分类标签 -->
+      <div class="achievement-tabs" id="achievementTabs">
+        <button class="achievement-tab active" data-category="all">全部</button>
+        <button class="achievement-tab" data-category="focus">⏱️ 专注</button>
+        <button class="achievement-tab" data-category="harvest">🌾 收获</button>
+        <button class="achievement-tab" data-category="plant">🌱 种植</button>
+        <button class="achievement-tab" data-category="collect">📦 收藏</button>
+        <button class="achievement-tab" data-category="wealth">💰 财富</button>
+        <button class="achievement-tab" data-category="persist">📅 坚持</button>
+      </div>
+      
+      <!-- 成就列表 -->
+      <div class="achievement-list" id="achievementList">
+        <!-- 成就由 JS 动态生成 -->
+      </div>
     </div>
   </div>
 

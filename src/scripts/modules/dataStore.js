@@ -157,6 +157,39 @@
     return await saveImmediate()
   }
 
+  // 获取成就数据
+  function getAchievements() {
+    if (!cachedData || !cachedData.garden) {
+      return { achievements: {}, achievementStats: Utils.createDefaultData().garden.achievementStats }
+    }
+    return {
+      achievements: cachedData.garden.achievements || {},
+      achievementStats: cachedData.garden.achievementStats || Utils.createDefaultData().garden.achievementStats
+    }
+  }
+
+  // 更新成就数据
+  async function updateAchievements(achievements, achievementStats) {
+    if (!cachedData || !cachedData.garden) return false
+    if (achievements) {
+      cachedData.garden.achievements = achievements
+    }
+    if (achievementStats) {
+      cachedData.garden.achievementStats = achievementStats
+    }
+    return await saveImmediate()
+  }
+
+  // 更新成就统计数据（增量更新）
+  async function updateAchievementStats(stats) {
+    if (!cachedData || !cachedData.garden) return false
+    cachedData.garden.achievementStats = {
+      ...cachedData.garden.achievementStats,
+      ...stats
+    }
+    return await saveImmediate()
+  }
+
   // 获取设置数据
   function getSettings() {
     return cachedData ? (cachedData.settings || Utils.createDefaultData().settings) : Utils.createDefaultData().settings
@@ -183,6 +216,9 @@
     updatePlanList: updatePlanList,
     getGarden: getGarden,
     updateGarden: updateGarden,
+    getAchievements: getAchievements,
+    updateAchievements: updateAchievements,
+    updateAchievementStats: updateAchievementStats,
     getSettings: getSettings,
     updateSettings: updateSettings,
     getTheme: () => cachedData ? (cachedData.theme || 'light') : 'light',

@@ -49,6 +49,11 @@
     // 保存历史数据
     await window.electronAPI.writeData(data)
     
+    // 更新成就进度（专注时长）
+    if (window.Garden && window.Garden.updateAchievementStats) {
+      await window.Garden.updateAchievementStats('focus', minutes)
+    }
+    
     updateDisplay()
   }
 
@@ -95,6 +100,11 @@
     
     // 保存历史数据
     await window.electronAPI.writeData(data)
+    
+    // 更新成就进度（专注时长）
+    if (window.Garden && window.Garden.updateAchievementStats) {
+      await window.Garden.updateAchievementStats('focus', minutes)
+    }
     
     updateDisplay()
   }

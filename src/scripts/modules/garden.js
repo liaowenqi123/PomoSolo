@@ -14,6 +14,10 @@
 
   // 作物配置
   const CROP_CONFIG = Utils.CROP_CONFIG
+  
+  // 成就配置
+  const ACHIEVEMENT_CONFIG = Utils.ACHIEVEMENT_CONFIG
+  const ACHIEVEMENT_CATEGORIES = Utils.ACHIEVEMENT_CATEGORIES
 
   /**
    * 初始化菜园子
@@ -42,7 +46,15 @@
       signinTotal: document.getElementById('signinTotal'),
       signinWeekDots: document.getElementById('signinWeekDots'),
       signinRewardsList: document.getElementById('signinRewardsList'),
-      signinConfirmBtn: document.getElementById('signinConfirmBtn')
+      signinConfirmBtn: document.getElementById('signinConfirmBtn'),
+      // 成就墙相关
+      achievementBtn: document.getElementById('achievementBtn'),
+      achievementModal: document.getElementById('achievementModal'),
+      achievementCloseBtn: document.getElementById('achievementCloseBtn'),
+      achievementUnlocked: document.getElementById('achievementUnlocked'),
+      achievementTotal: document.getElementById('achievementTotal'),
+      achievementTabs: document.getElementById('achievementTabs'),
+      achievementList: document.getElementById('achievementList')
     }
 
     // 绑定关闭按钮事件
@@ -81,6 +93,9 @@
     
     // 绑定签到事件
     initSigninEvents()
+    
+    // 绑定成就墙事件
+    initAchievementEvents()
   }
 
   /**
@@ -371,6 +386,9 @@
     // 保存并渲染
     await saveGardenData()
     
+    // 更新种植成就进度
+    await updateAchievementStats('plant')
+    
     // 检查种子是否还有剩余，如果没有则取消选中
     if (seeds[cropKey] <= 0) {
       selectedSeed = null
@@ -406,6 +424,12 @@
     
     // 保存并渲染
     await saveGardenData()
+    
+    // 更新收获成就进度（传入作物类型）
+    await updateAchievementStats('harvest', plot.crop)
+    // 更新财富成就进度
+    await updateAchievementStats('coins', reward)
+    
     updateTip(`收获成功！${cropConfig.name} x1 已存入作物背包，金币 +${reward}`)
     render()
   }
@@ -693,6 +717,10 @@
     
     // 保存并渲染
     await saveGardenData()
+    
+    // 更新财富成就进度
+    await updateAchievementStats('coins', crop.sellPrice)
+    
     updateTip(`出售成功！获得 💰${crop.sellPrice}`)
     render()
     renderShopSell()
@@ -725,6 +753,10 @@
     
     // 保存并渲染
     await saveGardenData()
+    
+    // 更新财富成就进度
+    await updateAchievementStats('coins', totalCoins)
+    
     updateTip(`出售成功！共出售 ${totalItems} 个作物，获得 💰${totalCoins}`)
     render()
     renderShopSell()
@@ -961,6 +993,9 @@
     // 更新界面
     render()
     
+    // 检查坚持成就（连续签到）
+    await checkAndUnlockAchievements()
+    
     updateTip('签到成功！奖励已发放')
   }
 
@@ -969,12 +1004,13 @@
    */
   async function grantSigninRewards(signInData) {
     const today = new Date().getDay()
+    let totalCoinsEarned = 0
     
     // 发放每日基础奖励
     Object.entries(Utils.DAILY_REWARD.seeds).forEach(([seedKey, count]) => {
       gardenData.seeds[seedKey] = (gardenData.seeds[seedKey] || 0) + count
     })
-    gardenData.coins += Utils.DAILY_REWARD.coins
+    totalCoinsEarned += Utils.DAILY_REWARD.coins
     
     // 发放每周奖励
     const weeklyReward = Utils.WEEKLY_REWARDS[today]
@@ -988,7 +1024,7 @@
         Object.entries(weeklyReward.seeds).forEach(([seedKey, count]) => {
           gardenData.seeds[seedKey] = (gardenData.seeds[seedKey] || 0) + count
         })
-        gardenData.coins += weeklyReward.coins
+        totalCoinsEarned += weeklyReward.coins
       }
     }
     
@@ -998,7 +1034,15 @@
       Object.entries(continuousReward.seeds).forEach(([seedKey, count]) => {
         gardenData.seeds[seedKey] = (gardenData.seeds[seedKey] || 0) + count
       })
-      gardenData.coins += continuousReward.coins
+      totalCoinsEarned += continuousReward.coins
+    }
+    
+    // 增加金币
+    gardenData.coins = (gardenData.coins || 0) + totalCoinsEarned
+    
+    // 更新财富成就进度
+    if (totalCoinsEarned > 0) {
+      await updateAchievementStats('coins', totalCoinsEarned)
     }
   }
 
@@ -1015,11 +1059,282 @@
     }
   }
 
+  /* ============ 成就墙系统 ============ */
+
+  /**
+   * 初始化成就墙事件
+   */
+  function initAchievementEvents() {
+    if (elements.achievementBtn) {
+      elements.achievementBtn.addEventListener('click', openAchievementModal)
+    }
+    if (elements.achievementCloseBtn) {
+      elements.achievementCloseBtn.addEventListener('click', closeAchievementModal)
+    }
+    if (elements.achievementModal) {
+      elements.achievementModal.addEventListener('click', (e) => {
+        if (e.target === elements.achievementModal) {
+          closeAchievementModal()
+        }
+      })
+    }
+    // 分类标签切换
+    if (elements.achievementTabs) {
+      const tabs = elements.achievementTabs.querySelectorAll('.achievement-tab')
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          tabs.forEach(t => t.classList.remove('active'))
+          tab.classList.add('active')
+          renderAchievementList(tab.dataset.category)
+        })
+      })
+    }
+  }
+
+  /**
+   * 打开成就墙弹窗
+   */
+  function openAchievementModal() {
+    if (window.expandSidebarIfNeeded) {
+      window.expandSidebarIfNeeded()
+    }
+    
+    if (elements.achievementModal) {
+      elements.achievementModal.classList.add('show')
+      renderAchievementModal()
+    }
+  }
+
+  /**
+   * 关闭成就墙弹窗
+   */
+  function closeAchievementModal() {
+    if (elements.achievementModal) {
+      elements.achievementModal.classList.remove('show')
+    }
+  }
+
+  /**
+   * 渲染成就墙弹窗
+   */
+  function renderAchievementModal() {
+    const achievements = gardenData.achievements || {}
+    const totalAchievements = Object.keys(ACHIEVEMENT_CONFIG).length
+    const unlockedCount = Object.keys(achievements).filter(id => achievements[id] && achievements[id].unlocked).length
+    
+    elements.achievementUnlocked.textContent = unlockedCount
+    elements.achievementTotal.textContent = totalAchievements
+    
+    renderAchievementList('all')
+  }
+
+  /**
+   * 渲染成就列表
+   */
+  function renderAchievementList(category = 'all') {
+    if (!elements.achievementList) return
+    
+    elements.achievementList.innerHTML = ''
+    const achievements = gardenData.achievements || {}
+    const stats = gardenData.achievementStats || {}
+    
+    Object.keys(ACHIEVEMENT_CONFIG).forEach(achievementId => {
+      const config = ACHIEVEMENT_CONFIG[achievementId]
+      
+      // 过滤分类
+      if (category !== 'all' && config.category !== category) {
+        return
+      }
+      
+      const isUnlocked = achievements[achievementId] && achievements[achievementId].unlocked
+      const progress = getAchievementProgress(achievementId, stats)
+      const progressPercent = Math.min(100, (progress / config.target) * 100)
+      
+      const itemEl = document.createElement('div')
+      itemEl.className = `achievement-item ${isUnlocked ? 'unlocked' : ''} ${config.category}`
+      
+      itemEl.innerHTML = `
+        <div class="achievement-icon">${config.icon}</div>
+        <div class="achievement-info">
+          <div class="achievement-name">${config.name}</div>
+          <div class="achievement-desc">${config.description}</div>
+          <div class="achievement-progress">
+            <div class="achievement-progress-bar">
+              <div class="achievement-progress-fill" style="width: ${progressPercent}%"></div>
+            </div>
+            <span class="achievement-progress-text">${progress}/${config.target}</span>
+          </div>
+          <div class="achievement-rewards">
+            ${formatAchievementRewards(config.rewards)}
+          </div>
+        </div>
+        ${isUnlocked ? '<div class="achievement-badge">✓</div>' : ''}
+      `
+      
+      elements.achievementList.appendChild(itemEl)
+    })
+  }
+
+  /**
+   * 获取成就进度
+   */
+  function getAchievementProgress(achievementId, stats) {
+    const config = ACHIEVEMENT_CONFIG[achievementId]
+    stats = stats || gardenData.achievementStats || {}
+    
+    switch (config.category) {
+      case 'focus':
+        return stats.totalFocusMinutes || 0
+      case 'harvest':
+        return stats.totalHarvestCount || 0
+      case 'plant':
+        return stats.totalPlantCount || 0
+      case 'collect':
+        return (stats.cropTypesCollected || []).length
+      case 'wealth':
+        return stats.totalCoinsEarned || 0
+      case 'persist':
+        return (gardenData.signIn && gardenData.signIn.continuousDays) || 0
+      default:
+        return 0
+    }
+  }
+
+  /**
+   * 格式化成就奖励显示
+   */
+  function formatAchievementRewards(rewards) {
+    let html = ''
+    
+    if (rewards.seeds) {
+      Object.entries(rewards.seeds).forEach(([seedKey, count]) => {
+        if (count > 0) {
+          const crop = CROP_CONFIG[seedKey]
+          html += `<span class="reward-item">${crop.icon} x${count}</span>`
+        }
+      })
+    }
+    if (rewards.coins > 0) {
+      html += `<span class="reward-item">💰 x${rewards.coins}</span>`
+    }
+    
+    return html
+  }
+
+  /**
+   * 检查并解锁成就
+   */
+  async function checkAndUnlockAchievements() {
+    const achievements = gardenData.achievements || {}
+    const stats = gardenData.achievementStats || {}
+    let hasNewUnlock = false
+    let unlockedAchievements = []
+    
+    Object.keys(ACHIEVEMENT_CONFIG).forEach(achievementId => {
+      // 已解锁则跳过
+      if (achievements[achievementId] && achievements[achievementId].unlocked) {
+        return
+      }
+      
+      const config = ACHIEVEMENT_CONFIG[achievementId]
+      const progress = getAchievementProgress(achievementId, stats)
+      
+      // 达成条件
+      if (progress >= config.target) {
+        achievements[achievementId] = {
+          unlocked: true,
+          unlockedAt: new Date().toISOString()
+        }
+        hasNewUnlock = true
+        unlockedAchievements.push(config)
+      }
+    })
+    
+    if (hasNewUnlock) {
+      gardenData.achievements = achievements
+      await saveGardenData()
+      
+      // 发放奖励
+      for (const config of unlockedAchievements) {
+        await grantAchievementReward(config)
+      }
+      
+      // 显示解锁提示
+      if (unlockedAchievements.length > 0) {
+        const names = unlockedAchievements.map(a => a.name).join('、')
+        updateTip(`🎉 恭喜解锁成就：${names}！`)
+      }
+    }
+    
+    return unlockedAchievements
+  }
+
+  /**
+   * 发放成就奖励
+   */
+  async function grantAchievementReward(config) {
+    const rewards = config.rewards
+    
+    if (rewards.seeds) {
+      Object.entries(rewards.seeds).forEach(([seedKey, count]) => {
+        gardenData.seeds[seedKey] = (gardenData.seeds[seedKey] || 0) + count
+      })
+    }
+    if (rewards.coins > 0) {
+      gardenData.coins = (gardenData.coins || 0) + rewards.coins
+    }
+    
+    await saveGardenData()
+  }
+
+  /**
+   * 更新成就统计数据（供外部调用）
+   * @param {string} type - 更新类型: 'focus' | 'harvest' | 'plant' | 'coins' | 'cropType'
+   * @param {number|string} value - 更新值
+   */
+  async function updateAchievementStats(type, value) {
+    if (!gardenData.achievementStats) {
+      gardenData.achievementStats = {
+        totalFocusMinutes: 0,
+        totalHarvestCount: 0,
+        totalPlantCount: 0,
+        totalCoinsEarned: 0,
+        cropTypesCollected: []
+      }
+    }
+    
+    const stats = gardenData.achievementStats
+    
+    switch (type) {
+      case 'focus':
+        stats.totalFocusMinutes = (stats.totalFocusMinutes || 0) + value
+        break
+      case 'harvest':
+        stats.totalHarvestCount = (stats.totalHarvestCount || 0) + 1
+        // 同时更新作物类型收集
+        if (value && !stats.cropTypesCollected.includes(value)) {
+          stats.cropTypesCollected.push(value)
+        }
+        break
+      case 'plant':
+        stats.totalPlantCount = (stats.totalPlantCount || 0) + 1
+        break
+      case 'coins':
+        stats.totalCoinsEarned = (stats.totalCoinsEarned || 0) + value
+        break
+    }
+    
+    await saveGardenData()
+    await checkAndUnlockAchievements()
+  }
+
   // 导出到全局
   window.Garden = {
     init: init,
     updateProgress: updateProgress,
-    handleResetPunishment: handleResetPunishment
+    handleResetPunishment: handleResetPunishment,
+    updateAchievementStats: updateAchievementStats,
+    checkAndUnlockAchievements: checkAndUnlockAchievements
   }
 
   // 页面加载完成后自动初始化
