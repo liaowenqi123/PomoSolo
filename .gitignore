@@ -10,6 +10,7 @@ music-player/dist/
 music-player/__pycache__/
 music-player/*.spec
 music-player/music/
+!music-player/music/番茄小宇宙 - 番茄钟.mp3
 music-player/*.bat
 
 foreground_inspection/build/

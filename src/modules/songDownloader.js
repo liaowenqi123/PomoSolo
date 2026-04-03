@@ -14,6 +14,7 @@ class SongDownloader {
     // 下载队列，确保串行执行
     this.downloadQueue = []
     this.isDownloading = false
+    this.currentSong = null  // 当前正在下载的歌曲 { title, artist }
   }
 
   /**
@@ -65,11 +66,13 @@ class SongDownloader {
   async _processQueue() {
     if (this.downloadQueue.length === 0) {
       this.isDownloading = false
+      this.currentSong = null
       return
     }
 
     this.isDownloading = true
     const { title, artist, onProgress, resolve } = this.downloadQueue.shift()
+    this.currentSong = { title, artist }
 
     try {
       const result = await this._doDownload(title, artist, onProgress)
@@ -98,7 +101,7 @@ class SongDownloader {
       return { success: false, error: '请先配置 DeepSeek API Key' }
     }
 
-    const songName = `${title} - ${artist}`
+    const songName = artist ? `${title} - ${artist}` : title
 
     return new Promise((resolve) => {
       try {
@@ -196,6 +199,18 @@ class SongDownloader {
    */
   getQueueLength() {
     return this.downloadQueue.length
+  }
+
+  /**
+   * 获取下载状态
+   * @returns {{ isDownloading: boolean, currentSong: object|null, queueLength: number }}
+   */
+  getStatus() {
+    return {
+      isDownloading: this.isDownloading,
+      currentSong: this.currentSong,
+      queueLength: this.downloadQueue.length
+    }
   }
 }
 

@@ -467,6 +467,10 @@
             <span class="charts-source-label" id="charts-source-label-qq">QQ音乐</span>
           </div>
         </div>
+        <div class="charts-download-status" id="charts-download-status" style="display: none;">
+          <span class="download-spinner">⏳</span>
+          <span class="download-status-text" id="download-status-text">正在下载...</span>
+        </div>
         <div class="charts-loading" id="charts-loading">
           <span class="charts-spinner"></span>
           <span>正在获取榜单...</span>
@@ -488,7 +492,13 @@
             </tbody>
           </table>
         </div>
-        <button class="charts-refresh-btn" id="charts-refresh-btn">🔄 刷新</button>
+        <div class="charts-footer">
+          <button class="charts-refresh-btn" id="charts-refresh-btn">🔄 刷新</button>
+          <div class="charts-manual-download" id="charts-manual-download" style="display: none;">
+            <input type="text" class="charts-download-input" id="charts-download-input" placeholder="输入歌曲名搜索">
+            <button class="charts-manual-download-btn" id="charts-manual-download-btn">⬇</button>
+          </div>
+        </div>
       </div>
     </div>
 

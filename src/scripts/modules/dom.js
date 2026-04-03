@@ -103,6 +103,11 @@
     disclaimerModal: document.getElementById('disclaimer-modal'),
     disclaimerCancelBtn: document.getElementById('disclaimer-cancel-btn'),
     disclaimerConfirmBtn: document.getElementById('disclaimer-confirm-btn'),
+    chartsDownloadStatus: document.getElementById('charts-download-status'),
+    chartsDownloadStatusText: document.getElementById('download-status-text'),
+    chartsManualDownload: document.getElementById('charts-manual-download'),
+    chartsManualDownloadInput: document.getElementById('charts-download-input'),
+    chartsManualDownloadBtn: document.getElementById('charts-manual-download-btn'),
     
     // 按钮
     btnClose: document.querySelector('.btn-close'),

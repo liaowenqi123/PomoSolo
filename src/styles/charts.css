@@ -161,6 +161,36 @@
   transform: translateX(14px);
 }
 
+/* 下载状态栏 */
+.charts-download-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.download-spinner {
+  font-size: 12px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.download-status-text {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 400;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
 /* 加载状态 */
 .charts-loading {
   display: flex;
@@ -309,9 +339,17 @@
   display: block;
 }
 
+/* 底部栏 */
+.charts-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
 /* 刷新按钮 */
 .charts-refresh-btn {
-  margin-top: 12px;
   padding: 6px 14px;
   background: #ff8a8a;
   color: white;
@@ -320,7 +358,6 @@
   font-size: 11px;
   cursor: pointer;
   transition: all 0.2s;
-  align-self: center;
 }
 
 .charts-refresh-btn:hover {
@@ -334,6 +371,60 @@
 
 .charts-refresh-btn:disabled {
   opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 手动下载区域 */
+.charts-manual-download {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.charts-download-input {
+  width: 140px;
+  padding: 5px 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.charts-download-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.charts-download-input:focus {
+  border-color: rgba(90, 159, 212, 0.5);
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.charts-manual-download-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: rgba(90, 159, 212, 0.2);
+  color: #5a9fd4;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.charts-manual-download-btn:hover {
+  background: rgba(90, 159, 212, 0.4);
+  transform: scale(1.05);
+}
+
+.charts-manual-download-btn:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
   transform: none;
 }

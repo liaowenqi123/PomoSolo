@@ -508,6 +508,11 @@ ipcMain.handle('download-song', async (event, title, artist) => {
   return await songDownloader.downloadSong(title, artist)
 })
 
+// 获取下载状态
+ipcMain.handle('download-status', () => {
+  return songDownloader.getStatus()
+})
+
 // ============ AI助手 IPC 处理 ============
 
 ipcMain.handle('ai-generate-plan', async (event, userInput) => {

@@ -659,11 +659,11 @@ def main():
         artist = parts[-1]
     else:
         title = args.song
-        artist = "未知歌手"
+        artist = ""  # 不指定歌手，搜索时只用歌曲名
 
     print(f"\n📝 解析结果:")
     print(f"   歌名：{title}")
-    print(f"   歌手：{artist}")
+    print(f"   歌手：{artist if artist else '(未指定)'}")
 
     # 检查歌曲是否已存在
     existing_file = downloader.is_song_exists(title)
@@ -673,7 +673,7 @@ def main():
         sys.exit(2)  # 退出码 2 表示歌曲已存在
 
     # B 站搜索（取前6个视频）
-    keyword = f"{title} {artist}"
+    keyword = f"{title} {artist}" if artist else title
     videos = downloader.search_bilibili_videos(keyword, max_results=6)
 
     if not videos:

@@ -32,8 +32,16 @@ const Charts = (function() {
     downloadTh: null,
     disclaimerModal: null,
     disclaimerCancelBtn: null,
-    disclaimerConfirmBtn: null
+    disclaimerConfirmBtn: null,
+    downloadStatus: null,
+    downloadStatusText: null,
+    manualDownload: null,
+    manualDownloadInput: null,
+    manualDownloadBtn: null
   }
+  
+  // 下载状态轮询定时器
+  let downloadStatusInterval = null
 
   // ============ 渲染函数 ============
 
@@ -149,6 +157,10 @@ const Charts = (function() {
     if (elements.downloadToggle) {
       elements.downloadToggle.checked = state.downloadMode
     }
+    // 更新手动下载区域显示
+    if (elements.manualDownload) {
+      elements.manualDownload.style.display = state.downloadMode ? 'flex' : 'none'
+    }
     // 重新渲染歌曲列表
     renderSongs()
   }
@@ -192,6 +204,7 @@ const Charts = (function() {
     
     state.downloadingSongs.add(songKey)
     renderSongs()
+    startDownloadStatusPolling()
     
     try {
       const result = await window.electronAPI.downloadSong(title, artist)
@@ -223,6 +236,10 @@ const Charts = (function() {
     } finally {
       state.downloadingSongs.delete(songKey)
       renderSongs()
+      // 如果没有正在下载的歌曲了，停止轮询
+      if (state.downloadingSongs.size === 0) {
+        stopDownloadStatusPolling()
+      }
     }
   }
 
@@ -268,6 +285,55 @@ const Charts = (function() {
       toast.style.animation = 'fadeOutDown 0.3s ease'
       setTimeout(() => toast.remove(), 300)
     }, 3000)
+  }
+  
+  /**
+   * 更新下载状态显示
+   */
+  async function updateDownloadStatus() {
+    try {
+      const status = await window.electronAPI.getDownloadStatus()
+      
+      if (status.isDownloading && status.currentSong) {
+        const songName = `${status.currentSong.title} - ${status.currentSong.artist}`
+        const queueInfo = status.queueLength > 0 ? ` [剩余任务: ${status.queueLength}]` : ''
+        
+        if (elements.downloadStatusText) {
+          elements.downloadStatusText.textContent = `正在下载: ${songName}${queueInfo}`
+        }
+        if (elements.downloadStatus) {
+          elements.downloadStatus.style.display = 'flex'
+        }
+      } else {
+        if (elements.downloadStatus) {
+          elements.downloadStatus.style.display = 'none'
+        }
+      }
+    } catch (err) {
+      console.error('[Charts] 获取下载状态失败:', err)
+    }
+  }
+  
+  /**
+   * 开始轮询下载状态
+   */
+  function startDownloadStatusPolling() {
+    if (downloadStatusInterval) return
+    downloadStatusInterval = setInterval(updateDownloadStatus, 500)
+    updateDownloadStatus() // 立即更新一次
+  }
+  
+  /**
+   * 停止轮询下载状态
+   */
+  function stopDownloadStatusPolling() {
+    if (downloadStatusInterval) {
+      clearInterval(downloadStatusInterval)
+      downloadStatusInterval = null
+    }
+    if (elements.downloadStatus) {
+      elements.downloadStatus.style.display = 'none'
+    }
   }
 
   // ============ 弹窗控制 ============
@@ -343,15 +409,7 @@ const Charts = (function() {
   function handleDisclaimerConfirm() {
     state.downloadMode = true
     hideDisclaimer()
-    // 先更新拨杆状态
-    if (elements.downloadToggle) {
-      elements.downloadToggle.checked = true
-    }
-    // 更新表格头显示并重新渲染
-    if (elements.downloadTh) {
-      elements.downloadTh.style.display = 'table-cell'
-    }
-    renderSongs()
+    updateDownloadUI()
   }
 
   function handleDisclaimerCancel() {
@@ -368,6 +426,26 @@ const Charts = (function() {
         handleDownload(title, artist)
       }
     }
+  }
+  
+  /**
+   * 处理手动下载
+   */
+  function handleManualDownload() {
+    const input = elements.manualDownloadInput
+    if (!input) return
+    
+    const value = input.value.trim()
+    if (!value) {
+      showDownloadToast('请输入歌曲名称', 'error')
+      return
+    }
+    
+    // 清空输入框
+    input.value = ''
+    
+    // 直接把输入作为搜索关键词，不区分歌曲和歌手
+    handleDownload(value, '')
   }
 
   function handleClickOutside(e) {
@@ -412,6 +490,20 @@ const Charts = (function() {
     // 表格点击（下载按钮）
     if (elements.tbody) {
       elements.tbody.addEventListener('click', handleTableClick)
+    }
+
+    // 手动下载按钮
+    if (elements.manualDownloadBtn) {
+      elements.manualDownloadBtn.addEventListener('click', handleManualDownload)
+    }
+    
+    // 手动下载输入框回车
+    if (elements.manualDownloadInput) {
+      elements.manualDownloadInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          handleManualDownload()
+        }
+      })
     }
 
     // 点击外部关闭

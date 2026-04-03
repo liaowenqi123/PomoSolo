@@ -177,7 +177,12 @@
       downloadTh: DOM.chartsDownloadTh,
       disclaimerModal: DOM.disclaimerModal,
       disclaimerCancelBtn: DOM.disclaimerCancelBtn,
-      disclaimerConfirmBtn: DOM.disclaimerConfirmBtn
+      disclaimerConfirmBtn: DOM.disclaimerConfirmBtn,
+      downloadStatus: DOM.chartsDownloadStatus,
+      downloadStatusText: DOM.chartsDownloadStatusText,
+      manualDownload: DOM.chartsManualDownload,
+      manualDownloadInput: DOM.chartsManualDownloadInput,
+      manualDownloadBtn: DOM.chartsManualDownloadBtn
     })
   }
 
