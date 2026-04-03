@@ -27,7 +27,6 @@ import io
 from datetime import datetime
 from typing import List, Dict, Optional
 from bs4 import BeautifulSoup
-from openai import OpenAI
 
 
 class ManualSongDownloader:
@@ -39,12 +38,6 @@ class ManualSongDownloader:
             deepseek_api_key: DeepSeek API Key
         """
         self.deepseek_api_key = deepseek_api_key
-        
-        # OpenAI 客户端（指向 DeepSeek）
-        self.client = OpenAI(
-            api_key=deepseek_api_key,
-            base_url="https://api.deepseek.com"
-        )
         
         # 获取脚本/exe所在目录（兼容 PyInstaller 打包）
         self.script_dir = self._get_script_dir()
@@ -382,16 +375,27 @@ class ManualSongDownloader:
             print(f"   {title}")
 
         try:
-            response = self.client.chat.completions.create(
-                model="deepseek-chat",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0
+            # 直接用 requests 调用 DeepSeek API（避免 openai 包的巨大体积）
+            response = requests.post(
+                "https://api.deepseek.com/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.deepseek_api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "deepseek-chat",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "temperature": 0
+                },
+                timeout=30
             )
-
-            content = response.choices[0].message.content or ""
+            response.raise_for_status()
+            data = response.json()
+            
+            content = data["choices"][0]["message"]["content"] or ""
             content = content.strip()
             
             print(f"\n🤖 DeepSeek 选择：{content}")
