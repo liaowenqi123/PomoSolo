@@ -304,9 +304,12 @@
         <div class="tag-custom-section">
           <div class="tag-custom-row">
             <input type="text" class="tag-custom-input" id="tag-custom-input" placeholder="自定义标签" maxlength="3">
-            <input type="color" class="tag-color-picker" id="tag-color-picker" value="#ff6b6b">
-            <button class="tag-add-btn" id="tag-add-btn">添加</button>
           </div>
+          <div class="tag-color-presets" id="tag-color-presets">
+            <!-- 预设颜色按钮由 JS 动态生成 -->
+          </div>
+          <input type="color" class="tag-color-picker" id="tag-color-picker" value="#ff6b6b" style="display: none;">
+          <button class="tag-add-btn" id="tag-add-btn">添加</button>
         </div>
       </div>
     </div>
@@ -909,6 +912,18 @@
             <div class="settings-item-control">
               <label class="settings-toggle">
                 <input type="checkbox" id="settings-show-charts-btn">
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-item">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">🎨</span>
+              <span>高级颜色自定义</span>
+            </div>
+            <div class="settings-item-control">
+              <label class="settings-toggle">
+                <input type="checkbox" id="settings-advanced-color">
                 <span class="settings-toggle-slider"></span>
               </label>
             </div>

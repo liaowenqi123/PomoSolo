@@ -405,6 +405,7 @@
         showVolumeBtn: true,       // 显示音量调节按钮
         showDeviceBtn: true,       // 显示设备切换按钮
         showChartsBtn: true,       // 显示热榜歌单按钮
+        advancedColorCustomization: false, // 高级颜色自定义（默认关闭）
         // 系统
         autoStart: false           // 开机自启动
       }

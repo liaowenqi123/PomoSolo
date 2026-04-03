@@ -33,6 +33,7 @@
     showVolumeBtn: 'settings-show-volume-slider',
     showDeviceBtn: 'settings-show-device-btn',
     showChartsBtn: 'settings-show-charts-btn',
+    advancedColorCustomization: 'settings-advanced-color',
     // 系统
     autoStart: 'settings-auto-start'
   }
@@ -41,7 +42,8 @@
   const TOGGLE_SETTINGS = [
     'showDarkModeBtn', 'showGardenBtn', 'showStatsBtn',
     'showAiBtn', 'showSidebarCollapseBtn', 'showHeaderExpandBtn',
-    'showShuffleBtn', 'showVolumeBtn', 'showDeviceBtn', 'showChartsBtn', 'autoStart'
+    'showShuffleBtn', 'showVolumeBtn', 'showDeviceBtn', 'showChartsBtn',
+    'advancedColorCustomization', 'autoStart'
   ]
 
   /**
@@ -359,6 +361,11 @@
     applyVisibility('music-volume-btn', currentSettings.showVolumeBtn)
     applyVisibility('music-device-btn', currentSettings.showDeviceBtn)
     applyVisibility('music-charts-btn', currentSettings.showChartsBtn)
+    
+    // 高级颜色自定义设置
+    if (window.MusicPlayer && window.MusicPlayer.setAdvancedColorCustomization) {
+      window.MusicPlayer.setAdvancedColorCustomization(currentSettings.advancedColorCustomization || false)
+    }
     
     // 通知主进程开机自启动设置
     if (window.electronAPI && window.electronAPI.setAutoStart) {

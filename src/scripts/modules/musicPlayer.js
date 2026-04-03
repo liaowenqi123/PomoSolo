@@ -362,6 +362,22 @@ const MusicPlayer = (function() {
   // 预设标签列表
   const PRESET_TAGS = ['学习', '运动', '休息', '主题曲']
   
+  // 预设颜色列表（9个标准颜色）
+  const PRESET_COLORS = [
+    '#ff6b6b', // 红色
+    '#ff9f43', // 橙色
+    '#feca57', // 黄色
+    '#5cd85c', // 绿色
+    '#48dbfb', // 青色
+    '#5f9df7', // 蓝色
+    '#a55eea', // 紫色
+    '#ff6b9d', // 粉色
+    '#8c8c8c'  // 灰色
+  ]
+  
+  // 当前选中的预设颜色
+  let selectedColor = PRESET_COLORS[0]
+  
   /**
    * 显示标签选择弹窗
    */
@@ -371,6 +387,7 @@ const MusicPlayer = (function() {
     const optionsEl = document.getElementById('tag-options')
     const customInput = document.getElementById('tag-custom-input')
     const colorPicker = document.getElementById('tag-color-picker')
+    const colorPresetsEl = document.getElementById('tag-color-presets')
     const addBtn = document.getElementById('tag-add-btn')
     
     if (!modal || !songNameEl || !optionsEl) return
@@ -395,6 +412,39 @@ const MusicPlayer = (function() {
       return `<button class="tag-option ${isActive ? 'active' : ''}" data-tag="${tag}" ${style}>${tag}</button>`
     }).join('')
     
+    // 生成预设颜色按钮
+    if (colorPresetsEl) {
+      // 检查是否开启高级颜色自定义
+      const advancedColorEnabled = state.advancedColorCustomization || false
+      
+      if (advancedColorEnabled && colorPicker) {
+        // 显示自由颜色选择器
+        colorPicker.style.display = 'block'
+        colorPresetsEl.style.display = 'none'
+      } else {
+        // 显示预设颜色按钮
+        colorPicker.style.display = 'none'
+        colorPresetsEl.style.display = 'flex'
+        
+        colorPresetsEl.innerHTML = PRESET_COLORS.map((color, index) => 
+          `<div class="tag-color-preset ${color === selectedColor ? 'active' : ''}" 
+               data-color="${color}" 
+               style="background: ${color};">
+           </div>`
+        ).join('')
+        
+        // 绑定颜色选择事件
+        colorPresetsEl.querySelectorAll('.tag-color-preset').forEach(preset => {
+          preset.addEventListener('click', () => {
+            // 移除其他选中状态
+            colorPresetsEl.querySelectorAll('.tag-color-preset').forEach(p => p.classList.remove('active'))
+            preset.classList.add('active')
+            selectedColor = preset.dataset.color
+          })
+        })
+      }
+    }
+    
     // 显示弹窗
     modal.classList.add('show')
     
@@ -413,14 +463,16 @@ const MusicPlayer = (function() {
     })
     
     // 添加自定义标签
-    if (addBtn && customInput && colorPicker) {
+    if (addBtn && customInput) {
       // 移除旧的事件监听器
       const newAddBtn = addBtn.cloneNode(true)
       addBtn.parentNode.replaceChild(newAddBtn, addBtn)
       
       newAddBtn.addEventListener('click', async () => {
         const tagName = customInput.value.trim()
-        const color = colorPicker.value
+        // 根据设置决定颜色来源
+        const advancedColorEnabled = state.advancedColorCustomization || false
+        const color = advancedColorEnabled && colorPicker ? colorPicker.value : selectedColor
         
         if (!tagName) {
           showToast('请输入标签名称')
@@ -1053,6 +1105,14 @@ const MusicPlayer = (function() {
         console.log('[MusicPlayer] 加载自定义标签失败:', e)
       }
       
+      // 读取高级颜色自定义设置
+      try {
+        const settings = DataStore.getSettings()
+        state.advancedColorCustomization = settings.advancedColorCustomization || false
+      } catch (e) {
+        state.advancedColorCustomization = false
+      }
+      
       // 初始化模式按钮
       updateModeButton()
       
@@ -1085,6 +1145,13 @@ const MusicPlayer = (function() {
      */
     prev() {
       window.electronAPI.musicPrev()
+    },
+    
+    /**
+     * 更新高级颜色自定义设置
+     */
+    setAdvancedColorCustomization(enabled) {
+      state.advancedColorCustomization = enabled
     }
   }
 })()
