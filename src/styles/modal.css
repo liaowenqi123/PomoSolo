@@ -830,6 +830,18 @@
 .tag-option.active {
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.6);
 }
+
+/* 标签删除按钮 */
+.tag-delete-btn {
+  margin-left: 8px;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.tag-delete-btn:hover {
+  color: #ff6b6b;
 }
 
 /* 不同标签的颜色 - 与播放列表中一致 */
@@ -933,6 +945,19 @@
 .tag-color-preset.active {
   border-color: #fff;
   box-shadow: 0 0 8px rgba(255, 255, 255, 0.4);
+}
+
+/* 高级颜色选择器按钮 */
+.tag-color-advanced {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tag-color-picker-icon {
+  font-size: 12px;
+  line-height: 1;
 }
 
 .tag-add-btn {

@@ -404,44 +404,79 @@ const MusicPlayer = (function() {
       const isCustom = state.customTags[tag]
       const isActive = tag === currentTag
       let style = ''
+      let deleteBtn = ''
       if (isCustom) {
         // 自定义标签使用存储的颜色
         const color = state.customTags[tag]
         style = `style="background: ${hexToRgba(color, 0.4)}; color: ${lightenColor(color, 0.3)};"`
+        // 自定义标签添加删除按钮
+        deleteBtn = `<span class="tag-delete-btn" data-tag="${tag}">×</span>`
       }
-      return `<button class="tag-option ${isActive ? 'active' : ''}" data-tag="${tag}" ${style}>${tag}</button>`
+      return `<button class="tag-option ${isActive ? 'active' : ''}" data-tag="${tag}" ${style}>${tag}${deleteBtn}</button>`
     }).join('')
+    
+    // 绑定删除按钮事件
+    optionsEl.querySelectorAll('.tag-delete-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        const tagToDelete = btn.dataset.tag
+        await deleteCustomTag(tagToDelete, songName, currentTag)
+      })
+    })
     
     // 生成预设颜色按钮
     if (colorPresetsEl) {
       // 检查是否开启高级颜色自定义
       const advancedColorEnabled = state.advancedColorCustomization || false
       
+      // 始终显示颜色按钮区域
+      colorPresetsEl.style.display = 'flex'
+      
+      // 生成预设颜色按钮
+      let colorButtons = PRESET_COLORS.map((color, index) => 
+        `<div class="tag-color-preset ${color === selectedColor && !advancedColorEnabled ? 'active' : ''}" 
+             data-color="${color}" 
+             style="background: ${color};">
+         </div>`
+      ).join('')
+      
+      // 高级模式：添加第10个颜色按钮（调色盘）
       if (advancedColorEnabled && colorPicker) {
-        // 显示自由颜色选择器
-        colorPicker.style.display = 'block'
-        colorPresetsEl.style.display = 'none'
-      } else {
-        // 显示预设颜色按钮
-        colorPicker.style.display = 'none'
-        colorPresetsEl.style.display = 'flex'
-        
-        colorPresetsEl.innerHTML = PRESET_COLORS.map((color, index) => 
-          `<div class="tag-color-preset ${color === selectedColor ? 'active' : ''}" 
-               data-color="${color}" 
-               style="background: ${color};">
-           </div>`
-        ).join('')
-        
-        // 绑定颜色选择事件
-        colorPresetsEl.querySelectorAll('.tag-color-preset').forEach(preset => {
-          preset.addEventListener('click', () => {
-            // 移除其他选中状态
-            colorPresetsEl.querySelectorAll('.tag-color-preset').forEach(p => p.classList.remove('active'))
-            preset.classList.add('active')
-            selectedColor = preset.dataset.color
-          })
+        colorButtons += `<div class="tag-color-preset tag-color-advanced ${selectedColor === colorPicker.value ? 'active' : ''}" 
+             id="tag-color-advanced-btn" 
+             style="background: ${colorPicker.value};">
+           <span class="tag-color-picker-icon">🎨</span>
+         </div>`
+      }
+      
+      colorPresetsEl.innerHTML = colorButtons
+      
+      // 绑定预设颜色选择事件
+      colorPresetsEl.querySelectorAll('.tag-color-preset:not(.tag-color-advanced)').forEach(preset => {
+        preset.addEventListener('click', () => {
+          colorPresetsEl.querySelectorAll('.tag-color-preset').forEach(p => p.classList.remove('active'))
+          preset.classList.add('active')
+          selectedColor = preset.dataset.color
+          colorPicker.style.display = 'none'
         })
+      })
+      
+      // 高级模式：绑定调色盘按钮事件
+      if (advancedColorEnabled && colorPicker) {
+        const advancedBtn = document.getElementById('tag-color-advanced-btn')
+        if (advancedBtn) {
+          advancedBtn.addEventListener('click', () => {
+            colorPicker.click()
+          })
+          
+          // 监听颜色变化
+          colorPicker.addEventListener('input', () => {
+            advancedBtn.style.background = colorPicker.value
+            selectedColor = colorPicker.value
+            colorPresetsEl.querySelectorAll('.tag-color-preset').forEach(p => p.classList.remove('active'))
+            advancedBtn.classList.add('active')
+          })
+        }
       }
     }
     
@@ -453,7 +488,10 @@ const MusicPlayer = (function() {
     
     // 点击标签选项
     optionsEl.querySelectorAll('.tag-option').forEach(opt => {
-      opt.addEventListener('click', async () => {
+      opt.addEventListener('click', async (e) => {
+        // 检查是否点击删除按钮
+        if (e.target.classList.contains('tag-delete-btn')) return
+        
         const newTag = opt.dataset.tag
         if (newTag !== currentTag) {
           await updateSongTag(songName, newTag)
@@ -472,7 +510,7 @@ const MusicPlayer = (function() {
         const tagName = customInput.value.trim()
         // 根据设置决定颜色来源
         const advancedColorEnabled = state.advancedColorCustomization || false
-        const color = advancedColorEnabled && colorPicker ? colorPicker.value : selectedColor
+        const color = advancedColorEnabled && colorPicker ? (colorPicker.value || selectedColor) : selectedColor
         
         if (!tagName) {
           showToast('请输入标签名称')
@@ -494,9 +532,9 @@ const MusicPlayer = (function() {
         const result = await window.electronAPI.musicAddCustomTag(tagName, color)
         if (result.success) {
           state.customTags[tagName] = color
-          // 刷新弹窗中的标签选项
-          showTagSelector(songName, currentTag)
-          showToast('标签已添加')
+          // 直接选中新添加的标签
+          await updateSongTag(songName, tagName)
+          modal.classList.remove('show')
         } else {
           showToast(result.error || '添加失败')
         }
@@ -508,6 +546,25 @@ const MusicPlayer = (function() {
       if (e.target === modal) {
         modal.classList.remove('show')
       }
+    }
+  }
+  
+  /**
+   * 删除自定义标签
+   */
+  async function deleteCustomTag(tagName, songName, currentTag) {
+    try {
+      const result = await window.electronAPI.musicDeleteCustomTag(tagName)
+      if (result.success) {
+        delete state.customTags[tagName]
+        // 刷新弹窗
+        showTagSelector(songName, currentTag)
+        showToast('标签已删除')
+      } else {
+        showToast(result.error || '删除失败')
+      }
+    } catch (err) {
+      showToast('删除失败')
     }
   }
   

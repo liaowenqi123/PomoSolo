@@ -27,6 +27,7 @@ class MusicProcess {
     this.onTagUpdatedCallback = null  // 标签更新回调
     this.onCustomTagsCallback = null  // 自定义标签回调
     this.onCustomTagAddedCallback = null  // 添加自定义标签回调
+    this.onCustomTagDeletedCallback = null  // 删除自定义标签回调
   }
 
   /**
@@ -201,6 +202,11 @@ class MusicProcess {
         case 'custom_tag_added':
           if (this.onCustomTagAddedCallback) {
             this.onCustomTagAddedCallback(data)
+          }
+          break
+        case 'custom_tag_deleted':
+          if (this.onCustomTagDeletedCallback) {
+            this.onCustomTagDeletedCallback(data)
           }
           break
         default:
@@ -409,6 +415,26 @@ class MusicProcess {
       }
 
       this.sendCommand({ command: 'add_custom_tag', name, color })
+    })
+  }
+
+  /**
+   * 删除自定义标签
+   */
+  async deleteCustomTag(name) {
+    return new Promise((resolve) => {
+      const timeoutId = setTimeout(() => {
+        this.onCustomTagDeletedCallback = null
+        resolve({ success: false, error: '删除超时' })
+      }, 5000)
+
+      this.onCustomTagDeletedCallback = (data) => {
+        clearTimeout(timeoutId)
+        this.onCustomTagDeletedCallback = null
+        resolve({ success: data.success, error: data.error })
+      }
+
+      this.sendCommand({ command: 'delete_custom_tag', name })
     })
   }
 

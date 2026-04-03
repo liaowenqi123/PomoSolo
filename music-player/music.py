@@ -263,6 +263,23 @@ class PlaylistManager:
             return False, str(e)
     
     @staticmethod
+    def delete_custom_tag(tag_name):
+        """删除自定义标签"""
+        tags_path = os.path.join(state.directory_path, "tags.json")
+        try:
+            tags = PlaylistManager.load_tags()
+            if "_customTags" in tags and tag_name in tags["_customTags"]:
+                del tags["_customTags"][tag_name]
+                with open(tags_path, 'w', encoding='utf-8') as f:
+                    json.dump(tags, f, ensure_ascii=False, indent=2)
+                print(f"[DEBUG] 自定义标签已删除: {tag_name}", file=sys.stderr)
+                return True, None
+            return False, "标签不存在"
+        except Exception as e:
+            print(f"删除自定义标签失败: {e}", file=sys.stderr)
+            return False, str(e)
+    
+    @staticmethod
     def update_song_tag(song_name, new_tag):
         """更新歌曲标签"""
         tags_path = os.path.join(state.directory_path, "tags.json")
@@ -863,6 +880,18 @@ def process_command(cmd_obj):
                 "error": error,
                 "name": tag_name,
                 "color": color
+            })
+    
+    elif command == "delete_custom_tag":
+        """删除自定义标签"""
+        tag_name = cmd_obj.get("name")
+        if tag_name:
+            print(f"delete_custom_tag命令: {tag_name}", file=sys.stderr)
+            success, error = PlaylistManager.delete_custom_tag(tag_name)
+            state.send_event("custom_tag_deleted", {
+                "success": success,
+                "error": error,
+                "name": tag_name
             })
 
 
