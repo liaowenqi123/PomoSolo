@@ -46,6 +46,7 @@
 
       this._isInitialized = false
       this._boundBackgroundHandler = null
+      this._modalId = options.name || this.element.id || `modal-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
       this._init()
     }
@@ -56,6 +57,7 @@
     _init() {
       if (this._isInitialized) return
 
+      window.modalManager?.register(this._modalId, this)
       this._bindBackgroundClick()
       this._isInitialized = true
     }
@@ -71,6 +73,10 @@
 
       this._boundBackgroundHandler = (e) => {
         if (e.target !== this.element) return
+        if (window.modalManager && !window.modalManager.isTopModal(this)) {
+          e.stopPropagation()
+          return
+        }
 
         // 如果有关闭前回调，检查是否允许关闭
         if (this.onBackgroundClick) {
@@ -95,6 +101,7 @@
         window.expandSidebarIfNeeded()
       }
 
+      window.modalManager?.onModalShow(this)
       this.element.classList.add(this.showClass)
       this.onShow?.()
     }
@@ -103,6 +110,7 @@
      * 隐藏弹窗
      */
     hide() {
+      window.modalManager?.onModalHide(this)
       this.element.classList.remove(this.showClass)
       this.onHide?.()
     }
@@ -170,6 +178,7 @@
         window.expandSidebarIfNeeded()
       }
 
+      window.modalManager?.onModalShow(this)
       if (withAnimation) {
         this.element.classList.remove(this.hidingClass, this.noAnimationClass)
         this.element.classList.add(this.showClass)
@@ -185,6 +194,7 @@
      * @param {boolean} [withAnimation=true] 是否显示动画
      */
     hide(withAnimation = true) {
+      window.modalManager?.onModalHide(this)
       if (withAnimation) {
         this.element.classList.remove(this.showClass)
         this.element.classList.add(this.hidingClass)
@@ -224,6 +234,21 @@
      */
     register(name, modal) {
       this.modals.set(name, modal)
+    }
+
+    onModalShow(modal) {
+      const index = this.stack.indexOf(modal)
+      if (index > -1) {
+        this.stack.splice(index, 1)
+      }
+      this.stack.push(modal)
+    }
+
+    onModalHide(modal) {
+      const index = this.stack.indexOf(modal)
+      if (index > -1) {
+        this.stack.splice(index, 1)
+      }
     }
 
     /**
@@ -270,8 +295,7 @@
      * 隐藏所有弹窗
      */
     hideAll() {
-      this.stack.forEach(name => {
-        const modal = this.modals.get(name)
+      this.stack.forEach(modal => {
         modal?.hide()
       })
       this.stack = []
@@ -283,6 +307,10 @@
      */
     getTopModal() {
       return this.stack[this.stack.length - 1]
+    }
+
+    isTopModal(modal) {
+      return this.getTopModal() === modal
     }
 
     /**

@@ -10,6 +10,7 @@ const AIHelper = (function() {
   let isProcessing = false
   let currentRequestId = 0
   let aiModal = null
+  let aiConfirmModal = null
 
   /**
    * 初始化AI助手
@@ -23,7 +24,8 @@ const AIHelper = (function() {
       showClass: 'show',
       hidingClass: 'hiding',
       animationDuration: 500,
-      closeOnBackground: false, // 默认禁止背景点击关闭
+      closeOnBackground: true,
+      onBackgroundClick: () => !isProcessing,
       onShow: () => {
         // 确保状态已重置
         isProcessing = false
@@ -41,6 +43,7 @@ const AIHelper = (function() {
         }
       },
       onHide: () => {
+        aiConfirmModal?.hide()
         // 取消当前请求（通过增加requestId使旧请求失效）
         currentRequestId++
         
@@ -60,6 +63,13 @@ const AIHelper = (function() {
         isProcessing = false
       }
     })
+
+    aiConfirmModal = new BaseModal({
+      element: document.getElementById('ai-confirm-dialog'),
+      showClass: 'show',
+      closeOnBackground: true,
+      expandSidebarOnShow: false
+    })
     
     bindEvents()
   }
@@ -76,16 +86,6 @@ const AIHelper = (function() {
     // 关闭弹窗
     if (elements.aiModalClose) {
       elements.aiModalClose.addEventListener('click', handleCloseClick)
-    }
-
-    // 点击背景关闭（仅在非生成状态）
-    if (elements.aiModal) {
-      elements.aiModal.addEventListener('click', (e) => {
-        if (e.target === elements.aiModal && !isProcessing) {
-          aiModal.hide()
-          e.stopPropagation()
-        }
-      })
     }
 
     // 生成计划按钮
@@ -107,6 +107,20 @@ const AIHelper = (function() {
     if (elements.aiApplyBtn) {
       elements.aiApplyBtn.addEventListener('click', handleApplyPlan)
     }
+
+    const aiConfirmCancelBtn = document.getElementById('ai-confirm-cancel-btn')
+    const aiConfirmOkBtn = document.getElementById('ai-confirm-ok-btn')
+    if (aiConfirmCancelBtn) {
+      aiConfirmCancelBtn.addEventListener('click', () => {
+        aiConfirmModal?.hide()
+      })
+    }
+    if (aiConfirmOkBtn) {
+      aiConfirmOkBtn.addEventListener('click', () => {
+        aiConfirmModal?.hide()
+        aiModal.hide()
+      })
+    }
   }
 
   /**
@@ -114,61 +128,10 @@ const AIHelper = (function() {
    */
   function handleCloseClick() {
     if (isProcessing) {
-      // 正在生成，显示确认提示
-      showConfirmDialog()
+      aiConfirmModal?.show()
     } else {
-      // 不在生成，直接关闭
       aiModal.hide()
     }
-  }
-
-  /**
-   * 显示确认对话框（动态创建）
-   */
-  function showConfirmDialog() {
-    const dialog = document.createElement('div')
-    dialog.className = 'ai-confirm-dialog'
-    dialog.innerHTML = `
-      <div class="ai-confirm-content">
-        <div class="ai-confirm-icon">⚠️</div>
-        <div class="ai-confirm-title">计划正在生成中</div>
-        <div class="ai-confirm-message">确定要关闭吗？</div>
-        <div class="ai-confirm-buttons">
-          <button class="ai-confirm-btn ai-confirm-btn-cancel" id="aiConfirmCancel">否</button>
-          <button class="ai-confirm-btn ai-confirm-btn-confirm" id="aiConfirmOk">是</button>
-        </div>
-      </div>
-    `
-    
-    document.body.appendChild(dialog)
-    
-    // 触发动画
-    setTimeout(() => {
-      dialog.classList.add('show')
-    }, 10)
-    
-    // 绑定按钮事件
-    const cancelBtn = dialog.querySelector('#aiConfirmCancel')
-    const okBtn = dialog.querySelector('#aiConfirmOk')
-    
-    cancelBtn.addEventListener('click', () => {
-      hideConfirmDialog(dialog)
-    })
-    
-    okBtn.addEventListener('click', () => {
-      hideConfirmDialog(dialog)
-      aiModal.hide()
-    })
-  }
-
-  /**
-   * 隐藏确认对话框
-   */
-  function hideConfirmDialog(dialog) {
-    dialog.classList.remove('show')
-    setTimeout(() => {
-      dialog.remove()
-    }, 300)
   }
 
   /**

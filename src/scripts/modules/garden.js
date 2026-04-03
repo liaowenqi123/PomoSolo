@@ -117,17 +117,23 @@
     if (typeof BaseModal !== 'undefined') {
       shopModal = new BaseModal({
         element: elements.shopModal,
-        showClass: 'show'
+        showClass: 'show',
+        // 菜园子是独立窗口，没有主页面侧边栏，不应触发展开逻辑
+        expandSidebarOnShow: false
       })
       
       signinModal = new BaseModal({
         element: elements.signinModal,
-        showClass: 'show'
+        showClass: 'show',
+        // 菜园子是独立窗口，没有主页面侧边栏，不应触发展开逻辑
+        expandSidebarOnShow: false
       })
       
       achievementModal = new BaseModal({
         element: elements.achievementModal,
-        showClass: 'show'
+        showClass: 'show',
+        // 菜园子是独立窗口，没有主页面侧边栏，不应触发展开逻辑
+        expandSidebarOnShow: false
       })
     }
     // 如果 BaseModal 不存在，使用原始方式（菜园子独立页面）
@@ -706,10 +712,6 @@
     if (shopModal) {
       shopModal.show()
     } else if (elements.shopModal) {
-      // 回退方案：手动展开侧边栏并显示弹窗
-      if (window.expandSidebarIfNeeded) {
-        window.expandSidebarIfNeeded()
-      }
       elements.shopModal.classList.add('show')
     }
     renderShopBuy()
@@ -926,10 +928,6 @@
     if (signinModal) {
       signinModal.show()
     } else if (elements.signinModal) {
-      // 回退方案：手动展开侧边栏并显示弹窗
-      if (window.expandSidebarIfNeeded) {
-        window.expandSidebarIfNeeded()
-      }
       elements.signinModal.classList.add('show')
     }
     renderSigninModal()
@@ -1234,10 +1232,6 @@
     if (achievementModal) {
       achievementModal.show()
     } else if (elements.achievementModal) {
-      // 回退方案：手动展开侧边栏并显示弹窗
-      if (window.expandSidebarIfNeeded) {
-        window.expandSidebarIfNeeded()
-      }
       elements.achievementModal.classList.add('show')
     }
     renderAchievementModal()

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 番茄钟 - 渲染进程主入口
  * 负责初始化和协调各模块
  */
@@ -656,63 +656,54 @@
   }
 
   // ============ 自定义确认弹窗 ============
-  // 显示自定义确认弹窗
+  const confirmInterruptElement = document.getElementById('confirm-interrupt-modal')
+  const confirmInterruptMessage = confirmInterruptElement?.querySelector('.confirm-message')
+  const confirmInterruptCancelBtn = document.getElementById('confirm-interrupt-cancel-btn')
+  const confirmInterruptOkBtn = document.getElementById('confirm-interrupt-ok-btn')
+  const confirmInterruptModal = confirmInterruptElement ? new BaseModal({
+    element: confirmInterruptElement,
+    showClass: 'show',
+    closeOnBackground: true
+  }) : null
+
   window.showConfirmModal = function(message) {
     return new Promise((resolve) => {
-      // 展开侧边栏（如果收起状态）
-      if (window.expandSidebarIfNeeded) {
-        window.expandSidebarIfNeeded()
+      if (!confirmInterruptModal || !confirmInterruptMessage) {
+        resolve(false)
+        return
       }
-      
-      const modal = document.getElementById('confirm-interrupt-modal')
-      const messageEl = modal.querySelector('.confirm-message')
-      const cancelBtn = document.getElementById('confirm-interrupt-cancel-btn')
-      const okBtn = document.getElementById('confirm-interrupt-ok-btn')
 
-      // 设置消息
-      messageEl.textContent = message
+      confirmInterruptMessage.textContent = message
 
-      // 显示弹窗
-      modal.classList.add('show')
+      const cleanup = () => {
+        confirmInterruptCancelBtn?.removeEventListener('click', handleCancel)
+        confirmInterruptOkBtn?.removeEventListener('click', handleOk)
+        document.removeEventListener('keydown', handleEsc)
+      }
 
-      // 取消按钮点击
       const handleCancel = () => {
         cleanup()
+        confirmInterruptModal.hide()
         resolve(false)
       }
 
-      // 确认按钮点击
       const handleOk = () => {
         cleanup()
+        confirmInterruptModal.hide()
         resolve(true)
       }
 
-      // 清理函数
-      const cleanup = () => {
-        modal.classList.remove('show')
-        cancelBtn.removeEventListener('click', handleCancel)
-        okBtn.removeEventListener('click', handleOk)
-      }
-
-      // 绑定事件
-      cancelBtn.addEventListener('click', handleCancel)
-      okBtn.addEventListener('click', handleOk)
-
-      // 点击遮罩层关闭
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-          handleCancel()
-        }
-      })
-
-      // ESC 键关闭
       const handleEsc = (e) => {
-        if (e.key === 'Escape') {
+        if (e.key === 'Escape' && (!window.modalManager || window.modalManager.isTopModal(confirmInterruptModal))) {
           handleCancel()
-          document.removeEventListener('keydown', handleEsc)
         }
       }
+
+      confirmInterruptCancelBtn?.addEventListener('click', handleCancel)
+      confirmInterruptOkBtn?.addEventListener('click', handleOk)
       document.addEventListener('keydown', handleEsc)
+
+      confirmInterruptModal.show()
     })
   }
 
