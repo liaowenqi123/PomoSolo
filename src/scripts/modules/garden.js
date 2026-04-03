@@ -113,20 +113,27 @@
    * 初始化弹窗实例
    */
   function initModals() {
-    shopModal = new BaseModal({
-      element: elements.shopModal,
-      showClass: 'show'
-    })
-    
-    signinModal = new BaseModal({
-      element: elements.signinModal,
-      showClass: 'show'
-    })
-    
-    achievementModal = new BaseModal({
-      element: elements.achievementModal,
-      showClass: 'show'
-    })
+    // 检查 BaseModal 是否存在（菜园子是独立页面，可能没有引入 modal.js）
+    if (typeof BaseModal !== 'undefined') {
+      shopModal = new BaseModal({
+        element: elements.shopModal,
+        showClass: 'show',
+        expandSidebarOnShow: false
+      })
+      
+      signinModal = new BaseModal({
+        element: elements.signinModal,
+        showClass: 'show',
+        expandSidebarOnShow: false
+      })
+      
+      achievementModal = new BaseModal({
+        element: elements.achievementModal,
+        showClass: 'show',
+        expandSidebarOnShow: false
+      })
+    }
+    // 如果 BaseModal 不存在，使用原始方式（菜园子独立页面）
   }
 
   /**
@@ -699,7 +706,11 @@
    * 打开商店
    */
   function openShop() {
-    shopModal?.show()
+    if (shopModal) {
+      shopModal.show()
+    } else if (elements.shopModal) {
+      elements.shopModal.classList.add('show')
+    }
     renderShopBuy()
     renderShopSell()
   }
@@ -708,7 +719,11 @@
    * 关闭商店
    */
   function closeShop() {
-    shopModal?.hide()
+    if (shopModal) {
+      shopModal.hide()
+    } else if (elements.shopModal) {
+      elements.shopModal.classList.remove('show')
+    }
   }
 
   /**
@@ -907,7 +922,11 @@
    * 打开签到弹窗
    */
   function openSigninModal() {
-    signinModal?.show()
+    if (signinModal) {
+      signinModal.show()
+    } else if (elements.signinModal) {
+      elements.signinModal.classList.add('show')
+    }
     renderSigninModal()
   }
 
@@ -915,7 +934,11 @@
    * 关闭签到弹窗
    */
   function closeSigninModal() {
-    signinModal?.hide()
+    if (signinModal) {
+      signinModal.hide()
+    } else if (elements.signinModal) {
+      elements.signinModal.classList.remove('show')
+    }
   }
 
   /**
@@ -1203,7 +1226,11 @@
    * 打开成就墙弹窗
    */
   function openAchievementModal() {
-    achievementModal?.show()
+    if (achievementModal) {
+      achievementModal.show()
+    } else if (elements.achievementModal) {
+      elements.achievementModal.classList.add('show')
+    }
     renderAchievementModal()
   }
 
@@ -1211,7 +1238,11 @@
    * 关闭成就墙弹窗
    */
   function closeAchievementModal() {
-    achievementModal?.hide()
+    if (achievementModal) {
+      achievementModal.hide()
+    } else if (elements.achievementModal) {
+      elements.achievementModal.classList.remove('show')
+    }
   }
 
   /**

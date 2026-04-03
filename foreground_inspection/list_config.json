@@ -34,7 +34,7 @@
         "Menu": "不是",
         "启动中...": "不是",
         "Wallpaper UI": "不是",
-        "BongoCat": "是",
+        "BongoCat": "不是",
         "微信游戏": "是",
         "Dicey Dungeons": "是",
         "C:\\Users\\admin\\Desktop\\lwq临时文件夹\\软件工程\\electron_pomodoro\\foreground_inspection\\foreground_inspection.exe": "不是",
@@ -108,6 +108,7 @@
         "users | Table Editor | pomodoro Project | liaowenqi123's Org | Supabase 和另外 11 个页面 - 用户1 - Microsoft​ Edge": "不是",
         "OBS 32.1.0 - 配置文件: 未命名 - 场景: 未命名": "不是",
         "Weixin": "不是",
-        "图片和视频": "是"
+        "图片和视频": "是",
+        "Program Manager": "不是"
     }
 }
