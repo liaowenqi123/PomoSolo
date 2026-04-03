@@ -782,7 +782,10 @@
 }
 
 /* ============ 标签选择弹窗 ============ */
-.tag-modal .tag-modal-content {
+.tag-modal {
+  position: absolute !important;
+  border-radius: 20px;
+}
   background: linear-gradient(135deg, rgba(50, 50, 70, 0.99), rgba(40, 40, 60, 0.99));
   padding: 20px 25px;
   width: 340px;

@@ -537,10 +537,15 @@ const MusicPlayer = (function() {
               // 选中调色盘按钮
               colorPresetsEl.querySelectorAll('.tag-color-preset').forEach(p => p.classList.remove('active'))
               advancedBtn.classList.add('active')
-              // 初始化滑块和预览
+              // 初始化滑块和预览（确保颜色正确显示）
               const hsl = hexToHsl(selectedColor)
-              if (colorHueSlider) colorHueSlider.value = hsl.h
-              if (colorPreview) colorPreview.style.background = selectedColor
+              if (colorHueSlider) {
+                colorHueSlider.value = hsl.h
+                // 根据滑块位置重新计算颜色，确保预览和滑块同步
+                const color = hslToHex(parseInt(colorHueSlider.value), 80, 55)
+                if (colorPreview) colorPreview.style.background = color
+                selectedColor = color
+              }
             }
           })
         }
