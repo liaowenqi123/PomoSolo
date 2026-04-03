@@ -84,6 +84,8 @@ const { contextBridge, ipcRenderer } = require('electron')
   musicDeleteSong: (name) => ipcRenderer.invoke('music-delete-song', name),
   musicPlaySong: (name) => ipcRenderer.send('music-play-song', name),
   musicUpdateTag: (name, tag) => ipcRenderer.invoke('music-update-tag', { name, tag }),
+  musicGetCustomTags: () => ipcRenderer.invoke('music-get-custom-tags'),
+  musicAddCustomTag: (name, color) => ipcRenderer.invoke('music-add-custom-tag', { name, color }),
   
   // 音乐播放器事件监听
   onMusicReady: (callback) => {

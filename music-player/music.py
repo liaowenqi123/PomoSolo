@@ -216,7 +216,7 @@ class PlaylistManager:
     
     @staticmethod
     def load_tags():
-        """加载歌曲标签"""
+        """加载歌曲标签（返回完整数据，包括自定义标签）"""
         tags_path = os.path.join(state.directory_path, "tags.json")
         print(f"[DEBUG] 标签文件路径: {tags_path}, 存在: {os.path.exists(tags_path)}", file=sys.stderr)
         print(f"[DEBUG] 当前工作目录: {os.getcwd()}", file=sys.stderr)
@@ -234,7 +234,33 @@ class PlaylistManager:
     def get_song_tag(song_name):
         """获取歌曲标签"""
         tags = PlaylistManager.load_tags()
+        # 跳过 _customTags 字段
+        if song_name.startswith('_'):
+            return "自定义"
         return tags.get(song_name, "自定义")
+    
+    @staticmethod
+    def get_custom_tags():
+        """获取自定义标签配置"""
+        tags = PlaylistManager.load_tags()
+        return tags.get("_customTags", {})
+    
+    @staticmethod
+    def add_custom_tag(tag_name, color):
+        """添加自定义标签"""
+        tags_path = os.path.join(state.directory_path, "tags.json")
+        try:
+            tags = PlaylistManager.load_tags()
+            if "_customTags" not in tags:
+                tags["_customTags"] = {}
+            tags["_customTags"][tag_name] = color
+            with open(tags_path, 'w', encoding='utf-8') as f:
+                json.dump(tags, f, ensure_ascii=False, indent=2)
+            print(f"[DEBUG] 自定义标签已添加: {tag_name} -> {color}", file=sys.stderr)
+            return True, None
+        except Exception as e:
+            print(f"添加自定义标签失败: {e}", file=sys.stderr)
+            return False, str(e)
     
     @staticmethod
     def update_song_tag(song_name, new_tag):
@@ -816,6 +842,27 @@ def process_command(cmd_obj):
                 "error": error,
                 "name": song_name,
                 "tag": new_tag
+            })
+    
+    elif command == "get_custom_tags":
+        """获取自定义标签配置"""
+        custom_tags = PlaylistManager.get_custom_tags()
+        state.send_event("custom_tags", {
+            "customTags": custom_tags
+        })
+    
+    elif command == "add_custom_tag":
+        """添加自定义标签"""
+        tag_name = cmd_obj.get("name")
+        color = cmd_obj.get("color")
+        if tag_name and color:
+            print(f"add_custom_tag命令: {tag_name} -> {color}", file=sys.stderr)
+            success, error = PlaylistManager.add_custom_tag(tag_name, color)
+            state.send_event("custom_tag_added", {
+                "success": success,
+                "error": error,
+                "name": tag_name,
+                "color": color
             })
 
 

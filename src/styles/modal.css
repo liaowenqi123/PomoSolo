@@ -783,8 +783,21 @@
 
 /* ============ 标签选择弹窗 ============ */
 .tag-modal .tag-modal-content {
-  background: linear-gradient(135deg, rgba(60, 60, 80, 0.98), rgba(50, 50, 70, 0.98));
+  background: linear-gradient(135deg, rgba(50, 50, 70, 0.99), rgba(40, 40, 60, 0.99));
   padding: 20px 25px;
+  width: 320px;
+}
+
+.tag-modal .confirm-modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.tag-modal .confirm-modal-message {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+  margin-bottom: 15px;
 }
 
 .tag-options {
@@ -792,15 +805,16 @@
   flex-wrap: wrap;
   justify-content: center;
   gap: 10px;
-  margin-top: 15px;
+  margin-top: 10px;
 }
 
 .tag-option {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
-  background: rgba(255, 255, 255, 0.1);
-  padding: 6px 14px;
-  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.15);
+  padding: 8px 16px;
+  border-radius: 14px;
   cursor: pointer;
   transition: all 0.15s ease;
   border: none;
@@ -809,30 +823,105 @@
 
 .tag-option:hover {
   transform: scale(1.05);
-  filter: brightness(1.15);
+  filter: brightness(1.2);
 }
 
 .tag-option.active {
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.6);
 }
 
 /* 不同标签的颜色 - 与播放列表中一致 */
 .tag-option[data-tag="学习"] {
-  background: rgba(100, 180, 255, 0.3);
-  color: rgba(150, 200, 255, 0.95);
+  background: rgba(100, 180, 255, 0.4);
+  color: rgba(200, 230, 255, 1);
 }
 
 .tag-option[data-tag="运动"] {
-  background: rgba(255, 150, 100, 0.3);
-  color: rgba(255, 180, 130, 0.95);
+  background: rgba(255, 150, 100, 0.4);
+  color: rgba(255, 210, 180, 1);
 }
 
 .tag-option[data-tag="休息"] {
-  background: rgba(150, 255, 150, 0.3);
-  color: rgba(180, 255, 180, 0.95);
+  background: rgba(100, 230, 100, 0.4);
+  color: rgba(200, 255, 200, 1);
 }
 
 .tag-option[data-tag="主题曲"] {
-  background: rgba(255, 200, 100, 0.3);
-  color: rgba(255, 220, 150, 0.95);
+  background: rgba(255, 200, 100, 0.4);
+  color: rgba(255, 235, 180, 1);
+}
+
+/* 自定义标签区域 */
+.tag-custom-section {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.tag-custom-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tag-custom-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #fff;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.tag-custom-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.tag-custom-input:focus {
+  border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.tag-color-picker {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 0;
+  background: none;
+}
+
+.tag-color-picker::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.tag-color-picker::-webkit-color-swatch {
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.tag-add-btn {
+  background: rgba(255, 107, 107, 0.8);
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tag-add-btn:hover {
+  background: rgba(255, 107, 107, 1);
+  transform: scale(1.02);
+}
+
+.tag-add-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

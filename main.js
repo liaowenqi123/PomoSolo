@@ -475,6 +475,24 @@ ipcMain.handle('music-update-tag', async (event, { name, tag }) => {
   }
 })
 
+ipcMain.handle('music-get-custom-tags', async (event) => {
+  try {
+    const result = await musicProcess.getCustomTags()
+    return result
+  } catch (error) {
+    return { customTags: {} }
+  }
+})
+
+ipcMain.handle('music-add-custom-tag', async (event, { name, color }) => {
+  try {
+    await musicProcess.addCustomTag(name, color)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
 // ============ 音乐榜单 IPC 处理 ============
 
 const chartsFetcher = require('./src/modules/chartsFetcher')

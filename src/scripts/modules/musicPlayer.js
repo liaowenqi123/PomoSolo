@@ -28,6 +28,7 @@ const MusicPlayer = (function() {
     playMode: 'shuffle',  // 播放模式：'shuffle' 随机 | 'order' 顺序循环
     playlist: [],  // 播放列表
     playlistTags: {},  // 歌曲标签映射 { songName: tag }
+    customTags: {},  // 自定义标签配置 { tagName: color }
     currentSongIndex: -1,  // 当前歌曲在列表中的索引
     isPlaylistOpen: false  // 播放列表弹窗是否打开
   }
@@ -241,6 +242,26 @@ const MusicPlayer = (function() {
     }, 500)
   }
   
+  /**
+   * HEX 转 RGBA
+   */
+  function hexToRgba(hex, alpha) {
+    const r = parseInt(hex.slice(1, 3), 16)
+    const g = parseInt(hex.slice(3, 5), 16)
+    const b = parseInt(hex.slice(5, 7), 16)
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`
+  }
+  
+  /**
+   * 颜色变亮
+   */
+  function lightenColor(hex, amount) {
+    const r = Math.min(255, parseInt(hex.slice(1, 3), 16) + Math.round(255 * amount))
+    const g = Math.min(255, parseInt(hex.slice(3, 5), 16) + Math.round(255 * amount))
+    const b = Math.min(255, parseInt(hex.slice(5, 7), 16) + Math.round(255 * amount))
+    return `rgb(${r}, ${g}, ${b})`
+  }
+  
   function renderPlaylist() {
     if (!elements.playlistItems) return
     
@@ -263,6 +284,14 @@ const MusicPlayer = (function() {
       // 获取标签
       const tag = state.playlistTags[song] || '自定义'
       
+      // 检查是否是自定义标签
+      const isCustomTag = state.customTags[tag]
+      let tagStyle = ''
+      if (isCustomTag) {
+        const color = state.customTags[tag]
+        tagStyle = `style="background: ${hexToRgba(color, 0.3)}; color: ${lightenColor(color, 0.3)};"`
+      }
+      
       // 垃圾桶 SVG 图标
       const trashIcon = `<svg class="trash-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="3 6 5 6 21 6"></polyline>
@@ -272,7 +301,7 @@ const MusicPlayer = (function() {
       </svg>`
       
       return `<div class="${classes.join(' ')}" data-song="${song}" data-index="${index}">
-        <span class="playlist-item-tag" data-tag="${tag}" data-song="${song}">${tag}</span>
+        <span class="playlist-item-tag" data-tag="${tag}" data-song="${song}" ${tagStyle}>${tag}</span>
         <span class="playlist-item-name">${displayName}</span>
         <div class="playlist-item-actions">
           ${isCurrent ? '<span class="playlist-item-playing">▶</span>' : ''}
@@ -290,6 +319,14 @@ const MusicPlayer = (function() {
     if (tagEl) {
       e.stopPropagation()
       const songName = tagEl.dataset.song
+      
+      // 检查是否是内置歌曲（不允许更改标签）
+      const displayName = songName.replace(/\.[^/.]+$/, '')
+      if (displayName.endsWith(' - 番茄钟')) {
+        showToast('内置歌曲标签不可更改')
+        return
+      }
+      
       const currentTag = tagEl.dataset.tag
       showTagSelector(songName, currentTag)
       return
@@ -323,7 +360,7 @@ const MusicPlayer = (function() {
   }
   
   // 预设标签列表
-  const PRESET_TAGS = ['学习', '运动', '休息', '主题曲', '自定义']
+  const PRESET_TAGS = ['学习', '运动', '休息', '主题曲']
   
   /**
    * 显示标签选择弹窗
@@ -332,6 +369,9 @@ const MusicPlayer = (function() {
     const modal = document.getElementById('tag-select-modal')
     const songNameEl = document.getElementById('tag-select-song-name')
     const optionsEl = document.getElementById('tag-options')
+    const customInput = document.getElementById('tag-custom-input')
+    const colorPicker = document.getElementById('tag-color-picker')
+    const addBtn = document.getElementById('tag-add-btn')
     
     if (!modal || !songNameEl || !optionsEl) return
     
@@ -339,13 +379,27 @@ const MusicPlayer = (function() {
     const displayName = songName.replace(/\.[^/.]+$/, '')
     songNameEl.textContent = displayName
     
+    // 合并预设标签和自定义标签
+    const allTags = [...PRESET_TAGS, ...Object.keys(state.customTags)]
+    
     // 生成标签选项
-    optionsEl.innerHTML = PRESET_TAGS.map(tag => 
-      `<button class="tag-option ${tag === currentTag ? 'active' : ''}" data-tag="${tag}">${tag}</button>`
-    ).join('')
+    optionsEl.innerHTML = allTags.map(tag => {
+      const isCustom = state.customTags[tag]
+      const isActive = tag === currentTag
+      let style = ''
+      if (isCustom) {
+        // 自定义标签使用存储的颜色
+        const color = state.customTags[tag]
+        style = `style="background: ${hexToRgba(color, 0.4)}; color: ${lightenColor(color, 0.3)};"`
+      }
+      return `<button class="tag-option ${isActive ? 'active' : ''}" data-tag="${tag}" ${style}>${tag}</button>`
+    }).join('')
     
     // 显示弹窗
     modal.classList.add('show')
+    
+    // 清空输入框
+    if (customInput) customInput.value = ''
     
     // 点击标签选项
     optionsEl.querySelectorAll('.tag-option').forEach(opt => {
@@ -357,6 +411,45 @@ const MusicPlayer = (function() {
         modal.classList.remove('show')
       })
     })
+    
+    // 添加自定义标签
+    if (addBtn && customInput && colorPicker) {
+      // 移除旧的事件监听器
+      const newAddBtn = addBtn.cloneNode(true)
+      addBtn.parentNode.replaceChild(newAddBtn, addBtn)
+      
+      newAddBtn.addEventListener('click', async () => {
+        const tagName = customInput.value.trim()
+        const color = colorPicker.value
+        
+        if (!tagName) {
+          showToast('请输入标签名称')
+          return
+        }
+        
+        if (tagName.length > 3) {
+          showToast('标签名称不能超过3个字')
+          return
+        }
+        
+        // 检查是否已存在
+        if (PRESET_TAGS.includes(tagName) || state.customTags[tagName]) {
+          showToast('标签已存在')
+          return
+        }
+        
+        // 添加自定义标签
+        const result = await window.electronAPI.musicAddCustomTag(tagName, color)
+        if (result.success) {
+          state.customTags[tagName] = color
+          // 刷新弹窗中的标签选项
+          showTagSelector(songName, currentTag)
+          showToast('标签已添加')
+        } else {
+          showToast(result.error || '添加失败')
+        }
+      })
+    }
     
     // 点击背景关闭
     modal.onclick = (e) => {
@@ -939,7 +1032,7 @@ const MusicPlayer = (function() {
      * 初始化音乐播放器
      * @param {object} els - DOM元素引用
      */
-    init(els) {
+    async init(els) {
       elements = { ...elements, ...els }
       
       setupEventListeners()
@@ -949,6 +1042,16 @@ const MusicPlayer = (function() {
       window.electronAPI.musicGetStatus()
       // 请求设备列表
       window.electronAPI.musicGetDevices()
+      
+      // 加载自定义标签配置
+      try {
+        const result = await window.electronAPI.musicGetCustomTags()
+        if (result.customTags) {
+          state.customTags = result.customTags
+        }
+      } catch (e) {
+        console.log('[MusicPlayer] 加载自定义标签失败:', e)
+      }
       
       // 初始化模式按钮
       updateModeButton()

@@ -25,6 +25,8 @@ class MusicProcess {
     this.onPlaylistCallback = null  // 播放列表回调
     this.onSongMissingCallback = null  // 歌曲消失回调
     this.onTagUpdatedCallback = null  // 标签更新回调
+    this.onCustomTagsCallback = null  // 自定义标签回调
+    this.onCustomTagAddedCallback = null  // 添加自定义标签回调
   }
 
   /**
@@ -189,6 +191,16 @@ class MusicProcess {
         case 'tag_updated':
           if (this.onTagUpdatedCallback) {
             this.onTagUpdatedCallback(data)
+          }
+          break
+        case 'custom_tags':
+          if (this.onCustomTagsCallback) {
+            this.onCustomTagsCallback(data)
+          }
+          break
+        case 'custom_tag_added':
+          if (this.onCustomTagAddedCallback) {
+            this.onCustomTagAddedCallback(data)
           }
           break
         default:
@@ -357,6 +369,46 @@ class MusicProcess {
       }
 
       this.sendCommand({ command: 'update_tag', name, tag })
+    })
+  }
+
+  /**
+   * 获取自定义标签配置
+   */
+  async getCustomTags() {
+    return new Promise((resolve) => {
+      const timeoutId = setTimeout(() => {
+        this.onCustomTagsCallback = null
+        resolve({ customTags: {} })
+      }, 5000)
+
+      this.onCustomTagsCallback = (data) => {
+        clearTimeout(timeoutId)
+        this.onCustomTagsCallback = null
+        resolve({ customTags: data.customTags || {} })
+      }
+
+      this.sendCommand({ command: 'get_custom_tags' })
+    })
+  }
+
+  /**
+   * 添加自定义标签
+   */
+  async addCustomTag(name, color) {
+    return new Promise((resolve) => {
+      const timeoutId = setTimeout(() => {
+        this.onCustomTagAddedCallback = null
+        resolve({ success: false, error: '添加超时' })
+      }, 5000)
+
+      this.onCustomTagAddedCallback = (data) => {
+        clearTimeout(timeoutId)
+        this.onCustomTagAddedCallback = null
+        resolve({ success: data.success, error: data.error })
+      }
+
+      this.sendCommand({ command: 'add_custom_tag', name, color })
     })
   }
 
