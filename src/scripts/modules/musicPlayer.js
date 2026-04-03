@@ -272,8 +272,8 @@ const MusicPlayer = (function() {
       </svg>`
       
       return `<div class="${classes.join(' ')}" data-song="${song}" data-index="${index}">
-        <span class="playlist-item-name">${displayName}</span>
         <span class="playlist-item-tag">${tag}</span>
+        <span class="playlist-item-name">${displayName}</span>
         <div class="playlist-item-actions">
           ${isCurrent ? '<span class="playlist-item-playing">▶</span>' : ''}
           ${!isBuiltIn ? `<button class="playlist-item-delete" data-song="${song}" title="删除">${trashIcon}</button>` : ''}

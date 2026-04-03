@@ -218,10 +218,14 @@ class PlaylistManager:
     def load_tags():
         """加载歌曲标签"""
         tags_path = os.path.join(state.directory_path, "tags.json")
+        print(f"[DEBUG] 标签文件路径: {tags_path}, 存在: {os.path.exists(tags_path)}", file=sys.stderr)
+        print(f"[DEBUG] 当前工作目录: {os.getcwd()}", file=sys.stderr)
         try:
             if os.path.exists(tags_path):
                 with open(tags_path, 'r', encoding='utf-8') as f:
-                    return json.load(f)
+                    tags = json.load(f)
+                    print(f"[DEBUG] 加载的标签: {tags}", file=sys.stderr)
+                    return tags
         except Exception as e:
             print(f"加载标签失败: {e}", file=sys.stderr)
         return {}
