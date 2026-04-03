@@ -10,6 +10,9 @@
   let currentMode = 'work'
   let activePreset = null
   let isEnabled = true
+  
+  // 弹窗实例
+  let noteModal = null
 
   // 使用统一的默认预设
   const defaultPresets = Utils.DEFAULT_PRESETS
@@ -75,15 +78,19 @@
 
   // 编辑预设的备注
   function editNoteForPreset(index, currentNote) {
-    // 展开侧边栏（如果收起状态）
-    if (window.expandSidebarIfNeeded) {
-      window.expandSidebarIfNeeded()
-    }
-    
     // 填充当前备注到弹窗
     const modal = document.getElementById('note-view-modal')
     const contentDiv = modal.querySelector('.note-view')
     const closeBtn = document.getElementById('note-view-close-btn')
+    
+    // 创建弹窗实例（如果还没有）
+    if (!noteModal) {
+      noteModal = new BaseModal({
+        element: modal,
+        showClass: 'show',
+        closeOnBackground: true
+      })
+    }
     
     // 改为可编辑的输入框
     contentDiv.innerHTML = `
@@ -110,8 +117,6 @@
       <button class="btn-note-delete" id="noteDeleteBtn" style="display: ${(currentNote && (currentNote.title || currentNote.detail)) ? 'inline-block' : 'none'}">删除备注</button>
       <button class="btn-note-save" id="noteSaveBtn">保存</button>
     `
-    
-    modal.classList.add('show')
 
     const saveBtn = document.getElementById('noteSaveBtn')
     const deleteBtn = document.getElementById('noteDeleteBtn')
@@ -128,34 +133,27 @@
       // 更新预设的备注
       await updatePresetNote(index, newNote)
       
-      modal.classList.remove('show')
+      noteModal.hide()
       cleanup()
     }
     
     const deleteNoteHandler = async () => {
       if (confirm('确定要删除这条备注吗？')) {
         await updatePresetNote(index, null)
-        modal.classList.remove('show')
+        noteModal.hide()
         cleanup()
       }
     }
     
     const closeHandler = () => {
-      modal.classList.remove('show')
+      noteModal.hide()
       cleanup()
-    }
-    
-    const overlayHandler = (e) => {
-      if (e.target === modal) {
-        closeHandler()
-      }
     }
     
     const cleanup = () => {
       saveBtn.removeEventListener('click', saveHandler)
       deleteBtn.removeEventListener('click', deleteNoteHandler)
       closeX.removeEventListener('click', closeHandler)
-      modal.removeEventListener('click', overlayHandler)
       // 恢复原始状态
       titleEl.textContent = '备注详情'
       closeX.remove()
@@ -165,7 +163,9 @@
     saveBtn.addEventListener('click', saveHandler)
     deleteBtn.addEventListener('click', deleteNoteHandler)
     closeX.addEventListener('click', closeHandler)
-    modal.addEventListener('click', overlayHandler)
+    
+    // 显示弹窗
+    noteModal.show()
   }
 
   // 更新预设的备注
@@ -194,11 +194,6 @@
   function showNoteDetail(note) {
     if (!note || (!note.title && !note.detail)) return
     
-    // 展开侧边栏（如果收起状态）
-    if (window.expandSidebarIfNeeded) {
-      window.expandSidebarIfNeeded()
-    }
-    
     const titleEl = document.getElementById('note-view-title')
     const detailEl = document.getElementById('note-view-detail')
     
@@ -206,24 +201,28 @@
     detailEl.textContent = note.detail || '（无详细备注）'
     
     const modal = document.getElementById('note-view-modal')
-    modal.classList.add('show')
+    
+    // 创建弹窗实例（如果还没有）
+    if (!noteModal) {
+      noteModal = new BaseModal({
+        element: modal,
+        showClass: 'show',
+        closeOnBackground: true
+      })
+    }
 
     const closeBtn = document.getElementById('note-view-close-btn')
     const closeHandler = () => {
-      modal.classList.remove('show')
+      noteModal.hide()
       cleanup()
-    }
-    const overlayHandler = (e) => {
-      if (e.target === modal) {
-        closeHandler()
-      }
     }
     const cleanup = () => {
       closeBtn.removeEventListener('click', closeHandler)
-      modal.removeEventListener('click', overlayHandler)
     }
     closeBtn.addEventListener('click', closeHandler)
-    modal.addEventListener('click', overlayHandler)
+    
+    // 显示弹窗
+    noteModal.show()
   }
 
   // 选择预设

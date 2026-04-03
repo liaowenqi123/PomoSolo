@@ -360,8 +360,7 @@ const Charts = (function() {
     disclaimerModal = new BaseModal({
       element: elements.disclaimerModal,
       showClass: 'open',
-      closeOnBackground: false,
-      expandSidebarOnShow: false
+      closeOnBackground: false
     })
   }
 

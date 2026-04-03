@@ -70,12 +70,11 @@
    * 初始化弹窗实例
    */
   function initModals() {
-    // 警告弹窗（需要置顶、不能点击背景关闭、不展开侧边栏）
+    // 警告弹窗（需要置顶、不能点击背景关闭）
     warningModal = new BaseModal({
       element: elements.warningModal,
       showClass: 'visible',
       closeOnBackground: false,
-      expandSidebarOnShow: false,
       onShow: () => {
         state.warningModalVisible = true
         // 退出迷你模式
@@ -101,7 +100,6 @@
       element: elements.apiKeyErrorModal,
       showClass: 'visible',
       closeOnBackground: false,
-      expandSidebarOnShow: false,
       onShow: () => {
         // 抢占前台
         if (window.electronAPI) {

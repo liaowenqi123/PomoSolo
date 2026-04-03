@@ -6,6 +6,7 @@
 
   let elements = {}
   let currentNote = { title: '', detail: '' } // 内存存储
+  let noteModal = null // 弹窗实例
 
   // 获取当前模式的输入框
   function getCurrentInputs() {
@@ -29,32 +30,39 @@
   function showViewModal() {
     if (!currentNote.title) return
     
-    // 展开侧边栏（如果收起状态）
-    if (window.expandSidebarIfNeeded) {
-      window.expandSidebarIfNeeded()
-    }
-    
     document.getElementById('note-view-title').textContent = currentNote.title
     document.getElementById('note-view-detail').textContent = currentNote.detail || '（无详细备注）'
     const modal = document.getElementById('note-view-modal')
-    modal.classList.add('show')
+    
+    // 创建弹窗实例（如果还没有）
+    if (!noteModal && typeof BaseModal !== 'undefined') {
+      noteModal = new BaseModal({
+        element: modal,
+        showClass: 'show',
+        closeOnBackground: true
+      })
+    }
 
     const closeBtn = document.getElementById('note-view-close-btn')
     const closeHandler = () => {
-      modal.classList.remove('show')
-      cleanup()
-    }
-    const overlayHandler = (e) => {
-      if (e.target === modal) {
-        closeHandler()
+      if (noteModal) {
+        noteModal.hide()
+      } else {
+        modal.classList.remove('show')
       }
+      cleanup()
     }
     const cleanup = () => {
       closeBtn.removeEventListener('click', closeHandler)
-      modal.removeEventListener('click', overlayHandler)
     }
     closeBtn.addEventListener('click', closeHandler)
-    modal.addEventListener('click', overlayHandler)
+    
+    // 显示弹窗
+    if (noteModal) {
+      noteModal.show()
+    } else if (modal) {
+      modal.classList.add('show')
+    }
   }
 
   // 清除当前备注

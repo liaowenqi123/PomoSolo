@@ -33,6 +33,10 @@ const MusicPlayer = (function() {
     isPlaylistOpen: false  // 播放列表弹窗是否打开
   }
   
+  // 弹窗实例
+  let tagSelectModal = null
+  let deleteSongModal = null
+  
   // 播放超时时间（毫秒）
   const PLAY_TIMEOUT_MS = 3000
 
@@ -443,6 +447,15 @@ const MusicPlayer = (function() {
     
     if (!modal || !songNameEl || !optionsEl) return
     
+    // 创建弹窗实例（如果还没有）
+    if (!tagSelectModal) {
+      tagSelectModal = new BaseModal({
+        element: modal,
+        showClass: 'show',
+        closeOnBackground: true
+      })
+    }
+    
     // 显示歌曲名
     const displayName = songName.replace(/\.[^/.]+$/, '')
     songNameEl.textContent = displayName
@@ -570,9 +583,6 @@ const MusicPlayer = (function() {
       })
     }
     
-    // 显示弹窗
-    modal.classList.add('show')
-    
     // 隐藏自定义颜色选择器
     if (customColorPicker) customColorPicker.style.display = 'none'
     
@@ -597,7 +607,7 @@ const MusicPlayer = (function() {
           }
           await updateSongTag(songName, newTag, color)
         }
-        modal.classList.remove('show')
+        tagSelectModal.hide()
       })
     })
     
@@ -634,20 +644,15 @@ const MusicPlayer = (function() {
           state.customTags[tagName] = color
           // 直接选中新添加的标签（使用自定义标签的颜色）
           await updateSongTag(songName, tagName, color)
-          modal.classList.remove('show')
+          tagSelectModal.hide()
         } else {
           showToast(result.error || '添加失败')
         }
       })
     }
     
-    // 点击背景关闭
-    modal.onclick = (e) => {
-      if (e.target === modal) {
-        modal.classList.remove('show')
-        e.stopPropagation() // 阻止事件传播，避免同时关闭播放列表
-      }
-    }
+    // 显示弹窗
+    tagSelectModal.show()
   }
   
   /**
@@ -731,12 +736,18 @@ const MusicPlayer = (function() {
     
     if (!modal || !message || !cancelBtn || !confirmBtn) return
     
+    // 创建弹窗实例（如果还没有）
+    if (!deleteSongModal) {
+      deleteSongModal = new BaseModal({
+        element: modal,
+        showClass: 'show',
+        closeOnBackground: true
+      })
+    }
+    
     // 显示歌曲名
     const displayName = songName.replace(/\.[^/.]+$/, '')
     message.textContent = `确定要删除「${displayName}」吗？`
-    
-    // 显示弹窗
-    modal.classList.add('show')
     
     // 移除旧的事件监听器（通过克隆节点）
     const newCancelBtn = cancelBtn.cloneNode(true)
@@ -746,22 +757,17 @@ const MusicPlayer = (function() {
     
     // 取消按钮
     newCancelBtn.addEventListener('click', () => {
-      modal.classList.remove('show')
+      deleteSongModal.hide()
     })
     
     // 确认按钮
     newConfirmBtn.addEventListener('click', () => {
-      modal.classList.remove('show')
+      deleteSongModal.hide()
       deleteSong(songName)
     })
     
-    // 点击背景关闭
-    modal.onclick = (e) => {
-      if (e.target === modal) {
-        modal.classList.remove('show')
-        e.stopPropagation() // 阻止事件传播
-      }
-    }
+    // 显示弹窗
+    deleteSongModal.show()
   }
   
   function closePlaylistOnClickOutside(e) {
@@ -769,6 +775,12 @@ const MusicPlayer = (function() {
       // 检查标签弹窗是否打开，如果打开则不关闭播放列表
       const tagModal = document.getElementById('tag-select-modal')
       if (tagModal && tagModal.classList.contains('show')) {
+        return
+      }
+      
+      // 检查删除确认弹窗是否打开
+      const deleteModal = document.getElementById('delete-song-modal')
+      if (deleteModal && deleteModal.classList.contains('show')) {
         return
       }
       

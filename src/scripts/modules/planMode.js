@@ -10,6 +10,9 @@
   let currentIndex = -1
   let isRunning = false
   let draggedItem = null
+  
+  // 弹窗实例
+  let noteModal = null
 
   // 生成唯一 ID
   function generateId() {
@@ -102,14 +105,18 @@
 
   // 编辑计划的备注
   function editNoteForPlan(index, currentNote) {
-    // 展开侧边栏（如果收起状态）
-    if (window.expandSidebarIfNeeded) {
-      window.expandSidebarIfNeeded()
-    }
-    
     const modal = document.getElementById('note-view-modal')
     const contentDiv = modal.querySelector('.note-view')
     const titleEl = modal.querySelector('h3')
+    
+    // 创建弹窗实例（如果还没有）
+    if (!noteModal) {
+      noteModal = new BaseModal({
+        element: modal,
+        showClass: 'show',
+        closeOnBackground: true
+      })
+    }
     
     // 改为可编辑的输入框
     contentDiv.innerHTML = `
@@ -134,8 +141,6 @@
       <button class="btn-note-delete" id="noteDeleteBtn" style="display: ${(currentNote && (currentNote.title || currentNote.detail)) ? 'inline-block' : 'none'}">删除备注</button>
       <button class="btn-note-save" id="noteSaveBtn">保存</button>
     `
-    
-    modal.classList.add('show')
 
     const saveBtn = document.getElementById('noteSaveBtn')
     const deleteBtn = document.getElementById('noteDeleteBtn')
@@ -150,32 +155,25 @@
       
       await updatePlanNote(index, newNote)
       
-      modal.classList.remove('show')
+      noteModal.hide()
       cleanup()
     }
     
     const deleteNoteHandler = async () => {
       await updatePlanNote(index, null)
-      modal.classList.remove('show')
+      noteModal.hide()
       cleanup()
     }
     
     const closeHandler = () => {
-      modal.classList.remove('show')
+      noteModal.hide()
       cleanup()
-    }
-    
-    const overlayHandler = (e) => {
-      if (e.target === modal) {
-        closeHandler()
-      }
     }
     
     const cleanup = () => {
       saveBtn.removeEventListener('click', saveHandler)
       deleteBtn.removeEventListener('click', deleteNoteHandler)
       closeX.removeEventListener('click', closeHandler)
-      modal.removeEventListener('click', overlayHandler)
       titleEl.textContent = '备注详情'
       closeX.remove()
       buttonsContainer.innerHTML = '<button class="btn-note-close" id="noteViewCloseBtn">关闭</button>'
@@ -184,7 +182,9 @@
     saveBtn.addEventListener('click', saveHandler)
     deleteBtn.addEventListener('click', deleteNoteHandler)
     closeX.addEventListener('click', closeHandler)
-    modal.addEventListener('click', overlayHandler)
+    
+    // 显示弹窗
+    noteModal.show()
   }
 
   // 更新计划的备注
