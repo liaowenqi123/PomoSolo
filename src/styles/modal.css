@@ -785,18 +785,19 @@
 .tag-modal .tag-modal-content {
   background: linear-gradient(135deg, rgba(50, 50, 70, 0.99), rgba(40, 40, 60, 0.99));
   padding: 20px 25px;
-  width: 320px;
+  width: 340px;
 }
 
 .tag-modal .confirm-modal-title {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
   margin-bottom: 8px;
+  color: #ff8a8a;
 }
 
 .tag-modal .confirm-modal-message {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.85);
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.9);
   margin-bottom: 15px;
 }
 
@@ -829,6 +830,7 @@
 .tag-option.active {
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.6);
 }
+}
 
 /* 不同标签的颜色 - 与播放列表中一致 */
 .tag-option[data-tag="学习"] {
@@ -853,67 +855,70 @@
 
 /* 自定义标签区域 */
 .tag-custom-section {
-  margin-top: 15px;
+  margin-top: 18px;
   padding-top: 15px;
-  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .tag-custom-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .tag-custom-input {
   flex: 1;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 8px;
-  padding: 8px 12px;
-  font-size: 13px;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 14px;
   color: #fff;
   outline: none;
   transition: all 0.15s ease;
 }
 
 .tag-custom-input::placeholder {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .tag-custom-input:focus {
-  border-color: rgba(255, 255, 255, 0.4);
-  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .tag-color-picker {
-  width: 32px;
-  height: 32px;
+  width: 38px;
+  height: 38px;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
   padding: 0;
-  background: none;
+  background: rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
 }
 
 .tag-color-picker::-webkit-color-swatch-wrapper {
-  padding: 2px;
+  padding: 3px;
 }
 
 .tag-color-picker::-webkit-color-swatch {
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 7px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
 }
 
 .tag-add-btn {
-  background: rgba(255, 107, 107, 0.8);
+  background: rgba(255, 107, 107, 0.85);
   border: none;
-  border-radius: 8px;
-  padding: 8px 14px;
-  font-size: 12px;
-  font-weight: 500;
+  border-radius: 10px;
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 600;
   color: #fff;
   cursor: pointer;
   transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 
 .tag-add-btn:hover {
