@@ -70,6 +70,10 @@
         "to": "music/Tick Tock, Take Control - 番茄钟.mp3"
       },
       {
+        "from": "music-player/music/tags.json",
+        "to": "music/tags.json"
+      },
+      {
         "from": "music-player/manual_downloader.exe",
         "to": "manual_downloader.exe"
       },

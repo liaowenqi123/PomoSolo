@@ -215,6 +215,24 @@ class PlaylistManager:
         return files
     
     @staticmethod
+    def load_tags():
+        """加载歌曲标签"""
+        tags_path = os.path.join(state.directory_path, "tags.json")
+        try:
+            if os.path.exists(tags_path):
+                with open(tags_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"加载标签失败: {e}", file=sys.stderr)
+        return {}
+    
+    @staticmethod
+    def get_song_tag(song_name):
+        """获取歌曲标签"""
+        tags = PlaylistManager.load_tags()
+        return tags.get(song_name, "自定义")
+    
+    @staticmethod
     def refresh_playlist():
         """
         热更新播放列表
@@ -731,8 +749,17 @@ def process_command(cmd_obj):
         """获取播放列表"""
         PlaylistManager.refresh_playlist()
         with state.lock:
+            # 加载标签
+            tags = PlaylistManager.load_tags()
+            # 构建带标签的歌曲列表
+            songs_with_tags = []
+            for song in state.order_playlist:
+                songs_with_tags.append({
+                    "name": song,
+                    "tag": tags.get(song, "自定义")
+                })
             state.send_event("playlist", {
-                "songs": state.order_playlist,
+                "songs": songs_with_tags,
                 "current_song": state.track_name,
                 "current_index": state.current_song_index
             })

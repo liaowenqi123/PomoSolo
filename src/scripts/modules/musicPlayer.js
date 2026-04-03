@@ -27,6 +27,7 @@ const MusicPlayer = (function() {
     isCollapsed: false,  // 是否收起
     playMode: 'shuffle',  // 播放模式：'shuffle' 随机 | 'order' 顺序循环
     playlist: [],  // 播放列表
+    playlistTags: {},  // 歌曲标签映射 { songName: tag }
     currentSongIndex: -1,  // 当前歌曲在列表中的索引
     isPlaylistOpen: false  // 播放列表弹窗是否打开
   }
@@ -259,6 +260,9 @@ const MusicPlayer = (function() {
       // 判断是否是番茄钟内置歌曲（不允许删除）
       const isBuiltIn = displayName.endsWith(' - 番茄钟')
       
+      // 获取标签
+      const tag = state.playlistTags[song] || '自定义'
+      
       // 垃圾桶 SVG 图标
       const trashIcon = `<svg class="trash-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="3 6 5 6 21 6"></polyline>
@@ -269,6 +273,7 @@ const MusicPlayer = (function() {
       
       return `<div class="${classes.join(' ')}" data-song="${song}" data-index="${index}">
         <span class="playlist-item-name">${displayName}</span>
+        <span class="playlist-item-tag">${tag}</span>
         <div class="playlist-item-actions">
           ${isCurrent ? '<span class="playlist-item-playing">▶</span>' : ''}
           ${!isBuiltIn ? `<button class="playlist-item-delete" data-song="${song}" title="删除">${trashIcon}</button>` : ''}
@@ -819,7 +824,18 @@ const MusicPlayer = (function() {
     
     // 监听播放列表事件
     window.electronAPI.onMusicPlaylist((data) => {
-      state.playlist = data.songs || []
+      // 兼容新旧格式：新格式是 [{name, tag}]，旧格式是 [string]
+      if (data.songs && data.songs.length > 0 && typeof data.songs[0] === 'object') {
+        state.playlist = data.songs.map(s => s.name)
+        state.playlistTags = {}
+        data.songs.forEach(s => {
+          if (s.name && s.tag) {
+            state.playlistTags[s.name] = s.tag
+          }
+        })
+      } else {
+        state.playlist = data.songs || []
+      }
       state.currentSongIndex = data.current_index !== undefined ? data.current_index : -1
       // 同步当前歌曲名（用于高亮）
       if (data.current_song !== undefined) {
