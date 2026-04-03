@@ -466,9 +466,9 @@ ipcMain.handle('music-delete-song', async (event, name) => {
   }
 })
 
-ipcMain.handle('music-update-tag', async (event, { name, tag }) => {
+ipcMain.handle('music-update-tag', async (event, { name, tag, color }) => {
   try {
-    await musicProcess.updateTag(name, tag)
+    await musicProcess.updateTag(name, tag, color)
     return { success: true }
   } catch (error) {
     return { success: false, error: error.message }

@@ -982,3 +982,105 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* 自定义颜色选择器 */
+.tag-custom-color-picker {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.color-picker-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.color-picker-header span {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.color-preview {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  background: #ff0000;
+}
+
+.color-slider-container {
+  margin-bottom: 10px;
+}
+
+.color-hue-slider {
+  width: 100%;
+  height: 20px;
+  border-radius: 10px;
+  background: linear-gradient(to right, 
+    hsl(0, 100%, 50%), 
+    hsl(60, 100%, 50%), 
+    hsl(120, 100%, 50%), 
+    hsl(180, 100%, 50%), 
+    hsl(240, 100%, 50%), 
+    hsl(300, 100%, 50%), 
+    hsl(360, 100%, 50%)
+  );
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.color-hue-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+
+.color-hue-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+
+.color-picker-presets {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+
+.color-preset-item {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.color-preset-item:hover {
+  transform: scale(1.15);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.color-preset-item[data-hue="0"] { background: hsl(0, 100%, 50%); }
+.color-preset-item[data-hue="30"] { background: hsl(30, 100%, 50%); }
+.color-preset-item[data-hue="60"] { background: hsl(60, 100%, 50%); }
+.color-preset-item[data-hue="120"] { background: hsl(120, 100%, 50%); }
+.color-preset-item[data-hue="180"] { background: hsl(180, 100%, 50%); }
+.color-preset-item[data-hue="240"] { background: hsl(240, 100%, 50%); }
+.color-preset-item[data-hue="280"] { background: hsl(280, 100%, 50%); }
+.color-preset-item[data-hue="320"] { background: hsl(320, 100%, 50%); }

@@ -361,7 +361,7 @@ class MusicProcess {
   /**
    * 更新歌曲标签
    */
-  async updateTag(name, tag) {
+  async updateTag(name, tag, color) {
     return new Promise((resolve) => {
       const timeoutId = setTimeout(() => {
         this.onTagUpdatedCallback = null
@@ -374,7 +374,7 @@ class MusicProcess {
         resolve({ success: data.success, error: data.error })
       }
 
-      this.sendCommand({ command: 'update_tag', name, tag })
+      this.sendCommand({ command: 'update_tag', name, tag, color })
     })
   }
 

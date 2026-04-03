@@ -232,12 +232,33 @@ class PlaylistManager:
     
     @staticmethod
     def get_song_tag(song_name):
-        """获取歌曲标签"""
+        """获取歌曲标签（返回 {name, color} 格式）"""
         tags = PlaylistManager.load_tags()
         # 跳过 _customTags 字段
         if song_name.startswith('_'):
-            return "自定义"
-        return tags.get(song_name, "自定义")
+            return {"name": "自定义", "color": None}
+        
+        tag_data = tags.get(song_name)
+        if tag_data is None:
+            return {"name": "自定义", "color": None}
+        
+        # 兼容旧格式（纯字符串）
+        if isinstance(tag_data, str):
+            # 检查是否是自定义标签
+            custom_tags = tags.get("_customTags", {})
+            if tag_data in custom_tags:
+                return {"name": tag_data, "color": custom_tags[tag_data]}
+            # 预设标签使用默认颜色
+            preset_colors = {
+                "学习": "#64b4ff",
+                "运动": "#ff9664",
+                "休息": "#64e664",
+                "主题曲": "#ffc864"
+            }
+            return {"name": tag_data, "color": preset_colors.get(tag_data)}
+        
+        # 新格式（对象）
+        return tag_data
     
     @staticmethod
     def get_custom_tags():
@@ -280,18 +301,40 @@ class PlaylistManager:
             return False, str(e)
     
     @staticmethod
-    def update_song_tag(song_name, new_tag):
-        """更新歌曲标签"""
+    def update_song_tag(song_name, tag_name, tag_color=None):
+        """更新歌曲标签（存储 {name, color} 格式）"""
         tags_path = os.path.join(state.directory_path, "tags.json")
         try:
             # 加载现有标签
             tags = PlaylistManager.load_tags()
-            # 更新标签
-            tags[song_name] = new_tag
+            
+            # 预设标签的默认颜色
+            preset_colors = {
+                "学习": "#64b4ff",
+                "运动": "#ff9664",
+                "休息": "#64e664",
+                "主题曲": "#ffc864"
+            }
+            
+            # 确定颜色
+            if tag_color is None:
+                # 检查是否是自定义标签
+                custom_tags = tags.get("_customTags", {})
+                if tag_name in custom_tags:
+                    tag_color = custom_tags[tag_name]
+                else:
+                    tag_color = preset_colors.get(tag_name)
+            
+            # 存储新格式
+            tags[song_name] = {
+                "name": tag_name,
+                "color": tag_color
+            }
+            
             # 保存到文件
             with open(tags_path, 'w', encoding='utf-8') as f:
                 json.dump(tags, f, ensure_ascii=False, indent=2)
-            print(f"[DEBUG] 标签已更新: {song_name} -> {new_tag}", file=sys.stderr)
+            print(f"[DEBUG] 标签已更新: {song_name} -> {tag_name} ({tag_color})", file=sys.stderr)
             return True, None
         except Exception as e:
             print(f"更新标签失败: {e}", file=sys.stderr)
@@ -816,13 +859,39 @@ def process_command(cmd_obj):
         with state.lock:
             # 加载标签
             tags = PlaylistManager.load_tags()
+            # 预设标签的默认颜色
+            preset_colors = {
+                "学习": "#64b4ff",
+                "运动": "#ff9664",
+                "休息": "#64e664",
+                "主题曲": "#ffc864"
+            }
             # 构建带标签的歌曲列表
             songs_with_tags = []
             for song in state.order_playlist:
-                songs_with_tags.append({
-                    "name": song,
-                    "tag": tags.get(song, "自定义")
-                })
+                tag_data = tags.get(song)
+                if tag_data is None:
+                    songs_with_tags.append({
+                        "name": song,
+                        "tag": "自定义",
+                        "tagColor": None
+                    })
+                elif isinstance(tag_data, str):
+                    # 兼容旧格式
+                    custom_tags = tags.get("_customTags", {})
+                    color = custom_tags.get(tag_data, preset_colors.get(tag_data))
+                    songs_with_tags.append({
+                        "name": song,
+                        "tag": tag_data,
+                        "tagColor": color
+                    })
+                else:
+                    # 新格式
+                    songs_with_tags.append({
+                        "name": song,
+                        "tag": tag_data.get("name", "自定义"),
+                        "tagColor": tag_data.get("color")
+                    })
             state.send_event("playlist", {
                 "songs": songs_with_tags,
                 "current_song": state.track_name,
@@ -850,15 +919,17 @@ def process_command(cmd_obj):
     elif command == "update_tag":
         """更新歌曲标签"""
         song_name = cmd_obj.get("name")
-        new_tag = cmd_obj.get("tag")
-        if song_name and new_tag:
-            print(f"update_tag命令: {song_name} -> {new_tag}", file=sys.stderr)
-            success, error = PlaylistManager.update_song_tag(song_name, new_tag)
+        tag_name = cmd_obj.get("tag")
+        tag_color = cmd_obj.get("color")  # 可选的颜色参数
+        if song_name and tag_name:
+            print(f"update_tag命令: {song_name} -> {tag_name} ({tag_color})", file=sys.stderr)
+            success, error = PlaylistManager.update_song_tag(song_name, tag_name, tag_color)
             state.send_event("tag_updated", {
                 "success": success,
                 "error": error,
                 "name": song_name,
-                "tag": new_tag
+                "tag": tag_name,
+                "color": tag_color
             })
     
     elif command == "get_custom_tags":

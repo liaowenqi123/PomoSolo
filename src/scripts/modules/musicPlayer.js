@@ -281,14 +281,21 @@ const MusicPlayer = (function() {
       // 判断是否是番茄钟内置歌曲（不允许删除）
       const isBuiltIn = displayName.endsWith(' - 番茄钟')
       
-      // 获取标签
-      const tag = state.playlistTags[song] || '自定义'
+      // 获取标签数据 {name, color}
+      const tagData = state.playlistTags[song] || { name: '自定义', color: null }
+      const tagName = tagData.name || '自定义'
+      const tagColor = tagData.color
       
       // 检查是否是自定义标签
-      const isCustomTag = state.customTags[tag]
+      const isCustomTag = state.customTags[tagName]
+      
       let tagStyle = ''
-      if (isCustomTag) {
-        const color = state.customTags[tag]
+      if (tagColor) {
+        // 使用存储的颜色
+        tagStyle = `style="background: ${hexToRgba(tagColor, 0.3)}; color: ${lightenColor(tagColor, 0.3)};"`
+      } else if (isCustomTag) {
+        // 自定义标签使用定义的颜色
+        const color = state.customTags[tagName]
         tagStyle = `style="background: ${hexToRgba(color, 0.3)}; color: ${lightenColor(color, 0.3)};"`
       }
       
@@ -301,7 +308,7 @@ const MusicPlayer = (function() {
       </svg>`
       
       return `<div class="${classes.join(' ')}" data-song="${song}" data-index="${index}">
-        <span class="playlist-item-tag" data-tag="${tag}" data-song="${song}" ${tagStyle}>${tag}</span>
+        <span class="playlist-item-tag" data-tag="${tagName}" data-song="${song}" ${tagStyle}>${tagName}</span>
         <span class="playlist-item-name">${displayName}</span>
         <div class="playlist-item-actions">
           ${isCurrent ? '<span class="playlist-item-playing">▶</span>' : ''}
@@ -379,6 +386,47 @@ const MusicPlayer = (function() {
   let selectedColor = PRESET_COLORS[0]
   
   /**
+   * HSL 转 HEX
+   */
+  function hslToHex(h, s, l) {
+    s /= 100
+    l /= 100
+    const a = s * Math.min(l, 1 - l)
+    const f = n => {
+      const k = (n + h / 30) % 12
+      const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1)
+      return Math.round(255 * color).toString(16).padStart(2, '0')
+    }
+    return `#${f(0)}${f(8)}${f(4)}`
+  }
+  
+  /**
+   * HEX 转 HSL
+   */
+  function hexToHsl(hex) {
+    let r = parseInt(hex.slice(1, 3), 16) / 255
+    let g = parseInt(hex.slice(3, 5), 16) / 255
+    let b = parseInt(hex.slice(5, 7), 16) / 255
+    
+    const max = Math.max(r, g, b), min = Math.min(r, g, b)
+    let h, s, l = (max + min) / 2
+
+    if (max === min) {
+      h = s = 0
+    } else {
+      const d = max - min
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+      switch (max) {
+        case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break
+        case g: h = ((b - r) / d + 2) / 6; break
+        case b: h = ((r - g) / d + 4) / 6; break
+      }
+    }
+    
+    return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) }
+  }
+  
+  /**
    * 显示标签选择弹窗
    */
   function showTagSelector(songName, currentTag) {
@@ -389,6 +437,9 @@ const MusicPlayer = (function() {
     const colorPicker = document.getElementById('tag-color-picker')
     const colorPresetsEl = document.getElementById('tag-color-presets')
     const addBtn = document.getElementById('tag-add-btn')
+    const customColorPicker = document.getElementById('tag-custom-color-picker')
+    const colorHueSlider = document.getElementById('color-hue-slider')
+    const colorPreview = document.getElementById('color-picker-preview')
     
     if (!modal || !songNameEl || !optionsEl) return
     
@@ -396,13 +447,17 @@ const MusicPlayer = (function() {
     const displayName = songName.replace(/\.[^/.]+$/, '')
     songNameEl.textContent = displayName
     
+    // 获取当前标签数据
+    const currentTagData = state.playlistTags[songName] || { name: '自定义', color: null }
+    const currentTagName = currentTagData.name || (typeof currentTagData === 'string' ? currentTagData : '自定义')
+    
     // 合并预设标签和自定义标签
     const allTags = [...PRESET_TAGS, ...Object.keys(state.customTags)]
     
     // 生成标签选项
     optionsEl.innerHTML = allTags.map(tag => {
       const isCustom = state.customTags[tag]
-      const isActive = tag === currentTag
+      const isActive = tag === currentTagName
       let style = ''
       let deleteBtn = ''
       if (isCustom) {
@@ -420,7 +475,7 @@ const MusicPlayer = (function() {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation()
         const tagToDelete = btn.dataset.tag
-        await deleteCustomTag(tagToDelete, songName, currentTag)
+        await deleteCustomTag(tagToDelete, songName, currentTagName)
       })
     })
     
@@ -434,17 +489,17 @@ const MusicPlayer = (function() {
       
       // 生成预设颜色按钮
       let colorButtons = PRESET_COLORS.map((color, index) => 
-        `<div class="tag-color-preset ${color === selectedColor && !advancedColorEnabled ? 'active' : ''}" 
+        `<div class="tag-color-preset ${color === selectedColor ? 'active' : ''}" 
              data-color="${color}" 
              style="background: ${color};">
          </div>`
       ).join('')
       
-      // 高级模式：添加第10个颜色按钮（调色盘）
-      if (advancedColorEnabled && colorPicker) {
-        colorButtons += `<div class="tag-color-preset tag-color-advanced ${selectedColor === colorPicker.value ? 'active' : ''}" 
+      // 高级模式：添加第10个颜色按钮（调色盘图标）
+      if (advancedColorEnabled) {
+        colorButtons += `<div class="tag-color-preset tag-color-advanced" 
              id="tag-color-advanced-btn" 
-             style="background: ${colorPicker.value};">
+             style="background: ${selectedColor};">
            <span class="tag-color-picker-icon">🎨</span>
          </div>`
       }
@@ -457,31 +512,72 @@ const MusicPlayer = (function() {
           colorPresetsEl.querySelectorAll('.tag-color-preset').forEach(p => p.classList.remove('active'))
           preset.classList.add('active')
           selectedColor = preset.dataset.color
-          colorPicker.style.display = 'none'
+          // 隐藏自定义颜色选择器
+          if (customColorPicker) customColorPicker.style.display = 'none'
         })
       })
       
       // 高级模式：绑定调色盘按钮事件
-      if (advancedColorEnabled && colorPicker) {
+      if (advancedColorEnabled) {
         const advancedBtn = document.getElementById('tag-color-advanced-btn')
-        if (advancedBtn) {
+        if (advancedBtn && customColorPicker) {
           advancedBtn.addEventListener('click', () => {
-            colorPicker.click()
-          })
-          
-          // 监听颜色变化
-          colorPicker.addEventListener('input', () => {
-            advancedBtn.style.background = colorPicker.value
-            selectedColor = colorPicker.value
-            colorPresetsEl.querySelectorAll('.tag-color-preset').forEach(p => p.classList.remove('active'))
-            advancedBtn.classList.add('active')
+            // 切换自定义颜色选择器的显示
+            const isVisible = customColorPicker.style.display !== 'none'
+            if (isVisible) {
+              customColorPicker.style.display = 'none'
+            } else {
+              customColorPicker.style.display = 'block'
+              // 初始化滑块和预览
+              const hsl = hexToHsl(selectedColor)
+              if (colorHueSlider) colorHueSlider.value = hsl.h
+              if (colorPreview) colorPreview.style.background = selectedColor
+            }
           })
         }
       }
     }
     
+    // 自定义颜色选择器事件
+    if (colorHueSlider && colorPreview) {
+      colorHueSlider.addEventListener('input', () => {
+        const hue = parseInt(colorHueSlider.value)
+        const color = hslToHex(hue, 80, 55)
+        colorPreview.style.background = color
+        selectedColor = color
+        
+        // 更新高级按钮的背景色
+        const advancedBtn = document.getElementById('tag-color-advanced-btn')
+        if (advancedBtn) advancedBtn.style.background = color
+        
+        // 更新选中状态
+        colorPresetsEl.querySelectorAll('.tag-color-preset').forEach(p => p.classList.remove('active'))
+        if (advancedBtn) advancedBtn.classList.add('active')
+      })
+    }
+    
+    // 颜色预设快捷按钮
+    if (customColorPicker) {
+      customColorPicker.querySelectorAll('.color-preset-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const hue = parseInt(item.dataset.hue)
+          const color = hslToHex(hue, 80, 55)
+          selectedColor = color
+          if (colorHueSlider) colorHueSlider.value = hue
+          if (colorPreview) colorPreview.style.background = color
+          
+          // 更新高级按钮的背景色
+          const advancedBtn = document.getElementById('tag-color-advanced-btn')
+          if (advancedBtn) advancedBtn.style.background = color
+        })
+      })
+    }
+    
     // 显示弹窗
     modal.classList.add('show')
+    
+    // 隐藏自定义颜色选择器
+    if (customColorPicker) customColorPicker.style.display = 'none'
     
     // 清空输入框
     if (customInput) customInput.value = ''
@@ -493,8 +589,16 @@ const MusicPlayer = (function() {
         if (e.target.classList.contains('tag-delete-btn')) return
         
         const newTag = opt.dataset.tag
-        if (newTag !== currentTag) {
-          await updateSongTag(songName, newTag)
+        if (newTag !== currentTagName) {
+          // 确定颜色：自定义标签用自定义颜色，预设标签用选中颜色
+          let color = null
+          if (state.customTags[newTag]) {
+            color = state.customTags[newTag]
+          } else if (!PRESET_TAGS.includes(newTag)) {
+            // 新添加的自定义标签使用选中的颜色
+            color = selectedColor
+          }
+          await updateSongTag(songName, newTag, color)
         }
         modal.classList.remove('show')
       })
@@ -508,9 +612,8 @@ const MusicPlayer = (function() {
       
       newAddBtn.addEventListener('click', async () => {
         const tagName = customInput.value.trim()
-        // 根据设置决定颜色来源
         const advancedColorEnabled = state.advancedColorCustomization || false
-        const color = advancedColorEnabled && colorPicker ? (colorPicker.value || selectedColor) : selectedColor
+        const color = selectedColor
         
         if (!tagName) {
           showToast('请输入标签名称')
@@ -532,8 +635,8 @@ const MusicPlayer = (function() {
         const result = await window.electronAPI.musicAddCustomTag(tagName, color)
         if (result.success) {
           state.customTags[tagName] = color
-          // 直接选中新添加的标签
-          await updateSongTag(songName, tagName)
+          // 直接选中新添加的标签（使用自定义标签的颜色）
+          await updateSongTag(songName, tagName, color)
           modal.classList.remove('show')
         } else {
           showToast(result.error || '添加失败')
@@ -571,11 +674,11 @@ const MusicPlayer = (function() {
   /**
    * 更新歌曲标签
    */
-  async function updateSongTag(songName, newTag) {
+  async function updateSongTag(songName, newTag, color) {
     try {
-      const result = await window.electronAPI.musicUpdateTag(songName, newTag)
+      const result = await window.electronAPI.musicUpdateTag(songName, newTag, color)
       if (result.success) {
-        state.playlistTags[songName] = newTag
+        state.playlistTags[songName] = { name: newTag, color: color }
         renderPlaylist()
         showToast('标签已更新')
       } else {
@@ -1098,13 +1201,16 @@ const MusicPlayer = (function() {
     
     // 监听播放列表事件
     window.electronAPI.onMusicPlaylist((data) => {
-      // 兼容新旧格式：新格式是 [{name, tag}]，旧格式是 [string]
+      // 新格式：[{name, tag, tagColor}]
       if (data.songs && data.songs.length > 0 && typeof data.songs[0] === 'object') {
         state.playlist = data.songs.map(s => s.name)
         state.playlistTags = {}
         data.songs.forEach(s => {
-          if (s.name && s.tag) {
-            state.playlistTags[s.name] = s.tag
+          if (s.name) {
+            state.playlistTags[s.name] = {
+              name: s.tag || '自定义',
+              color: s.tagColor || null
+            }
           }
         })
       } else {
