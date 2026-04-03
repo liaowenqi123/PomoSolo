@@ -266,16 +266,29 @@
             <button class="music-btn music-next" id="music-next-btn">⏭</button>
             <button class="music-btn-small music-mode" id="music-mode-btn" title="随机播放">🔀</button>
           </div>
-          <!-- 播放列表面板 -->
-          <div class="music-playlist-panel" id="music-playlist-panel">
-            <div class="playlist-header">
-              <span>播放列表</span>
-              <button class="playlist-refresh-btn" id="music-refresh-btn" title="刷新列表">🔄</button>
-            </div>
-            <div class="playlist-items" id="music-playlist-items"></div>
-          </div>
-          </div>
-          </div>
+                    <!-- 播放列表面板 -->
+                    <div class="music-playlist-panel" id="music-playlist-panel">
+                      <div class="playlist-header">
+                        <span>播放列表</span>
+                        <button class="playlist-refresh-btn" id="music-refresh-btn" title="刷新列表">🔄</button>
+                      </div>
+                      <div class="playlist-items" id="music-playlist-items"></div>
+                    </div>
+                    <div class="music-toast" id="music-toast"></div>
+                  </div>          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 删除歌曲确认弹窗 -->
+    <div class="confirm-modal" id="delete-song-modal">
+      <div class="confirm-modal-content">
+        <div class="confirm-modal-icon">🗑️</div>
+        <h3 class="confirm-modal-title">删除歌曲</h3>
+        <p class="confirm-modal-message" id="delete-song-message">确定要删除这首歌曲吗？</p>
+        <div class="confirm-modal-buttons">
+          <button class="confirm-btn confirm-btn-cancel" id="delete-song-cancel-btn">取消</button>
+          <button class="confirm-btn confirm-btn-confirm" id="delete-song-ok-btn">删除</button>
         </div>
       </div>
     </div>

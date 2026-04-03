@@ -10,6 +10,10 @@ class SongDownloader {
   constructor() {
     this.downloaderPath = null
     this.apiKey = null
+    
+    // 下载队列，确保串行执行
+    this.downloadQueue = []
+    this.isDownloading = false
   }
 
   /**
@@ -37,12 +41,55 @@ class SongDownloader {
   }
 
   /**
-   * 下载歌曲
+   * 下载歌曲（加入队列，串行执行）
    * @param {string} title - 歌曲名称
    * @param {string} artist - 歌手
-   * @returns {Promise<{success: boolean, error?: string}>}
+   * @param {Function} onProgress - 进度回调
+   * @returns {Promise<{success: boolean, status?: string, error?: string}>}
    */
-  async downloadSong(title, artist) {
+  async downloadSong(title, artist, onProgress = null) {
+    return new Promise((resolve) => {
+      // 加入队列
+      this.downloadQueue.push({ title, artist, onProgress, resolve })
+      
+      // 如果没有在下载，开始处理队列
+      if (!this.isDownloading) {
+        this._processQueue()
+      }
+    })
+  }
+
+  /**
+   * 处理下载队列
+   */
+  async _processQueue() {
+    if (this.downloadQueue.length === 0) {
+      this.isDownloading = false
+      return
+    }
+
+    this.isDownloading = true
+    const { title, artist, onProgress, resolve } = this.downloadQueue.shift()
+
+    try {
+      const result = await this._doDownload(title, artist, onProgress)
+      resolve(result)
+    } catch (err) {
+      resolve({ success: false, error: err.message })
+    }
+
+    // 处理下一个
+    this._processQueue()
+  }
+
+  /**
+   * 实际执行下载
+   * @param {string} title - 歌曲名称
+   * @param {string} artist - 歌手
+   * @param {Function} onProgress - 进度回调
+   * @returns {Promise<{success: boolean, status?: string, error?: string}>}
+   */
+  async _doDownload(title, artist, onProgress) {
     if (!this.downloaderPath) {
       return { success: false, error: '下载器路径未配置' }
     }
@@ -55,6 +102,8 @@ class SongDownloader {
 
     return new Promise((resolve) => {
       try {
+        if (onProgress) onProgress('正在启动下载器...')
+        
         const childProcess = spawn(this.downloaderPath, [
           '-s', songName,
           '-k', this.apiKey
@@ -69,8 +118,20 @@ class SongDownloader {
         childProcess.stdout.on('data', (data) => {
           const text = data.toString('utf8')
           output += text
-          // 实时输出下载进度
           console.log('[Downloader]', text.trim())
+          
+          // 解析进度信息
+          if (onProgress) {
+            if (text.includes('正在 B 站搜索')) {
+              onProgress('正在搜索 B 站...')
+            } else if (text.includes('DeepSeek 正在分析')) {
+              onProgress('AI 正在分析视频...')
+            } else if (text.includes('正在下载')) {
+              onProgress('正在下载视频...')
+            } else if (text.includes('提取音频')) {
+              onProgress('正在提取音频...')
+            }
+          }
         })
 
         childProcess.stderr.on('data', (data) => {
@@ -80,19 +141,24 @@ class SongDownloader {
         })
 
         childProcess.on('close', (code) => {
-          if (code === 0) {
-            resolve({ success: true, output })
-          } else {
-            // 解析错误信息
-            let errorMsg = '下载失败'
-            if (errorOutput.includes('歌曲已存在')) {
-              errorMsg = '歌曲已存在'
-            } else if (errorOutput.includes('未找到')) {
-              errorMsg = '未找到相关视频'
-            } else if (errorOutput.includes('API')) {
-              errorMsg = 'API 调用失败'
-            }
-            resolve({ success: false, error: errorMsg, output, errorOutput })
+          // 根据退出码判断结果
+          switch (code) {
+            case 0:
+              resolve({ success: true, status: 'downloaded', message: '下载成功' })
+              break
+            case 2:
+              resolve({ success: true, status: 'exists', message: '歌曲已存在，跳过下载' })
+              break
+            case 3:
+              resolve({ success: false, status: 'no_video', error: '未找到相关视频' })
+              break
+            case 4:
+              resolve({ success: false, status: 'no_instrumental', error: '未找到符合条件的纯音乐视频' })
+              break
+            case 1:
+            default:
+              resolve({ success: false, status: 'failed', error: '下载失败' })
+              break
           }
         })
 
@@ -114,6 +180,22 @@ class SongDownloader {
         resolve({ success: false, error: `下载异常: ${err.message}` })
       }
     })
+  }
+
+  /**
+   * 检查是否有下载任务正在进行
+   * @returns {boolean}
+   */
+  isBusy() {
+    return this.isDownloading
+  }
+
+  /**
+   * 获取队列长度
+   * @returns {number}
+   */
+  getQueueLength() {
+    return this.downloadQueue.length
   }
 }
 

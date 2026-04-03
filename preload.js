@@ -81,6 +81,7 @@ const { contextBridge, ipcRenderer } = require('electron')
   musicSetDevice: (deviceId) => ipcRenderer.send('music-set-device', deviceId),
   musicSetPlayMode: (mode) => ipcRenderer.send('music-set-play-mode', mode),
   musicGetPlaylist: () => ipcRenderer.send('music-get-playlist'),
+  musicDeleteSong: (name) => ipcRenderer.invoke('music-delete-song', name),
   musicPlaySong: (name) => ipcRenderer.send('music-play-song', name),
   
   // 音乐播放器事件监听

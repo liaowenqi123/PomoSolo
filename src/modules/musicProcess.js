@@ -302,6 +302,38 @@ class MusicProcess {
     return this.sendCommand({ command: 'play_song', name })
   }
 
+  /**
+   * 删除指定歌曲
+   * @param {string} name - 歌曲文件名
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  async deleteSong(name) {
+    return new Promise((resolve) => {
+      // 设置一次性回调来接收删除结果
+      const originalCallback = this.onStatusCallback
+      const timeoutId = setTimeout(() => {
+        this.onStatusCallback = originalCallback
+        resolve({ success: false, error: '删除超时' })
+      }, 5000)
+
+      this.onStatusCallback = (data) => {
+        if (data && data.delete_result !== undefined) {
+          clearTimeout(timeoutId)
+          this.onStatusCallback = originalCallback
+          if (data.delete_result === 'success') {
+            resolve({ success: true })
+          } else {
+            resolve({ success: false, error: data.delete_error || '删除失败' })
+          }
+        } else if (originalCallback) {
+          originalCallback(data)
+        }
+      }
+
+      this.sendCommand({ command: 'delete_song', name })
+    })
+  }
+
   // ============ 回调设置 ============
 
   onReady(callback) {

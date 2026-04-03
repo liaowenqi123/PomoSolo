@@ -670,7 +670,7 @@ def main():
     if existing_file:
         print(f"\n⚠️ 歌曲已存在：{os.path.basename(existing_file)}")
         print(f"   跳过下载")
-        return
+        sys.exit(2)  # 退出码 2 表示歌曲已存在
 
     # B 站搜索（取前6个视频）
     keyword = f"{title} {artist}"
@@ -678,14 +678,14 @@ def main():
 
     if not videos:
         print("\n❌ 未找到相关视频")
-        return
+        sys.exit(3)  # 退出码 3 表示未找到相关视频
 
     # AI 一次性判断选出最佳视频
     selected_video = downloader.select_best_video_with_deepseek(videos)
 
     if not selected_video:
         print("\n❌ 未找到符合条件的纯音乐视频")
-        return
+        sys.exit(4)  # 退出码 4 表示未找到纯音乐视频
 
     # 下载
     mp3_path = downloader.download_video(
@@ -696,8 +696,10 @@ def main():
 
     if mp3_path:
         print(f"\n✅ 下载完成！文件路径：{mp3_path}")
+        sys.exit(0)  # 退出码 0 表示下载成功
     else:
         print(f"\n❌ 下载失败")
+        sys.exit(1)  # 退出码 1 表示下载失败
 
 
 if __name__ == "__main__":

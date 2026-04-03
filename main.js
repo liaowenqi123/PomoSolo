@@ -457,6 +457,15 @@ ipcMain.on('music-play-song', (event, name) => {
   musicProcess.playSong(name)
 })
 
+ipcMain.handle('music-delete-song', async (event, name) => {
+  try {
+    await musicProcess.deleteSong(name)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
 // ============ 音乐榜单 IPC 处理 ============
 
 const chartsFetcher = require('./src/modules/chartsFetcher')

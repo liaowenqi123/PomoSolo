@@ -197,14 +197,25 @@ const Charts = (function() {
       const result = await window.electronAPI.downloadSong(title, artist)
       
       if (result.success) {
-        showDownloadToast(`✅ "${title}" 下载成功`, 'success')
-      } else {
-        // 根据错误类型显示不同提示
-        let errorMsg = result.error || '下载失败'
-        if (errorMsg.includes('API Key')) {
-          errorMsg = '请先登录或配置 DeepSeek API Key'
+        // 根据状态显示不同提示
+        if (result.status === 'exists') {
+          showDownloadToast(`ℹ️ "${title}" 已存在，无需下载`, 'info')
+        } else {
+          showDownloadToast(`✅ "${title}" 下载成功`, 'success')
         }
-        showDownloadToast(`❌ ${errorMsg}`, 'error')
+      } else {
+        // 根据状态显示不同提示
+        if (result.status === 'no_video') {
+          showDownloadToast(`❌ "${title}" 未找到相关视频`, 'error')
+        } else if (result.status === 'no_instrumental') {
+          showDownloadToast(`❌ "${title}" 未找到纯音乐版本`, 'error')
+        } else {
+          let errorMsg = result.error || '下载失败'
+          if (errorMsg.includes('API Key')) {
+            errorMsg = '请先登录或配置 DeepSeek API Key'
+          }
+          showDownloadToast(`❌ ${errorMsg}`, 'error')
+        }
       }
     } catch (error) {
       console.error('[Charts] 下载失败:', error)
@@ -225,13 +236,26 @@ const Charts = (function() {
     const toast = document.createElement('div')
     toast.className = 'charts-toast'
     toast.textContent = message
+    
+    let bgColor
+    switch (type) {
+      case 'success':
+        bgColor = 'rgba(76, 175, 80, 0.9)'
+        break
+      case 'info':
+        bgColor = 'rgba(33, 150, 243, 0.9)'
+        break
+      default:
+        bgColor = 'rgba(244, 67, 54, 0.9)'
+    }
+    
     toast.style.cssText = `
       position: fixed;
       bottom: 20px;
       left: 50%;
       transform: translateX(-50%);
       padding: 10px 20px;
-      background: ${type === 'success' ? 'rgba(76, 175, 80, 0.9)' : 'rgba(244, 67, 54, 0.9)'};
+      background: ${bgColor};
       color: white;
       border-radius: 8px;
       font-size: 13px;

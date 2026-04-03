@@ -256,9 +256,20 @@ const MusicPlayer = (function() {
       // 截取文件名（去掉扩展名）
       const displayName = song.replace(/\.[^/.]+$/, '')
       
+      // 垃圾桶 SVG 图标
+      const trashIcon = `<svg class="trash-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="3 6 5 6 21 6"></polyline>
+        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+        <line x1="10" y1="11" x2="10" y2="17"></line>
+        <line x1="14" y1="11" x2="14" y2="17"></line>
+      </svg>`
+      
       return `<div class="${classes.join(' ')}" data-song="${song}" data-index="${index}">
         <span class="playlist-item-name">${displayName}</span>
-        ${isCurrent ? '<span class="playlist-item-playing">▶</span>' : ''}
+        <div class="playlist-item-actions">
+          ${isCurrent ? '<span class="playlist-item-playing">▶</span>' : ''}
+          <button class="playlist-item-delete" data-song="${song}" title="删除">${trashIcon}</button>
+        </div>
       </div>`
     }).join('')
     
@@ -266,12 +277,106 @@ const MusicPlayer = (function() {
   }
   
   function handlePlaylistClick(e) {
+    // 检查是否点击删除按钮
+    const deleteBtn = e.target.closest('.playlist-item-delete')
+    if (deleteBtn) {
+      e.stopPropagation()
+      const songName = deleteBtn.dataset.song
+      
+      // 检查是否是当前已加载的歌曲（不管是否在播放）
+      if (songName === state.trackName) {
+        showToast('无法删除当前已加载的歌曲')
+        return
+      }
+      
+      // 显示确认弹窗
+      showDeleteConfirm(songName)
+      return
+    }
+    
+    // 点击歌曲项，切换播放
     const item = e.target.closest('.playlist-item')
     if (!item) return
     
     const songName = item.dataset.song
     if (songName && songName !== state.trackName) {
       window.electronAPI.musicPlaySong(songName)
+    }
+  }
+  
+  /**
+   * 删除歌曲
+   */
+  async function deleteSong(songName) {
+    try {
+      const result = await window.electronAPI.musicDeleteSong(songName)
+      if (result.success) {
+        showToast('已删除')
+        // 刷新列表
+        window.electronAPI.musicGetPlaylist()
+      } else {
+        showToast(result.error || '删除失败')
+      }
+    } catch (err) {
+      showToast('删除失败')
+    }
+  }
+  
+  /**
+   * 显示提示
+   */
+  function showToast(message) {
+    const toast = document.getElementById('music-toast')
+    if (!toast) return
+    
+    toast.textContent = message
+    toast.classList.add('show')
+    
+    setTimeout(() => {
+      toast.classList.remove('show')
+    }, 1500)
+  }
+  
+  /**
+   * 显示删除确认弹窗
+   */
+  function showDeleteConfirm(songName) {
+    const modal = document.getElementById('delete-song-modal')
+    const message = document.getElementById('delete-song-message')
+    const cancelBtn = document.getElementById('delete-song-cancel-btn')
+    const confirmBtn = document.getElementById('delete-song-ok-btn')
+    
+    if (!modal || !message || !cancelBtn || !confirmBtn) return
+    
+    // 显示歌曲名
+    const displayName = songName.replace(/\.[^/.]+$/, '')
+    message.textContent = `确定要删除「${displayName}」吗？`
+    
+    // 显示弹窗
+    modal.classList.add('show')
+    
+    // 移除旧的事件监听器（通过克隆节点）
+    const newCancelBtn = cancelBtn.cloneNode(true)
+    const newConfirmBtn = confirmBtn.cloneNode(true)
+    cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn)
+    confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn)
+    
+    // 取消按钮
+    newCancelBtn.addEventListener('click', () => {
+      modal.classList.remove('show')
+    })
+    
+    // 确认按钮
+    newConfirmBtn.addEventListener('click', () => {
+      modal.classList.remove('show')
+      deleteSong(songName)
+    })
+    
+    // 点击背景关闭
+    modal.onclick = (e) => {
+      if (e.target === modal) {
+        modal.classList.remove('show')
+      }
     }
   }
   
@@ -713,6 +818,10 @@ const MusicPlayer = (function() {
     window.electronAPI.onMusicPlaylist((data) => {
       state.playlist = data.songs || []
       state.currentSongIndex = data.current_index !== undefined ? data.current_index : -1
+      // 同步当前歌曲名（用于高亮）
+      if (data.current_song !== undefined) {
+        state.trackName = data.current_song
+      }
       renderPlaylist()
     })
     

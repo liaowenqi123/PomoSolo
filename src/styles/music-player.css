@@ -667,10 +667,46 @@
   color: #ff8a8a;
 }
 
+.playlist-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+
 .playlist-item-playing {
   font-size: 9px;
   color: #ff8a8a;
-  margin-left: 4px;
+}
+
+.playlist-item-delete {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all 0.15s ease;
+  padding: 2px;
+}
+
+.playlist-item-delete .trash-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.playlist-item:hover .playlist-item-delete {
+  opacity: 1;
+}
+
+.playlist-item-delete:hover {
+  background: rgba(255, 100, 100, 0.2);
+  color: #ff6b6b;
 }
 
 .playlist-empty {
@@ -678,4 +714,26 @@
   text-align: center;
   color: rgba(255, 255, 255, 0.5);
   font-size: 10px;
+}
+
+/* 音乐播放器 Toast 提示 */
+.music-toast {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 10px;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+  z-index: 1100;
+}
+
+.music-toast.show {
+  opacity: 1;
 }

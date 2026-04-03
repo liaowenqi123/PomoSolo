@@ -283,6 +283,36 @@ class PlaylistManager:
         return os.path.exists(filepath)
     
     @staticmethod
+    def delete_song(song_name):
+        """删除歌曲文件"""
+        if not song_name:
+            return {"delete_result": "failed", "delete_error": "歌曲名不能为空"}
+        
+        # 检查是否是当前已加载的歌曲（不管是否在播放）
+        if state.track_name == song_name:
+            return {"delete_result": "failed", "delete_error": "无法删除当前已加载的歌曲"}
+        
+        # 构建文件路径
+        filepath = os.path.join(state.directory_path, song_name)
+        
+        # 检查文件是否存在
+        if not os.path.exists(filepath):
+            return {"delete_result": "failed", "delete_error": "歌曲文件不存在"}
+        
+        try:
+            # 删除文件
+            os.remove(filepath)
+            print(f"已删除歌曲: {song_name}", file=sys.stderr)
+            
+            # 刷新播放列表
+            PlaylistManager.refresh_playlist()
+            
+            return {"delete_result": "success"}
+        except Exception as e:
+            print(f"删除歌曲失败: {e}", file=sys.stderr)
+            return {"delete_result": "failed", "delete_error": str(e)}
+    
+    @staticmethod
     def get_random_song():
         """获取一首随机歌曲"""
         if not state.order_playlist:
@@ -716,6 +746,14 @@ def process_command(cmd_obj):
                 # 设置跳转歌曲标志
                 state.jump_to_song = song_name
                 state.next_one = True  # 触发切歌
+    
+    elif command == "delete_song":
+        """删除指定歌曲"""
+        song_name = cmd_obj.get("name")
+        if song_name:
+            print(f"delete_song命令: {song_name}", file=sys.stderr)
+            result = PlaylistManager.delete_song(song_name)
+            state.send_event("status", result)
 
 
 def stdin_reader():
