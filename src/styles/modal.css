@@ -921,13 +921,20 @@
 }
 
 /* 预设颜色选择 */
-.tag-color-presets {
+.tag-color-section {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin: 12px 0;
   justify-content: center;
   position: relative;
+}
+
+.tag-color-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
 }
 
 .tag-color-preset {
@@ -986,17 +993,12 @@
 
 /* 自定义颜色选择器（下拉框样式） */
 .tag-custom-color-picker {
-  position: absolute;
-  top: 50%;
-  left: 100%;
-  transform: translateY(-50%);
-  margin-left: 8px;
   padding: 12px;
   background: rgba(40, 40, 55, 0.99);
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  z-index: 10;
+  z-index: 1000;
   min-width: 180px;
 }
 

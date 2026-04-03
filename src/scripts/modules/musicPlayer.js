@@ -527,6 +527,12 @@ const MusicPlayer = (function() {
             if (isVisible) {
               customColorPicker.style.display = 'none'
             } else {
+              // 计算调色盘按钮的位置，让调色盘显示在按钮右边
+              const btnRect = advancedBtn.getBoundingClientRect()
+              customColorPicker.style.position = 'fixed'
+              customColorPicker.style.top = `${btnRect.top + btnRect.height / 2 - 40}px`
+              customColorPicker.style.left = `${btnRect.right + 8}px`
+              customColorPicker.style.transform = 'none'
               customColorPicker.style.display = 'block'
               // 选中调色盘按钮
               colorPresetsEl.querySelectorAll('.tag-color-preset').forEach(p => p.classList.remove('active'))
