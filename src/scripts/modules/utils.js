@@ -319,6 +319,25 @@
   }
 
   /**
+   * 土地解锁配置
+   * type: 'default' 默认解锁 | 'coins' 金币购买 | 'achievement' 成就解锁
+   */
+  const PLOT_UNLOCK_CONFIG = {
+    0: { type: 'default' },
+    1: { type: 'default' },
+    2: { type: 'default' },
+    3: { type: 'default' },
+    4: { type: 'default' },
+    5: { type: 'default' },
+    6: { type: 'coins', price: 100 },
+    7: { type: 'coins', price: 150 },
+    8: { type: 'achievement', achievementId: 'signin100', description: '连续签到100天' },
+    9: { type: 'achievement', achievementId: 'coins5000', description: '累计获得5000金币' },
+    10: { type: 'coins', price: 500 },
+    11: { type: 'coins', price: 800 }
+  }
+
+  /**
    * 创建默认数据结构
    * @returns {Object} 默认数据对象
    */
@@ -402,6 +421,7 @@
     CONTINUOUS_REWARDS: CONTINUOUS_REWARDS,
     WEEKLY_REWARDS: WEEKLY_REWARDS,
     ACHIEVEMENT_CONFIG: ACHIEVEMENT_CONFIG,
-    ACHIEVEMENT_CATEGORIES: ACHIEVEMENT_CATEGORIES
+    ACHIEVEMENT_CATEGORIES: ACHIEVEMENT_CATEGORIES,
+    PLOT_UNLOCK_CONFIG: PLOT_UNLOCK_CONFIG
   }
 })()

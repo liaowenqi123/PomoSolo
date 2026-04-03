@@ -18,6 +18,9 @@
   // 成就配置
   const ACHIEVEMENT_CONFIG = Utils.ACHIEVEMENT_CONFIG
   const ACHIEVEMENT_CATEGORIES = Utils.ACHIEVEMENT_CATEGORIES
+  
+  // 土地解锁配置
+  const PLOT_UNLOCK_CONFIG = Utils.PLOT_UNLOCK_CONFIG
 
   /**
    * 初始化菜园子
@@ -179,7 +182,49 @@
       
       if (plot.locked) {
         plotEl.classList.add('locked')
-        plotEl.innerHTML = '<span>🔒</span>'
+        const unlockConfig = PLOT_UNLOCK_CONFIG[index]
+        
+        if (unlockConfig.type === 'coins') {
+          // 金币解锁
+          const canAfford = (gardenData.coins || 0) >= unlockConfig.price
+          plotEl.classList.add('locked-coins')
+          plotEl.innerHTML = `
+            <span class="lock-icon">🔒</span>
+            <span class="lock-price">💰${unlockConfig.price}</span>
+            <button class="unlock-btn ${canAfford ? '' : 'disabled'}">${canAfford ? '解锁' : '金币不足'}</button>
+          `
+          // 解锁按钮点击事件
+          const btn = plotEl.querySelector('.unlock-btn')
+          if (canAfford) {
+            btn.addEventListener('click', (e) => {
+              e.stopPropagation()
+              unlockPlotWithCoins(index, unlockConfig.price)
+            })
+          }
+        } else if (unlockConfig.type === 'achievement') {
+          // 成就解锁
+          const achievement = ACHIEVEMENT_CONFIG[unlockConfig.achievementId]
+          const isUnlocked = gardenData.achievements && 
+                            gardenData.achievements[unlockConfig.achievementId] && 
+                            gardenData.achievements[unlockConfig.achievementId].unlocked
+          plotEl.classList.add('locked-achievement')
+          if (isUnlocked) {
+            plotEl.classList.add('can-unlock')
+          }
+          plotEl.innerHTML = `
+            <span class="lock-icon">🔒</span>
+            <span class="lock-condition">${unlockConfig.description}</span>
+            <button class="unlock-btn ${isUnlocked ? '' : 'disabled'}">${isUnlocked ? '解锁' : '未达成'}</button>
+          `
+          // 解锁按钮点击事件
+          const btn = plotEl.querySelector('.unlock-btn')
+          if (isUnlocked) {
+            btn.addEventListener('click', (e) => {
+              e.stopPropagation()
+              unlockPlotWithAchievement(index)
+            })
+          }
+        }
       } else if (plot.crop) {
         // 有作物
         const cropConfig = CROP_CONFIG[plot.crop]
@@ -211,11 +256,70 @@
         plotEl.classList.add('selected')
       }
       
-      // 点击事件
-      plotEl.addEventListener('click', () => handlePlotClick(index))
+      // 点击事件（非锁定格子）
+      if (!plot.locked) {
+        plotEl.addEventListener('click', () => handlePlotClick(index))
+      }
       
       elements.gardenGrid.appendChild(plotEl)
     })
+  }
+
+  /**
+   * 使用金币解锁土地
+   */
+  async function unlockPlotWithCoins(index, price) {
+    const coins = gardenData.coins || 0
+    
+    if (coins < price) {
+      updateTip('金币不足')
+      return
+    }
+    
+    // 扣除金币
+    gardenData.coins = coins - price
+    
+    // 解锁土地
+    gardenData.plots[index] = {
+      id: index,
+      crop: null,
+      progress: 0,
+      plantedAt: null,
+      locked: false
+    }
+    
+    await saveGardenData()
+    updateTip(`解锁成功！花费 💰${price}`)
+    render()
+  }
+
+  /**
+   * 使用成就解锁土地
+   */
+  async function unlockPlotWithAchievement(index) {
+    const unlockConfig = PLOT_UNLOCK_CONFIG[index]
+    
+    // 再次验证成就是否已解锁
+    if (!gardenData.achievements || 
+        !gardenData.achievements[unlockConfig.achievementId] || 
+        !gardenData.achievements[unlockConfig.achievementId].unlocked) {
+      updateTip('成就未达成，无法解锁')
+      return
+    }
+    
+    // 解锁土地
+    gardenData.plots[index] = {
+      id: index,
+      crop: null,
+      progress: 0,
+      plantedAt: null,
+      locked: false
+    }
+    
+    await saveGardenData()
+    const achievement = ACHIEVEMENT_CONFIG[unlockConfig.achievementId]
+    updateTip(`🎉 解锁成功！达成成就「${achievement.name}」`)
+    render()
   }
 
   /**
@@ -317,12 +421,6 @@
    */
   function handlePlotClick(index) {
     const plot = gardenData.plots[index]
-    
-    // 检查是否锁定
-    if (plot.locked) {
-      updateTip('这个格子还未解锁')
-      return
-    }
     
     // 如果已有作物且成熟，可以收获
     if (plot.crop) {
