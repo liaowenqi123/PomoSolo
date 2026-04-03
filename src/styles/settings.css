@@ -222,6 +222,24 @@
   background: rgba(255, 255, 255, 0.05);
 }
 
+/* 版本号 */
+.settings-version {
+  text-align: center;
+  padding: 12px 0 8px;
+  margin-top: 8px;
+  border-top: 1px solid var(--sidebar-border, rgba(0, 0, 0, 0.1));
+}
+
+.settings-version span {
+  font-size: 11px;
+  color: var(--text-muted, #999);
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+[data-theme="dark"] .settings-version {
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
+
 /* 滚动条样式 */
 .settings-modal-content::-webkit-scrollbar {
   width: 4px;

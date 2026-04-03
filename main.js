@@ -513,6 +513,11 @@ ipcMain.handle('download-status', () => {
   return songDownloader.getStatus()
 })
 
+// 获取应用版本号
+ipcMain.handle('get-version', () => {
+  return app.getVersion()
+})
+
 // ============ AI助手 IPC 处理 ============
 
 ipcMain.handle('ai-generate-plan', async (event, userInput) => {

@@ -53,7 +53,8 @@
       modal: document.getElementById('settings-modal'),
       closeBtn: document.getElementById('settings-modal-close'),
       saveBtn: document.getElementById('settings-save-btn'),
-      resetBtn: document.getElementById('settings-reset-btn')
+      resetBtn: document.getElementById('settings-reset-btn'),
+      versionText: document.getElementById('settings-version-text')
     }
 
     // 加载设置
@@ -64,6 +65,23 @@
     
     // 应用设置到界面
     applyAllSettings()
+    
+    // 加载版本号
+    loadVersion()
+  }
+  
+  /**
+   * 加载版本号
+   */
+  async function loadVersion() {
+    try {
+      const version = await window.electronAPI.getVersion()
+      if (elements.versionText) {
+        elements.versionText.textContent = `版本 ${version}`
+      }
+    } catch (err) {
+      console.error('[Settings] 获取版本号失败:', err)
+    }
   }
 
   /**

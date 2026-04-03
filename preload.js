@@ -146,6 +146,7 @@ const { contextBridge, ipcRenderer } = require('electron')
   // 下载歌曲
   downloadSong: (title, artist) => ipcRenderer.invoke('download-song', title, artist),
   getDownloadStatus: () => ipcRenderer.invoke('download-status'),
+  getVersion: () => ipcRenderer.invoke('get-version'),
   
   // 设置下载器路径
   setDownloaderPath: (exePath) => ipcRenderer.send('set-downloader-path', exePath),
