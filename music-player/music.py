@@ -252,8 +252,7 @@ class PlaylistManager:
             preset_colors = {
                 "学习": "#64b4ff",
                 "运动": "#ff9664",
-                "休息": "#64e664",
-                "主题曲": "#ffc864"
+                "休息": "#64e664"
             }
             return {"name": tag_data, "color": preset_colors.get(tag_data)}
         
@@ -312,8 +311,7 @@ class PlaylistManager:
             preset_colors = {
                 "学习": "#64b4ff",
                 "运动": "#ff9664",
-                "休息": "#64e664",
-                "主题曲": "#ffc864"
+                "休息": "#64e664"
             }
             
             # 确定颜色
@@ -863,8 +861,7 @@ def process_command(cmd_obj):
             preset_colors = {
                 "学习": "#64b4ff",
                 "运动": "#ff9664",
-                "休息": "#64e664",
-                "主题曲": "#ffc864"
+                "休息": "#64e664"
             }
             # 构建带标签的歌曲列表
             songs_with_tags = []

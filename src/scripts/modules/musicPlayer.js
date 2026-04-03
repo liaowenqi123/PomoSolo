@@ -367,7 +367,7 @@ const MusicPlayer = (function() {
   }
   
   // 预设标签列表
-  const PRESET_TAGS = ['学习', '运动', '休息', '主题曲']
+  const PRESET_TAGS = ['学习', '运动', '休息']
   
   // 预设颜色列表（9个标准颜色）
   const PRESET_COLORS = [
@@ -528,6 +528,9 @@ const MusicPlayer = (function() {
               customColorPicker.style.display = 'none'
             } else {
               customColorPicker.style.display = 'block'
+              // 选中调色盘按钮
+              colorPresetsEl.querySelectorAll('.tag-color-preset').forEach(p => p.classList.remove('active'))
+              advancedBtn.classList.add('active')
               // 初始化滑块和预览
               const hsl = hexToHsl(selectedColor)
               if (colorHueSlider) colorHueSlider.value = hsl.h
