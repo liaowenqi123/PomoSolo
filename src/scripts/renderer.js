@@ -614,15 +614,7 @@
   // 暴露到全局，供其他模块访问
   window.isSidebarCollapsed = false
   
-  // 展开侧边栏（如果当前是收起状态）
-  window.expandSidebarIfNeeded = function() {
-    if (window.isSidebarCollapsed && sidebarCollapseBtn && DOM.container) {
-      window.isSidebarCollapsed = false
-      DOM.container.classList.remove('sidebar-collapsed')
-      sidebarCollapseBtn.title = '收起侧边栏'
-    }
-  }
-
+  // 侧边栏收起/展开按钮事件
   if (sidebarCollapseBtn && DOM.container) {
     sidebarCollapseBtn.addEventListener('click', () => {
       window.isSidebarCollapsed = !window.isSidebarCollapsed
