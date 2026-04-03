@@ -5,6 +5,17 @@
 ;(async function() {
   'use strict'
 
+  // ============ 暴露全局函数（必须在模块初始化前定义） ============
+  window.isSidebarCollapsed = false
+  window.expandSidebarIfNeeded = function() {
+    if (window.isSidebarCollapsed && DOM.container) {
+      window.isSidebarCollapsed = false
+      DOM.container.classList.remove('sidebar-collapsed')
+      const btn = document.getElementById('ui-sidebar-collapse-btn')
+      if (btn) btn.title = '收起侧边栏'
+    }
+  }
+
   // ============ 加载数据 ============
   await DataStore.load()
 
