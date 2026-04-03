@@ -20,6 +20,8 @@ body {
   flex-direction: column;
   height: 100vh;
   position: relative;
+  border-radius: 20px;
+  overflow: hidden;
   animation: gardenWindowBounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
 
