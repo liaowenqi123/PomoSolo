@@ -559,23 +559,6 @@ const MusicPlayer = (function() {
       })
     }
     
-    // 颜色预设快捷按钮
-    if (customColorPicker) {
-      customColorPicker.querySelectorAll('.color-preset-item').forEach(item => {
-        item.addEventListener('click', () => {
-          const hue = parseInt(item.dataset.hue)
-          const color = hslToHex(hue, 80, 55)
-          selectedColor = color
-          if (colorHueSlider) colorHueSlider.value = hue
-          if (colorPreview) colorPreview.style.background = color
-          
-          // 更新高级按钮的背景色
-          const advancedBtn = document.getElementById('tag-color-advanced-btn')
-          if (advancedBtn) advancedBtn.style.background = color
-        })
-      })
-    }
-    
     // 显示弹窗
     modal.classList.add('show')
     

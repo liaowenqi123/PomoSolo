@@ -927,6 +927,7 @@
   gap: 8px;
   margin: 12px 0;
   justify-content: center;
+  position: relative;
 }
 
 .tag-color-preset {
@@ -986,17 +987,17 @@
 /* 自定义颜色选择器（下拉框样式） */
 .tag-custom-color-picker {
   position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-top: 8px;
+  top: 50%;
+  left: 100%;
+  transform: translateY(-50%);
+  margin-left: 8px;
   padding: 12px;
   background: rgba(40, 40, 55, 0.99);
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   z-index: 10;
-  min-width: 200px;
+  min-width: 180px;
 }
 
 .color-picker-header {
@@ -1061,42 +1062,4 @@
   border: 3px solid rgba(0, 0, 0, 0.3);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
   cursor: pointer;
-}
-
-.color-picker-presets {
-  display: flex;
-  gap: 6px;
-  justify-content: center;
-}
-
-.color-preset-item {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  cursor: pointer;
-  border: 2px solid transparent;
-  transition: all 0.15s ease;
-}
-
-.color-preset-item:hover {
-  transform: scale(1.15);
-  border-color: rgba(255, 255, 255, 0.5);
-}
-
-.color-preset-item[data-hue="0"] { background: hsl(0, 100%, 50%); }
-.color-preset-item[data-hue="30"] { background: hsl(30, 100%, 50%); }
-.color-preset-item[data-hue="60"] { background: hsl(60, 100%, 50%); }
-.color-preset-item[data-hue="120"] { background: hsl(120, 100%, 50%); }
-.color-preset-item[data-hue="180"] { background: hsl(180, 100%, 50%); }
-.color-preset-item[data-hue="240"] { background: hsl(240, 100%, 50%); }
-.color-preset-item[data-hue="280"] { background: hsl(280, 100%, 50%); }
-.color-preset-item[data-hue="320"] { background: hsl(320, 100%, 50%); }
-
-/* 标签弹窗内容需要相对定位以支持下拉框 */
-.tag-modal-content {
-  position: relative;
-}
-
-.tag-custom-section {
-  position: relative;
 }
