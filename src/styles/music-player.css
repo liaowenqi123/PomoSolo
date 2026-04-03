@@ -748,39 +748,6 @@
   color: #ff6b6b;
 }
 
-/* 标签选择器 */
-.tag-selector {
-  position: fixed;
-  background: rgba(30, 30, 40, 0.98);
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  padding: 6px 4px;
-  z-index: 10000;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.tag-option {
-  padding: 6px 12px;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.8);
-  border-radius: 4px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s ease;
-}
-
-.tag-option:hover {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.tag-option.active {
-  background: rgba(255, 107, 107, 0.3);
-  color: #ff8a8a;
-}
-
 .playlist-empty {
   padding: 16px;
   text-align: center;

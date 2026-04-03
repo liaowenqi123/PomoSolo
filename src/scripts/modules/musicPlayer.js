@@ -291,7 +291,7 @@ const MusicPlayer = (function() {
       e.stopPropagation()
       const songName = tagEl.dataset.song
       const currentTag = tagEl.dataset.tag
-      showTagSelector(songName, currentTag, tagEl)
+      showTagSelector(songName, currentTag)
       return
     }
     
@@ -323,50 +323,47 @@ const MusicPlayer = (function() {
   }
   
   // 预设标签列表
-  const PRESET_TAGS = ['学习', '运动', '休息', '自定义']
+  const PRESET_TAGS = ['学习', '运动', '休息', '主题曲', '自定义']
   
   /**
-   * 显示标签选择器
+   * 显示标签选择弹窗
    */
-  function showTagSelector(songName, currentTag, tagEl) {
-    // 移除已有的选择器
-    const existing = document.querySelector('.tag-selector')
-    if (existing) existing.remove()
+  function showTagSelector(songName, currentTag) {
+    const modal = document.getElementById('tag-select-modal')
+    const songNameEl = document.getElementById('tag-select-song-name')
+    const optionsEl = document.getElementById('tag-options')
     
-    // 创建选择器
-    const selector = document.createElement('div')
-    selector.className = 'tag-selector'
-    selector.innerHTML = PRESET_TAGS.map(tag => 
-      `<div class="tag-option ${tag === currentTag ? 'active' : ''}" data-tag="${tag}">${tag}</div>`
+    if (!modal || !songNameEl || !optionsEl) return
+    
+    // 显示歌曲名
+    const displayName = songName.replace(/\.[^/.]+$/, '')
+    songNameEl.textContent = displayName
+    
+    // 生成标签选项
+    optionsEl.innerHTML = PRESET_TAGS.map(tag => 
+      `<button class="tag-option ${tag === currentTag ? 'active' : ''}" data-tag="${tag}">${tag}</button>`
     ).join('')
     
-    // 定位
-    const rect = tagEl.getBoundingClientRect()
-    selector.style.left = rect.left + 'px'
-    selector.style.top = (rect.bottom + 4) + 'px'
+    // 显示弹窗
+    modal.classList.add('show')
     
-    // 点击选项
-    selector.querySelectorAll('.tag-option').forEach(opt => {
-      opt.addEventListener('click', async (e) => {
-        e.stopPropagation()
+    // 点击标签选项
+    optionsEl.querySelectorAll('.tag-option').forEach(opt => {
+      opt.addEventListener('click', async () => {
         const newTag = opt.dataset.tag
         if (newTag !== currentTag) {
           await updateSongTag(songName, newTag)
         }
-        selector.remove()
+        modal.classList.remove('show')
       })
     })
     
-    document.body.appendChild(selector)
-    
-    // 点击外部关闭
-    const closeHandler = (e) => {
-      if (!selector.contains(e.target)) {
-        selector.remove()
-        document.removeEventListener('click', closeHandler)
+    // 点击背景关闭
+    modal.onclick = (e) => {
+      if (e.target === modal) {
+        modal.classList.remove('show')
       }
     }
-    setTimeout(() => document.addEventListener('click', closeHandler), 0)
   }
   
   /**
