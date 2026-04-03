@@ -237,6 +237,24 @@ class PlaylistManager:
         return tags.get(song_name, "自定义")
     
     @staticmethod
+    def update_song_tag(song_name, new_tag):
+        """更新歌曲标签"""
+        tags_path = os.path.join(state.directory_path, "tags.json")
+        try:
+            # 加载现有标签
+            tags = PlaylistManager.load_tags()
+            # 更新标签
+            tags[song_name] = new_tag
+            # 保存到文件
+            with open(tags_path, 'w', encoding='utf-8') as f:
+                json.dump(tags, f, ensure_ascii=False, indent=2)
+            print(f"[DEBUG] 标签已更新: {song_name} -> {new_tag}", file=sys.stderr)
+            return True, None
+        except Exception as e:
+            print(f"更新标签失败: {e}", file=sys.stderr)
+            return False, str(e)
+    
+    @staticmethod
     def refresh_playlist():
         """
         热更新播放列表
@@ -785,6 +803,20 @@ def process_command(cmd_obj):
             print(f"delete_song命令: {song_name}", file=sys.stderr)
             result = PlaylistManager.delete_song(song_name)
             state.send_event("status", result)
+    
+    elif command == "update_tag":
+        """更新歌曲标签"""
+        song_name = cmd_obj.get("name")
+        new_tag = cmd_obj.get("tag")
+        if song_name and new_tag:
+            print(f"update_tag命令: {song_name} -> {new_tag}", file=sys.stderr)
+            success, error = PlaylistManager.update_song_tag(song_name, new_tag)
+            state.send_event("tag_updated", {
+                "success": success,
+                "error": error,
+                "name": song_name,
+                "tag": new_tag
+            })
 
 
 def stdin_reader():

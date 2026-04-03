@@ -24,6 +24,7 @@ class MusicProcess {
     this.onPlayModeCallback = null  // 播放模式变化回调
     this.onPlaylistCallback = null  // 播放列表回调
     this.onSongMissingCallback = null  // 歌曲消失回调
+    this.onTagUpdatedCallback = null  // 标签更新回调
   }
 
   /**
@@ -185,6 +186,11 @@ class MusicProcess {
             this.onSongMissingCallback(data)
           }
           break
+        case 'tag_updated':
+          if (this.onTagUpdatedCallback) {
+            this.onTagUpdatedCallback(data)
+          }
+          break
         default:
           console.log('[MusicProcess] 未知事件:', event)
       }
@@ -331,6 +337,26 @@ class MusicProcess {
       }
 
       this.sendCommand({ command: 'delete_song', name })
+    })
+  }
+
+  /**
+   * 更新歌曲标签
+   */
+  async updateTag(name, tag) {
+    return new Promise((resolve) => {
+      const timeoutId = setTimeout(() => {
+        this.onTagUpdatedCallback = null
+        resolve({ success: false, error: '更新超时' })
+      }, 5000)
+
+      this.onTagUpdatedCallback = (data) => {
+        clearTimeout(timeoutId)
+        this.onTagUpdatedCallback = null
+        resolve({ success: data.success, error: data.error })
+      }
+
+      this.sendCommand({ command: 'update_tag', name, tag })
     })
   }
 

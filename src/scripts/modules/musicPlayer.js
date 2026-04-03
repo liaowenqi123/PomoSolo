@@ -272,7 +272,7 @@ const MusicPlayer = (function() {
       </svg>`
       
       return `<div class="${classes.join(' ')}" data-song="${song}" data-index="${index}">
-        <span class="playlist-item-tag">${tag}</span>
+        <span class="playlist-item-tag" data-tag="${tag}" data-song="${song}">${tag}</span>
         <span class="playlist-item-name">${displayName}</span>
         <div class="playlist-item-actions">
           ${isCurrent ? '<span class="playlist-item-playing">▶</span>' : ''}
@@ -285,6 +285,16 @@ const MusicPlayer = (function() {
   }
   
   function handlePlaylistClick(e) {
+    // 检查是否点击标签
+    const tagEl = e.target.closest('.playlist-item-tag')
+    if (tagEl) {
+      e.stopPropagation()
+      const songName = tagEl.dataset.song
+      const currentTag = tagEl.dataset.tag
+      showTagSelector(songName, currentTag, tagEl)
+      return
+    }
+    
     // 检查是否点击删除按钮
     const deleteBtn = e.target.closest('.playlist-item-delete')
     if (deleteBtn) {
@@ -309,6 +319,71 @@ const MusicPlayer = (function() {
     const songName = item.dataset.song
     if (songName && songName !== state.trackName) {
       window.electronAPI.musicPlaySong(songName)
+    }
+  }
+  
+  // 预设标签列表
+  const PRESET_TAGS = ['学习', '运动', '休息', '自定义']
+  
+  /**
+   * 显示标签选择器
+   */
+  function showTagSelector(songName, currentTag, tagEl) {
+    // 移除已有的选择器
+    const existing = document.querySelector('.tag-selector')
+    if (existing) existing.remove()
+    
+    // 创建选择器
+    const selector = document.createElement('div')
+    selector.className = 'tag-selector'
+    selector.innerHTML = PRESET_TAGS.map(tag => 
+      `<div class="tag-option ${tag === currentTag ? 'active' : ''}" data-tag="${tag}">${tag}</div>`
+    ).join('')
+    
+    // 定位
+    const rect = tagEl.getBoundingClientRect()
+    selector.style.left = rect.left + 'px'
+    selector.style.top = (rect.bottom + 4) + 'px'
+    
+    // 点击选项
+    selector.querySelectorAll('.tag-option').forEach(opt => {
+      opt.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        const newTag = opt.dataset.tag
+        if (newTag !== currentTag) {
+          await updateSongTag(songName, newTag)
+        }
+        selector.remove()
+      })
+    })
+    
+    document.body.appendChild(selector)
+    
+    // 点击外部关闭
+    const closeHandler = (e) => {
+      if (!selector.contains(e.target)) {
+        selector.remove()
+        document.removeEventListener('click', closeHandler)
+      }
+    }
+    setTimeout(() => document.addEventListener('click', closeHandler), 0)
+  }
+  
+  /**
+   * 更新歌曲标签
+   */
+  async function updateSongTag(songName, newTag) {
+    try {
+      const result = await window.electronAPI.musicUpdateTag(songName, newTag)
+      if (result.success) {
+        state.playlistTags[songName] = newTag
+        renderPlaylist()
+        showToast('标签已更新')
+      } else {
+        showToast(result.error || '更新失败')
+      }
+    } catch (err) {
+      showToast('更新失败')
     }
   }
   
