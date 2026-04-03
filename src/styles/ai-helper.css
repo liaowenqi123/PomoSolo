@@ -5,7 +5,7 @@
 /* AI助手弹窗 */
 .ai-modal {
   display: none;
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   width: 100%;
@@ -445,7 +445,7 @@
 
 /* 确认对话框 */
 .ai-confirm-dialog {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   width: 100%;

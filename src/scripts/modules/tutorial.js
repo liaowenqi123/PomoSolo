@@ -4,26 +4,25 @@
 ;(function() {
   'use strict'
 
+  let tutorialModal = null
+
   function init() {
+    // 创建弹窗实例
+    tutorialModal = new AnimatedModal({
+      element: DOM.tutorialModal,
+      showClass: 'show',
+      hidingClass: 'hiding',
+      animationDuration: 500
+    })
+
     // 打开弹窗
     DOM.tutorialBtn.addEventListener('click', () => {
-      // 展开侧边栏（如果收起状态）
-      if (window.expandSidebarIfNeeded) {
-        window.expandSidebarIfNeeded()
-      }
-      DOM.tutorialModal.classList.add('show')
+      tutorialModal.show()
     })
 
     // 关闭按钮
     DOM.tutorialClose.addEventListener('click', () => {
-      closeTutorial()
-    })
-
-    // 点击遮罩层关闭
-    DOM.tutorialModal.addEventListener('click', (e) => {
-      if (e.target === DOM.tutorialModal) {
-        closeTutorial()
-      }
+      tutorialModal.hide()
     })
 
     // 分页标签切换
@@ -49,17 +48,10 @@
     })
   }
 
-  function closeTutorial() {
-    DOM.tutorialModal.classList.remove('show')
-    DOM.tutorialModal.classList.add('hiding')
-    
-    setTimeout(() => {
-      DOM.tutorialModal.classList.remove('hiding')
-    }, 500)
-  }
-
   // 导出到全局
   window.Tutorial = {
-    init
+    init,
+    show: () => tutorialModal?.show(),
+    hide: () => tutorialModal?.hide()
   }
 })()

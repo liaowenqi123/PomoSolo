@@ -19,12 +19,17 @@ const CloudAuth = (function() {
   let isAutoLoggingIn = false    // 是否正在自动登录
   let currentMode = 'cloud'      // 当前模式：'cloud' | 'local'
   let pendingModeSwitch = null   // 待确认的模式切换
+  
+  // 弹窗实例
+  let authModal = null
+  let confirmModal = null
 
   /**
    * 初始化
    */
   async function init() {
     bindElements()
+    initModals()
     bindEvents()
     
     // 先加载保存的模式
@@ -44,6 +49,26 @@ const CloudAuth = (function() {
         await checkSession()
       }
     }
+  }
+  
+  /**
+   * 初始化弹窗实例
+   */
+  function initModals() {
+    // 主弹窗（有动画）
+    authModal = new AnimatedModal({
+      element: elements.modal,
+      showClass: 'show',
+      hidingClass: 'hiding',
+      noAnimationClass: 'no-animation',
+      animationDuration: 500
+    })
+    
+    // 确认弹窗（无动画）
+    confirmModal = new BaseModal({
+      element: confirmElements.modal,
+      showClass: 'show'
+    })
   }
 
   /**
@@ -194,12 +219,12 @@ const CloudAuth = (function() {
   function bindEvents() {
     // 顶部登录按钮
     if (elements.loginHeaderBtn) {
-      elements.loginHeaderBtn.addEventListener('click', showModal)
+      elements.loginHeaderBtn.addEventListener('click', () => authModal.show())
     }
 
     // 关闭按钮
     if (elements.modalClose) {
-      elements.modalClose.addEventListener('click', hideModal)
+      elements.modalClose.addEventListener('click', () => authModal.hide())
     }
 
     // 模式切换拨杆 - 监听 mousedown 事件在容器上
@@ -362,26 +387,17 @@ const CloudAuth = (function() {
    * 显示确认弹窗
    */
   function showConfirmModal(icon, title, message) {
-    // 展开侧边栏（如果收起状态）
-    if (window.expandSidebarIfNeeded) {
-      window.expandSidebarIfNeeded()
-    }
-    
     if (confirmElements.icon) confirmElements.icon.textContent = icon
     if (confirmElements.title) confirmElements.title.textContent = title
     if (confirmElements.message) confirmElements.message.textContent = message
-    if (confirmElements.modal) {
-      confirmElements.modal.classList.add('show')
-    }
+    confirmModal?.show()
   }
 
   /**
    * 隐藏确认弹窗
    */
   function hideConfirmModal() {
-    if (confirmElements.modal) {
-      confirmElements.modal.classList.remove('show')
-    }
+    confirmModal?.hide()
     pendingModeSwitch = null
   }
 
@@ -670,19 +686,7 @@ const CloudAuth = (function() {
    * @param {boolean} withAnimation - 是否显示动画（默认true）
    */
   function showModal(withAnimation = true) {
-    // 展开侧边栏（如果收起状态）
-    if (window.expandSidebarIfNeeded) {
-      window.expandSidebarIfNeeded()
-    }
-    
-    if (elements.modal) {
-      if (withAnimation) {
-        elements.modal.classList.add('show')
-      } else {
-        // 无动画显示：直接设置为显示状态，跳过动画
-        elements.modal.classList.add('show', 'no-animation')
-      }
-    }
+    authModal?.show(withAnimation)
   }
 
   /**
@@ -690,20 +694,7 @@ const CloudAuth = (function() {
    * @param {boolean} withAnimation - 是否显示动画（默认true）
    */
   function hideModal(withAnimation = true) {
-    if (elements.modal) {
-      if (withAnimation) {
-        // 有动画：先移除show，添加hiding，等动画完成后移除hiding
-        elements.modal.classList.remove('show')
-        elements.modal.classList.add('hiding')
-        
-        setTimeout(() => {
-          elements.modal.classList.remove('hiding', 'no-animation')
-        }, 500)
-      } else {
-        // 无动画：直接移除所有类
-        elements.modal.classList.remove('show', 'hiding', 'no-animation')
-      }
-    }
+    authModal?.hide(withAnimation)
   }
 
   /**

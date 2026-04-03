@@ -19,6 +19,10 @@
 
   // DOM 元素
   let elements = {}
+  
+  // 弹窗实例
+  let warningModal = null
+  let apiKeyErrorModal = null
 
   /**
    * 初始化模块
@@ -37,6 +41,9 @@
       apiKeyErrorPath: document.getElementById('error-api-key-path'),
       btnApiKeyErrorOk: document.getElementById('error-api-key-ok-btn')
     }
+    
+    // 初始化弹窗实例
+    initModals()
 
     // 绑定事件
     if (elements.btnNotEntertainment) {
@@ -57,6 +64,57 @@
     
     // 预热：提前调用一次显示/隐藏流程，解决第一次警告弹窗不能正确置顶的问题
     warmUpBringToFront()
+  }
+  
+  /**
+   * 初始化弹窗实例
+   */
+  function initModals() {
+    // 警告弹窗（需要置顶、不能点击背景关闭、不展开侧边栏）
+    warningModal = new BaseModal({
+      element: elements.warningModal,
+      showClass: 'visible',
+      closeOnBackground: false,
+      expandSidebarOnShow: false,
+      onShow: () => {
+        state.warningModalVisible = true
+        // 退出迷你模式
+        if (window.MiniMode && window.MiniMode.isActive()) {
+          window.MiniMode.exit()
+        }
+        // 抢占前台
+        if (window.electronAPI) {
+          window.electronAPI.bringToFront()
+        }
+      },
+      onHide: () => {
+        state.warningModalVisible = false
+        // 取消置顶
+        if (window.electronAPI) {
+          window.electronAPI.cancelAlwaysOnTop()
+        }
+      }
+    })
+    
+    // API Key 错误弹窗
+    apiKeyErrorModal = new BaseModal({
+      element: elements.apiKeyErrorModal,
+      showClass: 'visible',
+      closeOnBackground: false,
+      expandSidebarOnShow: false,
+      onShow: () => {
+        // 抢占前台
+        if (window.electronAPI) {
+          window.electronAPI.bringToFront()
+        }
+      },
+      onHide: () => {
+        // 取消置顶
+        if (window.electronAPI) {
+          window.electronAPI.cancelAlwaysOnTop()
+        }
+      }
+    })
   }
 
   /**
@@ -228,77 +286,35 @@
    * 显示警告弹窗
    */
   function showWarningModal() {
-    // 展开侧边栏（如果收起状态）
-    if (window.expandSidebarIfNeeded) {
-      window.expandSidebarIfNeeded()
-    }
-    
-    // 如果处于迷你模式，先退出
-    if (window.MiniMode && window.MiniMode.isActive()) {
-      window.MiniMode.exit()
-    }
-    
-    if (elements.warningModal) {
-      elements.warningModal.classList.add('visible')
-      state.warningModalVisible = true
-      // 抢占前台
-      if (window.electronAPI) {
-        window.electronAPI.bringToFront()
-      }
-    }
+    warningModal?.show()
   }
 
   /**
    * 隐藏警告弹窗
    */
   function hideWarningModal() {
-    if (elements.warningModal) {
-      elements.warningModal.classList.remove('visible')
-      state.warningModalVisible = false
-      // 取消置顶
-      if (window.electronAPI) {
-        window.electronAPI.cancelAlwaysOnTop()
-      }
-    }
+    warningModal?.hide()
   }
 
   /**
    * 显示 API Key 错误弹窗
    */
   function showApiKeyErrorModal(data) {
-    // 展开侧边栏（如果收起状态）
-    if (window.expandSidebarIfNeeded) {
-      window.expandSidebarIfNeeded()
+    // 设置错误信息
+    if (elements.apiKeyErrorMessage) {
+      elements.apiKeyErrorMessage.textContent = data.error || 'API key 未配置或无效'
     }
-    
-    if (elements.apiKeyErrorModal) {
-      // 设置错误信息
-      if (elements.apiKeyErrorMessage) {
-        elements.apiKeyErrorMessage.textContent = data.error || 'API key 未配置或无效'
-      }
-      if (elements.apiKeyErrorPath) {
-        elements.apiKeyErrorPath.textContent = `配置文件路径: ${data.config_path || ''}`
-      }
-      // 显示弹窗
-      elements.apiKeyErrorModal.classList.add('visible')
-      // 抢占前台
-      if (window.electronAPI) {
-        window.electronAPI.bringToFront()
-      }
+    if (elements.apiKeyErrorPath) {
+      elements.apiKeyErrorPath.textContent = `配置文件路径: ${data.config_path || ''}`
     }
+    apiKeyErrorModal?.show()
   }
 
   /**
    * 隐藏 API Key 错误弹窗
    */
   function hideApiKeyErrorModal() {
-    if (elements.apiKeyErrorModal) {
-      elements.apiKeyErrorModal.classList.remove('visible')
-      // 取消置顶
-      if (window.electronAPI) {
-        window.electronAPI.cancelAlwaysOnTop()
-      }
-    }
+    apiKeyErrorModal?.hide()
   }
 
   /**

@@ -9,12 +9,35 @@ const Statistics = (function() {
   let currentPeriod = 'daily' // daily, weekly, monthly
   let currentChartType = 'bar' // bar, line, pie
   let chartInstance = null
+  let statsModal = null
 
   /**
    * 初始化统计模块
    */
   function init(els) {
     elements = els
+    
+    // 创建弹窗实例
+    statsModal = new AnimatedModal({
+      element: elements.statsModal,
+      showClass: 'show',
+      hidingClass: 'hiding',
+      animationDuration: 500,
+      onShow: () => {
+        syncCurrentDataToHistory()
+        updateOverview()
+        updateChart()
+        updateDetailsTable()
+      },
+      onHide: () => {
+        // 销毁图表实例
+        if (chartInstance) {
+          chartInstance.destroy()
+          chartInstance = null
+        }
+      }
+    })
+    
     bindEvents()
   }
 
@@ -25,23 +48,14 @@ const Statistics = (function() {
     // 统计按钮点击
     if (elements.statsBtn) {
       console.log('统计按钮已找到，绑定事件')
-      elements.statsBtn.addEventListener('click', showStatsModal)
+      elements.statsBtn.addEventListener('click', () => statsModal.show())
     } else {
       console.error('统计按钮未找到')
     }
 
     // 关闭弹窗
     if (elements.statsModalClose) {
-      elements.statsModalClose.addEventListener('click', hideStatsModal)
-    }
-
-    // 点击背景关闭
-    if (elements.statsModal) {
-      elements.statsModal.addEventListener('click', (e) => {
-        if (e.target === elements.statsModal) {
-          hideStatsModal()
-        }
-      })
+      elements.statsModalClose.addEventListener('click', () => statsModal.hide())
     }
 
     // 时间范围切换
@@ -70,52 +84,11 @@ const Statistics = (function() {
   }
 
   /**
-   * 显示统计弹窗
-   */
-  function showStatsModal() {
-    // 展开侧边栏（如果收起状态）
-    if (window.expandSidebarIfNeeded) {
-      window.expandSidebarIfNeeded()
-    }
-    
-    if (elements.statsModal) {
-      elements.statsModal.classList.add('show')
-      
-      // 同步当前数据到历史记录
-      syncCurrentDataToHistory()
-      
-      updateOverview()
-      updateChart()
-      updateDetailsTable()
-    }
-  }
-
-  /**
    * 同步当前统计数据到历史记录
    */
   function syncCurrentDataToHistory() {
     // 不再需要同步，因为现在每次完成番茄钟都会直接记录到历史
     console.log('使用新的历史记录结构，无需同步')
-  }
-
-  /**
-   * 隐藏统计弹窗
-   */
-  function hideStatsModal() {
-    if (elements.statsModal) {
-      // 移除show类，添加hiding类
-      elements.statsModal.classList.remove('show')
-      elements.statsModal.classList.add('hiding')
-      
-      // 等待动画完成后完全隐藏
-      setTimeout(() => {
-        elements.statsModal.classList.remove('hiding')
-        if (chartInstance) {
-          chartInstance.destroy()
-          chartInstance = null
-        }
-      }, 500)
-    }
   }
 
   /**

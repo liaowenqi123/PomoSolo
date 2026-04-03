@@ -596,7 +596,7 @@ body {
 
 /* ============ 商店弹窗 ============ */
 .shop-modal {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   width: 100%;
@@ -874,7 +874,7 @@ body {
 
 /* ============ 签到弹窗 ============ */
 .signin-modal {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   width: 100%;
@@ -1107,7 +1107,7 @@ body {
 
 /* ============ 成就墙弹窗 ============ */
 .achievement-modal {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   width: 100%;

@@ -1,6 +1,6 @@
 /* 设置弹窗样式 */
 .settings-modal {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   width: 100%;
@@ -260,7 +260,7 @@
 
 /* 确认弹窗 */
 .settings-confirm-dialog {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   width: 100%;

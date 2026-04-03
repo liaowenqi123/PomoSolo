@@ -1,7 +1,6 @@
 /* 音乐榜单弹窗样式 */
-
 .charts-modal {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   width: 100%;
@@ -477,7 +476,7 @@
 
 /* 免责声明弹窗 */
 .disclaimer-modal {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   width: 100%;

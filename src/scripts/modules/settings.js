@@ -16,6 +16,9 @@
   
   // 确认弹窗元素
   let confirmDialog = null
+  
+  // 弹窗实例
+  let settingsModal = null
 
   // 设置项与 DOM ID 映射
   const SETTING_MAP = {
@@ -58,6 +61,26 @@
       resetBtn: document.getElementById('settings-reset-btn'),
       versionText: document.getElementById('settings-version-text')
     }
+    
+    // 创建弹窗实例
+    settingsModal = new BaseModal({
+      element: elements.modal,
+      showClass: 'show',
+      onShow: () => {
+        // 重新加载设置（确保最新）
+        loadSettings()
+        
+        // 保存原始设置快照
+        originalSettings = { ...currentSettings }
+        
+        // 更新表单值
+        updateFormValues()
+      },
+      onHide: () => {
+        hideConfirmDialog()
+        originalSettings = null
+      }
+    })
 
     // 加载设置
     loadSettings()
@@ -233,35 +256,14 @@
    * 打开设置弹窗
    */
   function open() {
-    // 展开侧边栏（如果收起状态）
-    if (window.expandSidebarIfNeeded) {
-      window.expandSidebarIfNeeded()
-    }
-    
-    // 重新加载设置（确保最新）
-    loadSettings()
-    
-    // 保存原始设置快照
-    originalSettings = { ...currentSettings }
-    
-    // 更新表单值
-    updateFormValues()
-    
-    // 显示弹窗
-    if (elements.modal) {
-      elements.modal.classList.add('show')
-    }
+    settingsModal?.show()
   }
 
   /**
    * 关闭设置弹窗
    */
   function close() {
-    hideConfirmDialog()
-    originalSettings = null
-    if (elements.modal) {
-      elements.modal.classList.remove('show')
-    }
+    settingsModal?.hide()
   }
 
   /**

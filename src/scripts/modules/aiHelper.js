@@ -9,12 +9,58 @@ const AIHelper = (function() {
   let elements = {}
   let isProcessing = false
   let currentRequestId = 0
+  let aiModal = null
 
   /**
    * 初始化AI助手
    */
   function init(els) {
     elements = els
+    
+    // 创建弹窗实例
+    aiModal = new AnimatedModal({
+      element: elements.aiModal,
+      showClass: 'show',
+      hidingClass: 'hiding',
+      animationDuration: 500,
+      closeOnBackground: false, // 默认禁止背景点击关闭
+      onShow: () => {
+        // 确保状态已重置
+        isProcessing = false
+        
+        // 清空之前的内容
+        if (elements.aiInput) {
+          elements.aiInput.value = ''
+        }
+        if (elements.aiResult) {
+          elements.aiResult.innerHTML = ''
+        }
+        if (elements.aiApplyBtn) {
+          elements.aiApplyBtn.style.display = 'none'
+          elements.aiApplyBtn.dataset.plan = ''
+        }
+      },
+      onHide: () => {
+        // 取消当前请求（通过增加requestId使旧请求失效）
+        currentRequestId++
+        
+        // 清空所有内容和状态
+        if (elements.aiInput) {
+          elements.aiInput.value = ''
+        }
+        if (elements.aiResult) {
+          elements.aiResult.innerHTML = ''
+        }
+        if (elements.aiApplyBtn) {
+          elements.aiApplyBtn.style.display = 'none'
+          elements.aiApplyBtn.dataset.plan = ''
+        }
+        
+        // 重置生成状态
+        isProcessing = false
+      }
+    })
+    
     bindEvents()
   }
 
@@ -24,7 +70,7 @@ const AIHelper = (function() {
   function bindEvents() {
     // AI助手按钮点击
     if (elements.aiBtn) {
-      elements.aiBtn.addEventListener('click', showAIModal)
+      elements.aiBtn.addEventListener('click', () => aiModal.show())
     }
 
     // 关闭弹窗
@@ -36,7 +82,8 @@ const AIHelper = (function() {
     if (elements.aiModal) {
       elements.aiModal.addEventListener('click', (e) => {
         if (e.target === elements.aiModal && !isProcessing) {
-          hideAIModal()
+          aiModal.hide()
+          e.stopPropagation()
         }
       })
     }
@@ -71,19 +118,14 @@ const AIHelper = (function() {
       showConfirmDialog()
     } else {
       // 不在生成，直接关闭
-      hideAIModal()
+      aiModal.hide()
     }
   }
 
   /**
-   * 显示确认对话框
+   * 显示确认对话框（动态创建）
    */
   function showConfirmDialog() {
-    // 展开侧边栏（如果收起状态）
-    if (window.expandSidebarIfNeeded) {
-      window.expandSidebarIfNeeded()
-    }
-    
     const dialog = document.createElement('div')
     dialog.className = 'ai-confirm-dialog'
     dialog.innerHTML = `
@@ -115,7 +157,7 @@ const AIHelper = (function() {
     
     okBtn.addEventListener('click', () => {
       hideConfirmDialog(dialog)
-      hideAIModal()
+      aiModal.hide()
     })
   }
 
@@ -127,69 +169,6 @@ const AIHelper = (function() {
     setTimeout(() => {
       dialog.remove()
     }, 300)
-  }
-
-  /**
-   * 显示AI助手弹窗
-   */
-  function showAIModal() {
-    // 展开侧边栏（如果收起状态）
-    if (window.expandSidebarIfNeeded) {
-      window.expandSidebarIfNeeded()
-    }
-    
-    if (elements.aiModal) {
-      // 确保状态已重置
-      isProcessing = false
-      
-      elements.aiModal.classList.add('show')
-      
-      // 清空之前的内容
-      if (elements.aiInput) {
-        elements.aiInput.value = ''
-      }
-      if (elements.aiResult) {
-        elements.aiResult.innerHTML = ''
-      }
-      if (elements.aiApplyBtn) {
-        elements.aiApplyBtn.style.display = 'none'
-        elements.aiApplyBtn.dataset.plan = ''
-      }
-    }
-  }
-
-  /**
-   * 隐藏AI助手弹窗
-   */
-  function hideAIModal() {
-    if (elements.aiModal) {
-      // 取消当前请求（通过增加requestId使旧请求失效）
-      currentRequestId++
-      
-      // 移除show类，添加hiding类
-      elements.aiModal.classList.remove('show')
-      elements.aiModal.classList.add('hiding')
-      
-      // 等待动画完成后清理
-      setTimeout(() => {
-        elements.aiModal.classList.remove('hiding')
-        
-        // 清空所有内容和状态
-        if (elements.aiInput) {
-          elements.aiInput.value = ''
-        }
-        if (elements.aiResult) {
-          elements.aiResult.innerHTML = ''
-        }
-        if (elements.aiApplyBtn) {
-          elements.aiApplyBtn.style.display = 'none'
-          elements.aiApplyBtn.dataset.plan = ''
-        }
-        
-        // 重置生成状态
-        isProcessing = false
-      }, 500)
-    }
   }
 
   /**
@@ -367,7 +346,7 @@ const AIHelper = (function() {
       }
 
       // 关闭弹窗
-      hideAIModal()
+      aiModal.hide()
       
       // 显示成功提示
       if (window.DOM && window.DOM.statusEl) {

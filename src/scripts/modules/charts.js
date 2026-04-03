@@ -40,6 +40,10 @@ const Charts = (function() {
     manualDownloadBtn: null
   }
   
+  // 弹窗实例
+  let chartsModal = null
+  let disclaimerModal = null
+  
   // 下载状态轮询定时器
   let downloadStatusInterval = null
 
@@ -338,45 +342,49 @@ const Charts = (function() {
 
   // ============ 弹窗控制 ============
 
+  function initModals() {
+    // 主弹窗
+    chartsModal = new BaseModal({
+      element: elements.modal,
+      showClass: 'open',
+      onShow: () => {
+        state.isOpen = true
+        fetchCharts()
+      },
+      onHide: () => {
+        state.isOpen = false
+      }
+    })
+    
+    // 免责声明弹窗
+    disclaimerModal = new BaseModal({
+      element: elements.disclaimerModal,
+      showClass: 'open',
+      closeOnBackground: false,
+      expandSidebarOnShow: false
+    })
+  }
+
   function open() {
-    // 展开侧边栏（如果收起状态）
-    if (window.expandSidebarIfNeeded) {
-      window.expandSidebarIfNeeded()
-    }
-    state.isOpen = true
-    if (elements.modal) {
-      elements.modal.classList.add('open')
-    }
-    fetchCharts()
+    chartsModal?.show()
   }
 
   function close() {
-    state.isOpen = false
-    if (elements.modal) {
-      elements.modal.classList.remove('open')
-    }
+    chartsModal?.hide()
   }
 
   function toggle() {
-    if (state.isOpen) {
-      close()
-    } else {
-      open()
-    }
+    chartsModal?.toggle()
   }
 
   // ============ 免责声明弹窗 ============
 
   function showDisclaimer() {
-    if (elements.disclaimerModal) {
-      elements.disclaimerModal.classList.add('open')
-    }
+    disclaimerModal?.show()
   }
 
   function hideDisclaimer() {
-    if (elements.disclaimerModal) {
-      elements.disclaimerModal.classList.remove('open')
-    }
+    disclaimerModal?.hide()
   }
 
   // ============ 事件处理 ============
@@ -515,6 +523,7 @@ const Charts = (function() {
   return {
     init(els) {
       elements = { ...elements, ...els }
+      initModals()
       setupEventListeners()
       updateSourceLabels()
     },

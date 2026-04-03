@@ -6,7 +6,7 @@
 /* 登录弹窗 */
 #auth-modal {
   display: none;
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   width: 100%;
@@ -18,6 +18,7 @@
   justify-content: center;
   padding: 20px;
   border-radius: 20px;
+  box-sizing: border-box;
 }
 
 #auth-modal.show,
@@ -656,7 +657,7 @@
 /* ============ 确认弹窗 ============ */
 .confirm-modal {
   display: none;
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   width: 100%;
@@ -666,6 +667,8 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
+  border-radius: 20px;
+  box-sizing: border-box;
 }
 
 .confirm-modal.show {
