@@ -256,6 +256,9 @@ const MusicPlayer = (function() {
       // 截取文件名（去掉扩展名）
       const displayName = song.replace(/\.[^/.]+$/, '')
       
+      // 判断是否是番茄钟内置歌曲（不允许删除）
+      const isBuiltIn = displayName.endsWith(' - 番茄钟')
+      
       // 垃圾桶 SVG 图标
       const trashIcon = `<svg class="trash-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="3 6 5 6 21 6"></polyline>
@@ -268,7 +271,7 @@ const MusicPlayer = (function() {
         <span class="playlist-item-name">${displayName}</span>
         <div class="playlist-item-actions">
           ${isCurrent ? '<span class="playlist-item-playing">▶</span>' : ''}
-          <button class="playlist-item-delete" data-song="${song}" title="删除">${trashIcon}</button>
+          ${!isBuiltIn ? `<button class="playlist-item-delete" data-song="${song}" title="删除">${trashIcon}</button>` : ''}
         </div>
       </div>`
     }).join('')

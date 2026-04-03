@@ -66,6 +66,10 @@
         "to": "music/番茄倒数快一点 - 番茄钟.mp3"
       },
       {
+        "from": "music-player/music/Tick Tock, Take Control - 番茄钟.mp3",
+        "to": "music/Tick Tock, Take Control - 番茄钟.mp3"
+      },
+      {
         "from": "music-player/manual_downloader.exe",
         "to": "manual_downloader.exe"
       },
