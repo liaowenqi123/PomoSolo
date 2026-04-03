@@ -645,6 +645,7 @@ const MusicPlayer = (function() {
     modal.onclick = (e) => {
       if (e.target === modal) {
         modal.classList.remove('show')
+        e.stopPropagation() // 阻止事件传播，避免同时关闭播放列表
       }
     }
   }
@@ -758,12 +759,19 @@ const MusicPlayer = (function() {
     modal.onclick = (e) => {
       if (e.target === modal) {
         modal.classList.remove('show')
+        e.stopPropagation() // 阻止事件传播
       }
     }
   }
   
   function closePlaylistOnClickOutside(e) {
     if (state.isPlaylistOpen && elements.playlistBtn && elements.playlistPanel) {
+      // 检查标签弹窗是否打开，如果打开则不关闭播放列表
+      const tagModal = document.getElementById('tag-select-modal')
+      if (tagModal && tagModal.classList.contains('show')) {
+        return
+      }
+      
       if (!elements.playlistBtn.contains(e.target) && !elements.playlistPanel.contains(e.target)) {
         state.isPlaylistOpen = false
         elements.playlistPanel.classList.remove('open')
