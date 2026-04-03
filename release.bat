@@ -47,15 +47,27 @@ if %errorlevel% neq 0 (
 echo.
 echo [3/4] Pushing and creating tag...
 git push
-git tag v%version%
-git push origin v%version%
+
+git tag -l v%version% | findstr /x "v%version%" >nul
+if %errorlevel% equ 0 (
+    echo Tag v%version% already exists, skipping
+) else (
+    git tag v%version%
+    git push origin v%version%
+)
 
 echo.
 echo [4/4] Creating GitHub Release...
-set "installer_path=dist\Pomodoro Setup %version%.exe"
+set "installer_path=dist\番茄钟 Setup %version%.exe"
 set "release_notes=Pomodoro v%version% release"
 
-gh release create v%version% "!installer_path!" --title "v%version%" --notes "!release_notes!"
+gh release view v%version% >nul 2>&1
+if %errorlevel% equ 0 (
+    echo Release v%version% exists, uploading asset...
+    gh release upload v%version% "!installer_path!" --clobber
+) else (
+    gh release create v%version% "!installer_path!" --title "v%version%" --notes "!release_notes!"
+)
 
 echo.
 echo ========================================
