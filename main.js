@@ -312,9 +312,7 @@ ipcMain.on('garden-grow', async (event, minutes) => {
 // 惩罚事件 - 由 timer/foregroundDetection 调用（需要返回结果）
 ipcMain.handle('garden-punishment', async () => {
   try {
-    // 处理惩罚（带锁）
     const result = await dataManager.handleGardenPunishment()
-    // 通知菜园子窗口刷新
     if (gardenWindow && !gardenWindow.isDestroyed()) {
       gardenWindow.webContents.send('garden-refresh')
     }
@@ -352,16 +350,93 @@ ipcMain.handle('write-data', (event, data) => {
   return dataManager.writeData(data)
 })
 
-// ============ 菜园子专用 IPC 处理（带锁保护） ============
+// ============ 菜园子原子操作 IPC 处理（带锁保护） ============
 
 // 读取菜园子数据（强制从文件读取最新）
 ipcMain.handle('garden-read', async () => {
   return await dataManager.readGardenData()
 })
 
-// 更新菜园子数据（带锁）
-ipcMain.handle('garden-update', async (event, gardenUpdate) => {
-  return await dataManager.updateGardenData(gardenUpdate)
+// 种植作物
+ipcMain.handle('garden-plant', async (event, plotIndex, cropKey) => {
+  const result = await dataManager.gardenPlant(plotIndex, cropKey)
+  // 通知菜园子窗口刷新
+  if (gardenWindow && !gardenWindow.isDestroyed()) {
+    gardenWindow.webContents.send('garden-refresh')
+  }
+  return result
+})
+
+// 收获作物
+ipcMain.handle('garden-harvest', async (event, plotIndex) => {
+  const result = await dataManager.gardenHarvest(plotIndex)
+  // 通知菜园子窗口刷新
+  if (gardenWindow && !gardenWindow.isDestroyed()) {
+    gardenWindow.webContents.send('garden-refresh')
+  }
+  return result
+})
+
+// 购买种子
+ipcMain.handle('garden-buy-seed', async (event, cropKey) => {
+  const result = await dataManager.gardenBuySeed(cropKey)
+  // 通知菜园子窗口刷新
+  if (gardenWindow && !gardenWindow.isDestroyed()) {
+    gardenWindow.webContents.send('garden-refresh')
+  }
+  return result
+})
+
+// 出售作物
+ipcMain.handle('garden-sell-crop', async (event, cropKey) => {
+  const result = await dataManager.gardenSellCrop(cropKey)
+  // 通知菜园子窗口刷新
+  if (gardenWindow && !gardenWindow.isDestroyed()) {
+    gardenWindow.webContents.send('garden-refresh')
+  }
+  return result
+})
+
+// 一键出售所有作物
+ipcMain.handle('garden-sell-all', async () => {
+  const result = await dataManager.gardenSellAllCrops()
+  // 通知菜园子窗口刷新
+  if (gardenWindow && !gardenWindow.isDestroyed()) {
+    gardenWindow.webContents.send('garden-refresh')
+  }
+  return result
+})
+
+// 解锁土地
+ipcMain.handle('garden-unlock-plot', async (event, plotIndex) => {
+  const result = await dataManager.gardenUnlockPlot(plotIndex)
+  // 通知菜园子窗口刷新
+  if (gardenWindow && !gardenWindow.isDestroyed()) {
+    gardenWindow.webContents.send('garden-refresh')
+  }
+  return result
+})
+
+// 签到
+ipcMain.handle('garden-signin', async () => {
+  const result = await dataManager.gardenSignIn()
+  // 通知菜园子窗口刷新
+  if (gardenWindow && !gardenWindow.isDestroyed()) {
+    gardenWindow.webContents.send('garden-refresh')
+  }
+  return result
+})
+
+// 更新专注时间成就
+ipcMain.handle('garden-update-focus', async (event, minutes) => {
+  const result = await dataManager.gardenUpdateFocusMinutes(minutes)
+  // 通知菜园子窗口刷新（如果有新成就解锁）
+  if (result.unlockedAchievements && result.unlockedAchievements.length > 0) {
+    if (gardenWindow && !gardenWindow.isDestroyed()) {
+      gardenWindow.webContents.send('garden-refresh')
+    }
+  }
+  return result
 })
 
 // ============ 开机自启动 IPC 处理 ============

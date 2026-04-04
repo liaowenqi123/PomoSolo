@@ -349,34 +349,54 @@
       return
     }
     
-    // 停止前台检测
-    if (window.ForegroundDetection) {
-      window.ForegroundDetection.stopDetection()
-    }
-    
     // RUNNING 阶段（专注模式下）需要确认并触发惩罚
     if (phase === PHASE.RUNNING && AppState.focusModeEnabled) {
       const confirmed = await window.showConfirmModal('确定要中断专注吗？所有正在生长的作物将会枯萎！')
       if (!confirmed) {
         return // 用户取消
       }
+      
       // 使用统一的惩罚函数（不检查阶段，因为已经确认过了）
       if (window.ForegroundDetection && window.ForegroundDetection.executePunishment) {
-        await window.ForegroundDetection.executePunishment({ checkPhase: false })
-        // 跳过后续的 Timer.reset()，因为 executePunishment 内部已经调用过了
-        NoteManager.clearNote()
-        if (AppState.appMode === 'plan') {
-          PlanMode.stopPlan()
-          DOM.statusEl.textContent = '准备开始计划'
-          const firstItem = PlanMode.getFirstItem()
-          if (firstItem) {
-            Timer.setTime(firstItem.minutes)
-            WheelPicker.setValue(firstItem.minutes)
-            AppState.updateContainerColor(firstItem.type === 'break')
-          }
+        try {
+          await window.ForegroundDetection.executePunishment({ checkPhase: false })
+        } catch (e) {
+          console.error('[Renderer] executePunishment 出错:', e)
+          // 确保即使出错也重置计时器和关闭专注模式
+          Timer.reset()
+          AppState.setFocusMode(false)
+          AppState.updateFocusModeUI()
         }
-        return
+      } else {
+        // 回退处理：如果 executePunishment 不存在
+        console.warn('[Renderer] executePunishment 不存在，使用回退处理')
+        // 调用 Garden 惩罚
+        if (window.Garden && window.Garden.handleResetPunishment) {
+          await window.Garden.handleResetPunishment()
+        }
+        Timer.reset()
+        AppState.setFocusMode(false)
+        AppState.updateFocusModeUI()
       }
+      
+      // 清理状态
+      NoteManager.clearNote()
+      if (AppState.appMode === 'plan') {
+        PlanMode.stopPlan()
+        DOM.statusEl.textContent = '准备开始计划'
+        const firstItem = PlanMode.getFirstItem()
+        if (firstItem) {
+          Timer.setTime(firstItem.minutes)
+          WheelPicker.setValue(firstItem.minutes)
+          AppState.updateContainerColor(firstItem.type === 'break')
+        }
+      }
+      return
+    }
+    
+    // 非专注模式下的 RUNNING 阶段或 FINISHED 阶段：停止前台检测
+    if (window.ForegroundDetection) {
+      window.ForegroundDetection.stopDetection()
     }
     
     // FINISHED 阶段：正常重置，无需确认

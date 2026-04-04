@@ -1,14 +1,22 @@
 /**
  * 菜园子模块 - 管理菜园子的交互逻辑
+ * 
+ * 架构说明：
+ * - 不维护内存副本，每次操作都从持久化存储读取最新数据
+ * - 所有修改操作通过原子 IPC 调用，主进程负责"读取-修改-写回"
+ * - 收到 garden-refresh 事件时重新读取数据并渲染
  */
 ;(function() {
   'use strict'
 
   // DOM 元素
   let elements = {}
+
+  // 当前页面是否是菜园子页面（有菜园 DOM 结构）
+  let isGardenPage = false
   
-  // 状态
-  let gardenData = null
+  // 当前数据（仅用于渲染，不缓存修改）
+  let currentGardenData = null
   let selectedSeed = null
   let selectedPlotIndex = null
   
@@ -31,6 +39,13 @@
    * 初始化菜园子
    */
   async function init() {
+    // 检测当前页面是否是菜园子页面（garden.html 有 gardenGrid，index.html 没有）
+    // 若不是菜园子页面则不执行任何初始化，避免在 index.html 上下文中操作不存在的 DOM
+    if (!document.getElementById('gardenGrid')) {
+      return
+    }
+    isGardenPage = true
+
     // 获取 DOM 元素
     elements = {
       coinCount: document.getElementById('coinCount'),
@@ -86,18 +101,13 @@
     // 监听刷新事件（当主页面更新作物数据时）
     if (window.electronAPI && window.electronAPI.onGardenRefresh) {
       window.electronAPI.onGardenRefresh(async () => {
-        // 重新从数据库加载数据
-        await loadGardenData()
-        // 重新渲染界面
-        render()
+        // 重新从持久化存储读取数据并渲染
+        await loadAndRender()
       })
     }
 
-    // 加载数据
-    await loadGardenData()
-    
-    // 渲染界面
-    render()
+    // 加载数据并渲染
+    await loadAndRender()
     
     // 绑定商店事件
     initShopEvents()
@@ -118,77 +128,34 @@
       shopModal = new BaseModal({
         element: elements.shopModal,
         showClass: 'show',
-        // 菜园子是独立窗口，没有主页面侧边栏，不应触发展开逻辑
         expandSidebarOnShow: false
       })
       
       signinModal = new BaseModal({
         element: elements.signinModal,
         showClass: 'show',
-        // 菜园子是独立窗口，没有主页面侧边栏，不应触发展开逻辑
         expandSidebarOnShow: false
       })
       
       achievementModal = new BaseModal({
         element: elements.achievementModal,
         showClass: 'show',
-        // 菜园子是独立窗口，没有主页面侧边栏，不应触发展开逻辑
         expandSidebarOnShow: false
       })
     }
-    // 如果 BaseModal 不存在，使用原始方式（菜园子独立页面）
   }
 
   /**
-   * 确保菜园数据已加载（供外部调用）
+   * 从持久化存储读取数据并渲染
    */
-  async function ensureGardenDataLoaded() {
-    if (!gardenData) {
-      await loadGardenData()
-    }
-    return gardenData
-  }
-
-  /**
-   * 加载菜园数据
-   * 优先使用带锁的 IPC 接口
-   * @param {boolean} forceFromFile - 是否强制从文件读取（用于确保获取最新数据）
-   */
-  async function loadGardenData(forceFromFile = false) {
+  async function loadAndRender() {
     try {
-      // 使用带锁的 IPC 接口读取最新数据
-      if (window.electronAPI && window.electronAPI.gardenRead) {
-        gardenData = await window.electronAPI.gardenRead()
-      } else if (forceFromFile || !window.DataStore) {
-        const data = await window.electronAPI.readData()
-        gardenData = data.garden || Utils.createDefaultData().garden
-      } else {
-        gardenData = window.DataStore.getGarden()
-      }
+      currentGardenData = await window.electronAPI.gardenRead()
+      render()
     } catch (e) {
       console.error('加载菜园数据失败:', e)
-      gardenData = Utils.createDefaultData().garden
-    }
-  }
-
-  /**
-   * 保存菜园数据
-   * 使用带锁的 IPC 接口
-   */
-  async function saveGardenData() {
-    try {
-      // 使用带锁的 IPC 接口保存
-      if (window.electronAPI && window.electronAPI.gardenUpdate) {
-        gardenData = await window.electronAPI.gardenUpdate(gardenData)
-      } else if (window.DataStore) {
-        await window.DataStore.updateGarden(gardenData)
-      } else {
-        const data = await window.electronAPI.readData()
-        data.garden = gardenData
-        await window.electronAPI.writeData(data)
-      }
-    } catch (e) {
-      console.error('保存菜园数据失败:', e)
+      currentGardenData = Utils.createDefaultData().garden
+      render()
     }
   }
 
@@ -196,6 +163,7 @@
    * 渲染界面
    */
   function render() {
+    if (!currentGardenData) return
     renderCoins()
     renderPlots()
     renderSeeds()
@@ -207,7 +175,7 @@
    * 渲染金币
    */
   function renderCoins() {
-    elements.coinCount.textContent = gardenData.coins || 0
+    elements.coinCount.textContent = currentGardenData.coins || 0
   }
 
   /**
@@ -216,7 +184,7 @@
   function renderPlots() {
     elements.gardenGrid.innerHTML = ''
     
-    const plots = gardenData.plots || []
+    const plots = currentGardenData.plots || []
     
     plots.forEach((plot, index) => {
       const plotEl = document.createElement('div')
@@ -227,28 +195,25 @@
         const unlockConfig = PLOT_UNLOCK_CONFIG[index]
         
         if (unlockConfig.type === 'coins') {
-          // 金币解锁
-          const canAfford = (gardenData.coins || 0) >= unlockConfig.price
+          const canAfford = (currentGardenData.coins || 0) >= unlockConfig.price
           plotEl.classList.add('locked-coins')
           plotEl.innerHTML = `
             <span class="lock-icon">🔒</span>
             <span class="lock-price">💰${unlockConfig.price}</span>
             <button class="unlock-btn ${canAfford ? '' : 'disabled'}">${canAfford ? '解锁' : '金币不足'}</button>
           `
-          // 解锁按钮点击事件
           const btn = plotEl.querySelector('.unlock-btn')
           if (canAfford) {
             btn.addEventListener('click', (e) => {
               e.stopPropagation()
-              unlockPlotWithCoins(index, unlockConfig.price)
+              unlockPlot(index)
             })
           }
         } else if (unlockConfig.type === 'achievement') {
-          // 成就解锁
           const achievement = ACHIEVEMENT_CONFIG[unlockConfig.achievementId]
-          const isUnlocked = gardenData.achievements && 
-                            gardenData.achievements[unlockConfig.achievementId] && 
-                            gardenData.achievements[unlockConfig.achievementId].unlocked
+          const isUnlocked = currentGardenData.achievements && 
+                            currentGardenData.achievements[unlockConfig.achievementId] && 
+                            currentGardenData.achievements[unlockConfig.achievementId].unlocked
           plotEl.classList.add('locked-achievement')
           if (isUnlocked) {
             plotEl.classList.add('can-unlock')
@@ -258,17 +223,15 @@
             <span class="lock-condition">${unlockConfig.description}</span>
             <button class="unlock-btn ${isUnlocked ? '' : 'disabled'}">${isUnlocked ? '解锁' : '未达成'}</button>
           `
-          // 解锁按钮点击事件
           const btn = plotEl.querySelector('.unlock-btn')
           if (isUnlocked) {
             btn.addEventListener('click', (e) => {
               e.stopPropagation()
-              unlockPlotWithAchievement(index)
+              unlockPlot(index)
             })
           }
         }
       } else if (plot.crop) {
-        // 有作物
         const cropConfig = CROP_CONFIG[plot.crop]
         if (cropConfig) {
           const progress = Math.min(100, (plot.progress / cropConfig.growTime) * 100)
@@ -288,17 +251,14 @@
           `
         }
       } else {
-        // 空格子
         plotEl.classList.add('empty')
         plotEl.innerHTML = '<span style="opacity: 0.3; font-size: 24px;">+</span>'
       }
       
-      // 选中状态
       if (selectedPlotIndex === index) {
         plotEl.classList.add('selected')
       }
       
-      // 点击事件（非锁定格子）
       if (!plot.locked) {
         plotEl.addEventListener('click', () => handlePlotClick(index))
       }
@@ -308,69 +268,12 @@
   }
 
   /**
-   * 使用金币解锁土地
-   */
-  async function unlockPlotWithCoins(index, price) {
-    const coins = gardenData.coins || 0
-    
-    if (coins < price) {
-      updateTip('金币不足')
-      return
-    }
-    
-    // 扣除金币
-    gardenData.coins = coins - price
-    
-    // 解锁土地
-    gardenData.plots[index] = {
-      id: index,
-      crop: null,
-      progress: 0,
-      plantedAt: null,
-      locked: false
-    }
-    
-    await saveGardenData()
-    updateTip(`解锁成功！花费 💰${price}`)
-    render()
-  }
-
-  /**
-   * 使用成就解锁土地
-   */
-  async function unlockPlotWithAchievement(index) {
-    const unlockConfig = PLOT_UNLOCK_CONFIG[index]
-    
-    // 再次验证成就是否已解锁
-    if (!gardenData.achievements || 
-        !gardenData.achievements[unlockConfig.achievementId] || 
-        !gardenData.achievements[unlockConfig.achievementId].unlocked) {
-      updateTip('成就未达成，无法解锁')
-      return
-    }
-    
-    // 解锁土地
-    gardenData.plots[index] = {
-      id: index,
-      crop: null,
-      progress: 0,
-      plantedAt: null,
-      locked: false
-    }
-    
-    await saveGardenData()
-    const achievement = ACHIEVEMENT_CONFIG[unlockConfig.achievementId]
-    updateTip(`🎉 解锁成功！达成成就「${achievement.name}」`)
-    render()
-  }
-
-  /**
    * 渲染种子背包
    */
   function renderSeeds() {
     elements.seedList.innerHTML = ''
     
-    const seeds = gardenData.seeds || {}
+    const seeds = currentGardenData.seeds || {}
     
     Object.keys(CROP_CONFIG).forEach(cropKey => {
       const crop = CROP_CONFIG[cropKey]
@@ -395,7 +298,6 @@
         </div>
       `
       
-      // 点击选择种子
       if (count > 0) {
         seedEl.addEventListener('click', () => handleSeedSelect(cropKey))
       }
@@ -410,9 +312,7 @@
   function renderCrops() {
     elements.cropList.innerHTML = ''
     
-    const crops = gardenData.crops || {}
-    
-    // 检查是否有作物
+    const crops = currentGardenData.crops || {}
     const hasCrops = Object.values(crops).some(count => count > 0)
     
     if (!hasCrops) {
@@ -446,11 +346,9 @@
    */
   function handleSeedSelect(cropKey) {
     if (selectedSeed === cropKey) {
-      // 取消选择
       selectedSeed = null
       updateTip('点击种子，然后点击空格子种植')
     } else {
-      // 选择种子
       selectedSeed = cropKey
       const crop = CROP_CONFIG[cropKey]
       updateTip(`已选择 ${crop.name}，点击空格子种植（需要 ${crop.growTime} 分钟）`)
@@ -461,8 +359,8 @@
   /**
    * 处理格子点击
    */
-  function handlePlotClick(index) {
-    const plot = gardenData.plots[index]
+  async function handlePlotClick(index) {
+    const plot = currentGardenData.plots[index]
     
     // 如果已有作物且成熟，可以收获
     if (plot.crop) {
@@ -470,8 +368,7 @@
       const progress = (plot.progress / cropConfig.growTime) * 100
       
       if (progress >= 100) {
-        // 收获
-        harvestCrop(index)
+        await harvestCrop(index)
         return
       } else {
         updateTip('作物还未成熟，无法收获')
@@ -481,17 +378,17 @@
     
     // 如果选择了种子且格子为空，种植
     if (selectedSeed && !plot.crop) {
-      plantCrop(index, selectedSeed)
+      await plantCrop(index, selectedSeed)
     } else if (!selectedSeed) {
       updateTip('请先选择一个种子')
     }
   }
 
   /**
-   * 种植作物
+   * 种植作物 - 原子操作
    */
   async function plantCrop(plotIndex, cropKey) {
-    // 通过 IPC 查询专注模式和计时器状态
+    // 检查专注模式
     if (window.electronAPI && window.electronAPI.getTimerState) {
       try {
         const state = await window.electronAPI.getTimerState()
@@ -504,109 +401,94 @@
       }
     }
 
-    const seeds = gardenData.seeds || {}
+    // 调用原子操作
+    const result = await window.electronAPI.gardenPlant(plotIndex, cropKey)
     
-    // 检查是否有种子
-    if (!seeds[cropKey] || seeds[cropKey] <= 0) {
-      updateTip('种子不足')
-      return
-    }
-    
-    // 消耗种子
-    seeds[cropKey]--
-    
-    // 更新格子
-    gardenData.plots[plotIndex] = {
-      id: plotIndex,
-      crop: cropKey,
-      progress: 0,
-      plantedAt: new Date().toISOString()
-    }
-    
-    // 保存并渲染
-    await saveGardenData()
-    
-    // 更新种植成就进度
-    await updateAchievementStats('plant')
-    
-    // 检查种子是否还有剩余，如果没有则取消选中
-    if (seeds[cropKey] <= 0) {
-      selectedSeed = null
-      updateTip('种植成功！种子已用完')
+    if (result.success) {
+      currentGardenData = result.garden
+      
+      // 检查种子是否还有剩余
+      const remaining = currentGardenData.seeds[cropKey] || 0
+      if (remaining <= 0) {
+        selectedSeed = null
+        updateTip('种植成功！种子已用完')
+      } else {
+        updateTip(`种植成功！还剩 ${remaining} 颗 ${CROP_CONFIG[cropKey].name}种子`)
+      }
+      
+      // 显示成就解锁
+      if (result.unlockedAchievements && result.unlockedAchievements.length > 0) {
+        const names = result.unlockedAchievements.map(a => a.name).join('、')
+        updateTip(`🎉 恭喜解锁成就：${names}！`)
+      }
+      
+      render()
     } else {
-      updateTip(`种植成功！还剩 ${seeds[cropKey]} 颗 ${CROP_CONFIG[cropKey].name}种子，继续点击空格子种植`)
+      updateTip(result.message)
     }
-    render()
   }
 
   /**
-   * 收获作物
+   * 收获作物 - 原子操作
    */
   async function harvestCrop(plotIndex) {
-    const plot = gardenData.plots[plotIndex]
-    const cropConfig = CROP_CONFIG[plot.crop]
+    const result = await window.electronAPI.gardenHarvest(plotIndex)
     
-    // 添加到作物背包
-    gardenData.crops = gardenData.crops || {}
-    gardenData.crops[plot.crop] = (gardenData.crops[plot.crop] || 0) + 1
-    
-    // 获得金币（作物价值的一半）
-    const reward = Math.floor(cropConfig.value / 2)
-    gardenData.coins = (gardenData.coins || 0) + reward
-    
-    // 清空格子
-    gardenData.plots[plotIndex] = {
-      id: plotIndex,
-      crop: null,
-      progress: 0,
-      plantedAt: null
+    if (result.success) {
+      currentGardenData = result.garden
+      updateTip(result.message)
+      
+      // 显示成就解锁
+      if (result.unlockedAchievements && result.unlockedAchievements.length > 0) {
+        const names = result.unlockedAchievements.map(a => a.name).join('、')
+        updateTip(`🎉 恭喜解锁成就：${names}！`)
+      }
+      
+      render()
+    } else {
+      updateTip(result.message)
     }
-    
-    // 保存并渲染
-    await saveGardenData()
-    
-    // 更新收获成就进度（传入作物类型）
-    await updateAchievementStats('harvest', plot.crop)
-    // 更新财富成就进度
-    await updateAchievementStats('coins', reward)
-    
-    updateTip(`收获成功！${cropConfig.name} x1 已存入作物背包，金币 +${reward}`)
-    render()
   }
 
   /**
-   * 更新成长进度（由外部调用）
-   * 注意：timer 现在直接发送 garden-grow 事件给主进程，此函数已废弃
-   * 保留此函数仅为兼容性
+   * 解锁土地 - 原子操作
+   */
+  async function unlockPlot(plotIndex) {
+    const result = await window.electronAPI.gardenUnlockPlot(plotIndex)
+    
+    if (result.success) {
+      currentGardenData = result.garden
+      updateTip(result.message)
+      render()
+    } else {
+      updateTip(result.message)
+    }
+  }
+
+  /**
+   * 更新成长进度（由外部调用，已废弃）
    */
   async function updateProgress() {
-    // timer 现在直接发送事件，这里不需要做任何事
     console.log('[Garden] updateProgress 已废弃，timer 应直接发送 garden-grow 事件')
   }
 
   /**
    * 处理重置惩罚（由外部调用）
-   * 调用主进程处理惩罚，主进程会更新数据并通知刷新
-   * @returns {Promise<Object>} 损失详情 { hasLoss, losses, totalMinutes }
    */
   async function handleResetPunishment() {
-    if (window.electronAPI && window.electronAPI.gardenPunishment) {
-      const result = await window.electronAPI.gardenPunishment()
-      
-      // 更新本地数据
-      if (result.hasLoss && gardenData) {
-        await loadGardenData(true)
-      }
-      
-      // 显示提示（如果在菜园子页面）
-      if (result.hasLoss && elements.gardenTip) {
-        updateTip('⚠️ 专注模式中断！所有正在生长的作物已枯萎')
-      }
-      
-      return result
+    if (!window.electronAPI || !window.electronAPI.gardenPunishment) {
+      return { hasLoss: false, losses: [], totalMinutes: 0 }
     }
-    
-    return { hasLoss: false, losses: [], totalMinutes: 0 }
+
+    const result = await window.electronAPI.gardenPunishment()
+
+    // 仅在菜园子页面刷新 UI，index.html 中无此 DOM，不执行
+    if (result.hasLoss && isGardenPage) {
+      await loadAndRender()
+      updateTip('⚠️ 专注模式中断！所有正在生长的作物已枯萎')
+    }
+
+    return result
   }
 
   /**
@@ -622,17 +504,14 @@
    * 初始化商店事件
    */
   function initShopEvents() {
-    // 打开商店
     if (elements.shopBtn) {
       elements.shopBtn.addEventListener('click', openShop)
     }
     
-    // 关闭商店
     if (elements.shopCloseBtn) {
       elements.shopCloseBtn.addEventListener('click', closeShop)
     }
     
-    // 点击遮罩关闭
     if (elements.shopModal) {
       elements.shopModal.addEventListener('click', (e) => {
         if (e.target === elements.shopModal) {
@@ -641,15 +520,12 @@
       })
     }
     
-    // 标签页切换
     const tabs = document.querySelectorAll('.shop-tab')
     tabs.forEach(tab => {
       tab.addEventListener('click', () => {
-        // 更新标签页状态
         tabs.forEach(t => t.classList.remove('active'))
         tab.classList.add('active')
         
-        // 切换面板
         const tabName = tab.dataset.tab
         document.querySelectorAll('.shop-panel').forEach(panel => {
           panel.classList.remove('active')
@@ -658,7 +534,6 @@
       })
     })
     
-    // 一键出售
     if (elements.sellAllBtn) {
       elements.sellAllBtn.addEventListener('click', sellAllCrops)
     }
@@ -695,7 +570,7 @@
     if (!elements.shopBuyGrid) return
     
     elements.shopBuyGrid.innerHTML = ''
-    const coins = gardenData.coins || 0
+    const coins = currentGardenData.coins || 0
     
     Object.keys(CROP_CONFIG).forEach(cropKey => {
       const crop = CROP_CONFIG[cropKey]
@@ -726,9 +601,7 @@
     if (!elements.shopSellGrid) return
     
     elements.shopSellGrid.innerHTML = ''
-    const crops = gardenData.crops || {}
-    
-    // 检查是否有作物
+    const crops = currentGardenData.crops || {}
     const hasCrops = Object.values(crops).some(count => count > 0)
     
     if (!hasCrops) {
@@ -767,96 +640,66 @@
   }
 
   /**
-   * 购买种子
+   * 购买种子 - 原子操作
    */
   async function buySeed(cropKey) {
-    const crop = CROP_CONFIG[cropKey]
-    const coins = gardenData.coins || 0
+    const result = await window.electronAPI.gardenBuySeed(cropKey)
     
-    if (coins < crop.seedPrice) {
-      updateTip('金币不足')
-      return
+    if (result.success) {
+      currentGardenData = result.garden
+      updateTip(result.message)
+      render()
+      renderShopBuy()
+    } else {
+      updateTip(result.message)
     }
-    
-    // 扣除金币
-    gardenData.coins = coins - crop.seedPrice
-    
-    // 增加种子
-    gardenData.seeds = gardenData.seeds || {}
-    gardenData.seeds[cropKey] = (gardenData.seeds[cropKey] || 0) + 1
-    
-    // 保存并渲染
-    await saveGardenData()
-    updateTip(`购买成功！获得 ${crop.name}种子 x1`)
-    render()
-    renderShopBuy()
   }
 
   /**
-   * 出售作物
+   * 出售作物 - 原子操作
    */
   async function sellCrop(cropKey) {
-    const crop = CROP_CONFIG[cropKey]
-    const crops = gardenData.crops || {}
+    const result = await window.electronAPI.gardenSellCrop(cropKey)
     
-    if (!crops[cropKey] || crops[cropKey] <= 0) {
-      return
+    if (result.success) {
+      currentGardenData = result.garden
+      updateTip(result.message)
+      
+      if (result.unlockedAchievements && result.unlockedAchievements.length > 0) {
+        const names = result.unlockedAchievements.map(a => a.name).join('、')
+        updateTip(`🎉 恭喜解锁成就：${names}！`)
+      }
+      
+      render()
+      renderShopSell()
+    } else {
+      updateTip(result.message)
     }
-    
-    // 减少作物
-    crops[cropKey]--
-    
-    // 增加金币
-    gardenData.coins = (gardenData.coins || 0) + crop.sellPrice
-    
-    // 保存并渲染
-    await saveGardenData()
-    
-    // 更新财富成就进度
-    await updateAchievementStats('coins', crop.sellPrice)
-    
-    updateTip(`出售成功！获得 💰${crop.sellPrice}`)
-    render()
-    renderShopSell()
   }
 
   /**
-   * 一键出售全部作物
+   * 一键出售全部作物 - 原子操作
    */
   async function sellAllCrops() {
-    const crops = gardenData.crops || {}
-    let totalCoins = 0
-    let totalItems = 0
+    const result = await window.electronAPI.gardenSellAll()
     
-    Object.keys(crops).forEach(cropKey => {
-      const count = crops[cropKey]
-      if (count > 0) {
-        const crop = CROP_CONFIG[cropKey]
-        totalCoins += crop.sellPrice * count
-        totalItems += count
-        crops[cropKey] = 0
+    if (result.success) {
+      currentGardenData = result.garden
+      updateTip(result.message)
+      
+      if (result.unlockedAchievements && result.unlockedAchievements.length > 0) {
+        const names = result.unlockedAchievements.map(a => a.name).join('、')
+        updateTip(`🎉 恭喜解锁成就：${names}！`)
       }
-    })
-    
-    if (totalItems === 0) {
-      return
+      
+      render()
+      renderShopSell()
+    } else {
+      updateTip(result.message)
     }
-    
-    // 增加金币
-    gardenData.coins = (gardenData.coins || 0) + totalCoins
-    
-    // 保存并渲染
-    await saveGardenData()
-    
-    // 更新财富成就进度
-    await updateAchievementStats('coins', totalCoins)
-    
-    updateTip(`出售成功！共出售 ${totalItems} 个作物，获得 💰${totalCoins}`)
-    render()
-    renderShopSell()
   }
 
-  /* ============ 签到系统 ============ */
+  // ============ 签到系统 ============
 
   /**
    * 初始化签到事件
@@ -907,22 +750,20 @@
    * 渲染签到弹窗
    */
   function renderSigninModal() {
-    const signInData = gardenData.signIn || {
+    const signInData = currentGardenData.signIn || {
       lastDate: null,
       continuousDays: 0,
       totalDays: 0,
       weekRecords: [false, false, false, false, false, false, false]
     }
     
-    // 更新统计
     elements.signinContinuous.textContent = signInData.continuousDays
     elements.signinTotal.textContent = signInData.totalDays
     
-    // 更新本周签到状态
     const today = new Date().getDay()
     const dots = elements.signinWeekDots.querySelectorAll('.signin-dot')
     dots.forEach((dot, index) => {
-      const dayIndex = index === 6 ? 0 : index + 1  // 调整顺序：一到日
+      const dayIndex = index === 6 ? 0 : index + 1
       dot.classList.remove('signed', 'today')
       if (signInData.weekRecords[dayIndex]) {
         dot.classList.add('signed')
@@ -932,10 +773,8 @@
       }
     })
     
-    // 渲染奖励列表
     renderSigninRewards()
     
-    // 更新签到按钮状态
     const canSign = canSignIn()
     elements.signinConfirmBtn.disabled = !canSign
     elements.signinConfirmBtn.textContent = canSign ? '✅ 立即签到' : '今日已签到'
@@ -946,11 +785,10 @@
    */
   function renderSigninRewards() {
     const today = new Date().getDay()
-    const signInData = gardenData.signIn || { continuousDays: 0 }
+    const signInData = currentGardenData.signIn || { continuousDays: 0 }
     
     let rewardsHtml = ''
     
-    // 每日基础奖励
     rewardsHtml += `<div class="signin-reward-item">
       <span class="signin-reward-icon">🥕</span>
       <span>胡萝卜种子 x${Utils.DAILY_REWARD.seeds.carrot}</span>
@@ -960,7 +798,6 @@
       <span>金币 x${Utils.DAILY_REWARD.coins}</span>
     </div>`
     
-    // 每周奖励
     const weeklyReward = Utils.WEEKLY_REWARDS[today]
     if (weeklyReward) {
       if (weeklyReward.randomSeed) {
@@ -986,7 +823,6 @@
       }
     }
     
-    // 连续签到奖励预览
     const nextMilestone = getNextMilestone(signInData.continuousDays)
     if (nextMilestone) {
       const reward = Utils.CONTINUOUS_REWARDS[nextMilestone]
@@ -1005,7 +841,7 @@
    * 检查是否可以签到
    */
   function canSignIn() {
-    const signInData = gardenData.signIn || { lastDate: null }
+    const signInData = currentGardenData.signIn || { lastDate: null }
     const today = new Date().toDateString()
     return signInData.lastDate !== today
   }
@@ -1024,7 +860,7 @@
   }
 
   /**
-   * 执行签到
+   * 执行签到 - 原子操作
    */
   async function handleSignIn() {
     if (!canSignIn()) {
@@ -1032,110 +868,22 @@
       return
     }
     
-    const signInData = gardenData.signIn || {
-      lastDate: null,
-      continuousDays: 0,
-      totalDays: 0,
-      weekRecords: [false, false, false, false, false, false, false]
-    }
+    const result = await window.electronAPI.gardenSignIn()
     
-    // 计算连续签到天数
-    const today = new Date()
-    const todayStr = today.toDateString()
-    
-    if (signInData.lastDate) {
-      const lastDate = new Date(signInData.lastDate)
-      const diffTime = today - lastDate
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
+    if (result.success) {
+      currentGardenData = result.garden
+      updateTip('签到成功！奖励已发放')
       
-      if (diffDays === 1) {
-        // 连续签到
-        signInData.continuousDays++
-      } else if (diffDays > 1) {
-        // 断签，重置
-        signInData.continuousDays = 1
-        // 重置本周记录（新的一周）
-        signInData.weekRecords = [false, false, false, false, false, false, false]
+      if (result.unlockedAchievements && result.unlockedAchievements.length > 0) {
+        const names = result.unlockedAchievements.map(a => a.name).join('、')
+        updateTip(`🎉 签到成功！解锁成就：${names}！`)
       }
+      
+      updateSigninBtnStatus()
+      renderSigninModal()
+      render()
     } else {
-      // 首次签到
-      signInData.continuousDays = 1
-    }
-    
-    // 更新签到数据
-    signInData.lastDate = todayStr
-    signInData.totalDays++
-    
-    // 更新本周签到记录
-    const dayOfWeek = today.getDay()
-    signInData.weekRecords[dayOfWeek] = true
-    
-    // 发放奖励
-    await grantSigninRewards(signInData)
-    
-    // 保存数据
-    gardenData.signIn = signInData
-    await saveGardenData()
-    
-    // 更新按钮状态
-    updateSigninBtnStatus()
-    
-    // 重新渲染弹窗
-    renderSigninModal()
-    
-    // 更新界面
-    render()
-    
-    // 检查坚持成就（连续签到）
-    await checkAndUnlockAchievements()
-    
-    updateTip('签到成功！奖励已发放')
-  }
-
-  /**
-   * 发放签到奖励
-   */
-  async function grantSigninRewards(signInData) {
-    const today = new Date().getDay()
-    let totalCoinsEarned = 0
-    
-    // 发放每日基础奖励
-    Object.entries(Utils.DAILY_REWARD.seeds).forEach(([seedKey, count]) => {
-      gardenData.seeds[seedKey] = (gardenData.seeds[seedKey] || 0) + count
-    })
-    totalCoinsEarned += Utils.DAILY_REWARD.coins
-    
-    // 发放每周奖励
-    const weeklyReward = Utils.WEEKLY_REWARDS[today]
-    if (weeklyReward) {
-      if (weeklyReward.randomSeed) {
-        // 随机种子
-        const seedKeys = Object.keys(CROP_CONFIG)
-        const randomKey = seedKeys[Math.floor(Math.random() * seedKeys.length)]
-        gardenData.seeds[randomKey] = (gardenData.seeds[randomKey] || 0) + 1
-      } else {
-        Object.entries(weeklyReward.seeds).forEach(([seedKey, count]) => {
-          gardenData.seeds[seedKey] = (gardenData.seeds[seedKey] || 0) + count
-        })
-        totalCoinsEarned += weeklyReward.coins
-      }
-    }
-    
-    // 发放连续签到奖励
-    const continuousReward = Utils.CONTINUOUS_REWARDS[signInData.continuousDays]
-    if (continuousReward) {
-      Object.entries(continuousReward.seeds).forEach(([seedKey, count]) => {
-        gardenData.seeds[seedKey] = (gardenData.seeds[seedKey] || 0) + count
-      })
-      totalCoinsEarned += continuousReward.coins
-    }
-    
-    // 增加金币
-    gardenData.coins = (gardenData.coins || 0) + totalCoinsEarned
-    
-    // 更新财富成就进度
-    if (totalCoinsEarned > 0) {
-      await updateAchievementStats('coins', totalCoinsEarned)
+      updateTip(result.message)
     }
   }
 
@@ -1152,7 +900,7 @@
     }
   }
 
-  /* ============ 成就墙系统 ============ */
+  // ============ 成就墙系统 ============
 
   /**
    * 初始化成就墙事件
@@ -1171,7 +919,6 @@
         }
       })
     }
-    // 分类标签切换
     if (elements.achievementTabs) {
       const tabs = elements.achievementTabs.querySelectorAll('.achievement-tab')
       tabs.forEach(tab => {
@@ -1188,8 +935,8 @@
    * 打开成就墙弹窗
    */
   async function openAchievementModal() {
-    // 强制重新加载数据，确保显示最新进度
-    await loadGardenData(true)
+    // 重新读取最新数据
+    await loadAndRender()
     
     if (achievementModal) {
       achievementModal.show()
@@ -1214,7 +961,7 @@
    * 渲染成就墙弹窗
    */
   function renderAchievementModal() {
-    const achievements = gardenData.achievements || {}
+    const achievements = currentGardenData.achievements || {}
     const totalAchievements = Object.keys(ACHIEVEMENT_CONFIG).length
     const unlockedCount = Object.keys(achievements).filter(id => achievements[id] && achievements[id].unlocked).length
     
@@ -1231,19 +978,18 @@
     if (!elements.achievementList) return
     
     elements.achievementList.innerHTML = ''
-    const achievements = gardenData.achievements || {}
-    const stats = gardenData.achievementStats || {}
+    const achievements = currentGardenData.achievements || {}
+    const stats = currentGardenData.achievementStats || {}
     
     Object.keys(ACHIEVEMENT_CONFIG).forEach(achievementId => {
       const config = ACHIEVEMENT_CONFIG[achievementId]
       
-      // 过滤分类
       if (category !== 'all' && config.category !== category) {
         return
       }
       
       const isUnlocked = achievements[achievementId] && achievements[achievementId].unlocked
-      const progress = getAchievementProgress(achievementId, stats)
+      const progress = getAchievementProgress(config, stats)
       const progressPercent = Math.min(100, (progress / config.target) * 100)
       
       const itemEl = document.createElement('div')
@@ -1274,9 +1020,8 @@
   /**
    * 获取成就进度
    */
-  function getAchievementProgress(achievementId, stats) {
-    const config = ACHIEVEMENT_CONFIG[achievementId]
-    stats = stats || gardenData.achievementStats || {}
+  function getAchievementProgress(config, stats) {
+    stats = stats || currentGardenData.achievementStats || {}
     
     switch (config.category) {
       case 'focus':
@@ -1290,7 +1035,7 @@
       case 'wealth':
         return stats.totalCoinsEarned || 0
       case 'persist':
-        return (gardenData.signIn && gardenData.signIn.continuousDays) || 0
+        return (currentGardenData.signIn && currentGardenData.signIn.continuousDays) || 0
       default:
         return 0
     }
@@ -1318,110 +1063,26 @@
   }
 
   /**
-   * 检查并解锁成就
+   * 更新成就统计数据（供外部调用）
    */
-  async function checkAndUnlockAchievements() {
-    const achievements = gardenData.achievements || {}
-    const stats = gardenData.achievementStats || {}
-    let hasNewUnlock = false
-    let unlockedAchievements = []
-    
-    Object.keys(ACHIEVEMENT_CONFIG).forEach(achievementId => {
-      // 已解锁则跳过
-      if (achievements[achievementId] && achievements[achievementId].unlocked) {
-        return
-      }
-      
-      const config = ACHIEVEMENT_CONFIG[achievementId]
-      const progress = getAchievementProgress(achievementId, stats)
-      
-      // 达成条件
-      if (progress >= config.target) {
-        achievements[achievementId] = {
-          unlocked: true,
-          unlockedAt: new Date().toISOString()
-        }
-        hasNewUnlock = true
-        unlockedAchievements.push(config)
-      }
-    })
-    
-    if (hasNewUnlock) {
-      gardenData.achievements = achievements
-      await saveGardenData()
-      
-      // 发放奖励
-      for (const config of unlockedAchievements) {
-        await grantAchievementReward(config)
-      }
-      
-      // 显示解锁提示
-      if (unlockedAchievements.length > 0) {
-        const names = unlockedAchievements.map(a => a.name).join('、')
+  async function updateAchievementStats(type, value) {
+    // 现在由主进程处理，这里只是接口兼容
+    if (type === 'focus') {
+      const result = await window.electronAPI.gardenUpdateFocus(value)
+      if (result.unlockedAchievements && result.unlockedAchievements.length > 0) {
+        currentGardenData = result.garden
+        const names = result.unlockedAchievements.map(a => a.name).join('、')
         updateTip(`🎉 恭喜解锁成就：${names}！`)
       }
     }
-    
-    return unlockedAchievements
   }
 
   /**
-   * 发放成就奖励
+   * 检查并解锁成就（供外部调用，已由主进程处理）
    */
-  async function grantAchievementReward(config) {
-    const rewards = config.rewards
-    
-    if (rewards.seeds) {
-      Object.entries(rewards.seeds).forEach(([seedKey, count]) => {
-        gardenData.seeds[seedKey] = (gardenData.seeds[seedKey] || 0) + count
-      })
-    }
-    if (rewards.coins > 0) {
-      gardenData.coins = (gardenData.coins || 0) + rewards.coins
-    }
-    
-    await saveGardenData()
-  }
-
-  /**
-   * 更新成就统计数据（供外部调用）
-   * @param {string} type - 更新类型: 'focus' | 'harvest' | 'plant' | 'coins' | 'cropType'
-   * @param {number|string} value - 更新值
-   */
-  async function updateAchievementStats(type, value) {
-    if (!gardenData.achievementStats) {
-      gardenData.achievementStats = {
-        totalFocusMinutes: 0,
-        totalHarvestCount: 0,
-        totalPlantCount: 0,
-        totalCoinsEarned: 0,
-        cropTypesCollected: []
-      }
-    }
-    
-    const stats = gardenData.achievementStats
-    
-    switch (type) {
-      case 'focus':
-        stats.totalFocusMinutes = (stats.totalFocusMinutes || 0) + value
-        break
-      case 'harvest':
-        stats.totalHarvestCount = (stats.totalHarvestCount || 0) + 1
-        // 同时更新作物类型收集
-        if (value && !stats.cropTypesCollected.includes(value)) {
-          stats.cropTypesCollected.push(value)
-        }
-        break
-      case 'plant':
-        stats.totalPlantCount = (stats.totalPlantCount || 0) + 1
-        break
-      case 'coins':
-        stats.totalCoinsEarned = (stats.totalCoinsEarned || 0) + value
-        break
-    }
-    
-    await saveGardenData()
-    await checkAndUnlockAchievements()
+  async function checkAndUnlockAchievements() {
+    // 现在由主进程在原子操作中自动处理
+    // 这里保留接口兼容，但不需要做任何事
   }
 
   // 导出到全局

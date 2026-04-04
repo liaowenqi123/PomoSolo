@@ -398,35 +398,39 @@
   async function executePunishment(options = {}) {
     const { checkPhase = true, showPopup = true } = options
     
-    // 如果需要检查阶段，验证计时器是否仍在运行阶段
     if (checkPhase) {
       if (!window.Timer || window.Timer.getPhase() !== window.Timer.PHASE.RUNNING) {
-        console.log('[ForegroundDetection] 计时器不在运行阶段，取消惩罚')
         state.warningCount = 0
         return { hasLoss: false, losses: [], totalMinutes: 0 }
       }
     }
     
-    console.log('[ForegroundDetection] 执行惩罚')
-    
-    // 隐藏警告弹窗
     hideWarningModal()
     
-    // 获取损失详情
     let lossResult = { hasLoss: false, losses: [], totalMinutes: 0 }
-    if (window.Garden) {
-      lossResult = await window.Garden.handleResetPunishment()
+    try {
+      if (window.Garden && window.Garden.handleResetPunishment) {
+        lossResult = await window.Garden.handleResetPunishment()
+      }
+    } catch (e) {
+      console.error('[ForegroundDetection] Garden.handleResetPunishment 出错:', e)
     }
     
-    // 重置计时器
-    if (window.Timer) {
-      window.Timer.reset()
+    try {
+      if (window.Timer && window.Timer.reset) {
+        window.Timer.reset()
+      }
+    } catch (e) {
+      console.error('[ForegroundDetection] Timer.reset 出错:', e)
     }
     
-    // 关闭专注模式
-    if (window.AppState) {
-      window.AppState.setFocusMode(false)
-      window.AppState.updateFocusModeUI()
+    try {
+      if (window.AppState) {
+        window.AppState.setFocusMode(false)
+        window.AppState.updateFocusModeUI()
+      }
+    } catch (e) {
+      console.error('[ForegroundDetection] 关闭专注模式出错:', e)
     }
     
     // 停止检测
@@ -434,7 +438,11 @@
     
     // 显示惩罚弹窗（如果需要）
     if (showPopup) {
-      showPunishmentModal(lossResult)
+      try {
+        showPunishmentModal(lossResult)
+      } catch (e) {
+        console.error('[ForegroundDetection] showPunishmentModal 出错:', e)
+      }
     }
     
     return lossResult
@@ -453,67 +461,72 @@
    * @param {Object} lossResult - 损失详情 { hasLoss, losses, totalMinutes }
    */
   function showPunishmentModal(lossResult) {
-    if (!elements.punishmentLosses) return
+    lossResult = lossResult || { hasLoss: false, losses: [], totalMinutes: 0 }
     
     const MAX_DISPLAY_ITEMS = 3  // 最多显示3个作物详情
     
     // 渲染损失列表
-    if (lossResult.hasLoss && lossResult.losses.length > 0) {
-      const totalCrops = lossResult.losses.length
-      let lossesHtml = '<div class="punishment-losses-title">你的损失：</div>'
-      
-      if (totalCrops <= MAX_DISPLAY_ITEMS) {
-        // 作物数量少，全部显示
-        lossResult.losses.forEach(loss => {
-          lossesHtml += `
-            <div class="punishment-loss-item">
-              <span class="punishment-loss-icon">${loss.icon}</span>
-              <div class="punishment-loss-info">
-                <div class="punishment-loss-name">${loss.name}</div>
-                <div class="punishment-loss-time">已生长 ${loss.progress}/${loss.growTime} 分钟</div>
-              </div>
-            </div>
-          `
-        })
-      } else {
-        // 作物数量多，显示精简摘要
-        // 统计各类型作物数量
-        const cropCounts = {}
-        lossResult.losses.forEach(loss => {
-          if (!cropCounts[loss.crop]) {
-            cropCounts[loss.crop] = { name: loss.name, icon: loss.icon, count: 0 }
-          }
-          cropCounts[loss.crop].count++
-        })
+    if (elements.punishmentLosses) {
+      if (lossResult.hasLoss && lossResult.losses && lossResult.losses.length > 0) {
+        const totalCrops = lossResult.losses.length
+        let lossesHtml = '<div class="punishment-losses-title">你的损失：</div>'
         
-        // 显示作物类型摘要（小图标形式）
-        lossesHtml += '<div class="punishment-loss-summary">'
-        Object.values(cropCounts).forEach(crop => {
-          lossesHtml += `
-            <span class="punishment-summary-item">
-              <span class="punishment-summary-icon">${crop.icon}</span>
-              <span class="punishment-summary-count">×${crop.count}</span>
-            </span>
-          `
-        })
-        lossesHtml += '</div>'
-        lossesHtml += `<div class="punishment-summary-text">共 ${totalCrops} 株作物枯萎</div>`
+        if (totalCrops <= MAX_DISPLAY_ITEMS) {
+          // 作物数量少，全部显示
+          lossResult.losses.forEach(loss => {
+            lossesHtml += `
+              <div class="punishment-loss-item">
+                <span class="punishment-loss-icon">${loss.icon}</span>
+                <div class="punishment-loss-info">
+                  <div class="punishment-loss-name">${loss.name}</div>
+                  <div class="punishment-loss-time">已生长 ${loss.progress}/${loss.growTime} 分钟</div>
+                </div>
+              </div>
+            `
+          })
+        } else {
+          // 作物数量多，显示精简摘要
+          const cropCounts = {}
+          lossResult.losses.forEach(loss => {
+            if (!cropCounts[loss.crop]) {
+              cropCounts[loss.crop] = { name: loss.name, icon: loss.icon, count: 0 }
+            }
+            cropCounts[loss.crop].count++
+          })
+          
+          lossesHtml += '<div class="punishment-loss-summary">'
+          Object.values(cropCounts).forEach(crop => {
+            lossesHtml += `
+              <span class="punishment-summary-item">
+                <span class="punishment-summary-icon">${crop.icon}</span>
+                <span class="punishment-summary-count">×${crop.count}</span>
+              </span>
+            `
+          })
+          lossesHtml += '</div>'
+          lossesHtml += `<div class="punishment-summary-text">共 ${totalCrops} 株作物枯萎</div>`
+        }
+        
+        lossesHtml += `
+          <div class="punishment-total-time">
+            <div class="total-label">共计损失</div>
+            <div class="total-value">${lossResult.totalMinutes} 分钟心血</div>
+          </div>
+        `
+        
+        elements.punishmentLosses.innerHTML = lossesHtml
+      } else {
+        elements.punishmentLosses.innerHTML = '<div class="punishment-no-loss">幸好没有正在生长的作物</div>'
       }
-      
-      // 添加总时间
-      lossesHtml += `
-        <div class="punishment-total-time">
-          <div class="total-label">共计损失</div>
-          <div class="total-value">${lossResult.totalMinutes} 分钟心血</div>
-        </div>
-      `
-      
-      elements.punishmentLosses.innerHTML = lossesHtml
-    } else {
-      elements.punishmentLosses.innerHTML = '<div class="punishment-no-loss">幸好没有正在生长的作物</div>'
     }
     
-    punishmentModal?.show()
+    // 显示弹窗（使用可选链防止 punishmentModal 为 null）
+    if (punishmentModal) {
+      punishmentModal.show()
+    } else if (elements.punishmentModal) {
+      // 如果 BaseModal 实例不存在，直接添加 CSS 类
+      elements.punishmentModal.classList.add('visible')
+    }
   }
 
   /**

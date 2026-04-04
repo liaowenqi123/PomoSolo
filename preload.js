@@ -26,13 +26,34 @@ const { contextBridge, ipcRenderer } = require('electron')
   // 写入数据
   writeData: (data) => ipcRenderer.invoke('write-data', data),
 
-  // ============ 菜园子专用 API ============
+  // ============ 菜园子原子操作 API ============
   
-  // 读取菜园子数据（由菜园子窗口调用）
+  // 读取菜园子数据
   gardenRead: () => ipcRenderer.invoke('garden-read'),
   
-  // 更新菜园子数据（由菜园子窗口调用）
-  gardenUpdate: (gardenUpdate) => ipcRenderer.invoke('garden-update', gardenUpdate),
+  // 种植作物
+  gardenPlant: (plotIndex, cropKey) => ipcRenderer.invoke('garden-plant', plotIndex, cropKey),
+  
+  // 收获作物
+  gardenHarvest: (plotIndex) => ipcRenderer.invoke('garden-harvest', plotIndex),
+  
+  // 购买种子
+  gardenBuySeed: (cropKey) => ipcRenderer.invoke('garden-buy-seed', cropKey),
+  
+  // 出售作物
+  gardenSellCrop: (cropKey) => ipcRenderer.invoke('garden-sell-crop', cropKey),
+  
+  // 一键出售所有作物
+  gardenSellAll: () => ipcRenderer.invoke('garden-sell-all'),
+  
+  // 解锁土地
+  gardenUnlockPlot: (plotIndex) => ipcRenderer.invoke('garden-unlock-plot', plotIndex),
+  
+  // 签到
+  gardenSignIn: () => ipcRenderer.invoke('garden-signin'),
+  
+  // 更新专注时间成就
+  gardenUpdateFocus: (minutes) => ipcRenderer.invoke('garden-update-focus', minutes),
   
   // 发送作物成长事件（由 timer 调用）
   gardenGrow: (minutes) => ipcRenderer.send('garden-grow', minutes),

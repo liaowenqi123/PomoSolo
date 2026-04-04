@@ -9,6 +9,87 @@ const { app } = require('electron')
 
 let dataFilePath = null
 
+// ============ 游戏配置（与 utils.js 保持同步） ============
+
+const CROP_CONFIG = {
+  carrot: { name: '胡萝卜', growTime: 25, icon: '🥕', seedType: 'carrot', rarity: 'common', value: 10, seedPrice: 8, sellPrice: 10 },
+  tomato: { name: '番茄', growTime: 50, icon: '🍅', seedType: 'tomato', rarity: 'common', value: 20, seedPrice: 16, sellPrice: 20 },
+  sunflower: { name: '向日葵', growTime: 90, icon: '🌻', seedType: 'sunflower', rarity: 'rare', value: 50, seedPrice: 40, sellPrice: 50 },
+  rose: { name: '玫瑰', growTime: 120, icon: '🌹', seedType: 'rose', rarity: 'rare', value: 80, seedPrice: 64, sellPrice: 80 },
+  osmanthus: { name: '金桂树', growTime: 180, icon: '🌳', seedType: 'osmanthus', rarity: 'legend', value: 150, seedPrice: 120, sellPrice: 150 }
+}
+
+const DAILY_REWARD = {
+  seeds: { carrot: 1 },
+  coins: 5
+}
+
+const CONTINUOUS_REWARDS = {
+  3:  { seeds: { tomato: 1 }, coins: 0 },
+  7:  { seeds: { sunflower: 1 }, coins: 0 },
+  14: { seeds: { rose: 1 }, coins: 0 },
+  30: { seeds: { osmanthus: 1 }, coins: 0 }
+}
+
+const WEEKLY_REWARDS = {
+  1: { seeds: { carrot: 2 }, coins: 0 },
+  2: { seeds: {}, coins: 10 },
+  3: { seeds: { tomato: 1 }, coins: 0 },
+  4: { seeds: {}, coins: 10 },
+  5: { seeds: { sunflower: 1 }, coins: 0 },
+  6: { seeds: {}, coins: 0, randomSeed: true },
+  0: { seeds: {}, coins: 20 }
+}
+
+const PLOT_UNLOCK_CONFIG = {
+  0: { type: 'default' },
+  1: { type: 'default' },
+  2: { type: 'default' },
+  3: { type: 'default' },
+  4: { type: 'default' },
+  5: { type: 'default' },
+  6: { type: 'coins', price: 100 },
+  7: { type: 'coins', price: 150 },
+  8: { type: 'achievement', achievementId: 'signin100', description: '连续签到100天' },
+  9: { type: 'achievement', achievementId: 'coins5000', description: '累计获得5000金币' },
+  10: { type: 'coins', price: 500 },
+  11: { type: 'coins', price: 800 }
+}
+
+const ACHIEVEMENT_CONFIG = {
+  // 专注成就
+  focus1h: { id: 'focus1h', category: 'focus', name: '初心者', description: '累计专注 1 小时', target: 60, icon: '⏱️', rewards: { seeds: { carrot: 3 }, coins: 10 } },
+  focus5h: { id: 'focus5h', category: 'focus', name: '专注新手', description: '累计专注 5 小时', target: 300, icon: '⏱️', rewards: { seeds: { tomato: 2 }, coins: 20 } },
+  focus25h: { id: 'focus25h', category: 'focus', name: '专注达人', description: '累计专注 25 小时', target: 1500, icon: '🎯', rewards: { seeds: { sunflower: 1 }, coins: 50 } },
+  focus50h: { id: 'focus50h', category: 'focus', name: '专注大师', description: '累计专注 50 小时', target: 3000, icon: '🏆', rewards: { seeds: { rose: 1 }, coins: 100 } },
+  focus100h: { id: 'focus100h', category: 'focus', name: '专注传奇', description: '累计专注 100 小时', target: 6000, icon: '👑', rewards: { seeds: { osmanthus: 1 }, coins: 200 } },
+  // 收获成就
+  harvest1: { id: 'harvest1', category: 'harvest', name: '初次丰收', description: '收获 1 个作物', target: 1, icon: '🌾', rewards: { seeds: {}, coins: 5 } },
+  harvest10: { id: 'harvest10', category: 'harvest', name: '小有收成', description: '收获 10 个作物', target: 10, icon: '🌾', rewards: { seeds: { carrot: 2 }, coins: 15 } },
+  harvest50: { id: 'harvest50', category: 'harvest', name: '丰收达人', description: '收获 50 个作物', target: 50, icon: '🌻', rewards: { seeds: { tomato: 2 }, coins: 30 } },
+  harvest100: { id: 'harvest100', category: 'harvest', name: '丰收大师', description: '收获 100 个作物', target: 100, icon: '🏆', rewards: { seeds: { sunflower: 2 }, coins: 60 } },
+  harvest500: { id: 'harvest500', category: 'harvest', name: '丰收传奇', description: '收获 500 个作物', target: 500, icon: '👑', rewards: { seeds: { osmanthus: 2 }, coins: 200 } },
+  // 种植成就
+  plant1: { id: 'plant1', category: 'plant', name: '新手农夫', description: '种植 1 次', target: 1, icon: '🌱', rewards: { seeds: { carrot: 1 }, coins: 0 } },
+  plant10: { id: 'plant10', category: 'plant', name: '勤劳农夫', description: '种植 10 次', target: 10, icon: '🌱', rewards: { seeds: {}, coins: 10 } },
+  plant50: { id: 'plant50', category: 'plant', name: '种植达人', description: '种植 50 次', target: 50, icon: '🌿', rewards: { seeds: { tomato: 2 }, coins: 20 } },
+  plant100: { id: 'plant100', category: 'plant', name: '种植大师', description: '种植 100 次', target: 100, icon: '🏆', rewards: { seeds: { sunflower: 1 }, coins: 50 } },
+  plant500: { id: 'plant500', category: 'plant', name: '种植传奇', description: '种植 500 次', target: 500, icon: '👑', rewards: { seeds: { rose: 1 }, coins: 100 } },
+  // 收藏成就
+  collect1: { id: 'collect1', category: 'collect', name: '初次收藏', description: '收获任意 1 种作物', target: 1, icon: '📦', rewards: { seeds: {}, coins: 5 } },
+  collect3: { id: 'collect3', category: 'collect', name: '多样收藏', description: '收获 3 种不同作物', target: 3, icon: '🎁', rewards: { seeds: {}, coins: 30 } },
+  collect5: { id: 'collect5', category: 'collect', name: '全集收藏', description: '收获全部 5 种作物', target: 5, icon: '👑', rewards: { seeds: { osmanthus: 1 }, coins: 100 } },
+  // 财富成就
+  coins100: { id: 'coins100', category: 'wealth', name: '小富翁', description: '累计获得 100 金币', target: 100, icon: '💰', rewards: { seeds: { carrot: 3 }, coins: 0 } },
+  coins500: { id: 'coins500', category: 'wealth', name: '中富翁', description: '累计获得 500 金币', target: 500, icon: '💰', rewards: { seeds: { tomato: 2 }, coins: 0 } },
+  coins1000: { id: 'coins1000', category: 'wealth', name: '大富翁', description: '累计获得 1000 金币', target: 1000, icon: '💎', rewards: { seeds: { rose: 1 }, coins: 0 } },
+  coins5000: { id: 'coins5000', category: 'wealth', name: '富豪', description: '累计获得 5000 金币', target: 5000, icon: '👑', rewards: { seeds: { osmanthus: 2 }, coins: 0 } },
+  // 坚持成就
+  signin7: { id: 'signin7', category: 'persist', name: '坚持一周', description: '连续签到 7 天', target: 7, icon: '📅', rewards: { seeds: { sunflower: 1 }, coins: 0 } },
+  signin30: { id: 'signin30', category: 'persist', name: '坚持一月', description: '连续签到 30 天', target: 30, icon: '📅', rewards: { seeds: { rose: 1 }, coins: 0 } },
+  signin100: { id: 'signin100', category: 'persist', name: '坚持百日', description: '连续签到 100 天', target: 100, icon: '👑', rewards: { seeds: { osmanthus: 2 }, coins: 0 } }
+}
+
 // ============ 互斥锁机制 ============
 // 用于保护菜园子数据的并发访问
 
@@ -168,7 +249,9 @@ function writeData(data) {
   }
 }
 
-// ============ 菜园子专用接口（带锁保护） ============
+// ============ 菜园子原子操作接口（带锁保护） ============
+// 所有操作都是原子性的：读取 -> 修改 -> 写回
+// 返回最新的菜园子数据，确保数据一致性
 
 /**
  * 读取菜园子数据（带锁）
@@ -183,83 +266,435 @@ async function readGardenData() {
 }
 
 /**
- * 更新菜园子数据（带锁）
- * 先从文件读取最新数据，合并修改后写回
- * @param {object} gardenUpdate - 菜园子数据更新
- * @returns {Promise<object>} - 更新后的完整菜园子数据
+ * 种植作物
+ * @param {number} plotIndex - 土地索引
+ * @param {string} cropKey - 作物类型
+ * @returns {Promise<{success: boolean, message: string, garden: object}>}
  */
-async function updateGardenData(gardenUpdate) {
+async function gardenPlant(plotIndex, cropKey) {
   return withGardenLock(() => {
     const data = readData()
+    const garden = data.garden || createDefaultData().garden
     
-    // 智能合并 plots：保留 progress 更大的版本
-    const mergedPlots = mergePlots(data.garden?.plots, gardenUpdate.plots)
-    
-    // 深度合并，保留原有数据
-    data.garden = {
-      ...data.garden,
-      ...gardenUpdate,
-      // 确保嵌套对象也被正确合并
-      seeds: { ...data.garden?.seeds, ...gardenUpdate.seeds },
-      crops: { ...data.garden?.crops, ...gardenUpdate.crops },
-      plots: mergedPlots,
-      achievements: { ...data.garden?.achievements, ...gardenUpdate.achievements },
-      achievementStats: { ...data.garden?.achievementStats, ...gardenUpdate.achievementStats },
-      signIn: { ...data.garden?.signIn, ...gardenUpdate.signIn }
+    // 检查种子数量
+    const seeds = garden.seeds || {}
+    if (!seeds[cropKey] || seeds[cropKey] <= 0) {
+      return { success: false, message: '种子不足', garden }
     }
+    
+    // 检查土地状态
+    const plots = garden.plots || []
+    const plot = plots[plotIndex]
+    if (!plot || plot.locked) {
+      return { success: false, message: '土地未解锁', garden }
+    }
+    if (plot.crop) {
+      return { success: false, message: '土地上已有作物', garden }
+    }
+    
+    // 执行种植
+    seeds[cropKey]--
+    garden.seeds = seeds
+    garden.plots[plotIndex] = {
+      id: plotIndex,
+      crop: cropKey,
+      progress: 0,
+      plantedAt: new Date().toISOString()
+    }
+    
+    // 更新成就统计
+    updateAchievementStatsInPlace(garden, 'plant', null)
+    
+    // 检查成就
+    const unlockedAchievements = checkAndUnlockAchievementsInPlace(garden)
+    
+    data.garden = garden
     writeData(data)
-    return data.garden
+    
+    return { 
+      success: true, 
+      message: `种植成功！${CROP_CONFIG[cropKey].name}`, 
+      garden,
+      unlockedAchievements
+    }
   })
 }
 
 /**
- * 智能合并两个 plots 数组
- * 规则：按 id 匹配，保留 progress 更大的版本
- * @param {Array} existingPlots - 文件中已有的 plots
- * @param {Array} newPlots - 更新传入的 plots
- * @returns {Array} - 合并后的 plots
+ * 收获作物
+ * @param {number} plotIndex - 土地索引
+ * @returns {Promise<{success: boolean, message: string, garden: object}>}
  */
-function mergePlots(existingPlots = [], newPlots) {
-  if (!newPlots) return existingPlots
-  
-  const existingMap = new Map()
-  for (const plot of (existingPlots || [])) {
-    if (plot && plot.id !== undefined) {
-      existingMap.set(plot.id, plot)
-    }
-  }
-  
-  const result = []
-  const allIds = new Set([
-    ...(existingPlots || []).map(p => p?.id).filter(id => id !== undefined),
-    ...newPlots.map(p => p?.id).filter(id => id !== undefined)
-  ])
-  
-  for (const id of allIds) {
-    const existing = existingMap.get(id)
-    const newPlot = newPlots.find(p => p?.id === id)
+async function gardenHarvest(plotIndex) {
+  return withGardenLock(() => {
+    const data = readData()
+    const garden = data.garden || createDefaultData().garden
     
-    if (existing && newPlot) {
-      // 都存在：保留 progress 更大的
-      // 但如果 newPlot 是收割后清空的（crop 为 null），以 newPlot 为准
-      if (newPlot.crop === null) {
-        result.push({ ...newPlot })
-      } else if (existing.crop === null && newPlot.crop) {
-        // 原来是空的，新种了作物
-        result.push({ ...newPlot })
-      } else if ((newPlot.progress || 0) >= (existing.progress || 0)) {
-        result.push({ ...newPlot })
-      } else {
-        result.push({ ...existing })
-      }
-    } else if (newPlot) {
-      result.push({ ...newPlot })
-    } else if (existing) {
-      result.push({ ...existing })
+    const plots = garden.plots || []
+    const plot = plots[plotIndex]
+    
+    if (!plot || !plot.crop) {
+      return { success: false, message: '该土地没有作物', garden }
     }
-  }
-  
-  return result.sort((a, b) => (a.id || 0) - (b.id || 0))
+    
+    const cropConfig = CROP_CONFIG[plot.crop]
+    const progress = (plot.progress / cropConfig.growTime) * 100
+    
+    if (progress < 100) {
+      return { success: false, message: '作物还未成熟', garden }
+    }
+    
+    // 执行收获
+    garden.crops = garden.crops || {}
+    garden.crops[plot.crop] = (garden.crops[plot.crop] || 0) + 1
+    
+    // 获得金币（作物价值的一半）
+    const reward = Math.floor(cropConfig.value / 2)
+    garden.coins = (garden.coins || 0) + reward
+    
+    // 清空土地
+    garden.plots[plotIndex] = {
+      id: plotIndex,
+      crop: null,
+      progress: 0,
+      plantedAt: null
+    }
+    
+    // 更新成就统计
+    updateAchievementStatsInPlace(garden, 'harvest', plot.crop)
+    updateAchievementStatsInPlace(garden, 'coins', reward)
+    
+    // 检查成就
+    const unlockedAchievements = checkAndUnlockAchievementsInPlace(garden)
+    
+    data.garden = garden
+    writeData(data)
+    
+    return { 
+      success: true, 
+      message: `收获成功！${cropConfig.name} x1，金币 +${reward}`, 
+      garden,
+      unlockedAchievements
+    }
+  })
+}
+
+/**
+ * 购买种子
+ * @param {string} cropKey - 作物类型
+ * @returns {Promise<{success: boolean, message: string, garden: object}>}
+ */
+async function gardenBuySeed(cropKey) {
+  return withGardenLock(() => {
+    const data = readData()
+    const garden = data.garden || createDefaultData().garden
+    const cropConfig = CROP_CONFIG[cropKey]
+    
+    if (!cropConfig) {
+      return { success: false, message: '未知的作物类型', garden }
+    }
+    
+    const coins = garden.coins || 0
+    if (coins < cropConfig.seedPrice) {
+      return { success: false, message: '金币不足', garden }
+    }
+    
+    // 执行购买
+    garden.coins = coins - cropConfig.seedPrice
+    garden.seeds = garden.seeds || {}
+    garden.seeds[cropKey] = (garden.seeds[cropKey] || 0) + 1
+    
+    data.garden = garden
+    writeData(data)
+    
+    return { success: true, message: `购买成功！${cropConfig.name}种子 x1`, garden }
+  })
+}
+
+/**
+ * 出售作物
+ * @param {string} cropKey - 作物类型
+ * @returns {Promise<{success: boolean, message: string, garden: object}>}
+ */
+async function gardenSellCrop(cropKey) {
+  return withGardenLock(() => {
+    const data = readData()
+    const garden = data.garden || createDefaultData().garden
+    const cropConfig = CROP_CONFIG[cropKey]
+    
+    const crops = garden.crops || {}
+    if (!crops[cropKey] || crops[cropKey] <= 0) {
+      return { success: false, message: '没有该作物可出售', garden }
+    }
+    
+    // 执行出售
+    crops[cropKey]--
+    garden.coins = (garden.coins || 0) + cropConfig.sellPrice
+    
+    // 更新成就统计
+    updateAchievementStatsInPlace(garden, 'coins', cropConfig.sellPrice)
+    
+    // 检查成就
+    const unlockedAchievements = checkAndUnlockAchievementsInPlace(garden)
+    
+    data.garden = garden
+    writeData(data)
+    
+    return { 
+      success: true, 
+      message: `出售成功！获得 💰${cropConfig.sellPrice}`, 
+      garden,
+      unlockedAchievements
+    }
+  })
+}
+
+/**
+ * 一键出售所有作物
+ * @returns {Promise<{success: boolean, message: string, garden: object, totalCoins: number, totalItems: number}>}
+ */
+async function gardenSellAllCrops() {
+  return withGardenLock(() => {
+    const data = readData()
+    const garden = data.garden || createDefaultData().garden
+    const crops = garden.crops || {}
+    
+    let totalCoins = 0
+    let totalItems = 0
+    
+    Object.keys(crops).forEach(cropKey => {
+      const count = crops[cropKey]
+      if (count > 0) {
+        const crop = CROP_CONFIG[cropKey]
+        if (crop) {
+          totalCoins += crop.sellPrice * count
+          totalItems += count
+        }
+        crops[cropKey] = 0
+      }
+    })
+    
+    if (totalItems === 0) {
+      return { success: false, message: '没有作物可出售', garden, totalCoins: 0, totalItems: 0 }
+    }
+    
+    garden.coins = (garden.coins || 0) + totalCoins
+    
+    // 更新成就统计
+    updateAchievementStatsInPlace(garden, 'coins', totalCoins)
+    
+    // 检查成就
+    const unlockedAchievements = checkAndUnlockAchievementsInPlace(garden)
+    
+    data.garden = garden
+    writeData(data)
+    
+    return { 
+      success: true, 
+      message: `出售成功！共 ${totalItems} 个作物，获得 💰${totalCoins}`, 
+      garden, 
+      totalCoins, 
+      totalItems,
+      unlockedAchievements
+    }
+  })
+}
+
+/**
+ * 解锁土地（金币）
+ * @param {number} plotIndex - 土地索引
+ * @returns {Promise<{success: boolean, message: string, garden: object}>}
+ */
+async function gardenUnlockPlot(plotIndex) {
+  return withGardenLock(() => {
+    const data = readData()
+    const garden = data.garden || createDefaultData().garden
+    const unlockConfig = PLOT_UNLOCK_CONFIG[plotIndex]
+    
+    if (!unlockConfig || unlockConfig.type === 'default') {
+      return { success: false, message: '该土地无需解锁', garden }
+    }
+    
+    const plot = garden.plots[plotIndex]
+    if (!plot || !plot.locked) {
+      return { success: false, message: '该土地已解锁', garden }
+    }
+    
+    if (unlockConfig.type === 'coins') {
+      const coins = garden.coins || 0
+      if (coins < unlockConfig.price) {
+        return { success: false, message: '金币不足', garden }
+      }
+      
+      garden.coins = coins - unlockConfig.price
+      garden.plots[plotIndex] = {
+        id: plotIndex,
+        crop: null,
+        progress: 0,
+        plantedAt: null,
+        locked: false
+      }
+      
+      data.garden = garden
+      writeData(data)
+      
+      return { success: true, message: `解锁成功！花费 💰${unlockConfig.price}`, garden }
+      
+    } else if (unlockConfig.type === 'achievement') {
+      const achievements = garden.achievements || {}
+      const achievement = achievements[unlockConfig.achievementId]
+      
+      if (!achievement || !achievement.unlocked) {
+        return { success: false, message: `成就未达成：${unlockConfig.description}`, garden }
+      }
+      
+      garden.plots[plotIndex] = {
+        id: plotIndex,
+        crop: null,
+        progress: 0,
+        plantedAt: null,
+        locked: false
+      }
+      
+      data.garden = garden
+      writeData(data)
+      
+      return { success: true, message: `解锁成功！达成成就「${unlockConfig.description}」`, garden }
+    }
+    
+    return { success: false, message: '未知的解锁方式', garden }
+  })
+}
+
+/**
+ * 签到
+ * @returns {Promise<{success: boolean, message: string, garden: object, rewards: object}>}
+ */
+async function gardenSignIn() {
+  return withGardenLock(() => {
+    const data = readData()
+    const garden = data.garden || createDefaultData().garden
+    
+    const today = new Date()
+    const todayStr = today.toDateString()
+    
+    const signIn = garden.signIn || {
+      lastDate: null,
+      continuousDays: 0,
+      totalDays: 0,
+      weekRecords: [false, false, false, false, false, false, false]
+    }
+    
+    // 检查是否已签到
+    if (signIn.lastDate === todayStr) {
+      return { success: false, message: '今日已签到', garden, rewards: null }
+    }
+    
+    // 计算连续签到
+    if (signIn.lastDate) {
+      const lastDate = new Date(signIn.lastDate)
+      const diffTime = today - lastDate
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
+      
+      if (diffDays === 1) {
+        signIn.continuousDays++
+      } else if (diffDays > 1) {
+        signIn.continuousDays = 1
+        signIn.weekRecords = [false, false, false, false, false, false, false]
+      }
+    } else {
+      signIn.continuousDays = 1
+    }
+    
+    signIn.lastDate = todayStr
+    signIn.totalDays++
+    
+    const dayOfWeek = today.getDay()
+    signIn.weekRecords[dayOfWeek] = true
+    
+    // 发放奖励
+    const rewards = { seeds: {}, coins: 0 }
+    let totalCoinsEarned = 0
+    
+    // 每日基础奖励
+    Object.entries(DAILY_REWARD.seeds).forEach(([seedKey, count]) => {
+      garden.seeds[seedKey] = (garden.seeds[seedKey] || 0) + count
+      rewards.seeds[seedKey] = (rewards.seeds[seedKey] || 0) + count
+    })
+    totalCoinsEarned += DAILY_REWARD.coins
+    rewards.coins += DAILY_REWARD.coins
+    
+    // 每周奖励
+    const weeklyReward = WEEKLY_REWARDS[dayOfWeek]
+    if (weeklyReward) {
+      if (weeklyReward.randomSeed) {
+        const seedKeys = Object.keys(CROP_CONFIG)
+        const randomKey = seedKeys[Math.floor(Math.random() * seedKeys.length)]
+        garden.seeds[randomKey] = (garden.seeds[randomKey] || 0) + 1
+        rewards.seeds[randomKey] = (rewards.seeds[randomKey] || 0) + 1
+      } else {
+        Object.entries(weeklyReward.seeds).forEach(([seedKey, count]) => {
+          garden.seeds[seedKey] = (garden.seeds[seedKey] || 0) + count
+          rewards.seeds[seedKey] = (rewards.seeds[seedKey] || 0) + count
+        })
+        totalCoinsEarned += weeklyReward.coins
+        rewards.coins += weeklyReward.coins
+      }
+    }
+    
+    // 连续签到奖励
+    const continuousReward = CONTINUOUS_REWARDS[signIn.continuousDays]
+    if (continuousReward) {
+      Object.entries(continuousReward.seeds).forEach(([seedKey, count]) => {
+        garden.seeds[seedKey] = (garden.seeds[seedKey] || 0) + count
+        rewards.seeds[seedKey] = (rewards.seeds[seedKey] || 0) + count
+      })
+      totalCoinsEarned += continuousReward.coins
+      rewards.coins += continuousReward.coins
+    }
+    
+    garden.coins = (garden.coins || 0) + totalCoinsEarned
+    garden.signIn = signIn
+    
+    // 更新成就统计
+    if (totalCoinsEarned > 0) {
+      updateAchievementStatsInPlace(garden, 'coins', totalCoinsEarned)
+    }
+    
+    // 检查成就
+    const unlockedAchievements = checkAndUnlockAchievementsInPlace(garden)
+    
+    data.garden = garden
+    writeData(data)
+    
+    return { 
+      success: true, 
+      message: '签到成功！', 
+      garden, 
+      rewards,
+      unlockedAchievements
+    }
+  })
+}
+
+/**
+ * 更新成就进度（专注时间）
+ * @param {number} minutes - 专注分钟数
+ * @returns {Promise<{garden: object, unlockedAchievements: array}>}
+ */
+async function gardenUpdateFocusMinutes(minutes) {
+  return withGardenLock(() => {
+    const data = readData()
+    const garden = data.garden || createDefaultData().garden
+    
+    updateAchievementStatsInPlace(garden, 'focus', minutes)
+    const unlockedAchievements = checkAndUnlockAchievementsInPlace(garden)
+    
+    data.garden = garden
+    writeData(data)
+    
+    return { garden, unlockedAchievements }
+  })
 }
 
 /**
@@ -309,14 +744,6 @@ async function handleGardenPunishment() {
     }
     
     const plots = data.garden.plots || []
-    const CROP_CONFIG = {
-      carrot: { name: '胡萝卜', icon: '🥕', growTime: 25, value: 10 },
-      tomato: { name: '番茄', icon: '🍅', growTime: 50, value: 20 },
-      sunflower: { name: '向日葵', icon: '🌻', growTime: 90, value: 50 },
-      rose: { name: '玫瑰', icon: '🌹', growTime: 120, value: 80 },
-      osmanthus: { name: '金桂树', icon: '🌳', growTime: 180, value: 150 }
-    }
-    
     const losses = []
     let totalMinutes = 0
     
@@ -327,7 +754,6 @@ async function handleGardenPunishment() {
         if (cropConfig) {
           const progress = plot.progress
           const totalTime = cropConfig.growTime
-          // 如果未成熟，作物枯萎
           if (progress < totalTime) {
             losses.push({
               crop: plot.crop,
@@ -338,7 +764,6 @@ async function handleGardenPunishment() {
             })
             totalMinutes += progress
             
-            // 清空格子
             plots[i] = {
               id: i,
               crop: null,
@@ -361,15 +786,135 @@ async function handleGardenPunishment() {
   })
 }
 
+// ============ 成就系统辅助函数 ============
+
+/**
+ * 更新成就统计（原地修改 garden 对象）
+ * @param {object} garden - 菜园子数据对象
+ * @param {string} type - 更新类型: 'focus' | 'harvest' | 'plant' | 'coins'
+ * @param {any} value - 更新值
+ */
+function updateAchievementStatsInPlace(garden, type, value) {
+  if (!garden.achievementStats) {
+    garden.achievementStats = {
+      totalFocusMinutes: 0,
+      totalHarvestCount: 0,
+      totalPlantCount: 0,
+      totalCoinsEarned: 0,
+      cropTypesCollected: []
+    }
+  }
+  
+  const stats = garden.achievementStats
+  
+  switch (type) {
+    case 'focus':
+      stats.totalFocusMinutes = (stats.totalFocusMinutes || 0) + value
+      break
+    case 'harvest':
+      stats.totalHarvestCount = (stats.totalHarvestCount || 0) + 1
+      if (value && !stats.cropTypesCollected.includes(value)) {
+        stats.cropTypesCollected.push(value)
+      }
+      break
+    case 'plant':
+      stats.totalPlantCount = (stats.totalPlantCount || 0) + 1
+      break
+    case 'coins':
+      stats.totalCoinsEarned = (stats.totalCoinsEarned || 0) + value
+      break
+  }
+}
+
+/**
+ * 检查并解锁成就（原地修改 garden 对象）
+ * @param {object} garden - 菜园子数据对象
+ * @returns {array} - 新解锁的成就列表
+ */
+function checkAndUnlockAchievementsInPlace(garden) {
+  const achievements = garden.achievements || {}
+  const stats = garden.achievementStats || {}
+  const unlockedAchievements = []
+  
+  Object.keys(ACHIEVEMENT_CONFIG).forEach(achievementId => {
+    // 已解锁则跳过
+    if (achievements[achievementId] && achievements[achievementId].unlocked) {
+      return
+    }
+    
+    const config = ACHIEVEMENT_CONFIG[achievementId]
+    const progress = getAchievementProgress(config, stats, garden)
+    
+    // 达成条件
+    if (progress >= config.target) {
+      achievements[achievementId] = {
+        unlocked: true,
+        unlockedAt: new Date().toISOString()
+      }
+      unlockedAchievements.push(config)
+      
+      // 发放奖励
+      if (config.rewards) {
+        if (config.rewards.seeds) {
+          garden.seeds = garden.seeds || {}
+          Object.entries(config.rewards.seeds).forEach(([seedKey, count]) => {
+            garden.seeds[seedKey] = (garden.seeds[seedKey] || 0) + count
+          })
+        }
+        if (config.rewards.coins > 0) {
+          garden.coins = (garden.coins || 0) + config.rewards.coins
+        }
+      }
+    }
+  })
+  
+  garden.achievements = achievements
+  return unlockedAchievements
+}
+
+/**
+ * 获取成就进度
+ * @param {object} config - 成就配置
+ * @param {object} stats - 成就统计数据
+ * @param {object} garden - 菜园子数据
+ * @returns {number}
+ */
+function getAchievementProgress(config, stats, garden) {
+  switch (config.category) {
+    case 'focus':
+      return stats.totalFocusMinutes || 0
+    case 'harvest':
+      return stats.totalHarvestCount || 0
+    case 'plant':
+      return stats.totalPlantCount || 0
+    case 'collect':
+      return (stats.cropTypesCollected || []).length
+    case 'wealth':
+      return stats.totalCoinsEarned || 0
+    case 'persist':
+      return (garden.signIn && garden.signIn.continuousDays) || 0
+    default:
+      return 0
+  }
+}
+
 module.exports = {
   getDataFilePath,
   ensureDataDir,
   createDefaultData,
   readData,
   writeData,
-  // 菜园子专用接口（带锁）
+  // 菜园子原子操作接口（带锁）
   readGardenData,
-  updateGardenData,
+  gardenPlant,
+  gardenHarvest,
+  gardenBuySeed,
+  gardenSellCrop,
+  gardenSellAllCrops,
+  gardenUnlockPlot,
+  gardenSignIn,
+  gardenUpdateFocusMinutes,
+  // Timer 调用的接口
   updateGardenProgress,
   handleGardenPunishment,
   withGardenLock
