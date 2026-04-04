@@ -100,9 +100,10 @@
       ]
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
       "installerIcon": "src/tomato-page-1-256.ico",
       "uninstallerIcon": "src/tomato-page-1-256.ico",
       "installerHeaderIcon": "src/tomato-page-1-256.ico",
