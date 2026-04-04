@@ -20,6 +20,12 @@
   // 弹窗实例
   let settingsModal = null
 
+  // 彩蛋相关状态
+  let easterEggClickCount = 0
+  let easterEggLastClickTime = 0
+  const EASTER_EGG_CLICK_INTERVAL = 800 // 两次点击最大间隔（毫秒）
+  const EASTER_EGG_REQUIRED_CLICKS = 5  // 需要的点击次数
+
   // 设置项与 DOM ID 映射
   const SETTING_MAP = {
     // 计时器
@@ -93,8 +99,11 @@
     
     // 加载版本号
     loadVersion()
+
+    // 绑定版本号点击事件
+    bindVersionClickHandler()
   }
-  
+
   /**
    * 加载版本号
    */
@@ -107,6 +116,136 @@
     } catch (err) {
       console.error('[Settings] 获取版本号失败:', err)
     }
+  }
+
+  /**
+   * 绑定版本号点击处理器
+   */
+  function bindVersionClickHandler() {
+    if (!elements.versionText) return
+
+    elements.versionText.addEventListener('click', handleVersionClick)
+  }
+
+  /**
+   * 处理版本号点击
+   */
+  function handleVersionClick(e) {
+    const now = Date.now()
+    const timeSinceLastClick = now - easterEggLastClickTime
+
+    // 如果距离上次点击超过阈值，重置计数
+    if (timeSinceLastClick > EASTER_EGG_CLICK_INTERVAL && easterEggLastClickTime !== 0) {
+      easterEggClickCount = 0
+    }
+
+    easterEggLastClickTime = now
+    easterEggClickCount++
+
+    // 添加视觉反馈 - 轻微缩放动画
+    elements.versionText.style.transition = 'transform 0.1s ease'
+    elements.versionText.style.transform = 'scale(1.15)'
+
+    setTimeout(() => {
+      elements.versionText.style.transform = 'scale(1)'
+    }, 100)
+
+    // 达到5次点击，触发彩蛋
+    if (easterEggClickCount >= EASTER_EGG_REQUIRED_CLICKS) {
+      triggerEasterEgg()
+      easterEggClickCount = 0
+      easterEggLastClickTime = 0
+    }
+  }
+
+  /**
+   * 触发彩蛋视觉效果
+   */
+  function triggerEasterEgg() {
+    // 创建彩色粒子效果
+    createParticleEffect()
+
+    // 版本号文字闪烁
+    flashVersionText()
+
+    // 控制台输出神秘信息
+    console.log('%c🎉 你发现了隐藏彩蛋！', 'font-size: 20px; color: #ff6b6b; font-weight: bold;')
+    console.log('%c✨ 更多精彩内容等待探索...', 'font-size: 14px; color: #4ecdc4;')
+  }
+
+  /**
+   * 创建粒子效果
+   */
+  function createParticleEffect() {
+    const rect = elements.versionText.getBoundingClientRect()
+    const centerX = rect.left + rect.width / 2
+    const centerY = rect.top + rect.height / 2
+
+    // 创建20个粒子
+    for (let i = 0; i < 20; i++) {
+      createParticle(centerX, centerY, i)
+    }
+  }
+
+  /**
+   * 创建单个粒子
+   */
+  function createParticle(x, y, index) {
+    const particle = document.createElement('div')
+    particle.className = 'easter-egg-particle'
+    particle.style.cssText = `
+      position: fixed;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 9999;
+      left: ${x}px;
+      top: ${y}px;
+      background: hsl(${index * 18}, 70%, 60%);
+      transition: all 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      opacity: 1;
+    `
+
+    document.body.appendChild(particle)
+
+    // 计算扩散方向
+    const angle = (index / 20) * Math.PI * 2
+    const distance = 60 + Math.random() * 40
+    const destX = Math.cos(angle) * distance
+    const destY = Math.sin(angle) * distance
+
+    // 延迟一帧后触发动画
+    requestAnimationFrame(() => {
+      particle.style.transform = `translate(${destX}px, ${destY}px) scale(0)`
+      particle.style.opacity = '0'
+    })
+
+    // 动画结束后移除
+    setTimeout(() => {
+      particle.remove()
+    }, 600)
+  }
+
+  /**
+   * 版本号文字闪烁效果
+   */
+  function flashVersionText() {
+    const colors = ['#ff6b6b', '#4ecdc4', '#ffe66d', '#a8e6cf', '#ff8b94']
+    let step = 0
+
+    const interval = setInterval(() => {
+      elements.versionText.style.color = colors[step % colors.length]
+      step++
+
+      if (step >= colors.length * 2) {
+        clearInterval(interval)
+        // 恢复原色
+        setTimeout(() => {
+          elements.versionText.style.color = ''
+        }, 200)
+      }
+    }, 100)
   }
 
   /**

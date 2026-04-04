@@ -234,6 +234,18 @@
   font-size: 11px;
   color: var(--text-muted, #999);
   font-family: 'Consolas', 'Monaco', monospace;
+  /* 保持鼠标为默认箭头样式，不显示手型 */
+  cursor: default;
+  /* 添加过渡效果，让点击动画更流畅 */
+  transition: transform 0.1s ease, color 0.1s ease;
+  display: inline-block;
+  /* 防止文本选择 */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.settings-version span:active {
+  transform: scale(0.95);
 }
 
 [data-theme="dark"] .settings-version {
