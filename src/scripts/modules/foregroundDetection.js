@@ -455,21 +455,50 @@
   function showPunishmentModal(lossResult) {
     if (!elements.punishmentLosses) return
     
+    const MAX_DISPLAY_ITEMS = 3  // 最多显示3个作物详情
+    
     // 渲染损失列表
     if (lossResult.hasLoss && lossResult.losses.length > 0) {
+      const totalCrops = lossResult.losses.length
       let lossesHtml = '<div class="punishment-losses-title">你的损失：</div>'
       
-      lossResult.losses.forEach(loss => {
-        lossesHtml += `
-          <div class="punishment-loss-item">
-            <span class="punishment-loss-icon">${loss.icon}</span>
-            <div class="punishment-loss-info">
-              <div class="punishment-loss-name">${loss.name}</div>
-              <div class="punishment-loss-time">已生长 ${loss.progress}/${loss.growTime} 分钟</div>
+      if (totalCrops <= MAX_DISPLAY_ITEMS) {
+        // 作物数量少，全部显示
+        lossResult.losses.forEach(loss => {
+          lossesHtml += `
+            <div class="punishment-loss-item">
+              <span class="punishment-loss-icon">${loss.icon}</span>
+              <div class="punishment-loss-info">
+                <div class="punishment-loss-name">${loss.name}</div>
+                <div class="punishment-loss-time">已生长 ${loss.progress}/${loss.growTime} 分钟</div>
+              </div>
             </div>
-          </div>
-        `
-      })
+          `
+        })
+      } else {
+        // 作物数量多，显示精简摘要
+        // 统计各类型作物数量
+        const cropCounts = {}
+        lossResult.losses.forEach(loss => {
+          if (!cropCounts[loss.crop]) {
+            cropCounts[loss.crop] = { name: loss.name, icon: loss.icon, count: 0 }
+          }
+          cropCounts[loss.crop].count++
+        })
+        
+        // 显示作物类型摘要（小图标形式）
+        lossesHtml += '<div class="punishment-loss-summary">'
+        Object.values(cropCounts).forEach(crop => {
+          lossesHtml += `
+            <span class="punishment-summary-item">
+              <span class="punishment-summary-icon">${crop.icon}</span>
+              <span class="punishment-summary-count">×${crop.count}</span>
+            </span>
+          `
+        })
+        lossesHtml += '</div>'
+        lossesHtml += `<div class="punishment-summary-text">共 ${totalCrops} 株作物枯萎</div>`
+      }
       
       // 添加总时间
       lossesHtml += `
