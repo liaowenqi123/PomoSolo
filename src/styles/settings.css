@@ -348,3 +348,265 @@
 .settings-confirm-exit:hover {
   background: #ff5252;
 }
+
+/* ============ 番茄太空旅行动画 ============ */
+
+.space-travel-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 99999;
+  overflow: hidden;
+  /* 默认鼠标样式，等可以退出时再变成手型 */
+  cursor: default;
+}
+
+/* 可以退出时的手型样式 */
+.space-travel-container.exit-ready {
+  cursor: pointer;
+}
+
+/* 深空背景 */
+.space-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to bottom, 
+    #0a0e27 0%, 
+    #1a1f3a 30%, 
+    #2d1b4e 60%, 
+    #0f1419 100%);
+  opacity: 0;
+  animation: fadeInSpace 1s ease-out forwards;
+}
+
+@keyframes fadeInSpace {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 星星容器 */
+.stars-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* 单个星星 */
+.star {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  background: white;
+  border-radius: 50%;
+  opacity: 0;
+  animation: twinkle 2s ease-in-out infinite;
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.3); }
+}
+
+/* 行星容器 */
+.planets-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.planet {
+  position: absolute;
+  font-size: 40px;
+  opacity: 0;
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.5));
+}
+
+/* 各个行星的位置和动画 */
+.planet-moon {
+  top: 20%;
+  right: 15%;
+  animation: floatPlanet 8s ease-in-out infinite, fadeInPlanet 1s ease-out 0.5s forwards;
+}
+
+.planet-saturn {
+  top: 35%;
+  left: 12%;
+  font-size: 50px;
+  animation: floatPlanet 10s ease-in-out infinite, fadeInPlanet 1s ease-out 1s forwards;
+}
+
+.planet-star {
+  top: 15%;
+  left: 25%;
+  font-size: 30px;
+  animation: floatPlanet 6s ease-in-out infinite, fadeInPlanet 1s ease-out 1.5s forwards;
+}
+
+.planet-comet {
+  top: 50%;
+  right: 20%;
+  font-size: 35px;
+  animation: floatPlanet 9s ease-in-out infinite, fadeInPlanet 1s ease-out 2s forwards;
+}
+
+@keyframes floatPlanet {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-20px) rotate(5deg); }
+}
+
+@keyframes fadeInPlanet {
+  from { opacity: 0; transform: scale(0.5); }
+  to { opacity: 0.8; transform: scale(1); }
+}
+
+/* 番茄火箭 */
+.tomato-rocket {
+  position: absolute;
+  left: 50%;
+  bottom: -100px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  animation: flyUp 8s ease-in-out forwards;
+}
+
+.tomato-emoji {
+  font-size: 60px;
+  filter: drop-shadow(0 0 20px rgba(255, 107, 107, 0.8));
+  animation: tomatoWobble 0.5s ease-in-out infinite;
+}
+
+.rocket-trail {
+  width: 20px;
+  height: 60px;
+  background: linear-gradient(to bottom, 
+    rgba(255, 107, 107, 0.8) 0%, 
+    rgba(255, 200, 100, 0.5) 50%, 
+    transparent 100%);
+  border-radius: 50%;
+  filter: blur(5px);
+  animation: trailFlicker 0.2s ease-in-out infinite;
+}
+
+@keyframes flyUp {
+  0% { 
+    bottom: -100px; 
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  80% {
+    bottom: 60%;
+    opacity: 1;
+  }
+  100% { 
+    bottom: 55%;
+    opacity: 1;
+  }
+}
+
+@keyframes tomatoWobble {
+  0%, 100% { transform: rotate(-5deg); }
+  50% { transform: rotate(5deg); }
+}
+
+@keyframes trailFlicker {
+  0%, 100% { opacity: 0.6; height: 60px; }
+  50% { opacity: 1; height: 70px; }
+}
+
+/* 感谢信息 */
+.thank-you-message {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  opacity: 0;
+  animation: showMessage 2s ease-out 6s forwards;
+  pointer-events: none;
+}
+
+.message-title {
+  font-size: 28px;
+  font-weight: bold;
+  color: white;
+  text-shadow: 0 0 20px rgba(255, 107, 107, 0.8),
+               0 0 40px rgba(255, 107, 107, 0.5);
+  margin-bottom: 10px;
+  white-space: nowrap;
+}
+
+.message-subtitle {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+  margin-bottom: 20px;
+}
+
+.message-hint {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 30px;
+}
+
+@keyframes showMessage {
+  from { 
+    opacity: 0; 
+    transform: translate(-50%, -40%) scale(0.8);
+  }
+  to { 
+    opacity: 1; 
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* 跳过提示 */
+.skip-hint {
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+  opacity: 0;
+  animation: fadeInHint 1s ease-out 8s forwards;
+  pointer-events: none;
+}
+
+@keyframes fadeInHint {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* 退出动画 */
+.space-travel-container.exiting {
+  animation: fadeOutSpace 0.5s ease-out forwards;
+}
+
+@keyframes fadeOutSpace {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* 深色模式适配 */
+[data-theme="dark"] .space-background {
+  background: linear-gradient(to bottom, 
+    #050714 0%, 
+    #0f1419 30%, 
+    #1a1028 60%, 
+    #0a0c10 100%);
+}

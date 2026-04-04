@@ -171,6 +171,121 @@
     // 控制台输出神秘信息
     console.log('%c🎉 你发现了隐藏彩蛋！', 'font-size: 20px; color: #ff6b6b; font-weight: bold;')
     console.log('%c✨ 更多精彩内容等待探索...', 'font-size: 14px; color: #4ecdc4;')
+
+    // 延迟启动太空旅行（让粒子效果先播放）
+    setTimeout(() => {
+      launchSpaceTravel()
+    }, 800)
+  }
+
+  /**
+   * 启动番茄太空旅行
+   */
+  function launchSpaceTravel() {
+    const spaceContainer = document.getElementById('space-travel')
+    if (!spaceContainer) return
+
+    // 关闭设置弹窗
+    close()
+
+    // 显示太空旅行容器
+    spaceContainer.style.display = 'block'
+    spaceContainer.classList.remove('exiting')
+
+    // 生成随机星星
+    createStars()
+
+    // 等待感谢信息显示后才允许退出（8秒后）
+    setTimeout(() => {
+      enableExitInteraction(spaceContainer)
+    }, 8000)
+  }
+
+  /**
+   * 启用退出交互（感谢信息显示后）
+   */
+  function enableExitInteraction(container) {
+    // 绑定退出事件
+    bindSpaceTravelExit(container)
+
+    // 添加可退出的鼠标样式
+    container.classList.add('exit-ready')
+
+    // 更新跳过提示文字（与感谢信息同时出现）
+    const skipHint = document.getElementById('skip-hint')
+    if (skipHint) {
+      skipHint.textContent = '点击任意处或按 ESC 返回'
+    }
+  }
+
+  /**
+   * 创建随机星星
+   */
+  function createStars() {
+    const starsContainer = document.getElementById('stars-container')
+    if (!starsContainer) return
+
+    // 清空之前的星星
+    starsContainer.innerHTML = ''
+
+    // 生成50个随机星星
+    for (let i = 0; i < 50; i++) {
+      const star = document.createElement('div')
+      star.className = 'star'
+      star.style.left = Math.random() * 100 + '%'
+      star.style.top = Math.random() * 100 + '%'
+      star.style.animationDelay = Math.random() * 2 + 's'
+      star.style.animationDuration = (1.5 + Math.random() * 1.5) + 's'
+      starsContainer.appendChild(star)
+    }
+  }
+
+  /**
+   * 绑定太空旅行退出事件
+   */
+  function bindSpaceTravelExit(container) {
+    // 点击退出
+    const handleClick = () => {
+      exitSpaceTravel(container)
+    }
+
+    // ESC 键退出
+    const handleEsc = (e) => {
+      if (e.key === 'Escape') {
+        exitSpaceTravel(container)
+      }
+    }
+
+    container.addEventListener('click', handleClick, { once: true })
+    document.addEventListener('keydown', handleEsc, { once: true })
+
+    // 保存清理函数
+    container._cleanupHandlers = () => {
+      container.removeEventListener('click', handleClick)
+      document.removeEventListener('keydown', handleEsc)
+    }
+  }
+
+  /**
+   * 退出太空旅行
+   */
+  function exitSpaceTravel(container) {
+    if (!container || container.classList.contains('exiting')) return
+
+    // 添加退出动画类
+    container.classList.add('exiting')
+    container.classList.remove('exit-ready')
+
+    // 清理事件监听
+    if (container._cleanupHandlers) {
+      container._cleanupHandlers()
+    }
+
+    // 动画结束后隐藏
+    setTimeout(() => {
+      container.style.display = 'none'
+      container.classList.remove('exiting')
+    }, 500)
   }
 
   /**
