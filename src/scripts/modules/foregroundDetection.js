@@ -388,20 +388,26 @@
   }
 
   /**
-   * 触发惩罚
-   * 注意：只有在计时器运行阶段才会触发惩罚
+   * 执行惩罚的核心逻辑
+   * 统一处理：作物枯萎、重置计时器、关闭专注模式、显示弹窗
+   * @param {Object} options - 配置选项
+   * @param {boolean} options.checkPhase - 是否检查计时器阶段（前台检测需要，手动重置不需要）
+   * @param {boolean} options.showPopup - 是否显示惩罚弹窗（默认 true，关闭窗口时为 false）
+   * @returns {Promise<Object>} 损失详情 { hasLoss, losses, totalMinutes }
    */
-  async function triggerPunishment() {
-    // 再次检查计时器是否仍在运行阶段
-    // 防止在计时结束后（FINISHED阶段）仍然触发惩罚
-    if (!window.Timer || window.Timer.getPhase() !== window.Timer.PHASE.RUNNING) {
-      console.log('[ForegroundDetection] 计时器不在运行阶段，取消惩罚')
-      // 重置警告计数
-      state.warningCount = 0
-      return
+  async function executePunishment(options = {}) {
+    const { checkPhase = true, showPopup = true } = options
+    
+    // 如果需要检查阶段，验证计时器是否仍在运行阶段
+    if (checkPhase) {
+      if (!window.Timer || window.Timer.getPhase() !== window.Timer.PHASE.RUNNING) {
+        console.log('[ForegroundDetection] 计时器不在运行阶段，取消惩罚')
+        state.warningCount = 0
+        return { hasLoss: false, losses: [], totalMinutes: 0 }
+      }
     }
     
-    console.log('[ForegroundDetection] 触发惩罚：警告次数已达上限')
+    console.log('[ForegroundDetection] 执行惩罚')
     
     // 隐藏警告弹窗
     hideWarningModal()
@@ -426,8 +432,20 @@
     // 停止检测
     stopDetection()
     
-    // 显示惩罚弹窗
-    showPunishmentModal(lossResult)
+    // 显示惩罚弹窗（如果需要）
+    if (showPopup) {
+      showPunishmentModal(lossResult)
+    }
+    
+    return lossResult
+  }
+
+  /**
+   * 触发惩罚（前台检测警告次数达上限时调用）
+   * 注意：只有在计时器运行阶段才会触发惩罚
+   */
+  async function triggerPunishment() {
+    await executePunishment({ checkPhase: true })
   }
 
   /**
@@ -437,21 +455,50 @@
   function showPunishmentModal(lossResult) {
     if (!elements.punishmentLosses) return
     
+    const MAX_DISPLAY_ITEMS = 3  // 最多显示3个作物详情
+    
     // 渲染损失列表
     if (lossResult.hasLoss && lossResult.losses.length > 0) {
+      const totalCrops = lossResult.losses.length
       let lossesHtml = '<div class="punishment-losses-title">你的损失：</div>'
       
-      lossResult.losses.forEach(loss => {
-        lossesHtml += `
-          <div class="punishment-loss-item">
-            <span class="punishment-loss-icon">${loss.icon}</span>
-            <div class="punishment-loss-info">
-              <div class="punishment-loss-name">${loss.name}</div>
-              <div class="punishment-loss-time">已生长 ${loss.progress}/${loss.growTime} 分钟</div>
+      if (totalCrops <= MAX_DISPLAY_ITEMS) {
+        // 作物数量少，全部显示
+        lossResult.losses.forEach(loss => {
+          lossesHtml += `
+            <div class="punishment-loss-item">
+              <span class="punishment-loss-icon">${loss.icon}</span>
+              <div class="punishment-loss-info">
+                <div class="punishment-loss-name">${loss.name}</div>
+                <div class="punishment-loss-time">已生长 ${loss.progress}/${loss.growTime} 分钟</div>
+              </div>
             </div>
-          </div>
-        `
-      })
+          `
+        })
+      } else {
+        // 作物数量多，显示精简摘要
+        // 统计各类型作物数量
+        const cropCounts = {}
+        lossResult.losses.forEach(loss => {
+          if (!cropCounts[loss.crop]) {
+            cropCounts[loss.crop] = { name: loss.name, icon: loss.icon, count: 0 }
+          }
+          cropCounts[loss.crop].count++
+        })
+        
+        // 显示作物类型摘要（小图标形式）
+        lossesHtml += '<div class="punishment-loss-summary">'
+        Object.values(cropCounts).forEach(crop => {
+          lossesHtml += `
+            <span class="punishment-summary-item">
+              <span class="punishment-summary-icon">${crop.icon}</span>
+              <span class="punishment-summary-count">×${crop.count}</span>
+            </span>
+          `
+        })
+        lossesHtml += '</div>'
+        lossesHtml += `<div class="punishment-summary-text">共 ${totalCrops} 株作物枯萎</div>`
+      }
       
       // 添加总时间
       lossesHtml += `
@@ -542,6 +589,7 @@
     startDetection: startDetection,
     stopDetection: stopDetection,
     getIsDetecting: getIsDetecting,
-    getIsReady: getIsReady
+    getIsReady: getIsReady,
+    executePunishment: executePunishment
   }
 })()

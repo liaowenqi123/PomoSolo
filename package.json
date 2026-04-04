@@ -1,6 +1,6 @@
 {
   "name": "pomodoro-timer",
-  "version": "2.3.0",
+  "version": "2.3.3",
   "description": "一个美观的番茄钟应用",
   "main": "main.js",
   "scripts": {
@@ -101,6 +101,8 @@
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
       "allowToChangeInstallationDirectory": true,
       "installerIcon": "src/tomato-page-1-256.ico",
       "uninstallerIcon": "src/tomato-page-1-256.ico",
