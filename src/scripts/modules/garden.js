@@ -152,15 +152,24 @@
   /**
    * 加载菜园数据
    * 优先使用 DataStore 的缓存数据
+   * @param {boolean} forceFromFile - 是否强制从文件读取（用于确保获取最新数据）
    */
-  async function loadGardenData() {
+  async function loadGardenData(forceFromFile = false) {
     try {
-      // 优先使用 DataStore 的缓存数据，避免数据不一致
-      if (window.DataStore) {
-        gardenData = window.DataStore.getGarden()
-      } else {
+      // 如果强制从文件读取，或者 DataStore 不可用，直接读取文件
+      if (forceFromFile || !window.DataStore) {
         const data = await window.electronAPI.readData()
         gardenData = data.garden || Utils.createDefaultData().garden
+        // 同步更新 DataStore 缓存
+        if (window.DataStore && data.garden) {
+          // 使用内部方式更新缓存，不触发保存
+          const storeData = window.DataStore.getData()
+          if (storeData) {
+            storeData.garden = gardenData
+          }
+        }
+      } else {
+        gardenData = window.DataStore.getGarden()
       }
     } catch (e) {
       console.error('加载菜园数据失败:', e)
@@ -609,8 +618,8 @@
    * @returns {Object} 损失详情 { hasLoss, losses, totalMinutes }
    */
   async function handleResetPunishment() {
-    // 每次都重新从数据库加载数据，确保获取最新状态
-    await loadGardenData()
+    // 强制从文件读取最新数据（确保获取菜园子窗口的最新修改）
+    await loadGardenData(true)
     
     const plots = gardenData.plots || []
     const losses = []  // 记录损失的作物

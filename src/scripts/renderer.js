@@ -354,17 +354,28 @@
       window.ForegroundDetection.stopDetection()
     }
     
-    // RUNNING 阶段（专注模式下）需要确认
+    // RUNNING 阶段（专注模式下）需要确认并触发惩罚
     if (phase === PHASE.RUNNING && AppState.focusModeEnabled) {
       const confirmed = await window.showConfirmModal('确定要中断专注吗？所有正在生长的作物将会枯萎！')
       if (!confirmed) {
         return // 用户取消
       }
-      // 显示惩罚提示
-      DOM.statusEl.textContent = '⚠️ 专注中断！作物已枯萎'
-      // 触发惩罚
-      if (window.Garden) {
-        window.Garden.handleResetPunishment()
+      // 使用统一的惩罚函数（不检查阶段，因为已经确认过了）
+      if (window.ForegroundDetection && window.ForegroundDetection.executePunishment) {
+        await window.ForegroundDetection.executePunishment({ checkPhase: false })
+        // 跳过后续的 Timer.reset()，因为 executePunishment 内部已经调用过了
+        NoteManager.clearNote()
+        if (AppState.appMode === 'plan') {
+          PlanMode.stopPlan()
+          DOM.statusEl.textContent = '准备开始计划'
+          const firstItem = PlanMode.getFirstItem()
+          if (firstItem) {
+            Timer.setTime(firstItem.minutes)
+            WheelPicker.setValue(firstItem.minutes)
+            AppState.updateContainerColor(firstItem.type === 'break')
+          }
+        }
+        return
       }
     }
     
@@ -400,9 +411,9 @@
       if (!confirmed) {
         return // 用户取消
       }
-      // 触发惩罚
-      if (window.Garden) {
-        await window.Garden.handleResetPunishment()
+      // 执行惩罚（不显示弹窗，直接关闭窗口）
+      if (window.ForegroundDetection && window.ForegroundDetection.executePunishment) {
+        await window.ForegroundDetection.executePunishment({ checkPhase: false, showPopup: false })
       }
     }
     window.electronAPI.closeWindow()
