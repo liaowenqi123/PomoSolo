@@ -52,6 +52,7 @@ function createDefaultData() {
     },
     planList: [],
     audioDevice: null,
+    musicVolume: 1.0,  // 音乐音量 0-1
     // 菜园子系统
     garden: {
       coins: 0,

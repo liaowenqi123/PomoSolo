@@ -25,7 +25,7 @@ const MusicPlayer = (function() {
     isVolumeSliderOpen: false,  // 音量滑块是否展开
     lastVolumeSendTime: 0,  // 上次发送音量的时间戳（节流用）
     isCollapsed: false,  // 是否收起
-    playMode: 'shuffle',  // 播放模式：'shuffle' 随机 | 'order' 顺序循环
+    playMode: 'shuffle',  // 播放模式：'shuffle' 随机 | 'order' 顺序 | 'loop' 单曲循环
     playlist: [],  // 播放列表
     playlistTags: {},  // 歌曲标签映射 { songName: tag }
     customTags: {},  // 自定义标签配置 { tagName: color }
@@ -206,12 +206,17 @@ const MusicPlayer = (function() {
     if (elements.modeBtn) {
       if (state.playMode === 'shuffle') {
         elements.modeBtn.textContent = '🔀'
-        elements.modeBtn.title = '随机播放（点击切换顺序播放）'
+        elements.modeBtn.title = '随机播放（点击切换顺序）'
         elements.modeBtn.classList.add('active')
-      } else {
+      } else if (state.playMode === 'order') {
         elements.modeBtn.textContent = '🔁'
-        elements.modeBtn.title = '顺序播放（点击切换随机播放）'
+        elements.modeBtn.title = '顺序播放（点击切换单曲循环）'
         elements.modeBtn.classList.remove('active')
+      } else {
+        // loop 模式 - 使用不同的图标
+        elements.modeBtn.textContent = '🔂'
+        elements.modeBtn.title = '单曲循环（点击切换随机播放）'
+        elements.modeBtn.classList.add('active')
       }
     }
   }
@@ -923,6 +928,42 @@ const MusicPlayer = (function() {
     if (now - state.lastVolumeSendTime >= 100) {
       window.electronAPI.musicSetVolume(volume)
       state.lastVolumeSendTime = now
+      
+      // 保存音量到本地存储
+      saveVolumeToStorage(volume)
+    }
+  }
+  
+  /**
+   * 保存音量到本地存储
+   */
+  async function saveVolumeToStorage(volume) {
+    try {
+      const data = await window.electronAPI.readData()
+      if (data && data.musicVolume !== volume) {
+        data.musicVolume = volume
+        await window.electronAPI.writeData(data)
+      }
+    } catch (err) {
+      console.error('[MusicPlayer] 保存音量失败:', err)
+    }
+  }
+  
+  /**
+   * 加载保存的音量
+   */
+  async function loadSavedVolume() {
+    try {
+      const data = await window.electronAPI.readData()
+      if (data && data.musicVolume !== undefined) {
+        state.volume = data.musicVolume
+        updateVolumeUI()
+        
+        // 同步到 Python
+        window.electronAPI.musicSetVolume(state.volume)
+      }
+    } catch (err) {
+      console.error('[MusicPlayer] 加载音量失败:', err)
     }
   }
   
@@ -998,7 +1039,10 @@ const MusicPlayer = (function() {
 
   // ============ 事件监听器 ============
   
-  function setupEventListeners() {
+  async function setupEventListeners() {
+    // 加载保存的音量
+    await loadSavedVolume()
+    
     // 播放/暂停按钮
     if (elements.playBtn) {
       elements.playBtn.addEventListener('click', () => {
@@ -1028,7 +1072,15 @@ const MusicPlayer = (function() {
     // 播放模式切换按钮
     if (elements.modeBtn) {
       elements.modeBtn.addEventListener('click', () => {
-        const newMode = state.playMode === 'shuffle' ? 'order' : 'shuffle'
+        // 循环切换：shuffle -> order -> loop -> shuffle
+        let newMode
+        if (state.playMode === 'shuffle') {
+          newMode = 'order'
+        } else if (state.playMode === 'order') {
+          newMode = 'loop'
+        } else {
+          newMode = 'shuffle'
+        }
         window.electronAPI.musicSetPlayMode(newMode)
       })
     }
@@ -1270,7 +1322,7 @@ const MusicPlayer = (function() {
     async init(els) {
       elements = { ...elements, ...els }
       
-      setupEventListeners()
+      await setupEventListeners()
       setupIPCListeners()
       
       // 请求初始状态

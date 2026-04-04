@@ -77,12 +77,14 @@ class PlayerState:
         # 播放列表
         self.directory_path = "music/"
         self.file_list = []           # 当前扫描到的文件列表
-        self.order_playlist = []      # 顺序播放列表（按文件名排序）
-        self.shuffled_playlist = []   # 随机播放列表
-        self.playlist_index = -1      # 随机列表中的索引
-        self.play_history = []        # 随机模式下的播放历史
+        self.order_playlist = []      # 顺序播放列表（按文件名排序，用于顺序播放）
+        
+        # 播放历史表（双向可扩展）
+        self.play_history = []        # 播放历史 [(song_name, source), ...]
+        self.history_index = -1       # 当前在历史表中的位置 (-1 表示未开始)
+        
         self.current_song_index = -1  # 当前歌曲在物理列表中的位置
-        self.play_mode = 'shuffle'    # 'shuffle' | 'order'
+        self.play_mode = 'shuffle'    # 'shuffle' | 'order' | 'loop'
         
         # 设备管理
         self.current_device_id = None
@@ -114,7 +116,7 @@ class PlayerState:
                 "name": self.track_name,
                 "current": self.current_time,
                 "duration": self.duration,
-                "has_prev": len(self.play_history) > 1,
+                "has_prev": True,  # 始终可用（新逻辑：历史表为空时生成新歌）
                 "play_mode": self.play_mode
             })
     
@@ -349,19 +351,14 @@ class PlaylistManager:
         if not new_files:
             state.file_list = []
             state.order_playlist = []
-            state.shuffled_playlist = []
             return False, False
         
         # 检查当前歌曲是否还存在
         current_song_exists = state.track_name in new_files if state.track_name else False
         
-        # 更新文件列表
+        # 更新文件列表和顺序播放列表
         state.file_list = new_files
         state.order_playlist = sorted(new_files)
-        
-        # 重建随机列表
-        state.shuffled_playlist = new_files.copy()
-        random.shuffle(state.shuffled_playlist)
         
         # 更新当前歌曲在物理列表中的索引
         if current_song_exists:
@@ -378,14 +375,14 @@ class PlaylistManager:
         
         if not state.file_list:
             state.order_playlist = []
-            state.shuffled_playlist = []
             return False
         
+        # 初始化顺序播放列表
         state.order_playlist = sorted(state.file_list)
-        state.shuffled_playlist = state.file_list.copy()
-        random.shuffle(state.shuffled_playlist)
-        state.playlist_index = -1
+        
+        # 重置播放历史
         state.play_history = []
+        state.history_index = -1
         state.current_song_index = -1
         
         return True
@@ -438,62 +435,124 @@ class PlaylistManager:
     
     @staticmethod
     def get_random_song():
-        """获取一首随机歌曲"""
+        """获取一首随机歌曲（初始播放）"""
         if not state.order_playlist:
             return None
         return random.choice(state.order_playlist)
     
     @staticmethod
-    def get_next_song():
-        """获取下一首歌（根据播放模式），支持热更新"""
+    def get_next_song(auto_play=False):
+        """
+        获取下一首歌（根据播放模式）
+        Args:
+            auto_play: 是否为自动播放（True）还是手动点击下一首（False）
+        """
         # 热更新检查
         PlaylistManager.refresh_playlist()
         
         if not state.order_playlist:
             return None, "no_music"
         
+        # ========== 单曲循环模式 ==========
+        if state.play_mode == 'loop':
+            if state.current_song_index < 0:
+                state.current_song_index = 0
+            # 无论手动还是自动，都返回当前歌曲（重复播放）
+            return state.order_playlist[state.current_song_index], None
+        
+        # ========== 处理历史表 ==========
+        current_song = None
+        if state.history_index >= 0 and state.history_index < len(state.play_history):
+            current_song = state.play_history[state.history_index][0]
+        
+        # 如果是自动播放，清理当前位置之后的历史
+        if auto_play and state.history_index >= 0:
+            # 删除当前位置之后的所有记录
+            state.play_history = state.play_history[:state.history_index + 1]
+        
+        # 生成下一首歌
+        next_song = None
         if state.play_mode == 'shuffle':
-            # 随机模式
-            state.playlist_index += 1
-            if state.playlist_index >= len(state.shuffled_playlist):
-                random.shuffle(state.shuffled_playlist)
-                state.playlist_index = 0
-            state.play_history.append(state.playlist_index)
-            song = state.shuffled_playlist[state.playlist_index]
-            state.current_song_index = PlaylistManager.get_song_index(song)
-            return song, None
+            # 随机模式：随机选择一首（避免与当前相同）
+            if len(state.order_playlist) > 1:
+                while True:
+                    next_song = random.choice(state.order_playlist)
+                    if next_song != current_song:
+                        break
+            else:
+                next_song = state.order_playlist[0]
         else:
-            # 顺序模式
+            # 顺序模式：按顺序下一首
             if state.current_song_index < 0:
                 state.current_song_index = 0
             else:
                 state.current_song_index = (state.current_song_index + 1) % len(state.order_playlist)
-            return state.order_playlist[state.current_song_index], None
+            next_song = state.order_playlist[state.current_song_index]
+        
+        # 添加到历史表末尾
+        state.play_history.append((next_song, 'manual' if not auto_play else 'auto'))
+        state.history_index = len(state.play_history) - 1
+        
+        # 更新物理索引
+        state.current_song_index = PlaylistManager.get_song_index(next_song)
+        
+        return next_song, None
     
     @staticmethod
     def get_prev_song():
-        """获取上一首歌（根据播放模式），支持热更新"""
+        """获取上一首歌（手动点击）"""
         # 热更新检查
         PlaylistManager.refresh_playlist()
         
         if not state.order_playlist:
             return None, "no_music"
         
+        # ========== 单曲循环模式 ==========
+        if state.play_mode == 'loop':
+            if state.current_song_index < 0:
+                state.current_song_index = 0
+            # 单曲循环下，上一首也是重复当前
+            return state.order_playlist[state.current_song_index], None
+        
+        # ========== 检查历史表 ==========
+        if state.history_index > 0:
+            # 历史表中还有前一首
+            state.history_index -= 1
+            prev_song = state.play_history[state.history_index][0]
+            state.current_song_index = PlaylistManager.get_song_index(prev_song)
+            return prev_song, None
+        
+        # ========== 历史表开头，生成新歌 ==========
+        current_song = None
+        if state.history_index >= 0 and state.history_index < len(state.play_history):
+            current_song = state.play_history[state.history_index][0]
+        
+        new_song = None
         if state.play_mode == 'shuffle':
-            # 随机模式
-            if len(state.play_history) > 1:
-                state.play_history.pop()
-                state.playlist_index = state.play_history[-1]
-            song = state.shuffled_playlist[state.playlist_index]
-            state.current_song_index = PlaylistManager.get_song_index(song)
-            return song, None
+            # 随机模式：随机一首（避免与当前相同）
+            if len(state.order_playlist) > 1:
+                while True:
+                    new_song = random.choice(state.order_playlist)
+                    if new_song != current_song:
+                        break
+            else:
+                new_song = state.order_playlist[0]
         else:
-            # 顺序模式
+            # 顺序模式：按顺序上一首
             if state.current_song_index < 0:
                 state.current_song_index = len(state.order_playlist) - 1
             else:
                 state.current_song_index = (state.current_song_index - 1) % len(state.order_playlist)
-            return state.order_playlist[state.current_song_index], None
+            new_song = state.order_playlist[state.current_song_index]
+        
+        # 添加到历史表开头
+        state.play_history.insert(0, (new_song, 'manual'))
+        state.history_index = 0  # 保持在开头
+        
+        # 更新物理索引
+        state.current_song_index = PlaylistManager.get_song_index(new_song)
+        
+        return new_song, None
 
 
 # ============================================================================
@@ -653,7 +712,7 @@ class Player:
                         state.send_event("track_change", {
                             "name": name,
                             "duration": state.duration,
-                            "has_prev": len(state.play_history) > 1
+                            "has_prev": True  # 始终可用
                         })
             
             # 播放参数
@@ -840,11 +899,12 @@ def process_command(cmd_obj):
         mode = cmd_obj.get("mode", "shuffle")
         print(f"set_play_mode命令: {mode}", file=sys.stderr)
         with state.lock:
-            if mode in ['shuffle', 'order']:
+            if mode in ['shuffle', 'order', 'loop']:
                 state.play_mode = mode
                 if mode == 'shuffle':
-                    state.playlist_index = -1
+                    # 重置播放历史
                     state.play_history = []
+                    state.history_index = -1
         state.send_status()
     
     elif command == "get_play_mode":
@@ -1025,20 +1085,21 @@ def main():
         print("程序已退出", file=sys.stderr)
         sys.exit(0)
     
-    # 初始化第一首歌
-    song, _ = PlaylistManager.get_next_song()
-    if song:
+    # 初始化第一首歌（不加入历史表）
+    if state.order_playlist:
+        song = random.choice(state.order_playlist) if state.play_mode == 'shuffle' else state.order_playlist[0]
         state.track_name = song
         state.duration = Player.get_song_duration(song)
         state.current_time = 0
         state.playing = True
         state.pause_program = True
+        state.current_song_index = PlaylistManager.get_song_index(song)
     
     # 发送 ready 事件
     state.send_event("ready", {
         "name": state.track_name,
         "duration": state.duration,
-        "has_prev": len(state.play_history) > 1
+        "has_prev": True  # 始终可用
     })
     
     # 预加载
@@ -1096,7 +1157,8 @@ def main():
                 state.playing = False
         
         elif result == "done":
-            current_song, error = PlaylistManager.get_next_song()
+            # 自动播放下一首
+            current_song, error = PlaylistManager.get_next_song(auto_play=True)
             current_position = 0
             if error == "no_music":
                 state.send_event("no_music", {"message": "没有可播放的音乐"})
@@ -1112,7 +1174,7 @@ def main():
                 state.send_event("track_change", {
                     "name": current_song,
                     "duration": state.duration,
-                    "has_prev": len(state.play_history) > 1
+                    "has_prev": True  # 始终可用
                 })
             else:
                 state.send_event("no_music", {"message": "没有可播放的音乐"})
@@ -1133,7 +1195,7 @@ def main():
             state.send_event("track_change", {
                 "name": current_song,
                 "duration": state.duration,
-                "has_prev": len(state.play_history) > 1
+                "has_prev": True  # 始终可用
             })
     
     HotkeyManager.stop()

@@ -100,9 +100,10 @@ function createWindow() {
     musicExePath = path.join(__dirname, 'music-player', 'music.exe')
   }
   
-  // 读取保存的设备ID
+  // 读取保存的设备ID和音量
   const savedData = dataManager.readData()
   const savedDeviceId = savedData.audioDevice
+  const savedVolume = savedData.musicVolume !== undefined ? savedData.musicVolume : 1.0
   
   // API Key 现在从云端获取，启动时不再自动加载
   // 用户需要先登录，admin 用户才能获取 API Key
@@ -114,6 +115,12 @@ function createWindow() {
   musicProcess.onReady((data) => {
     musicReady = true
     updateLoadingProgress()
+    
+    // 恢复保存的音量
+    if (savedVolume !== 1.0) {
+      musicProcess.setVolume(savedVolume)
+    }
+    
     win.webContents.send('music-ready', data)
   })
   
