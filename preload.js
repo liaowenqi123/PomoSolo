@@ -185,11 +185,6 @@ const { contextBridge, ipcRenderer } = require('electron')
   
   // 刷新菜园子窗口
   refreshGarden: () => ipcRenderer.send('refresh-garden'),
-  
-  // 监听菜园子刷新事件
-  onGardenRefresh: (callback) => {
-    ipcRenderer.on('refresh-garden', () => callback())
-  },
 
   // 更新专注模式状态（供主窗口调用）
   updateFocusMode: (enabled) => ipcRenderer.send('update-focus-mode', enabled),

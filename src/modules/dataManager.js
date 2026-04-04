@@ -191,6 +191,10 @@ async function readGardenData() {
 async function updateGardenData(gardenUpdate) {
   return withGardenLock(() => {
     const data = readData()
+    
+    // 智能合并 plots：保留 progress 更大的版本
+    const mergedPlots = mergePlots(data.garden?.plots, gardenUpdate.plots)
+    
     // 深度合并，保留原有数据
     data.garden = {
       ...data.garden,
@@ -198,7 +202,7 @@ async function updateGardenData(gardenUpdate) {
       // 确保嵌套对象也被正确合并
       seeds: { ...data.garden?.seeds, ...gardenUpdate.seeds },
       crops: { ...data.garden?.crops, ...gardenUpdate.crops },
-      plots: gardenUpdate.plots || data.garden?.plots,
+      plots: mergedPlots,
       achievements: { ...data.garden?.achievements, ...gardenUpdate.achievements },
       achievementStats: { ...data.garden?.achievementStats, ...gardenUpdate.achievementStats },
       signIn: { ...data.garden?.signIn, ...gardenUpdate.signIn }
@@ -206,6 +210,56 @@ async function updateGardenData(gardenUpdate) {
     writeData(data)
     return data.garden
   })
+}
+
+/**
+ * 智能合并两个 plots 数组
+ * 规则：按 id 匹配，保留 progress 更大的版本
+ * @param {Array} existingPlots - 文件中已有的 plots
+ * @param {Array} newPlots - 更新传入的 plots
+ * @returns {Array} - 合并后的 plots
+ */
+function mergePlots(existingPlots = [], newPlots) {
+  if (!newPlots) return existingPlots
+  
+  const existingMap = new Map()
+  for (const plot of (existingPlots || [])) {
+    if (plot && plot.id !== undefined) {
+      existingMap.set(plot.id, plot)
+    }
+  }
+  
+  const result = []
+  const allIds = new Set([
+    ...(existingPlots || []).map(p => p?.id).filter(id => id !== undefined),
+    ...newPlots.map(p => p?.id).filter(id => id !== undefined)
+  ])
+  
+  for (const id of allIds) {
+    const existing = existingMap.get(id)
+    const newPlot = newPlots.find(p => p?.id === id)
+    
+    if (existing && newPlot) {
+      // 都存在：保留 progress 更大的
+      // 但如果 newPlot 是收割后清空的（crop 为 null），以 newPlot 为准
+      if (newPlot.crop === null) {
+        result.push({ ...newPlot })
+      } else if (existing.crop === null && newPlot.crop) {
+        // 原来是空的，新种了作物
+        result.push({ ...newPlot })
+      } else if ((newPlot.progress || 0) >= (existing.progress || 0)) {
+        result.push({ ...newPlot })
+      } else {
+        result.push({ ...existing })
+      }
+    } else if (newPlot) {
+      result.push({ ...newPlot })
+    } else if (existing) {
+      result.push({ ...existing })
+    }
+  }
+  
+  return result.sort((a, b) => (a.id || 0) - (b.id || 0))
 }
 
 /**
