@@ -151,10 +151,21 @@
 
   /**
    * 加载菜园数据
-   * 优先使用 DataStore 的缓存数据
+   * @param {boolean} forceReload - 是否强制从文件重新加载
    */
-  async function loadGardenData() {
+  async function loadGardenData(forceReload = false) {
     try {
+      // 强制重新加载时，直接从文件读取
+      if (forceReload && window.electronAPI) {
+        const data = await window.electronAPI.readData()
+        gardenData = data.garden || Utils.createDefaultData().garden
+        // 同步更新 DataStore 缓存
+        if (window.DataStore) {
+          window.DataStore.updateGarden(gardenData)
+        }
+        return
+      }
+      
       // 优先使用 DataStore 的缓存数据，避免数据不一致
       if (window.DataStore) {
         gardenData = window.DataStore.getGarden()
@@ -1247,7 +1258,10 @@
   /**
    * 打开成就墙弹窗
    */
-  function openAchievementModal() {
+  async function openAchievementModal() {
+    // 强制重新加载数据，确保显示最新进度
+    await loadGardenData(true)
+    
     if (achievementModal) {
       achievementModal.show()
     } else if (elements.achievementModal) {
