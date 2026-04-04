@@ -248,18 +248,21 @@
     
     updateDisplay()
     
-    // 计算本次间隔的秒数（用于菜园子更新）
-    const intervalSeconds = elapsedSeconds - gardenSecondCounter
-    gardenSecondCounter = elapsedSeconds
-    
-    // 每60秒更新一次菜园子
-    minuteCounter += intervalSeconds
-    if (minuteCounter >= 60 && window.Garden) {
-      const minutesToUpdate = Math.floor(minuteCounter / 60)
-      for (let i = 0; i < minutesToUpdate; i++) {
-        window.Garden.updateProgress()
+    // 正向模式不更新菜园子
+    if (appMode !== 'forward') {
+      // 计算本次间隔的秒数（用于菜园子更新）
+      const intervalSeconds = elapsedSeconds - gardenSecondCounter
+      gardenSecondCounter = elapsedSeconds
+      
+      // 每60秒更新一次菜园子
+      minuteCounter += intervalSeconds
+      if (minuteCounter >= 60 && window.Garden) {
+        const minutesToUpdate = Math.floor(minuteCounter / 60)
+        for (let i = 0; i < minutesToUpdate; i++) {
+          window.Garden.updateProgress()
+        }
+        minuteCounter = minuteCounter % 60
       }
-      minuteCounter = minuteCounter % 60
     }
     
     // 检查是否计时完成（仅倒计时模式）

@@ -157,6 +157,12 @@
       window.Timer.restoreState('single')
     }
     
+    // 显示专注模式开关
+    const focusModeContainer = document.querySelector('.focus-mode-container')
+    if (focusModeContainer) {
+      focusModeContainer.style.display = 'flex'
+    }
+    
     // 更新 UI
     updateModeSliderUI('single')
     updateContentVisibility('single')
@@ -184,6 +190,12 @@
       window.Timer.restoreState('forward')
     }
     
+    // 隐藏专注模式开关（正向模式不支持专注功能）
+    const focusModeContainer = document.querySelector('.focus-mode-container')
+    if (focusModeContainer) {
+      focusModeContainer.style.display = 'none'
+    }
+    
     // 更新 UI
     updateModeSliderUI('forward')
     updateContentVisibility('forward')  // 正向模式使用单次模式的UI
@@ -207,6 +219,12 @@
     if (window.Timer) {
       window.Timer.saveState('single')
       window.Timer.saveState('forward')
+    }
+    
+    // 显示专注模式开关
+    const focusModeContainer = document.querySelector('.focus-mode-container')
+    if (focusModeContainer) {
+      focusModeContainer.style.display = 'flex'
     }
     
     // 隐藏单次模式的备注

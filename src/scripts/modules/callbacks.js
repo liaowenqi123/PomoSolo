@@ -25,9 +25,10 @@
           }
         }
         
+        // 正向模式不启动前台检测
         // 专注模式开启且计时器开始时，启动前台检测
         // 注意：只在 WORK 模式下启动前台检测
-        if (AppState.focusModeEnabled && window.ForegroundDetection) {
+        if (AppState.appMode !== 'forward' && AppState.focusModeEnabled && window.ForegroundDetection) {
           const isWorkMode = AppState.appMode === 'plan' 
             ? (PlanMode.getCurrentItem()?.type === 'work')
             : Mode.isWorkMode()
@@ -111,7 +112,8 @@
             }
           } else {
             // 继续运行：如果是专注模式且在工作模式，重新启动前台检测
-            if (AppState.focusModeEnabled && window.ForegroundDetection) {
+            // 正向模式不启动前台检测
+            if (AppState.appMode !== 'forward' && AppState.focusModeEnabled && window.ForegroundDetection) {
               const isWorkMode = AppState.appMode === 'plan' 
                 ? (PlanMode.getCurrentItem()?.type === 'work')
                 : Mode.isWorkMode()
@@ -214,6 +216,18 @@
         DOM.statusEl.textContent = mode === 'work' ? '准备开始专注工作' : '准备休息一下'
       }
       
+    } else if (AppState.appMode === 'forward') {
+      // 正向模式的状态文字
+      if (phase === PHASE.RUNNING) {
+        if (isPaused) {
+          DOM.statusEl.textContent = '已暂停'
+        } else {
+          DOM.statusEl.textContent = '正向计时中...'
+        }
+      } else if (phase === PHASE.READY) {
+        DOM.statusEl.textContent = '准备开始正向计时'
+      }
+      
     } else if (AppState.appMode === 'plan') {
       if (phase === PHASE.RUNNING) {
         if (isPaused) {
@@ -252,6 +266,14 @@
       DOM.statusEl.textContent = '⏰ 休息结束！继续加油'
       window.electronAPI.showNotification('☕ 休息结束', '休息时间到，准备好继续工作了吗？')
     }
+  }
+
+  /**
+   * 处理正向模式完成（正向模式没有完成状态，只有重置）
+   */
+  function handleForwardModeComplete() {
+    // 正向模式不会自动完成，只能手动重置
+    // 这个函数保留以备将来扩展
   }
 
   /**
