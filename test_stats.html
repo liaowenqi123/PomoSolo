@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>测试统计模块</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+        button { padding: 10px 15px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 3px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .result { margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <h1>统计模块测试</h1>
+    
+    <div class="test-section">
+        <h3>测试部分完成时间记录</h3>
+        <p>模拟计时器重置时记录已流逝的时间</p>
+        <button onclick="testPartialFocus()">测试部分完成时间记录</button>
+        <div id="result1" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>测试完整完成时间记录</h3>
+        <p>模拟计时器完成时记录完整时间</p>
+        <button onclick="testCompleteFocus()">测试完整完成时间记录</button>
+        <div id="result2" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>查看当前统计数据</h3>
+        <button onclick="viewStats()">查看统计数据</button>
+        <div id="result3" class="result"></div>
+    </div>
+    
+    <script>
+        // 模拟 DataStore 和 electronAPI
+        const mockData = {
+            stats: {
+                date: new Date().toDateString(),
+                todayCount: 0,
+                totalMinutes: 0
+            },
+            statisticsHistory: []
+        };
+        
+        const DataStore = {
+            getStats: () => mockData.stats,
+            getData: () => mockData,
+            updateStats: async (newStats) => {
+                mockData.stats = { ...mockData.stats, ...newStats };
+                return true;
+            }
+        };
+        
+        const electronAPI = {
+            writeData: async (data) => {
+                console.log('数据已保存:', data);
+                return true;
+            }
+        };
+        
+        window.DataStore = DataStore;
+        window.electronAPI = electronAPI;
+        
+        // 导入修改后的 stats.js 逻辑
+        const Stats = (function() {
+            let elements = {};
+            
+            async function recordPartialFocus(seconds, note = '') {
+                if (seconds <= 0) return;
+                
+                const minutes = Math.floor(seconds / 60);
+                if (minutes <= 0) return;
+                
+                const stats = DataStore.getStats();
+                const data = DataStore.getData();
+                
+                // 更新统计
+                const newStats = {
+                    date: new Date().toDateString(),
+                    todayCount: (stats.todayCount || 0) + 1,
+                    totalMinutes: (stats.totalMinutes || 0) + minutes
+                };
+                
+                await DataStore.updateStats(newStats);
+                
+                // 记录到历史数据
+                const today = new Date().toISOString().split('T')[0];
+                const now = new Date().toISOString();
+                
+                if (!data.statisticsHistory) {
+                    data.statisticsHistory = [];
+                }
+                
+                // 添加部分完成记录
+                data.statisticsHistory.push({
+                    date: today,
+                    timestamp: now,
+                    minutes: minutes,
+                    note: note || '部分完成',
+                    partial: true,
+                    originalSeconds: seconds
+                });
+                
+                // 保存历史数据
+                await electronAPI.writeData(data);
+                
+                return { success: true, minutes: minutes };
+            }
+            
+            async function increment(minutes, note = '') {
+                const stats = DataStore.getStats();
+                const data = DataStore.getData();
+                
+                // 更新统计
+                const newStats = {
+                    date: new Date().toDateString(),
+                    todayCount: (stats.todayCount || 0) + 1,
+                    totalMinutes: (stats.totalMinutes || 0) + minutes
+                };
+                
+                await DataStore.updateStats(newStats);
+                
+                // 记录到历史数据
+                const today = new Date().toISOString().split('T')[0];
+                const now = new Date().toISOString();
+                
+                if (!data.statisticsHistory) {
+                    data.statisticsHistory = [];
+                }
+                
+                data.statisticsHistory.push({
+                    date: today,
+                    timestamp: now,
+                    minutes: minutes,
+                    note: note || '无备注'
+                });
+                
+                await electronAPI.writeData(data);
+                
+                return { success: true, minutes: minutes };
+            }
+            
+            return {
+                recordPartialFocus,
+                increment
+            };
+        })();
+        
+        window.Stats = Stats;
+        
+        // 测试函数
+        async function testPartialFocus() {
+            const result = await Stats.recordPartialFocus(1200, '测试部分完成'); // 20分钟
+            document.getElementById('result1').innerHTML = `
+                <strong>测试结果：</strong><br>
+                已记录部分完成时间：${result.minutes}分钟<br>
+                当前今日计数：${mockData.stats.todayCount}<br>
+                当前总分钟数：${mockData.stats.totalMinutes}<br>
+                历史记录数：${mockData.statisticsHistory.length}
+            `;
+        }
+        
+        async function testCompleteFocus() {
+            const result = await Stats.increment(25, '测试完整完成'); // 25分钟
+            document.getElementById('result2').innerHTML = `
+                <strong>测试结果：</strong><br>
+                已记录完整完成时间：${result.minutes}分钟<br>
+                当前今日计数：${mockData.stats.todayCount}<br>
+                当前总分钟数：${mockData.stats.totalMinutes}<br>
+                历史记录数：${mockData.statisticsHistory.length}
+            `;
+        }
+        
+        function viewStats() {
+            document.getElementById('result3').innerHTML = `
+                <strong>当前统计数据：</strong><br>
+                今日计数：${mockData.stats.todayCount}<br>
+                总分钟数：${mockData.stats.totalMinutes}<br>
+                历史记录：<br>
+                <pre>${JSON.stringify(mockData.statisticsHistory, null, 2)}</pre>
+            `;
+        }
+    </script>
+</body>
+</html>

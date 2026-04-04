@@ -80,21 +80,11 @@
   let minuteCounter = 0            // 分钟计数器
 
   // ============ 状态保存 - 用于模式切换 ============
-  // 单次/正向/计划模式切换时的状态保存
+  // 单次/计划模式切换时的状态保存
   let modeStates = {
     single: {
       totalTime: 25 * 60,
       timeLeft: 25 * 60,
-      phase: PHASE.READY,
-      isPaused: false,
-      pausedElapsedTime: 0,
-      timerStartTime: 0,
-      gardenSecondCounter: 0,
-      minuteCounter: 0
-    },
-    forward: {
-      totalTime: 0,  // 正向模式不需要总时长
-      timeLeft: 0,   // 正向模式从0开始
       phase: PHASE.READY,
       isPaused: false,
       pausedElapsedTime: 0,
@@ -151,20 +141,8 @@
    * 更新显示（时间文字和进度圆）
    */
   function updateDisplay() {
-    const appMode = AppState ? AppState.appMode : 'single'
-    
     elements.timeDisplay.textContent = formatTime(timeLeft)
-    
-    // 计算进度
-    let progress
-    if (appMode === 'forward') {
-      // 正向计时：进度始终为0（不显示进度圆）
-      progress = 0
-    } else {
-      // 倒计时：显示已完成的进度
-      progress = (totalTime - timeLeft) / totalTime
-    }
-    
+    const progress = (totalTime - timeLeft) / totalTime
     elements.progressCircle.style.strokeDashoffset = circumference * (1 - progress)
     
     // 同步更新迷你模式显示
@@ -181,20 +159,9 @@
    * 从 READY 或 FINISHED 阶段进入 RUNNING 阶段
    */
   function enterRunningPhase() {
-    const appMode = AppState ? AppState.appMode : 'single'
-    
-    // 如果时间已归零，重置为总时长（倒计时模式）或0（正向计时模式）
-    if (appMode === 'forward') {
-      if (timeLeft !== 0 && phase === PHASE.READY) {
-        // 正向模式首次开始，从0开始
-        timeLeft = 0
-      }
-      // 如果是从暂停恢复，保持当前timeLeft
-    } else {
-      // 倒计时模式
-      if (timeLeft === 0) {
-        timeLeft = totalTime
-      }
+    // 如果时间已归零，重置为总时长
+    if (timeLeft === 0) {
+      timeLeft = totalTime
     }
     
     // 更新阶段状态
@@ -231,21 +198,12 @@
    * 计时器 tick 函数（每200ms执行一次）
    */
   function tick() {
-    // 获取当前应用模式
-    const appMode = AppState ? AppState.appMode : 'single'
-    
     // 计算从开始到现在经过的真实秒数
     const elapsedSeconds = Math.floor((Date.now() - timerStartTime) / 1000)
+    const newTimeLeft = totalTime - elapsedSeconds
     
-    if (appMode === 'forward') {
-      // 正向计时：从0开始向上计数
-      timeLeft = elapsedSeconds
-    } else {
-      // 倒计时：从总时长向下计数
-      const newTimeLeft = totalTime - elapsedSeconds
-      timeLeft = Math.max(0, newTimeLeft)
-    }
-    
+    // 更新剩余时间
+    timeLeft = Math.max(0, newTimeLeft)
     updateDisplay()
     
     // 计算本次间隔的秒数（用于菜园子更新）
@@ -262,8 +220,8 @@
       minuteCounter = minuteCounter % 60
     }
     
-    // 检查是否计时完成（仅倒计时模式）
-    if (appMode !== 'forward' && timeLeft === 0) {
+    // 检查是否计时完成
+    if (timeLeft === 0) {
       enterFinishedPhase()
     }
   }
@@ -349,19 +307,10 @@
    */
   function enterReadyPhase(recordPartial = true) {
     let punishmentTriggered = false
-    const appMode = AppState ? AppState.appMode : 'single'
     
     // 在重置前检查是否有已流逝的时间需要记录
     if (recordPartial) {
-      let elapsedSeconds
-      if (appMode === 'forward') {
-        // 正向计时：timeLeft就是已流逝的时间
-        elapsedSeconds = timeLeft
-      } else {
-        // 倒计时：总时长减去剩余时间
-        elapsedSeconds = totalTime - timeLeft
-      }
-      
+      const elapsedSeconds = totalTime - timeLeft
       if (elapsedSeconds > 0 && window.Stats && window.Stats.recordPartialFocus) {
         // 获取当前备注
         let note = ''
@@ -383,16 +332,7 @@
     // 更新阶段状态
     phase = PHASE.READY
     isPaused = false
-    
-    // 重置时间
-    if (appMode === 'forward') {
-      // 正向模式：重置为0
-      timeLeft = 0
-    } else {
-      // 倒计时模式：重置为总时长
-      timeLeft = totalTime
-    }
-    
+    timeLeft = totalTime
     pausedElapsedTime = 0
     timerStartTime = 0
     gardenSecondCounter = 0
