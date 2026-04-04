@@ -151,23 +151,17 @@
 
   /**
    * 加载菜园数据
-   * 优先使用 DataStore 的缓存数据
+   * 优先使用带锁的 IPC 接口
    * @param {boolean} forceFromFile - 是否强制从文件读取（用于确保获取最新数据）
    */
   async function loadGardenData(forceFromFile = false) {
     try {
-      // 如果强制从文件读取，或者 DataStore 不可用，直接读取文件
-      if (forceFromFile || !window.DataStore) {
+      // 使用带锁的 IPC 接口读取最新数据
+      if (window.electronAPI && window.electronAPI.gardenRead) {
+        gardenData = await window.electronAPI.gardenRead()
+      } else if (forceFromFile || !window.DataStore) {
         const data = await window.electronAPI.readData()
         gardenData = data.garden || Utils.createDefaultData().garden
-        // 同步更新 DataStore 缓存
-        if (window.DataStore && data.garden) {
-          // 使用内部方式更新缓存，不触发保存
-          const storeData = window.DataStore.getData()
-          if (storeData) {
-            storeData.garden = gardenData
-          }
-        }
       } else {
         gardenData = window.DataStore.getGarden()
       }
@@ -179,15 +173,16 @@
 
   /**
    * 保存菜园数据
-   * 使用 DataStore 来保存，确保数据一致性
+   * 使用带锁的 IPC 接口
    */
   async function saveGardenData() {
     try {
-      // 使用 DataStore 来保存，确保与其他模块的数据一致
-      if (window.DataStore) {
+      // 使用带锁的 IPC 接口保存
+      if (window.electronAPI && window.electronAPI.gardenUpdate) {
+        gardenData = await window.electronAPI.gardenUpdate(gardenData)
+      } else if (window.DataStore) {
         await window.DataStore.updateGarden(gardenData)
       } else {
-        // 回退方案：直接读写文件
         const data = await window.electronAPI.readData()
         data.garden = gardenData
         await window.electronAPI.writeData(data)
@@ -583,29 +578,20 @@
    * 更新成长进度（由外部调用）
    * 在番茄钟运行期间，每分钟被调用一次
    */
+  /**
+   * 更新成长进度（由外部调用，如 timer.js）
+   * 注意：timer.js 现在直接使用 gardenUpdateProgress IPC，此函数保留备用
+   * 在番茄钟运行期间，每分钟被调用一次
+   */
   async function updateProgress() {
-    // 每次都重新从数据库加载数据，确保获取最新状态
-    await loadGardenData()
-    
-    const plots = gardenData.plots || []
-    let hasChanges = false
-    
-    for (let i = 0; i < plots.length; i++) {
-      const plot = plots[i]
-      // 只有未锁定且有作物的格子才生长
-      if (!plot.locked && plot.crop && plot.progress !== null) {
-        const cropConfig = CROP_CONFIG[plot.crop]
-        if (cropConfig) {
-          // 成长进度+1分钟
-          plot.progress += 1
-          hasChanges = true
-        }
+    // 使用带锁的 IPC 接口更新进度
+    if (window.electronAPI && window.electronAPI.gardenUpdateProgress) {
+      const plots = await window.electronAPI.gardenUpdateProgress(1)
+      // 更新本地数据
+      if (gardenData) {
+        gardenData.plots = plots
       }
-    }
-    
-    if (hasChanges) {
-      await saveGardenData()
-      // 通知菜园子页面刷新（如果页面已打开）
+      // 通知菜园子页面刷新
       if (window.electronAPI && window.electronAPI.refreshGarden) {
         window.electronAPI.refreshGarden()
       }
@@ -618,7 +604,29 @@
    * @returns {Object} 损失详情 { hasLoss, losses, totalMinutes }
    */
   async function handleResetPunishment() {
-    // 强制从文件读取最新数据（确保获取菜园子窗口的最新修改）
+    // 使用带锁的 IPC 接口处理惩罚
+    if (window.electronAPI && window.electronAPI.gardenPunishment) {
+      const result = await window.electronAPI.gardenPunishment()
+      
+      // 更新本地数据
+      if (result.hasLoss && gardenData) {
+        await loadGardenData(true)
+      }
+      
+      // 显示提示（如果在菜园子页面）
+      if (result.hasLoss && elements.gardenTip) {
+        updateTip('⚠️ 专注模式中断！所有正在生长的作物已枯萎')
+      }
+      
+      // 通知菜园子页面刷新
+      if (window.electronAPI && window.electronAPI.refreshGarden) {
+        window.electronAPI.refreshGarden()
+      }
+      
+      return result
+    }
+    
+    // 回退方案：本地处理（不带锁，可能有问题）
     await loadGardenData(true)
     
     const plots = gardenData.plots || []

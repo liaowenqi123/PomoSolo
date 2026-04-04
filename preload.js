@@ -26,6 +26,20 @@ const { contextBridge, ipcRenderer } = require('electron')
   // 写入数据
   writeData: (data) => ipcRenderer.invoke('write-data', data),
 
+  // ============ 菜园子专用 API（带锁保护） ============
+  
+  // 读取菜园子数据（强制从文件读取最新）
+  gardenRead: () => ipcRenderer.invoke('garden-read'),
+  
+  // 更新菜园子数据
+  gardenUpdate: (gardenUpdate) => ipcRenderer.invoke('garden-update', gardenUpdate),
+  
+  // 更新作物进度（由 timer 调用）
+  gardenUpdateProgress: (minutes) => ipcRenderer.invoke('garden-update-progress', minutes),
+  
+  // 处理重置惩罚
+  gardenPunishment: () => ipcRenderer.invoke('garden-punishment'),
+
   // ============ API Key 管理 API ============
 
   // 获取API Key

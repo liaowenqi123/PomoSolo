@@ -319,6 +319,28 @@ ipcMain.handle('write-data', (event, data) => {
   return dataManager.writeData(data)
 })
 
+// ============ 菜园子专用 IPC 处理（带锁保护） ============
+
+// 读取菜园子数据（强制从文件读取最新）
+ipcMain.handle('garden-read', async () => {
+  return await dataManager.readGardenData()
+})
+
+// 更新菜园子数据（带锁）
+ipcMain.handle('garden-update', async (event, gardenUpdate) => {
+  return await dataManager.updateGardenData(gardenUpdate)
+})
+
+// 更新作物进度（由 timer.js 调用）
+ipcMain.handle('garden-update-progress', async (event, minutes) => {
+  return await dataManager.updateGardenProgress(minutes)
+})
+
+// 处理重置惩罚（专注模式下重置计时器）
+ipcMain.handle('garden-punishment', async () => {
+  return await dataManager.handleGardenPunishment()
+})
+
 // ============ 开机自启动 IPC 处理 ============
 
 ipcMain.handle('set-auto-start', (event, enabled) => {

@@ -9,6 +9,57 @@ const { app } = require('electron')
 
 let dataFilePath = null
 
+// ============ 互斥锁机制 ============
+// 用于保护菜园子数据的并发访问
+
+let gardenLock = {
+  locked: false,
+  queue: []
+}
+
+/**
+ * 获取菜园子数据锁
+ * @returns {Promise<void>}
+ */
+async function acquireGardenLock() {
+  return new Promise((resolve) => {
+    if (!gardenLock.locked) {
+      gardenLock.locked = true
+      resolve()
+    } else {
+      gardenLock.queue.push(resolve)
+    }
+  })
+}
+
+/**
+ * 释放菜园子数据锁
+ */
+function releaseGardenLock() {
+  if (gardenLock.queue.length > 0) {
+    const next = gardenLock.queue.shift()
+    next()
+  } else {
+    gardenLock.locked = false
+  }
+}
+
+/**
+ * 使用锁执行操作
+ * @param {Function} fn - 要执行的异步函数
+ * @returns {Promise<any>}
+ */
+async function withGardenLock(fn) {
+  await acquireGardenLock()
+  try {
+    return await fn()
+  } finally {
+    releaseGardenLock()
+  }
+}
+
+// ============ 基础数据操作 ============
+
 /**
  * 获取数据文件路径
  * @returns {string}
@@ -117,10 +168,155 @@ function writeData(data) {
   }
 }
 
+// ============ 菜园子专用接口（带锁保护） ============
+
+/**
+ * 读取菜园子数据（带锁）
+ * 强制从文件读取最新数据
+ * @returns {Promise<object>}
+ */
+async function readGardenData() {
+  return withGardenLock(() => {
+    const data = readData()
+    return data.garden || createDefaultData().garden
+  })
+}
+
+/**
+ * 更新菜园子数据（带锁）
+ * 先从文件读取最新数据，合并修改后写回
+ * @param {object} gardenUpdate - 菜园子数据更新
+ * @returns {Promise<object>} - 更新后的完整菜园子数据
+ */
+async function updateGardenData(gardenUpdate) {
+  return withGardenLock(() => {
+    const data = readData()
+    // 深度合并，保留原有数据
+    data.garden = {
+      ...data.garden,
+      ...gardenUpdate,
+      // 确保嵌套对象也被正确合并
+      seeds: { ...data.garden?.seeds, ...gardenUpdate.seeds },
+      crops: { ...data.garden?.crops, ...gardenUpdate.crops },
+      plots: gardenUpdate.plots || data.garden?.plots,
+      achievements: { ...data.garden?.achievements, ...gardenUpdate.achievements },
+      achievementStats: { ...data.garden?.achievementStats, ...gardenUpdate.achievementStats },
+      signIn: { ...data.garden?.signIn, ...gardenUpdate.signIn }
+    }
+    writeData(data)
+    return data.garden
+  })
+}
+
+/**
+ * 更新作物进度（带锁）
+ * 专用于 timer.js 的 updateProgress 调用
+ * @param {number} minutes - 增加的分钟数
+ * @returns {Promise<object>} - 更新后的 plots 数组
+ */
+async function updateGardenProgress(minutes = 1) {
+  return withGardenLock(() => {
+    const data = readData()
+    if (!data.garden) {
+      data.garden = createDefaultData().garden
+    }
+    
+    const plots = data.garden.plots || []
+    let hasChanges = false
+    
+    for (let i = 0; i < plots.length; i++) {
+      const plot = plots[i]
+      // 只有未锁定且有作物的格子才生长
+      if (!plot.locked && plot.crop && plot.progress !== null) {
+        plot.progress += minutes
+        hasChanges = true
+      }
+    }
+    
+    if (hasChanges) {
+      data.garden.plots = plots
+      writeData(data)
+    }
+    
+    return plots
+  })
+}
+
+/**
+ * 处理重置惩罚（带锁）
+ * 专注模式下重置计时器时调用
+ * @returns {Promise<object>} - { hasLoss, losses, totalMinutes }
+ */
+async function handleGardenPunishment() {
+  return withGardenLock(() => {
+    const data = readData()
+    if (!data.garden) {
+      return { hasLoss: false, losses: [], totalMinutes: 0 }
+    }
+    
+    const plots = data.garden.plots || []
+    const CROP_CONFIG = {
+      carrot: { name: '胡萝卜', icon: '🥕', growTime: 25, value: 10 },
+      tomato: { name: '番茄', icon: '🍅', growTime: 50, value: 20 },
+      sunflower: { name: '向日葵', icon: '🌻', growTime: 90, value: 50 },
+      rose: { name: '玫瑰', icon: '🌹', growTime: 120, value: 80 },
+      osmanthus: { name: '金桂树', icon: '🌳', growTime: 180, value: 150 }
+    }
+    
+    const losses = []
+    let totalMinutes = 0
+    
+    for (let i = 0; i < plots.length; i++) {
+      const plot = plots[i]
+      if (!plot.locked && plot.crop && plot.progress !== null) {
+        const cropConfig = CROP_CONFIG[plot.crop]
+        if (cropConfig) {
+          const progress = plot.progress
+          const totalTime = cropConfig.growTime
+          // 如果未成熟，作物枯萎
+          if (progress < totalTime) {
+            losses.push({
+              crop: plot.crop,
+              name: cropConfig.name,
+              icon: cropConfig.icon,
+              progress: progress,
+              growTime: totalTime
+            })
+            totalMinutes += progress
+            
+            // 清空格子
+            plots[i] = {
+              id: i,
+              crop: null,
+              progress: 0,
+              plantedAt: null
+            }
+          }
+        }
+      }
+    }
+    
+    const hasLoss = losses.length > 0
+    
+    if (hasLoss) {
+      data.garden.plots = plots
+      writeData(data)
+    }
+    
+    return { hasLoss, losses, totalMinutes }
+  })
+}
+
 module.exports = {
   getDataFilePath,
   ensureDataDir,
   createDefaultData,
   readData,
-  writeData
+  writeData,
+  // 菜园子专用接口（带锁）
+  readGardenData,
+  updateGardenData,
+  updateGardenProgress,
+  handleGardenPunishment,
+  withGardenLock
 }

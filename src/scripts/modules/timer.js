@@ -212,10 +212,11 @@
     
     // 每60秒更新一次菜园子（仅在专注模式下）
     minuteCounter += intervalSeconds
-    if (minuteCounter >= 60 && window.Garden && AppState && AppState.focusModeEnabled) {
+    if (minuteCounter >= 60 && AppState && AppState.focusModeEnabled) {
       const minutesToUpdate = Math.floor(minuteCounter / 60)
-      for (let i = 0; i < minutesToUpdate; i++) {
-        window.Garden.updateProgress()
+      // 使用带锁的 IPC 接口更新作物进度
+      if (window.electronAPI && window.electronAPI.gardenUpdateProgress) {
+        window.electronAPI.gardenUpdateProgress(minutesToUpdate)
       }
       minuteCounter = minuteCounter % 60
     } else if (minuteCounter >= 60) {
