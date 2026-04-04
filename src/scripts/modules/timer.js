@@ -210,13 +210,16 @@
     const intervalSeconds = elapsedSeconds - gardenSecondCounter
     gardenSecondCounter = elapsedSeconds
     
-    // 每60秒更新一次菜园子
+    // 每60秒更新一次菜园子（仅在专注模式下）
     minuteCounter += intervalSeconds
-    if (minuteCounter >= 60 && window.Garden) {
+    if (minuteCounter >= 60 && window.Garden && AppState && AppState.focusModeEnabled) {
       const minutesToUpdate = Math.floor(minuteCounter / 60)
       for (let i = 0; i < minutesToUpdate; i++) {
         window.Garden.updateProgress()
       }
+      minuteCounter = minuteCounter % 60
+    } else if (minuteCounter >= 60) {
+      // 非专注模式下只重置计数器，不更新菜园子
       minuteCounter = minuteCounter % 60
     }
     
