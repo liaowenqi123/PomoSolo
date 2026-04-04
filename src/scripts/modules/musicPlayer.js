@@ -494,8 +494,9 @@ const MusicPlayer = (function() {
     
     // 生成预设颜色按钮
     if (colorPresetsEl) {
-      // 检查是否开启高级颜色自定义
-      const advancedColorEnabled = state.advancedColorCustomization || false
+      // 从 DataStore 读取最新的高级颜色自定义设置（确保立即生效）
+      const settings = window.DataStore ? window.DataStore.getSettings() : {}
+      const advancedColorEnabled = settings.advancedColorCustomization || false
       
       // 始终显示颜色按钮区域
       colorPresetsEl.style.display = 'flex'
@@ -619,7 +620,9 @@ const MusicPlayer = (function() {
       
       newAddBtn.addEventListener('click', async () => {
         const tagName = customInput.value.trim()
-        const advancedColorEnabled = state.advancedColorCustomization || false
+        // 从 DataStore 读取最新的高级颜色自定义设置
+        const settings = window.DataStore ? window.DataStore.getSettings() : {}
+        const advancedColorEnabled = settings.advancedColorCustomization || false
         const color = selectedColor
         
         if (!tagName) {
