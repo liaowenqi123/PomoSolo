@@ -9,7 +9,7 @@
   const state = {
     defaultWorkTime: 25,
     defaultBreakTime: 5,
-    appMode: 'single',  // 'single' | 'plan'
+    appMode: 'single',  // 'single' | 'forward' | 'plan'
     focusModeEnabled: false  // 专注模式开关
   }
 
@@ -130,7 +130,7 @@
   // ============ 模式切换逻辑 ============
   
   /**
-   * 切换应用模式（单次/计划）
+   * 切换应用模式（单次/正向/计划）
    * 只能在准备阶段切换，运行阶段和结束等待阶段都不允许切换
    */
   function switchAppMode(mode) {
@@ -141,21 +141,24 @@
     
     if (mode === 'single') {
       switchToSingleMode()
+    } else if (mode === 'forward') {
+      switchToForwardMode()
     } else if (mode === 'plan') {
       switchToPlanMode()
     }
   }
 
   function switchToSingleMode() {
-    // 保存计划模式的计时器状态
+    // 保存其他模式的计时器状态
     if (window.Timer) {
+      window.Timer.saveState('forward')
       window.Timer.saveState('plan')
       // 恢复单次模式的计时器状态
       window.Timer.restoreState('single')
     }
     
     // 更新 UI
-    updateModeSliderUI(false)
+    updateModeSliderUI('single')
     updateContentVisibility('single')
     updateModeButtonsVisibility(true)
     
@@ -172,10 +175,38 @@
     }
   }
 
-  function switchToPlanMode() {
-    // 保存单次模式的计时器状态
+  function switchToForwardMode() {
+    // 保存其他模式的计时器状态
     if (window.Timer) {
       window.Timer.saveState('single')
+      window.Timer.saveState('plan')
+      // 恢复正向模式的计时器状态
+      window.Timer.restoreState('forward')
+    }
+    
+    // 更新 UI
+    updateModeSliderUI('forward')
+    updateContentVisibility('forward')  // 正向模式使用单次模式的UI
+    updateModeButtonsVisibility(true)
+    
+    // 根据当前工作/休息模式恢复颜色
+    const currentMode = Mode.getMode()
+    updateContainerColor(currentMode === 'break')
+    
+    // 恢复状态文字
+    DOM.statusEl.textContent = currentMode === 'work' ? '准备开始正向计时' : '准备休息一下'
+    
+    // 重新初始化备注显示
+    if (window.Presets && window.Presets.reinitializeNoteDisplay) {
+      window.Presets.reinitializeNoteDisplay()
+    }
+  }
+
+  function switchToPlanMode() {
+    // 保存其他模式的计时器状态
+    if (window.Timer) {
+      window.Timer.saveState('single')
+      window.Timer.saveState('forward')
     }
     
     // 隐藏单次模式的备注
@@ -185,7 +216,7 @@
     if (timerNoteDisplay) timerNoteDisplay.style.display = 'none'
     
     // 更新 UI
-    updateModeSliderUI(true)
+    updateModeSliderUI('plan')
     updateContentVisibility('plan')
     updateModeButtonsVisibility(false)
     
@@ -225,17 +256,21 @@
 
   // ============ UI 更新辅助函数 ============
   
-  function updateModeSliderUI(isPlanMode) {
-    if (isPlanMode) {
-      DOM.modeSlider.classList.add('plan-mode')
-      DOM.modeLabels[0].classList.remove('active')
-      DOM.modeLabels[1].classList.add('active')
+  function updateModeSliderUI(mode) {
+    // 更新标签激活状态
+    DOM.modeLabels.forEach(label => {
+      if (label.dataset.mode === mode) {
+        label.classList.add('active')
+      } else {
+        label.classList.remove('active')
+      }
+    })
+    
+    // 更新容器样式（仅计划模式需要特殊样式）
+    if (mode === 'plan') {
       DOM.container.classList.add('plan-mode')
       DOM.windowFrame.classList.add('plan-mode')
     } else {
-      DOM.modeSlider.classList.remove('plan-mode')
-      DOM.modeLabels[0].classList.add('active')
-      DOM.modeLabels[1].classList.remove('active')
       DOM.container.classList.remove('plan-mode')
       DOM.windowFrame.classList.remove('plan-mode')
     }
@@ -244,13 +279,15 @@
   function updateContentVisibility(mode) {
     const planNoteSection = document.getElementById('plan-note-section')
     
-    if (mode === 'single') {
+    if (mode === 'single' || mode === 'forward') {
+      // 单次和正向模式使用相同的UI
       DOM.singleModeContent.style.display = 'block'
       DOM.planModeContent.style.display = 'none'
       DOM.addPresetBtn.style.display = 'flex'
       DOM.planAddButtons.style.display = 'none'
       if (planNoteSection) planNoteSection.style.display = 'none'
     } else {
+      // 计划模式
       DOM.singleModeContent.style.display = 'none'
       DOM.planModeContent.style.display = 'block'
       DOM.addPresetBtn.style.display = 'none'

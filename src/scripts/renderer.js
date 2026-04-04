@@ -236,7 +236,7 @@
         Timer.start()
       }
     } else {
-      // 单次模式：直接开始
+      // 单次模式和正向模式：直接开始
       Timer.start()
     }
   }
@@ -320,17 +320,14 @@
 
   // 应用模式切换滑块
   DOM.modeSlider.addEventListener('click', () => {
-    const newMode = AppState.appMode === 'single' ? 'plan' : 'single'
-    AppState.switchAppMode(newMode)
+    // 不再使用滑块点击，仅保留标签点击
   })
 
   DOM.modeLabels.forEach(label => {
     label.addEventListener('click', () => {
       const mode = label.dataset.mode
-      if (mode === 'single') {
-        AppState.switchAppMode('single')
-      } else if (mode === 'plan') {
-        AppState.switchAppMode('plan')
+      if (mode === 'single' || mode === 'forward' || mode === 'plan') {
+        AppState.switchAppMode(mode)
       }
     })
   })

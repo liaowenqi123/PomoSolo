@@ -125,31 +125,19 @@ body {
   gap: 6px;
   z-index: 50;
   -webkit-app-region: no-drag;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  border-radius: 10px;
+  padding: 2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .mode-slider {
-  width: 32px;
-  height: 18px;
-  background: rgba(255, 255, 255, 0.25);
-  border-radius: 9px;
-  position: relative;
-  cursor: pointer;
+  display: none; /* 隐藏原有滑块 */
 }
 
 .mode-slider-thumb {
-  width: 14px;
-  height: 14px;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 50%;
-  position: absolute;
-  left: 2px;
-  top: 2px;
-  transition: left 0.3s ease;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
-}
-
-.mode-slider.plan-mode .mode-slider-thumb {
-  left: 16px;
+  display: none; /* 隐藏原有滑块thumb */
 }
 
 .mode-slider-labels {
@@ -159,12 +147,43 @@ body {
 
 .mode-label {
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.5);
-  transition: all 0.3s ease;
+  color: rgba(255, 255, 255, 0.6);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
+  padding: 3px 7px;
+  border-radius: 7px;
+  background: transparent;
+  position: relative;
+  font-weight: 500;
+}
+
+.mode-label:hover {
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .mode-label.active {
-  color: rgba(255, 255, 255, 0.95);
+  color: rgba(255, 255, 255, 0.98);
   font-weight: 600;
+  background: rgba(255, 255, 255, 0.25);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+/* 深色模式适配 */
+body.dark-theme .mode-slider-container {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+body.dark-theme .mode-label {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+body.dark-theme .mode-label:hover {
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+body.dark-theme .mode-label.active {
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.18);
 }
