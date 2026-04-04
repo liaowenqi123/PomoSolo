@@ -26,6 +26,7 @@ foreground_inspection/api_config.json
 # OS files
 .DS_Store
 Thumbs.db
+nul
 
 # IDE
 .vscode/
