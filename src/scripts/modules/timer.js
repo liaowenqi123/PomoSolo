@@ -214,9 +214,9 @@
     minuteCounter += intervalSeconds
     if (minuteCounter >= 60 && AppState && AppState.focusModeEnabled) {
       const minutesToUpdate = Math.floor(minuteCounter / 60)
-      // 使用带锁的 IPC 接口更新作物进度
-      if (window.electronAPI && window.electronAPI.gardenUpdateProgress) {
-        window.electronAPI.gardenUpdateProgress(minutesToUpdate)
+      // 发送成长事件，由主进程处理
+      if (window.electronAPI && window.electronAPI.gardenGrow) {
+        window.electronAPI.gardenGrow(minutesToUpdate)
       }
       minuteCounter = minuteCounter % 60
     } else if (minuteCounter >= 60) {

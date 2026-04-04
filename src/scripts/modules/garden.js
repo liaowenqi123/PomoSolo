@@ -576,35 +576,20 @@
 
   /**
    * 更新成长进度（由外部调用）
-   * 在番茄钟运行期间，每分钟被调用一次
-   */
-  /**
-   * 更新成长进度（由外部调用，如 timer.js）
-   * 注意：timer.js 现在直接使用 gardenUpdateProgress IPC，此函数保留备用
-   * 在番茄钟运行期间，每分钟被调用一次
+   * 注意：timer 现在直接发送 garden-grow 事件给主进程，此函数已废弃
+   * 保留此函数仅为兼容性
    */
   async function updateProgress() {
-    // 使用带锁的 IPC 接口更新进度
-    if (window.electronAPI && window.electronAPI.gardenUpdateProgress) {
-      const plots = await window.electronAPI.gardenUpdateProgress(1)
-      // 更新本地数据
-      if (gardenData) {
-        gardenData.plots = plots
-      }
-      // 通知菜园子页面刷新
-      if (window.electronAPI && window.electronAPI.refreshGarden) {
-        window.electronAPI.refreshGarden()
-      }
-    }
+    // timer 现在直接发送事件，这里不需要做任何事
+    console.log('[Garden] updateProgress 已废弃，timer 应直接发送 garden-grow 事件')
   }
 
   /**
    * 处理重置惩罚（由外部调用）
-   * 专注模式下重置计时器时，所有正在生长的作物枯萎死亡
-   * @returns {Object} 损失详情 { hasLoss, losses, totalMinutes }
+   * 调用主进程处理惩罚，主进程会更新数据并通知刷新
+   * @returns {Promise<Object>} 损失详情 { hasLoss, losses, totalMinutes }
    */
   async function handleResetPunishment() {
-    // 使用带锁的 IPC 接口处理惩罚
     if (window.electronAPI && window.electronAPI.gardenPunishment) {
       const result = await window.electronAPI.gardenPunishment()
       
@@ -618,72 +603,10 @@
         updateTip('⚠️ 专注模式中断！所有正在生长的作物已枯萎')
       }
       
-      // 通知菜园子页面刷新
-      if (window.electronAPI && window.electronAPI.refreshGarden) {
-        window.electronAPI.refreshGarden()
-      }
-      
       return result
     }
     
-    // 回退方案：本地处理（不带锁，可能有问题）
-    await loadGardenData(true)
-    
-    const plots = gardenData.plots || []
-    const losses = []  // 记录损失的作物
-    let totalMinutes = 0  // 总共损失的时间
-    
-    for (let i = 0; i < plots.length; i++) {
-      const plot = plots[i]
-      // 未锁定且有未成熟作物的格子，作物枯萎
-      if (!plot.locked && plot.crop && plot.progress !== null) {
-        const cropConfig = CROP_CONFIG[plot.crop]
-        if (cropConfig) {
-          const progress = plot.progress
-          const totalTime = cropConfig.growTime
-          // 如果未成熟，作物枯萎
-          if (progress < totalTime) {
-            // 记录损失
-            losses.push({
-              crop: plot.crop,
-              name: cropConfig.name,
-              icon: cropConfig.icon,
-              progress: progress,
-              growTime: totalTime
-            })
-            totalMinutes += progress
-            
-            // 清空格子，作物死亡
-            gardenData.plots[i] = {
-              id: i,
-              crop: null,
-              progress: 0,
-              plantedAt: null
-            }
-          }
-        }
-      }
-    }
-    
-    const hasLoss = losses.length > 0
-    
-    if (hasLoss) {
-      await saveGardenData()
-      // 只在花园页面打开时显示提示（检查元素是否存在）
-      if (elements.gardenTip) {
-        updateTip('⚠️ 专注模式中断！所有正在生长的作物已枯萎')
-      }
-      // 通知菜园子页面刷新（如果页面已打开）
-      if (window.electronAPI && window.electronAPI.refreshGarden) {
-        window.electronAPI.refreshGarden()
-      }
-    }
-    
-    return {
-      hasLoss,
-      losses,
-      totalMinutes
-    }
+    return { hasLoss: false, losses: [], totalMinutes: 0 }
   }
 
   /**

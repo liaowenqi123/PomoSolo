@@ -286,9 +286,42 @@ ipcMain.on('close-garden', () => {
   }
 })
 
+// 刷新菜园子窗口（由外部调用）
 ipcMain.on('refresh-garden', () => {
   if (gardenWindow && !gardenWindow.isDestroyed()) {
-    gardenWindow.webContents.send('refresh-garden')
+    gardenWindow.webContents.send('garden-refresh')
+  }
+})
+
+// ============ 菜园子事件处理（由 timer 调用） ============
+
+// 作物成长事件 - 由 timer 每60秒发送
+ipcMain.on('garden-grow', async (event, minutes) => {
+  try {
+    // 更新数据（带锁）
+    await dataManager.updateGardenProgress(minutes)
+    // 通知菜园子窗口刷新
+    if (gardenWindow && !gardenWindow.isDestroyed()) {
+      gardenWindow.webContents.send('garden-refresh')
+    }
+  } catch (e) {
+    console.error('[Garden] 成长更新失败:', e)
+  }
+})
+
+// 惩罚事件 - 由 timer/foregroundDetection 调用（需要返回结果）
+ipcMain.handle('garden-punishment', async () => {
+  try {
+    // 处理惩罚（带锁）
+    const result = await dataManager.handleGardenPunishment()
+    // 通知菜园子窗口刷新
+    if (gardenWindow && !gardenWindow.isDestroyed()) {
+      gardenWindow.webContents.send('garden-refresh')
+    }
+    return result
+  } catch (e) {
+    console.error('[Garden] 惩罚处理失败:', e)
+    return { hasLoss: false, losses: [], totalMinutes: 0 }
   }
 })
 
@@ -329,16 +362,6 @@ ipcMain.handle('garden-read', async () => {
 // 更新菜园子数据（带锁）
 ipcMain.handle('garden-update', async (event, gardenUpdate) => {
   return await dataManager.updateGardenData(gardenUpdate)
-})
-
-// 更新作物进度（由 timer.js 调用）
-ipcMain.handle('garden-update-progress', async (event, minutes) => {
-  return await dataManager.updateGardenProgress(minutes)
-})
-
-// 处理重置惩罚（专注模式下重置计时器）
-ipcMain.handle('garden-punishment', async () => {
-  return await dataManager.handleGardenPunishment()
 })
 
 // ============ 开机自启动 IPC 处理 ============
