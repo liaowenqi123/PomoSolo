@@ -606,13 +606,15 @@
   /**
    * 处理重置惩罚（由外部调用）
    * 专注模式下重置计时器时，所有正在生长的作物枯萎死亡
+   * @returns {Object} 损失详情 { hasLoss, losses, totalMinutes }
    */
   async function handleResetPunishment() {
     // 每次都重新从数据库加载数据，确保获取最新状态
     await loadGardenData()
     
     const plots = gardenData.plots || []
-    let hasDeadCrops = false
+    const losses = []  // 记录损失的作物
+    let totalMinutes = 0  // 总共损失的时间
     
     for (let i = 0; i < plots.length; i++) {
       const plot = plots[i]
@@ -624,6 +626,16 @@
           const totalTime = cropConfig.growTime
           // 如果未成熟，作物枯萎
           if (progress < totalTime) {
+            // 记录损失
+            losses.push({
+              crop: plot.crop,
+              name: cropConfig.name,
+              icon: cropConfig.icon,
+              progress: progress,
+              growTime: totalTime
+            })
+            totalMinutes += progress
+            
             // 清空格子，作物死亡
             gardenData.plots[i] = {
               id: i,
@@ -631,13 +643,14 @@
               progress: 0,
               plantedAt: null
             }
-            hasDeadCrops = true
           }
         }
       }
     }
     
-    if (hasDeadCrops) {
+    const hasLoss = losses.length > 0
+    
+    if (hasLoss) {
       await saveGardenData()
       // 只在花园页面打开时显示提示（检查元素是否存在）
       if (elements.gardenTip) {
@@ -647,6 +660,12 @@
       if (window.electronAPI && window.electronAPI.refreshGarden) {
         window.electronAPI.refreshGarden()
       }
+    }
+    
+    return {
+      hasLoss,
+      losses,
+      totalMinutes
     }
   }
 

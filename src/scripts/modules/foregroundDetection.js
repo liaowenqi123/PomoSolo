@@ -23,6 +23,7 @@
   // 弹窗实例
   let warningModal = null
   let apiKeyErrorModal = null
+  let punishmentModal = null
 
   /**
    * 初始化模块
@@ -39,7 +40,11 @@
       apiKeyErrorModal: document.getElementById('error-api-key-modal'),
       apiKeyErrorMessage: document.getElementById('error-api-key-message'),
       apiKeyErrorPath: document.getElementById('error-api-key-path'),
-      btnApiKeyErrorOk: document.getElementById('error-api-key-ok-btn')
+      btnApiKeyErrorOk: document.getElementById('error-api-key-ok-btn'),
+      // 惩罚弹窗
+      punishmentModal: document.getElementById('punishment-modal'),
+      punishmentLosses: document.getElementById('punishment-losses'),
+      btnPunishmentOk: document.getElementById('punishment-ok-btn')
     }
     
     // 初始化弹窗实例
@@ -54,6 +59,9 @@
     }
     if (elements.btnApiKeyErrorOk) {
       elements.btnApiKeyErrorOk.addEventListener('click', hideApiKeyErrorModal)
+    }
+    if (elements.btnPunishmentOk) {
+      elements.btnPunishmentOk.addEventListener('click', hidePunishmentModal)
     }
 
     // 设置 Electron 事件监听
@@ -105,6 +113,31 @@
         if (window.electronAPI) {
           window.electronAPI.bringToFront()
         }
+      },
+      onHide: () => {
+        // 取消置顶
+        if (window.electronAPI) {
+          window.electronAPI.cancelAlwaysOnTop()
+        }
+      }
+    })
+    
+    // 惩罚弹窗
+    punishmentModal = new BaseModal({
+      element: elements.punishmentModal,
+      showClass: 'visible',
+      closeOnBackground: false,
+      onShow: () => {
+        // 退出迷你模式
+        if (window.MiniMode && window.MiniMode.isActive()) {
+          window.MiniMode.exit()
+        }
+        // 抢占前台并置顶
+        if (window.electronAPI) {
+          window.electronAPI.bringToFront()
+        }
+        // 播放惩罚音效
+        playPunishmentSound()
       },
       onHide: () => {
         // 取消置顶
@@ -358,7 +391,7 @@
    * 触发惩罚
    * 注意：只有在计时器运行阶段才会触发惩罚
    */
-  function triggerPunishment() {
+  async function triggerPunishment() {
     // 再次检查计时器是否仍在运行阶段
     // 防止在计时结束后（FINISHED阶段）仍然触发惩罚
     if (!window.Timer || window.Timer.getPhase() !== window.Timer.PHASE.RUNNING) {
@@ -373,12 +406,13 @@
     // 隐藏警告弹窗
     hideWarningModal()
     
-    // 调用菜园子的惩罚函数
+    // 获取损失详情
+    let lossResult = { hasLoss: false, losses: [], totalMinutes: 0 }
     if (window.Garden) {
-      window.Garden.handleResetPunishment()
+      lossResult = await window.Garden.handleResetPunishment()
     }
     
-    // 重置计时器（让植物枯萎）
+    // 重置计时器
     if (window.Timer) {
       window.Timer.reset()
     }
@@ -391,13 +425,100 @@
     
     // 停止检测
     stopDetection()
+    
+    // 显示惩罚弹窗
+    showPunishmentModal(lossResult)
+  }
 
-    // 显示通知
-    if (window.electronAPI) {
-      window.electronAPI.showNotification(
-        '⚠️ 专注模式中断',
-        '检测到多次切换到娱乐应用，作物已枯萎！'
-      )
+  /**
+   * 显示惩罚弹窗
+   * @param {Object} lossResult - 损失详情 { hasLoss, losses, totalMinutes }
+   */
+  function showPunishmentModal(lossResult) {
+    if (!elements.punishmentLosses) return
+    
+    // 渲染损失列表
+    if (lossResult.hasLoss && lossResult.losses.length > 0) {
+      let lossesHtml = '<div class="punishment-losses-title">你的损失：</div>'
+      
+      lossResult.losses.forEach(loss => {
+        lossesHtml += `
+          <div class="punishment-loss-item">
+            <span class="punishment-loss-icon">${loss.icon}</span>
+            <div class="punishment-loss-info">
+              <div class="punishment-loss-name">${loss.name}</div>
+              <div class="punishment-loss-time">已生长 ${loss.progress}/${loss.growTime} 分钟</div>
+            </div>
+          </div>
+        `
+      })
+      
+      // 添加总时间
+      lossesHtml += `
+        <div class="punishment-total-time">
+          <div class="total-label">共计损失</div>
+          <div class="total-value">${lossResult.totalMinutes} 分钟心血</div>
+        </div>
+      `
+      
+      elements.punishmentLosses.innerHTML = lossesHtml
+    } else {
+      elements.punishmentLosses.innerHTML = '<div class="punishment-no-loss">幸好没有正在生长的作物</div>'
+    }
+    
+    punishmentModal?.show()
+  }
+
+  /**
+   * 隐藏惩罚弹窗
+   */
+  function hidePunishmentModal() {
+    punishmentModal?.hide()
+  }
+
+  /**
+   * 播放惩罚音效
+   */
+  function playPunishmentSound() {
+    try {
+      // 使用 Web Audio API 创建悲伤音效
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)()
+      
+      // 创建低沉的音调
+      const oscillator = audioContext.createOscillator()
+      const gainNode = audioContext.createGain()
+      
+      oscillator.connect(gainNode)
+      gainNode.connect(audioContext.destination)
+      
+      oscillator.frequency.setValueAtTime(200, audioContext.currentTime)
+      oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.5)
+      
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime)
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5)
+      
+      oscillator.start(audioContext.currentTime)
+      oscillator.stop(audioContext.currentTime + 0.5)
+      
+      // 播放第二个音调
+      setTimeout(() => {
+        const osc2 = audioContext.createOscillator()
+        const gain2 = audioContext.createGain()
+        
+        osc2.connect(gain2)
+        gain2.connect(audioContext.destination)
+        
+        osc2.frequency.setValueAtTime(150, audioContext.currentTime)
+        osc2.frequency.exponentialRampToValueAtTime(80, audioContext.currentTime + 0.8)
+        
+        gain2.gain.setValueAtTime(0.25, audioContext.currentTime)
+        gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.8)
+        
+        osc2.start(audioContext.currentTime)
+        osc2.stop(audioContext.currentTime + 0.8)
+      }, 300)
+    } catch (e) {
+      console.log('[ForegroundDetection] 无法播放音效:', e)
     }
   }
 
