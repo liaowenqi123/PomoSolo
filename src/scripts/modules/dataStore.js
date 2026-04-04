@@ -21,7 +21,7 @@
       if (fileData && cachedData) {
         // 合并文件中的最新数据到缓存
         // 保留 cachedData 中刚修改的字段，但更新其他字段
-        if (fileData.garden) {
+        if (fileData.garden && !cachedData._gardenModified) {
           cachedData.garden = fileData.garden
         }
         if (fileData.stats && !cachedData._statsModified) {
@@ -153,8 +153,11 @@
   // 更新菜园数据
   async function updateGarden(garden) {
     if (!cachedData) return false
+    cachedData._gardenModified = true
     cachedData.garden = { ...cachedData.garden, ...garden }
-    return await saveImmediate()
+    const result = await saveImmediate()
+    delete cachedData._gardenModified
+    return result
   }
 
   // 获取成就数据
