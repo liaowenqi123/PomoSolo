@@ -33,6 +33,7 @@ nul
 .idea/
 *.swp
 *.swo
+.workbuddy/
 
 # AI Agent context
 AGENTS.md
