@@ -18,6 +18,16 @@
 
 ---
 
+## 相关文档
+
+| 文档 | 说明 |
+|------|------|
+| [MODAL_SYSTEM.md](./MODAL_SYSTEM.md) | 弹窗系统架构说明（BaseModal/AnimatedModal） |
+| [GARDEN_DATA_ARCHITECTURE.md](./GARDEN_DATA_ARCHITECTURE.md) | 菜园子数据架构说明（原子操作、互斥锁） |
+| [BUGFIX_RECORDS.md](./BUGFIX_RECORDS.md) | Bug 修复记录 |
+
+---
+
 ## 项目架构
 
 ### 技术栈
