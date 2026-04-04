@@ -1,6 +1,6 @@
 {
   "name": "pomodoro-timer",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "一个美观的番茄钟应用",
   "main": "main.js",
   "scripts": {
