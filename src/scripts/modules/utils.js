@@ -312,7 +312,7 @@
       id: 'easteregg',
       category: 'hidden',
       name: '发现彩蛋', 
-      description: '在设置中发现隐藏的彩蛋',
+      description: '？？？',
       target: 1,
       icon: '🥚',
       rewards: { seeds: { osmanthus: 1 }, coins: 50 }
