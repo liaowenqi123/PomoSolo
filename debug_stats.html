@@ -136,6 +136,9 @@
         const today = new Date().toISOString().split('T')[0];
         const todayRecords = history.filter(r => r.date === today);
         
+        // 只计算完整完成的番茄钟（排除部分完成的）
+        const todayCompleted = todayRecords.filter(r => !r.partial);
+        
         // 更新统计卡片
         document.getElementById('todayCount').textContent = stats.todayCount || 0;
         document.getElementById('totalMinutes').textContent = stats.totalMinutes || 0;
@@ -145,9 +148,23 @@
         // 检查数据一致性
         const warning = document.getElementById('warning');
         const warningText = document.getElementById('warningText');
-        if (stats.todayCount !== todayRecords.length) {
+        
+        const issues = [];
+        
+        // 检查今日完成次数是否与完整记录数一致
+        if (stats.todayCount !== todayCompleted.length) {
+          issues.push(`今日统计次数(${stats.todayCount})与完整记录数(${todayCompleted.length})不一致`);
+        }
+        
+        // 检查今日时长是否与历史记录总和一致
+        const todayMinutesSum = todayRecords.reduce((sum, r) => sum + (r.minutes || 0), 0);
+        if (stats.totalMinutes !== todayMinutesSum) {
+          issues.push(`今日统计时长(${stats.totalMinutes}分钟)与历史记录总和(${todayMinutesSum}分钟)不一致`);
+        }
+        
+        if (issues.length > 0) {
           warning.style.display = 'block';
-          warningText.textContent = `今日统计次数(${stats.todayCount})与历史记录条数(${todayRecords.length})不一致！`;
+          warningText.innerHTML = issues.join('<br>');
         } else {
           warning.style.display = 'none';
         }
@@ -155,7 +172,11 @@
         // 显示今日记录详情
         const todayRecordsEl = document.getElementById('todayRecords');
         if (todayRecords.length > 0) {
-          todayRecordsEl.textContent = JSON.stringify(todayRecords, null, 2);
+          const recordsWithStatus = todayRecords.map(r => ({
+            ...r,
+            status: r.partial ? '部分完成' : '完整完成'
+          }));
+          todayRecordsEl.textContent = JSON.stringify(recordsWithStatus, null, 2);
         } else {
           todayRecordsEl.textContent = '今日暂无记录';
         }

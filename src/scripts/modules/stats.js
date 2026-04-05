@@ -68,19 +68,20 @@
     const minutes = Math.floor(seconds / 60)
     if (minutes <= 0) return
     
-    const stats = DataStore.getStats()
     const data = DataStore.getData()
     
-    // 更新统计
+    // 注意：部分完成不增加 todayCount，只记录时长
+    // 只有完整完成的番茄钟才计入"今日完成"次数
+    const stats = DataStore.getStats()
     const newStats = {
       date: new Date().toDateString(),
-      todayCount: (stats.todayCount || 0) + 1,
-      totalMinutes: (stats.totalMinutes || 0) + minutes
+      todayCount: stats.todayCount || 0, // 不增加计数
+      totalMinutes: (stats.totalMinutes || 0) + minutes // 只增加时长
     }
     
     await DataStore.updateStats(newStats)
     
-    // 记录到历史数据
+    // 记录到历史数据（标记为部分完成）
     const today = new Date().toISOString().split('T')[0]
     const now = new Date().toISOString()
     

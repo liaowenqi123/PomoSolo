@@ -98,11 +98,31 @@ const Statistics = (function() {
     const history = getStatisticsHistory()
     const data = getDataForPeriod(history, currentPeriod)
 
-    // 计算总次数
-    const totalSessions = data.reduce((sum, item) => sum + item.count, 0)
+    let totalSessions = 0
+    let totalMinutes = 0
+    let periodLabel = ''
     
-    // 计算总时长（分钟）
-    const totalMinutes = data.reduce((sum, item) => sum + item.minutes, 0)
+    // 在"每日"视图下，只显示今天的数据
+    if (currentPeriod === 'daily') {
+      const today = new Date().toISOString().split('T')[0]
+      const todayData = data.find(item => item.date === today)
+      
+      if (todayData) {
+        totalSessions = todayData.count
+        totalMinutes = todayData.minutes
+      }
+      periodLabel = '今日'
+    } else if (currentPeriod === 'weekly') {
+      // 在"每周"视图下，显示最近4周的总和
+      totalSessions = data.reduce((sum, item) => sum + item.count, 0)
+      totalMinutes = data.reduce((sum, item) => sum + item.minutes, 0)
+      periodLabel = '最近4周'
+    } else {
+      // 在"每月"视图下，显示最近6个月的总和
+      totalSessions = data.reduce((sum, item) => sum + item.count, 0)
+      totalMinutes = data.reduce((sum, item) => sum + item.minutes, 0)
+      periodLabel = '最近6个月'
+    }
     
     // 计算平均时长
     const avgMinutes = totalSessions > 0 ? Math.round(totalMinutes / totalSessions) : 0
@@ -116,6 +136,14 @@ const Statistics = (function() {
     }
     if (elements.statsAvgMinutes) {
       elements.statsAvgMinutes.textContent = avgMinutes
+    }
+    
+    // 更新标签文字
+    const labels = document.querySelectorAll('.stats-card-label')
+    if (labels.length >= 3) {
+      labels[0].textContent = `${periodLabel}专注次数`
+      labels[1].textContent = `${periodLabel}专注时长（分钟）`
+      labels[2].textContent = `平均时长（分钟）`
     }
   }
 
@@ -535,7 +563,12 @@ const Statistics = (function() {
       
       // 获取这一天的所有记录
       const dayRecords = history.filter(item => item.date === dateStr)
-      const count = dayRecords.length
+      
+      // 只计算完整完成的番茄钟次数（排除部分完成的）
+      const completedRecords = dayRecords.filter(item => !item.partial)
+      const count = completedRecords.length
+      
+      // 但时长包括所有记录（包括部分完成的）
       const minutes = dayRecords.reduce((sum, item) => sum + (item.minutes || 0), 0)
       
       // 按备注分组统计（用于图表颜色）
@@ -578,7 +611,11 @@ const Statistics = (function() {
         return itemDate >= startDate && itemDate <= endDate
       })
       
-      const count = weekRecords.length
+      // 只计算完整完成的番茄钟次数（排除部分完成的）
+      const completedRecords = weekRecords.filter(item => !item.partial)
+      const count = completedRecords.length
+      
+      // 但时长包括所有记录（包括部分完成的）
       const minutes = weekRecords.reduce((sum, item) => sum + (item.minutes || 0), 0)
       
       // 按备注分组统计
@@ -619,7 +656,11 @@ const Statistics = (function() {
         return itemDate.getFullYear() === year && itemDate.getMonth() + 1 === month
       })
       
-      const count = monthRecords.length
+      // 只计算完整完成的番茄钟次数（排除部分完成的）
+      const completedRecords = monthRecords.filter(item => !item.partial)
+      const count = completedRecords.length
+      
+      // 但时长包括所有记录（包括部分完成的）
       const minutes = monthRecords.reduce((sum, item) => sum + (item.minutes || 0), 0)
       
       // 按备注分组统计
