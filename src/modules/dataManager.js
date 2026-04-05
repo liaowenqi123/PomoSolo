@@ -8,6 +8,7 @@ const path = require('path')
 const { app } = require('electron')
 
 let dataFilePath = null
+let gardenDataFilePath = null
 
 // ============ 游戏配置（与 utils.js 保持同步） ============
 
@@ -156,6 +157,17 @@ function getDataFilePath() {
 }
 
 /**
+ * 获取菜园子数据文件路径
+ * @returns {string}
+ */
+function getGardenDataFilePath() {
+  if (gardenDataFilePath) return gardenDataFilePath
+  const userDataPath = app.getPath('userData')
+  gardenDataFilePath = path.join(userDataPath, 'data', 'garden_data.json')
+  return gardenDataFilePath
+}
+
+/**
  * 确保数据目录存在
  */
 function ensureDataDir() {
@@ -167,6 +179,7 @@ function ensureDataDir() {
 
 /**
  * 创建默认数据结构（与渲染进程 utils.js 保持一致）
+ * 注意：garden 字段已独立到 garden_data.json，此处不再包含
  * @returns {object}
  */
 function createDefaultData() {
@@ -184,27 +197,33 @@ function createDefaultData() {
     },
     planList: [],
     audioDevice: null,
-    musicVolume: 1.0,  // 音乐音量 0-1
-    // 菜园子系统
-    garden: {
-      coins: 0,
-      seeds: { carrot: 5, tomato: 2, sunflower: 0, rose: 0, osmanthus: 0 },
-      plots: [
-        { id: 0, crop: null, progress: 0, plantedAt: null },
-        { id: 1, crop: null, progress: 0, plantedAt: null },
-        { id: 2, crop: null, progress: 0, plantedAt: null },
-        { id: 3, crop: null, progress: 0, plantedAt: null },
-        { id: 4, crop: null, progress: 0, plantedAt: null },
-        { id: 5, crop: null, progress: 0, plantedAt: null },
-        { id: 6, crop: null, progress: 0, plantedAt: null, locked: true },
-        { id: 7, crop: null, progress: 0, plantedAt: null, locked: true },
-        { id: 8, crop: null, progress: 0, plantedAt: null, locked: true },
-        { id: 9, crop: null, progress: 0, plantedAt: null, locked: true },
-        { id: 10, crop: null, progress: 0, plantedAt: null, locked: true },
-        { id: 11, crop: null, progress: 0, plantedAt: null, locked: true }
-      ],
-      warehouse: []
-    }
+    musicVolume: 1.0  // 音乐音量 0-1
+  }
+}
+
+/**
+ * 创建默认菜园子数据结构
+ * @returns {object}
+ */
+function createDefaultGardenData() {
+  return {
+    coins: 0,
+    seeds: { carrot: 5, tomato: 2, sunflower: 0, rose: 0, osmanthus: 0 },
+    plots: [
+      { id: 0, crop: null, progress: 0, plantedAt: null },
+      { id: 1, crop: null, progress: 0, plantedAt: null },
+      { id: 2, crop: null, progress: 0, plantedAt: null },
+      { id: 3, crop: null, progress: 0, plantedAt: null },
+      { id: 4, crop: null, progress: 0, plantedAt: null },
+      { id: 5, crop: null, progress: 0, plantedAt: null },
+      { id: 6, crop: null, progress: 0, plantedAt: null, locked: true },
+      { id: 7, crop: null, progress: 0, plantedAt: null, locked: true },
+      { id: 8, crop: null, progress: 0, plantedAt: null, locked: true },
+      { id: 9, crop: null, progress: 0, plantedAt: null, locked: true },
+      { id: 10, crop: null, progress: 0, plantedAt: null, locked: true },
+      { id: 11, crop: null, progress: 0, plantedAt: null, locked: true }
+    ],
+    warehouse: []
   }
 }
 
@@ -249,8 +268,64 @@ function writeData(data) {
   }
 }
 
+// ============ 菜园子独立文件读写 ============
+
+/**
+ * 读取菜园子数据文件（garden_data.json）
+ * 若文件不存在，自动从 data.json 迁移旧数据或使用默认值
+ * @returns {object}
+ */
+function readGardenFile() {
+  ensureDataDir()
+  const filePath = getGardenDataFilePath()
+
+  if (!fs.existsSync(filePath)) {
+    // 尝试从旧 data.json 迁移 garden 字段
+    const oldData = readData()
+    const gardenData = (oldData && oldData.garden) ? oldData.garden : createDefaultGardenData()
+
+    // 写入新文件完成迁移
+    fs.writeFileSync(filePath, JSON.stringify(gardenData, null, 2), 'utf-8')
+    console.log('[DataManager] 菜园子数据已从 data.json 迁移到 garden_data.json')
+
+    // 将旧 data.json 中的 garden 字段清除，避免歧义
+    if (oldData && oldData.garden) {
+      delete oldData.garden
+      writeData(oldData)
+    }
+
+    return gardenData
+  }
+
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8')
+    return JSON.parse(content)
+  } catch (e) {
+    console.error('[DataManager] 读取 garden_data.json 失败:', e)
+    return createDefaultGardenData()
+  }
+}
+
+/**
+ * 写入菜园子数据文件（garden_data.json）
+ * @param {object} gardenData - 菜园子数据对象
+ * @returns {boolean}
+ */
+function writeGardenFile(gardenData) {
+  ensureDataDir()
+  const filePath = getGardenDataFilePath()
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(gardenData, null, 2), 'utf-8')
+    return true
+  } catch (e) {
+    console.error('[DataManager] 写入 garden_data.json 失败:', e)
+    return false
+  }
+}
+
 // ============ 菜园子原子操作接口（带锁保护） ============
 // 所有操作都是原子性的：读取 -> 修改 -> 写回
+// 读写均使用独立的 garden_data.json，与 data.json 完全隔离
 // 返回最新的菜园子数据，确保数据一致性
 
 /**
@@ -260,8 +335,7 @@ function writeData(data) {
  */
 async function readGardenData() {
   return withGardenLock(() => {
-    const data = readData()
-    return data.garden || createDefaultData().garden
+    return readGardenFile()
   })
 }
 
@@ -273,8 +347,7 @@ async function readGardenData() {
  */
 async function gardenPlant(plotIndex, cropKey) {
   return withGardenLock(() => {
-    const data = readData()
-    const garden = data.garden || createDefaultData().garden
+    const garden = readGardenFile()
     
     // 检查种子数量
     const seeds = garden.seeds || {}
@@ -308,8 +381,7 @@ async function gardenPlant(plotIndex, cropKey) {
     // 检查成就
     const unlockedAchievements = checkAndUnlockAchievementsInPlace(garden)
     
-    data.garden = garden
-    writeData(data)
+    writeGardenFile(garden)
     
     return { 
       success: true, 
@@ -327,8 +399,7 @@ async function gardenPlant(plotIndex, cropKey) {
  */
 async function gardenHarvest(plotIndex) {
   return withGardenLock(() => {
-    const data = readData()
-    const garden = data.garden || createDefaultData().garden
+    const garden = readGardenFile()
     
     const plots = garden.plots || []
     const plot = plots[plotIndex]
@@ -367,8 +438,7 @@ async function gardenHarvest(plotIndex) {
     // 检查成就
     const unlockedAchievements = checkAndUnlockAchievementsInPlace(garden)
     
-    data.garden = garden
-    writeData(data)
+    writeGardenFile(garden)
     
     return { 
       success: true, 
@@ -386,8 +456,7 @@ async function gardenHarvest(plotIndex) {
  */
 async function gardenBuySeed(cropKey) {
   return withGardenLock(() => {
-    const data = readData()
-    const garden = data.garden || createDefaultData().garden
+    const garden = readGardenFile()
     const cropConfig = CROP_CONFIG[cropKey]
     
     if (!cropConfig) {
@@ -404,8 +473,7 @@ async function gardenBuySeed(cropKey) {
     garden.seeds = garden.seeds || {}
     garden.seeds[cropKey] = (garden.seeds[cropKey] || 0) + 1
     
-    data.garden = garden
-    writeData(data)
+    writeGardenFile(garden)
     
     return { success: true, message: `购买成功！${cropConfig.name}种子 x1`, garden }
   })
@@ -418,8 +486,7 @@ async function gardenBuySeed(cropKey) {
  */
 async function gardenSellCrop(cropKey) {
   return withGardenLock(() => {
-    const data = readData()
-    const garden = data.garden || createDefaultData().garden
+    const garden = readGardenFile()
     const cropConfig = CROP_CONFIG[cropKey]
     
     const crops = garden.crops || {}
@@ -437,8 +504,7 @@ async function gardenSellCrop(cropKey) {
     // 检查成就
     const unlockedAchievements = checkAndUnlockAchievementsInPlace(garden)
     
-    data.garden = garden
-    writeData(data)
+    writeGardenFile(garden)
     
     return { 
       success: true, 
@@ -455,8 +521,7 @@ async function gardenSellCrop(cropKey) {
  */
 async function gardenSellAllCrops() {
   return withGardenLock(() => {
-    const data = readData()
-    const garden = data.garden || createDefaultData().garden
+    const garden = readGardenFile()
     const crops = garden.crops || {}
     
     let totalCoins = 0
@@ -486,8 +551,7 @@ async function gardenSellAllCrops() {
     // 检查成就
     const unlockedAchievements = checkAndUnlockAchievementsInPlace(garden)
     
-    data.garden = garden
-    writeData(data)
+    writeGardenFile(garden)
     
     return { 
       success: true, 
@@ -507,8 +571,7 @@ async function gardenSellAllCrops() {
  */
 async function gardenUnlockPlot(plotIndex) {
   return withGardenLock(() => {
-    const data = readData()
-    const garden = data.garden || createDefaultData().garden
+    const garden = readGardenFile()
     const unlockConfig = PLOT_UNLOCK_CONFIG[plotIndex]
     
     if (!unlockConfig || unlockConfig.type === 'default') {
@@ -535,8 +598,7 @@ async function gardenUnlockPlot(plotIndex) {
         locked: false
       }
       
-      data.garden = garden
-      writeData(data)
+      writeGardenFile(garden)
       
       return { success: true, message: `解锁成功！花费 💰${unlockConfig.price}`, garden }
       
@@ -556,8 +618,7 @@ async function gardenUnlockPlot(plotIndex) {
         locked: false
       }
       
-      data.garden = garden
-      writeData(data)
+      writeGardenFile(garden)
       
       return { success: true, message: `解锁成功！达成成就「${unlockConfig.description}」`, garden }
     }
@@ -572,8 +633,7 @@ async function gardenUnlockPlot(plotIndex) {
  */
 async function gardenSignIn() {
   return withGardenLock(() => {
-    const data = readData()
-    const garden = data.garden || createDefaultData().garden
+    const garden = readGardenFile()
     
     const today = new Date()
     const todayStr = today.toDateString()
@@ -664,8 +724,7 @@ async function gardenSignIn() {
     // 检查成就
     const unlockedAchievements = checkAndUnlockAchievementsInPlace(garden)
     
-    data.garden = garden
-    writeData(data)
+    writeGardenFile(garden)
     
     return { 
       success: true, 
@@ -684,14 +743,12 @@ async function gardenSignIn() {
  */
 async function gardenUpdateFocusMinutes(minutes) {
   return withGardenLock(() => {
-    const data = readData()
-    const garden = data.garden || createDefaultData().garden
+    const garden = readGardenFile()
     
     updateAchievementStatsInPlace(garden, 'focus', minutes)
     const unlockedAchievements = checkAndUnlockAchievementsInPlace(garden)
     
-    data.garden = garden
-    writeData(data)
+    writeGardenFile(garden)
     
     return { garden, unlockedAchievements }
   })
@@ -705,12 +762,9 @@ async function gardenUpdateFocusMinutes(minutes) {
  */
 async function updateGardenProgress(minutes = 1) {
   return withGardenLock(() => {
-    const data = readData()
-    if (!data.garden) {
-      data.garden = createDefaultData().garden
-    }
+    const garden = readGardenFile()
     
-    const plots = data.garden.plots || []
+    const plots = garden.plots || []
     let hasChanges = false
     
     for (let i = 0; i < plots.length; i++) {
@@ -723,8 +777,8 @@ async function updateGardenProgress(minutes = 1) {
     }
     
     if (hasChanges) {
-      data.garden.plots = plots
-      writeData(data)
+      garden.plots = plots
+      writeGardenFile(garden)
     }
     
     return plots
@@ -738,12 +792,9 @@ async function updateGardenProgress(minutes = 1) {
  */
 async function handleGardenPunishment() {
   return withGardenLock(() => {
-    const data = readData()
-    if (!data.garden) {
-      return { hasLoss: false, losses: [], totalMinutes: 0 }
-    }
+    const garden = readGardenFile()
     
-    const plots = data.garden.plots || []
+    const plots = garden.plots || []
     const losses = []
     let totalMinutes = 0
     
@@ -778,8 +829,8 @@ async function handleGardenPunishment() {
     const hasLoss = losses.length > 0
     
     if (hasLoss) {
-      data.garden.plots = plots
-      writeData(data)
+      garden.plots = plots
+      writeGardenFile(garden)
     }
     
     return { hasLoss, losses, totalMinutes }
@@ -900,10 +951,15 @@ function getAchievementProgress(config, stats, garden) {
 
 module.exports = {
   getDataFilePath,
+  getGardenDataFilePath,
   ensureDataDir,
   createDefaultData,
+  createDefaultGardenData,
   readData,
   writeData,
+  // 菜园子独立文件读写（直接操作 garden_data.json）
+  readGardenFile,
+  writeGardenFile,
   // 菜园子原子操作接口（带锁）
   readGardenData,
   gardenPlant,

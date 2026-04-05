@@ -47,6 +47,7 @@
     })
     
     // 保存历史数据
+    // garden 已独立存储到 garden_data.json，writeData 不会影响菜园子数据
     await window.electronAPI.writeData(data)
     
     // 更新成就进度（专注时长）
@@ -89,6 +90,7 @@
       data.statisticsHistory = []
     }
     
+    
     // 添加部分完成记录
     data.statisticsHistory.push({
       date: today,
@@ -100,6 +102,7 @@
     })
     
     // 保存历史数据
+    // garden 已独立存储到 garden_data.json，writeData 不会影响菜园子数据
     await window.electronAPI.writeData(data)
     
     // 更新成就进度（专注时长）
