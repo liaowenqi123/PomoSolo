@@ -124,12 +124,20 @@
         if (window.Stats && window.Stats.increment) {
           window.Stats.increment(minutes, finalNote, false)
         }
-        
-        // 清空备注显示
-        if (timerNoteText) {
-          timerNoteText.textContent = ''
-        }
       }
+    }
+
+    // 清空备注显示和保存的备注
+    const timerNoteText = document.getElementById('timer-note-text')
+    if (timerNoteText) {
+      timerNoteText.textContent = ''
+    }
+    
+    // 清空保存在DataStore中的正向计时备注
+    if (window.DataStore) {
+      const data = window.DataStore.getData()
+      data.stopwatchModeNote = ''
+      window.DataStore.saveImmediate()
     }
 
     // 停止计时

@@ -197,14 +197,17 @@
   }
 
   function switchToSingleMode() {
-    // 保存正向计时的备注（如果从正向计时切换过来）
+    // 保存当前模式的备注
+    const timerNoteText = document.getElementById('timer-note-text')
+    const currentNote = timerNoteText ? timerNoteText.textContent.trim() : ''
+    
     if (state.appMode === 'stopwatch') {
-      const timerNoteText = document.getElementById('timer-note-text')
-      if (timerNoteText) {
-        const data = DataStore.getData()
-        data.stopwatchModeNote = timerNoteText.textContent.trim()
-        DataStore.saveImmediate()
-      }
+      // 从正向计时切换过来，保存正向计时的备注
+      const data = DataStore.getData()
+      data.stopwatchModeNote = currentNote
+      DataStore.saveImmediate()
+    } else if (state.appMode === 'plan') {
+      // 从计划模式切换过来，不需要保存（计划模式不使用这个备注区域）
     }
     
     // 保存计划模式的计时器状态
@@ -242,14 +245,20 @@
   }
 
   function switchToPlanMode() {
-    // 保存正向计时的备注（如果从正向计时切换过来）
+    // 保存当前模式的备注
+    const timerNoteText = document.getElementById('timer-note-text')
+    const currentNote = timerNoteText ? timerNoteText.textContent.trim() : ''
+    
     if (state.appMode === 'stopwatch') {
-      const timerNoteText = document.getElementById('timer-note-text')
-      if (timerNoteText) {
-        const data = DataStore.getData()
-        data.stopwatchModeNote = timerNoteText.textContent.trim()
-        DataStore.saveImmediate()
-      }
+      // 从正向计时切换过来，保存正向计时的备注
+      const data = DataStore.getData()
+      data.stopwatchModeNote = currentNote
+      DataStore.saveImmediate()
+    } else if (state.appMode === 'single') {
+      // 从单次模式切换过来，保存单次模式的备注
+      const data = DataStore.getData()
+      data.singleModeNote = currentNote
+      DataStore.saveImmediate()
     }
     
     // 保存单次模式的计时器状态
@@ -308,10 +317,21 @@
   }
 
   function switchToStopwatchMode() {
+    // 保存当前模式的备注
+    const timerNoteText = document.getElementById('timer-note-text')
+    const currentNote = timerNoteText ? timerNoteText.textContent.trim() : ''
+    
+    if (state.appMode === 'single') {
+      // 从单次模式切换过来，保存单次模式的备注
+      const data = DataStore.getData()
+      data.singleModeNote = currentNote
+      DataStore.saveImmediate()
+    }
+    // 计划模式不使用timer-note-text，所以不需要保存
+    
     // 显示备注区域（正向计时也使用备注功能）
     const timerNoteInput = document.getElementById('timer-note-input')
     const timerNoteDisplay = document.getElementById('timer-note-display')
-    const timerNoteText = document.getElementById('timer-note-text')
     
     // 显示备注显示区域
     if (timerNoteDisplay) {

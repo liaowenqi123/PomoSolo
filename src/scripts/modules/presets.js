@@ -669,7 +669,17 @@
         return
       }
       
-      // 获取当前预设的索引
+      // 正向计时模式：直接清空输入框
+      if (AppState.appMode === 'stopwatch') {
+        timerNoteDisplay.style.display = 'none'
+        timerNoteInput.style.display = 'flex'
+        timerNoteTitleInput.value = ''  // 清空输入框
+        timerNoteTitleInput.focus()
+        bindConfirmButton()
+        return
+      }
+      
+      // 单次模式：获取当前预设的索引
       const index = currentPresets[currentMode].findIndex(preset => {
         const presetMinutes = typeof preset === 'number' ? preset : preset.minutes
         return presetMinutes === activeMinutes
@@ -682,7 +692,7 @@
       
       timerNoteDisplay.style.display = 'none'
       timerNoteInput.style.display = 'flex'
-      timerNoteTitleInput.value = note
+      timerNoteTitleInput.value = ''  // 清空输入框，等待用户输入
       timerNoteTitleInput.focus()
       bindConfirmButton()
     })
