@@ -1,0 +1,192 @@
+/**
+ * 自习室模块
+ * 管理自习室的创建和加入功能
+ */
+
+const StudyRoom = {
+  // 最小专注时间要求（分钟）
+  CREATE_REQUIREMENT: 10,
+  JOIN_REQUIREMENT: 15,
+
+  /**
+   * 初始化自习室模块
+   */
+  init() {
+    this.bindEvents();
+    this.updateRequirements();
+  },
+
+  /**
+   * 绑定事件
+   */
+  bindEvents() {
+    // 打开自习室弹窗
+    const studyRoomBtn = document.getElementById('ui-study-room-btn');
+    if (studyRoomBtn) {
+      studyRoomBtn.addEventListener('click', () => this.openModal());
+    }
+
+    // 关闭弹窗
+    const closeBtn = document.getElementById('study-room-modal-close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => this.closeModal());
+    }
+
+    // 点击背景关闭
+    const modal = document.getElementById('study-room-modal');
+    if (modal) {
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+          this.closeModal();
+        }
+      });
+    }
+
+    // 开启自习室按钮
+    const createBtn = document.getElementById('study-room-create-btn');
+    if (createBtn) {
+      createBtn.addEventListener('click', () => this.handleCreate());
+    }
+
+    // 加入自习室按钮
+    const joinBtn = document.getElementById('study-room-join-btn');
+    if (joinBtn) {
+      joinBtn.addEventListener('click', () => this.handleJoin());
+    }
+  },
+
+  /**
+   * 打开自习室弹窗
+   */
+  openModal() {
+    const modal = document.getElementById('study-room-modal');
+    if (modal) {
+      modal.classList.add('active');
+      this.updateRequirements();
+    }
+  },
+
+  /**
+   * 关闭自习室弹窗
+   */
+  closeModal() {
+    const modal = document.getElementById('study-room-modal');
+    if (modal) {
+      modal.classList.remove('active');
+    }
+  },
+
+  /**
+   * 更新需求状态
+   */
+  updateRequirements() {
+    const totalMinutes = this.getTotalFocusMinutes();
+
+    // 更新开启自习室的状态
+    this.updateRequirement(
+      'study-room-create-requirement',
+      'study-room-create-btn',
+      totalMinutes,
+      this.CREATE_REQUIREMENT
+    );
+
+    // 更新加入自习室的状态
+    this.updateRequirement(
+      'study-room-join-requirement',
+      'study-room-join-btn',
+      totalMinutes,
+      this.JOIN_REQUIREMENT
+    );
+  },
+
+  /**
+   * 更新单个需求的状态
+   */
+  updateRequirement(requirementId, btnId, currentMinutes, requiredMinutes) {
+    const requirementEl = document.getElementById(requirementId);
+    const btnEl = document.getElementById(btnId);
+
+    if (!requirementEl || !btnEl) return;
+
+    const isMet = currentMinutes >= requiredMinutes;
+
+    // 更新需求显示
+    if (isMet) {
+      requirementEl.classList.add('met');
+      requirementEl.classList.remove('not-met');
+      requirementEl.querySelector('.requirement-text').textContent = 
+        `已达到要求（${currentMinutes} / ${requiredMinutes} 分钟）✓`;
+      btnEl.disabled = false;
+    } else {
+      requirementEl.classList.add('not-met');
+      requirementEl.classList.remove('met');
+      requirementEl.querySelector('.requirement-text').textContent = 
+        `需要累计专注 ${requiredMinutes} 分钟（当前 ${currentMinutes} 分钟）`;
+      btnEl.disabled = true;
+    }
+  },
+
+  /**
+   * 获取累计专注时间（分钟）
+   */
+  getTotalFocusMinutes() {
+    // 从侧边栏统计信息获取
+    const totalMinutesEl = document.getElementById('timer-total-minutes');
+    if (totalMinutesEl) {
+      return parseInt(totalMinutesEl.textContent) || 0;
+    }
+    return 0;
+  },
+
+  /**
+   * 处理开启自习室
+   */
+  handleCreate() {
+    const totalMinutes = this.getTotalFocusMinutes();
+    
+    if (totalMinutes < this.CREATE_REQUIREMENT) {
+      this.showToast(`需要累计专注 ${this.CREATE_REQUIREMENT} 分钟才能开启自习室`);
+      return;
+    }
+
+    // TODO: 实现开启自习室的逻辑
+    console.log('开启自习室');
+    this.showToast('开启自习室功能开发中...');
+  },
+
+  /**
+   * 处理加入自习室
+   */
+  handleJoin() {
+    const totalMinutes = this.getTotalFocusMinutes();
+    
+    if (totalMinutes < this.JOIN_REQUIREMENT) {
+      this.showToast(`需要累计专注 ${this.JOIN_REQUIREMENT} 分钟才能加入自习室`);
+      return;
+    }
+
+    // TODO: 实现加入自习室的逻辑
+    console.log('加入自习室');
+    this.showToast('加入自习室功能开发中...');
+  },
+
+  /**
+   * 显示提示消息
+   */
+  showToast(message) {
+    // 使用现有的 toast 系统
+    const toast = document.getElementById('ui-toast');
+    if (toast) {
+      toast.textContent = message;
+      toast.classList.add('show');
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 2000);
+    }
+  }
+};
+
+// 导出模块（如果需要）
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = StudyRoom;
+}

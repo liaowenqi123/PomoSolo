@@ -197,6 +197,11 @@
     })
   }
 
+  // ============ 初始化自习室模块 ============
+  if (window.StudyRoom) {
+    StudyRoom.init()
+  }
+
   // ============ 事件绑定 ============
 
   DOM.startBtn.removeEventListener('click', Timer.toggle);
