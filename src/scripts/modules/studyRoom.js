@@ -39,10 +39,20 @@ const StudyRoom = {
     const studyRoomBtn = document.getElementById('ui-study-room-btn');
     if (studyRoomBtn) {
       console.log('[StudyRoom] 绑定自习室按钮点击事件');
+      console.log('[StudyRoom] 按钮计算样式:', window.getComputedStyle(studyRoomBtn).display);
+      console.log('[StudyRoom] 按钮可见性:', studyRoomBtn.offsetParent !== null);
+      
       studyRoomBtn.addEventListener('click', (e) => {
         console.log('[StudyRoom] 自习室按钮被点击');
+        console.log('[StudyRoom] 事件对象:', e);
         e.stopPropagation();
+        e.preventDefault();
         this.openModal();
+      });
+      
+      // 添加鼠标悬停测试
+      studyRoomBtn.addEventListener('mouseenter', () => {
+        console.log('[StudyRoom] 鼠标进入按钮区域');
       });
     } else {
       console.warn('[StudyRoom] 未找到自习室按钮');
@@ -209,8 +219,19 @@ const StudyRoom = {
         toast.classList.remove('show');
       }, 2000);
     }
+  },
+
+  /**
+   * 调试函数 - 手动打开弹窗
+   */
+  debugOpen() {
+    console.log('[StudyRoom] 调试：手动打开弹窗');
+    this.openModal();
   }
 };
+
+// 暴露到全局用于调试
+window.StudyRoom = StudyRoom;
 
 // 导出模块（如果需要）
 if (typeof module !== 'undefined' && module.exports) {
