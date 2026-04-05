@@ -194,14 +194,15 @@
   cursor: pointer;
   transition: all 0.2s;
   flex-shrink: 0;
-  opacity: 1;
-  visibility: visible;
+  opacity: 1 !important;
+  visibility: visible !important;
 }
 
 .study-room-btn:hover:not(:disabled) {
-  background: var(--primary-hover);
+  background: #ff5252;
+  color: white;
   transform: scale(1.05);
-  box-shadow: 0 2px 8px rgba(255, 107, 107, 0.3);
+  box-shadow: 0 2px 8px rgba(255, 82, 82, 0.4);
 }
 
 .study-room-btn:active:not(:disabled) {
@@ -211,12 +212,13 @@
 .study-room-btn:disabled {
   background: var(--text-secondary);
   cursor: not-allowed;
-  opacity: 0.5;
+  opacity: 0.5 !important;
 }
 
 .study-room-btn:disabled:hover {
   transform: none;
   box-shadow: none;
+  background: var(--text-secondary);
 }
 
 @keyframes modalSlideIn {
