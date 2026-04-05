@@ -305,6 +305,17 @@
       target: 100,
       icon: '👑',
       rewards: { seeds: { osmanthus: 2 }, coins: 0 }
+    },
+    
+    // 隐藏成就
+    easteregg: { 
+      id: 'easteregg',
+      category: 'hidden',
+      name: '发现彩蛋', 
+      description: '在设置中发现隐藏的彩蛋',
+      target: 1,
+      icon: '🥚',
+      rewards: { seeds: { osmanthus: 1 }, coins: 50 }
     }
   }
 
@@ -315,7 +326,8 @@
     plant: { name: '种植', icon: '🌱' },
     collect: { name: '收藏', icon: '📦' },
     wealth: { name: '财富', icon: '💰' },
-    persist: { name: '坚持', icon: '📅' }
+    persist: { name: '坚持', icon: '📅' },
+    hidden: { name: '隐藏', icon: '🔮' }
   }
 
   /**

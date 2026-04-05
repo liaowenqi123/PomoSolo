@@ -172,10 +172,51 @@
     console.log('%c🎉 你发现了隐藏彩蛋！', 'font-size: 20px; color: #ff6b6b; font-weight: bold;')
     console.log('%c✨ 更多精彩内容等待探索...', 'font-size: 14px; color: #4ecdc4;')
 
+    // 解锁隐藏成就
+    unlockEasterEggAchievement()
+
     // 延迟启动太空旅行（让粒子效果先播放）
     setTimeout(() => {
       launchSpaceTravel()
     }, 800)
+  }
+
+  /**
+   * 解锁隐藏成就
+   */
+  async function unlockEasterEggAchievement() {
+    try {
+      // 直接调用 garden.js 的成就解锁函数
+      if (window.Garden && window.Garden.checkAndUnlockAchievements) {
+        // 手动设置成就数据
+        const data = await window.electronAPI.readData()
+        if (data.garden && data.garden.achievements) {
+          // 检查是否已解锁
+          if (data.garden.achievements.easteregg && data.garden.achievements.easteregg.unlocked) {
+            return // 已解锁，不重复
+          }
+          
+          // 解锁成就
+          data.garden.achievements.easteregg = {
+            unlocked: true,
+            unlockedAt: new Date().toISOString()
+          }
+          
+          // 发放奖励
+          if (data.garden.seeds) {
+            data.garden.seeds.osmanthus = (data.garden.seeds.osmanthus || 0) + 1
+          }
+          data.garden.coins = (data.garden.coins || 0) + 50
+          
+          await window.electronAPI.writeData(data)
+          
+          // 显示提示
+          console.log('%c🏆 成就解锁：发现彩蛋！', 'font-size: 16px; color: #FFD700; font-weight: bold;')
+        }
+      }
+    } catch (e) {
+      console.error('[Settings] 解锁成就失败:', e)
+    }
   }
 
   /**
