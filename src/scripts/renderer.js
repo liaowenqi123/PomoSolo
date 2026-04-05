@@ -45,6 +45,11 @@
     Settings.init()
   }
   
+  // ============ 初始化自习室模块 ============
+  if (window.StudyRoom) {
+    StudyRoom.init()
+  }
+  
   // ============ 初始化预设模块 ============
   await Presets.init(
     {
@@ -195,11 +200,6 @@
       manualDownloadInput: DOM.chartsManualDownloadInput,
       manualDownloadBtn: DOM.chartsManualDownloadBtn
     })
-  }
-
-  // ============ 初始化自习室模块 ============
-  if (window.StudyRoom) {
-    StudyRoom.init()
   }
 
   // ============ 事件绑定 ============

@@ -12,6 +12,21 @@ const StudyRoom = {
    * 初始化自习室模块
    */
   init() {
+    console.log('[StudyRoom] 初始化自习室模块');
+    
+    // 确保按钮可见（防止被设置隐藏）
+    const studyRoomBtn = document.getElementById('ui-study-room-btn');
+    if (studyRoomBtn) {
+      // 检查设置中是否有 showStudyRoomBtn
+      const settings = window.Settings ? window.Settings.getSetting('showStudyRoomBtn') : true;
+      if (settings !== false) {
+        studyRoomBtn.style.display = '';
+      }
+      console.log('[StudyRoom] 自习室按钮:', studyRoomBtn, '显示状态:', studyRoomBtn.style.display);
+    } else {
+      console.warn('[StudyRoom] 未找到自习室按钮元素');
+    }
+    
     this.bindEvents();
     this.updateRequirements();
   },
@@ -23,7 +38,14 @@ const StudyRoom = {
     // 打开自习室弹窗
     const studyRoomBtn = document.getElementById('ui-study-room-btn');
     if (studyRoomBtn) {
-      studyRoomBtn.addEventListener('click', () => this.openModal());
+      console.log('[StudyRoom] 绑定自习室按钮点击事件');
+      studyRoomBtn.addEventListener('click', (e) => {
+        console.log('[StudyRoom] 自习室按钮被点击');
+        e.stopPropagation();
+        this.openModal();
+      });
+    } else {
+      console.warn('[StudyRoom] 未找到自习室按钮');
     }
 
     // 关闭弹窗
@@ -59,10 +81,14 @@ const StudyRoom = {
    * 打开自习室弹窗
    */
   openModal() {
+    console.log('[StudyRoom] 打开自习室弹窗');
     const modal = document.getElementById('study-room-modal');
     if (modal) {
       modal.classList.add('active');
       this.updateRequirements();
+      console.log('[StudyRoom] 弹窗已显示');
+    } else {
+      console.error('[StudyRoom] 未找到自习室弹窗元素');
     }
   },
 
