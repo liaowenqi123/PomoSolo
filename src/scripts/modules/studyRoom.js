@@ -150,8 +150,7 @@ const StudyRoom = {
     if (isMet) {
       requirementEl.classList.add('met');
       requirementEl.classList.remove('not-met');
-      requirementEl.querySelector('.requirement-text').textContent = 
-        `已达到要求（${currentMinutes} / ${requiredMinutes} 分钟）✓`;
+      requirementEl.querySelector('.requirement-text').textContent = '已达到要求 ✓';
       btnEl.disabled = false;
     } else {
       requirementEl.classList.add('not-met');
