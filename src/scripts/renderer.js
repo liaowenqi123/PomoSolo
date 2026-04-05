@@ -226,6 +226,14 @@
     }
 
     // READY 阶段 -> 开始计时
+    // 正向计时模式
+    if (AppState.appMode === 'stopwatch') {
+      if (window.Stopwatch) {
+        window.Stopwatch.toggle()
+      }
+      return
+    }
+    
     // 如果是计划模式且计划列表为空，则不允许开始
     if (AppState.appMode === 'plan' && !PlanMode.hasPlan()) {
       alert('请先添加计划任务')
@@ -266,10 +274,14 @@
       
       AppState.toggleFocusMode()
       
-      // 更新状态文字
+      // 更新状态文字（正向计时模式没有专注模式，不显示状态）
       if (DOM.focusModeStatus) {
-        DOM.focusModeStatus.textContent = AppState.focusModeEnabled ? '开启' : '关闭'
-        DOM.focusModeStatus.classList.toggle('active', AppState.focusModeEnabled)
+        if (AppState.appMode === 'stopwatch') {
+          DOM.focusModeStatus.textContent = ''
+        } else {
+          DOM.focusModeStatus.textContent = AppState.focusModeEnabled ? '开启' : '关闭'
+          DOM.focusModeStatus.classList.toggle('active', AppState.focusModeEnabled)
+        }
       }
       
       // 通知主进程更新专注模式状态
@@ -325,17 +337,31 @@
 
   // 应用模式切换滑块
   DOM.modeSlider.addEventListener('click', () => {
-    const newMode = AppState.appMode === 'single' ? 'plan' : 'single'
-    AppState.switchAppMode(newMode)
+    // 正向计时运行时不允许切换
+    if (AppState.appMode === 'stopwatch' && window.Stopwatch && window.Stopwatch.getIsRunning()) {
+      return
+    }
+    
+    const modes = ['single', 'plan', 'stopwatch']
+    const currentIndex = modes.indexOf(AppState.appMode)
+    const nextIndex = (currentIndex + 1) % modes.length
+    AppState.switchAppMode(modes[nextIndex])
   })
 
   DOM.modeLabels.forEach(label => {
     label.addEventListener('click', () => {
+      // 正向计时运行时不允许切换
+      if (AppState.appMode === 'stopwatch' && window.Stopwatch && window.Stopwatch.getIsRunning()) {
+        return
+      }
+      
       const mode = label.dataset.mode
       if (mode === 'single') {
         AppState.switchAppMode('single')
       } else if (mode === 'plan') {
         AppState.switchAppMode('plan')
+      } else if (mode === 'stopwatch') {
+        AppState.switchAppMode('stopwatch')
       }
     })
   })
@@ -346,6 +372,14 @@
   // - RUNNING 阶段：中断计时，可能触发惩罚
   // - FINISHED 阶段：确认完成，进入下一轮准备
   DOM.btnReset.addEventListener('click', async () => {
+    // 正向计时模式
+    if (AppState.appMode === 'stopwatch') {
+      if (window.Stopwatch) {
+        window.Stopwatch.reset()
+      }
+      return
+    }
+    
     const phase = Timer.getPhase()
     const PHASE = Timer.PHASE
     
@@ -447,8 +481,45 @@
   // 菜园子按钮事件
   if (DOM.gardenBtn) {
     DOM.gardenBtn.addEventListener('click', () => {
+      // 正向计时模式下禁用菜园子
+      if (AppState.appMode === 'stopwatch') {
+        showGardenUnavailableModal()
+        return
+      }
       window.electronAPI.openGarden()
     })
+  }
+
+  // 显示菜园子不可用提示弹窗
+  function showGardenUnavailableModal() {
+    // 展开侧边栏（如果已收起）
+    if (window.expandSidebarIfNeeded) {
+      window.expandSidebarIfNeeded()
+    }
+    
+    const modal = document.getElementById('garden-unavailable-modal')
+    const okBtn = document.getElementById('garden-unavailable-ok-btn')
+    
+    if (modal) {
+      modal.classList.add('show')
+      
+      // 点击确定按钮关闭
+      const closeModal = () => {
+        modal.classList.remove('show')
+        okBtn.removeEventListener('click', closeModal)
+        modal.removeEventListener('click', handleBackdropClick)
+      }
+      
+      // 点击背景关闭
+      const handleBackdropClick = (e) => {
+        if (e.target === modal) {
+          closeModal()
+        }
+      }
+      
+      okBtn.addEventListener('click', closeModal)
+      modal.addEventListener('click', handleBackdropClick)
+    }
   }
 
   // 榜单按钮事件

@@ -119,52 +119,75 @@ body {
 .mode-slider-container {
   position: absolute;
   left: 8px;
-  top: 12px;
+  top: 10px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   z-index: 50;
   -webkit-app-region: no-drag;
 }
 
 .mode-slider {
-  width: 32px;
-  height: 18px;
-  background: rgba(255, 255, 255, 0.25);
-  border-radius: 9px;
+  width: 46px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
   position: relative;
   cursor: pointer;
+  transition: background 0.3s ease;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+}
+
+.mode-slider:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .mode-slider-thumb {
   width: 14px;
   height: 14px;
-  background: rgba(255, 255, 255, 0.95);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.85));
   border-radius: 50%;
   position: absolute;
-  left: 2px;
+  left: 3px;
   top: 2px;
-  transition: left 0.3s ease;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
 .mode-slider.plan-mode .mode-slider-thumb {
   left: 16px;
 }
 
+.mode-slider.stopwatch-mode .mode-slider-thumb {
+  left: 29px;
+}
+
 .mode-slider-labels {
   display: flex;
-  gap: 2px;
+  gap: 3px;
+  align-items: center;
 }
 
 .mode-label {
-  font-size: 10px;
+  font-size: 9px;
   color: rgba(255, 255, 255, 0.5);
   transition: all 0.3s ease;
   cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: transparent;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.mode-label:hover {
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .mode-label.active {
   color: rgba(255, 255, 255, 0.95);
   font-weight: 600;
+  background: rgba(255, 255, 255, 0.12);
 }

@@ -349,6 +349,30 @@
       e.stopPropagation()
       const title = updatedInput.value.trim()
       
+      // 正向计时模式：直接保存备注到独立字段
+      if (AppState.appMode === 'stopwatch') {
+        const data = DataStore.getData()
+        data.stopwatchModeNote = title
+        await DataStore.saveImmediate()
+        
+        // 切换到显示模式
+        timerNoteInput.style.display = 'none'
+        timerNoteDisplay.style.display = 'flex'
+        timerNoteText.textContent = title
+        
+        // 根据字数调整位置
+        const len = title.length
+        if (len <= 2) {
+          timerNoteDisplay.style.top = '40px'
+        } else if (len <= 4) {
+          timerNoteDisplay.style.top = '45px'
+        } else {
+          timerNoteDisplay.style.top = '50px'
+        }
+        return
+      }
+      
+      // 单次模式：保存到预设
       // 获取当前选中的预设
       const activeMinutes = activePreset
       

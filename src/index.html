@@ -79,6 +79,7 @@
         <div class="mode-slider-labels">
           <span class="mode-label active" data-mode="single">单次</span>
           <span class="mode-label" data-mode="plan">计划</span>
+          <span class="mode-label" data-mode="stopwatch">正向</span>
         </div>
       </div>
       
@@ -101,6 +102,16 @@
           <!-- 计划列表 -->
           <div class="plan-list scrollable" id="plan-list">
             <!-- 由 JS 动态生成 -->
+          </div>
+        </div>
+        
+        <!-- 正向计时模式：简单说明 -->
+        <div class="stopwatch-mode-content" id="stopwatch-mode-content" style="display: none;">
+          <h2 class="sidebar-title">正向计时</h2>
+          <div class="stopwatch-description">
+            <p>从零开始累计</p>
+            <p>适合不确定时长的任务</p>
+            <p>💡 超过1分钟才会计入统计</p>
           </div>
         </div>
         
@@ -215,7 +226,7 @@
             <div class="focus-mode-switch" id="focus-mode-switch">
               <div class="focus-mode-slider"></div>
             </div>
-            <span class="focus-mode-status" id="focus-mode-status">关闭</span>
+            <span class="focus-mode-status" id="focus-mode-status"></span>
           </div>
           
           <div class="buttons">
@@ -806,6 +817,16 @@
       </div>
     </div>
 
+    <!-- 菜园子不可用提示弹窗 -->
+    <div class="info-modal" id="garden-unavailable-modal">
+      <div class="info-modal-content">
+        <div class="info-modal-icon">🌱</div>
+        <h3 class="info-modal-title">菜园子暂不可用</h3>
+        <p class="info-modal-message">请在单次/计划中的专注模式下使用菜园子功能</p>
+        <button class="info-modal-btn" id="garden-unavailable-ok-btn">知道了</button>
+      </div>
+    </div>
+
     <!-- 设置弹窗 -->
     <div class="settings-modal" id="settings-modal">
       <div class="settings-modal-content">
@@ -1090,6 +1111,7 @@
   <script src="scripts/modules/planMode.js"></script>
     <script src="scripts/modules/noteManager.js"></script>
   <script src="scripts/modules/timer.js"></script>
+  <script src="scripts/modules/stopwatch.js"></script>
   <script src="scripts/modules/mode.js"></script>
   <script src="scripts/modules/musicPlayer.js"></script>
   

@@ -866,3 +866,18 @@
   opacity: 1;
   transform: scale(1.1);
 }
+
+/* ============ 正向计时模式进度圈旋转动画 ============ */
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.container.stopwatch-mode .timer-progress-circle {
+  stroke-dasharray: 390;
+  stroke-dashoffset: 292.5; /* 75% 的圈 */
+}
