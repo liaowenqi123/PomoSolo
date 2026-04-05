@@ -7,6 +7,9 @@ const StudyRoom = {
   // 最小专注时间要求（分钟）
   CREATE_REQUIREMENT: 10,
   JOIN_REQUIREMENT: 15,
+  
+  // 弹窗实例
+  modal: null,
 
   /**
    * 初始化自习室模块
@@ -27,8 +30,26 @@ const StudyRoom = {
       console.warn('[StudyRoom] 未找到自习室按钮元素');
     }
     
+    this.initModal();
     this.bindEvents();
     this.updateRequirements();
+  },
+
+  /**
+   * 初始化弹窗实例
+   */
+  initModal() {
+    const modalElement = document.getElementById('study-room-modal');
+    if (modalElement && typeof BaseModal !== 'undefined') {
+      this.modal = new BaseModal({
+        element: modalElement,
+        showClass: 'active',
+        closeOnBackground: true
+      });
+      console.log('[StudyRoom] BaseModal 实例已创建');
+    } else {
+      console.warn('[StudyRoom] BaseModal 不可用或弹窗元素未找到');
+    }
   },
 
   /**
@@ -58,20 +79,10 @@ const StudyRoom = {
       console.warn('[StudyRoom] 未找到自习室按钮');
     }
 
-    // 关闭弹窗
+    // 关闭弹窗按钮（BaseModal 会自动处理，但保留以防回退）
     const closeBtn = document.getElementById('study-room-modal-close');
     if (closeBtn) {
       closeBtn.addEventListener('click', () => this.closeModal());
-    }
-
-    // 点击背景关闭
-    const modal = document.getElementById('study-room-modal');
-    if (modal) {
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-          this.closeModal();
-        }
-      });
     }
 
     // 开启自习室按钮
@@ -92,13 +103,25 @@ const StudyRoom = {
    */
   openModal() {
     console.log('[StudyRoom] 打开自习室弹窗');
-    const modal = document.getElementById('study-room-modal');
-    if (modal) {
-      modal.classList.add('active');
+    
+    if (this.modal) {
+      // 使用 BaseModal 实例（会自动展开侧边栏）
+      this.modal.show();
       this.updateRequirements();
-      console.log('[StudyRoom] 弹窗已显示');
+      console.log('[StudyRoom] 使用 BaseModal 显示弹窗');
     } else {
-      console.error('[StudyRoom] 未找到自习室弹窗元素');
+      // 回退方案：手动展开侧边栏并显示弹窗
+      if (window.expandSidebarIfNeeded) {
+        window.expandSidebarIfNeeded();
+      }
+      const modalElement = document.getElementById('study-room-modal');
+      if (modalElement) {
+        modalElement.classList.add('active');
+        this.updateRequirements();
+        console.log('[StudyRoom] 使用回退方案显示弹窗');
+      } else {
+        console.error('[StudyRoom] 未找到自习室弹窗元素');
+      }
     }
   },
 
@@ -106,9 +129,13 @@ const StudyRoom = {
    * 关闭自习室弹窗
    */
   closeModal() {
-    const modal = document.getElementById('study-room-modal');
-    if (modal) {
-      modal.classList.remove('active');
+    if (this.modal) {
+      this.modal.hide();
+    } else {
+      const modalElement = document.getElementById('study-room-modal');
+      if (modalElement) {
+        modalElement.classList.remove('active');
+      }
     }
   },
 
