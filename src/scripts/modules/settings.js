@@ -30,6 +30,7 @@
   const SETTING_MAP = {
     // 计时器
     minimizeBehavior: 'settings-minimize-behavior',
+    miniExitMode: 'settings-mini-exit-mode',
     // 界面显示
     showDarkModeBtn: 'settings-dark-mode',
     showGardenBtn: 'settings-show-garden-btn',
@@ -47,6 +48,9 @@
     // 系统
     autoStart: 'settings-auto-start'
   }
+
+  // 下拉选择框设置项列表
+  const SELECT_SETTINGS = ['minimizeBehavior', 'miniExitMode']
 
   // 开关设置项列表
   const TOGGLE_SETTINGS = [
@@ -86,6 +90,12 @@
       onHide: () => {
         hideConfirmDialog()
         originalSettings = null
+      },
+      onBackgroundClick: () => {
+        // 点击背景时，使用和关闭按钮相同的逻辑
+        handleCloseClick()
+        // 返回 false 阻止默认关闭行为（由 handleCloseClick 决定是否关闭）
+        return false
       }
     })
 
@@ -425,15 +435,6 @@
       elements.closeBtn.addEventListener('click', handleCloseClick)
     }
     
-    // 点击遮罩关闭
-    if (elements.modal) {
-      elements.modal.addEventListener('click', (e) => {
-        if (e.target === elements.modal) {
-          handleCloseClick()
-        }
-      })
-    }
-    
     // 保存按钮
     if (elements.saveBtn) {
       elements.saveBtn.addEventListener('click', saveSettings)
@@ -443,6 +444,23 @@
     if (elements.resetBtn) {
       elements.resetBtn.addEventListener('click', resetToDefault)
     }
+    
+    // 迷你模式退出方式选择变化时显示/隐藏提示
+    const miniExitModeSelect = document.getElementById(SETTING_MAP.miniExitMode)
+    if (miniExitModeSelect) {
+      miniExitModeSelect.addEventListener('change', updateMiniExitHint)
+    }
+  }
+
+  /**
+   * 更新迷你模式退出方式提示
+   */
+  function updateMiniExitHint() {
+    const select = document.getElementById(SETTING_MAP.miniExitMode)
+    const hint = document.getElementById('settings-mini-exit-hint')
+    if (select && hint) {
+      hint.style.display = select.value === 'double-click' ? 'block' : 'none'
+    }
   }
 
   /**
@@ -451,12 +469,15 @@
   async function resetToDefault() {
     const defaultSettings = Utils.createDefaultData().settings
     
-    // 更新表单值
-    const minimizeSelect = document.getElementById(SETTING_MAP.minimizeBehavior)
-    if (minimizeSelect) {
-      minimizeSelect.value = defaultSettings.minimizeBehavior || 'mini'
-    }
+    // 更新下拉选择框
+    SELECT_SETTINGS.forEach(key => {
+      const select = document.getElementById(SETTING_MAP[key])
+      if (select) {
+        select.value = defaultSettings[key] || select.options[0].value
+      }
+    })
     
+    // 更新开关
     TOGGLE_SETTINGS.forEach(key => {
       const checkbox = document.getElementById(SETTING_MAP[key])
       if (checkbox) {
@@ -483,12 +504,15 @@
   function hasChanges() {
     if (!originalSettings) return false
     
-    // 比较当前表单值与原始值
-    const minimizeSelect = document.getElementById(SETTING_MAP.minimizeBehavior)
-    if (minimizeSelect && minimizeSelect.value !== originalSettings.minimizeBehavior) {
-      return true
+    // 比较下拉选择框
+    for (const key of SELECT_SETTINGS) {
+      const select = document.getElementById(SETTING_MAP[key])
+      if (select && select.value !== originalSettings[key]) {
+        return true
+      }
     }
     
+    // 比较开关
     for (const key of TOGGLE_SETTINGS) {
       const checkbox = document.getElementById(SETTING_MAP[key])
       if (checkbox) {
@@ -522,7 +546,8 @@
       </div>
     `
     
-    document.body.appendChild(confirmDialog)
+    // 添加到设置弹窗内部，而不是 body
+    elements.modal.appendChild(confirmDialog)
     
     // 绑定按钮事件
     const cancelBtn = confirmDialog.querySelector('.settings-confirm-cancel')
@@ -567,10 +592,12 @@
    */
   function updateFormValues() {
     // 下拉选择框
-    const minimizeSelect = document.getElementById(SETTING_MAP.minimizeBehavior)
-    if (minimizeSelect) {
-      minimizeSelect.value = currentSettings.minimizeBehavior || 'mini'
-    }
+    SELECT_SETTINGS.forEach(key => {
+      const select = document.getElementById(SETTING_MAP[key])
+      if (select) {
+        select.value = currentSettings[key] || select.options[0].value
+      }
+    })
     
     // 开关
     TOGGLE_SETTINGS.forEach(key => {
@@ -579,6 +606,9 @@
         checkbox.checked = currentSettings[key] !== false
       }
     })
+    
+    // 更新迷你模式退出方式提示
+    updateMiniExitHint()
   }
 
   /**
@@ -589,10 +619,12 @@
     const newSettings = {}
     
     // 下拉选择框
-    const minimizeSelect = document.getElementById(SETTING_MAP.minimizeBehavior)
-    if (minimizeSelect) {
-      newSettings.minimizeBehavior = minimizeSelect.value
-    }
+    SELECT_SETTINGS.forEach(key => {
+      const select = document.getElementById(SETTING_MAP[key])
+      if (select) {
+        newSettings[key] = select.value
+      }
+    })
     
     // 开关
     TOGGLE_SETTINGS.forEach(key => {

@@ -102,6 +102,19 @@
   font-size: 14px;
 }
 
+/* 设置项提示 */
+.settings-item-hint {
+  font-size: 11px;
+  color: #888;
+  margin-top: -4px;
+  margin-bottom: 4px;
+  padding-left: 22px;
+}
+
+[data-theme="dark"] .settings-item-hint {
+  color: #666;
+}
+
 /* 开关样式 */
 .settings-toggle {
   position: relative;

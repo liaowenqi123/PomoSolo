@@ -575,6 +575,25 @@
     // 隐藏主容器，显示迷你模式
     document.querySelector('.container').style.display = 'none'
     document.getElementById('mini-mode').style.display = 'flex'
+    
+    // 根据设置决定退出方式
+    const miniExitMode = window.Settings ? Settings.getSetting('miniExitMode') : 'arrow'
+    const expandBtn = document.getElementById('mini-expand-btn')
+    const miniDraggable = document.querySelector('.mini-draggable')
+    const miniLeaves = document.querySelector('.mini-leaves')
+    
+    if (miniExitMode === 'double-click') {
+      // 双击番茄退出模式：隐藏箭头，叶子可拖动
+      if (expandBtn) expandBtn.style.display = 'none'
+      if (miniDraggable) miniDraggable.classList.remove('draggable')
+      if (miniLeaves) miniLeaves.classList.add('draggable')
+    } else {
+      // 箭头退出模式：显示箭头，整体可拖动
+      if (expandBtn) expandBtn.style.display = 'flex'
+      if (miniDraggable) miniDraggable.classList.add('draggable')
+      if (miniLeaves) miniLeaves.classList.remove('draggable')
+    }
+    
     // 调整窗口大小并置顶
     window.electronAPI.enterMiniMode()
   }
@@ -614,12 +633,25 @@
     })
   }
 
-  // 迷你模式展开按钮事件
+  // 迷你模式展开按钮事件（点击箭头退出）
   const expandMiniBtn = document.getElementById('mini-expand-btn')
   if (expandMiniBtn) {
     expandMiniBtn.addEventListener('click', () => {
       if (isMiniMode) {
         exitMiniMode()
+      }
+    })
+  }
+
+  // 迷你模式双击番茄退出事件
+  const miniTomato = document.querySelector('.mini-tomato')
+  if (miniTomato) {
+    miniTomato.addEventListener('dblclick', () => {
+      if (isMiniMode) {
+        const miniExitMode = window.Settings ? Settings.getSetting('miniExitMode') : 'arrow'
+        if (miniExitMode === 'double-click') {
+          exitMiniMode()
+        }
       }
     })
   }

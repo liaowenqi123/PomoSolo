@@ -487,13 +487,17 @@
 }
 
 .mini-draggable {
-  -webkit-app-region: drag;
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
   z-index: 1;
+}
+
+/* 拖动区域 - 通过 JS 动态添加 */
+.mini-draggable.draggable {
+  -webkit-app-region: drag;
 }
 
 /* 叶子容器 */
@@ -503,6 +507,11 @@
   height: 40px;
   z-index: 5;
   margin-bottom: -12px;
+}
+
+/* 叶子拖动模式 */
+.mini-leaves.draggable {
+  -webkit-app-region: drag;
 }
 
 /* 单片叶子 - 灵动自然的造型 */

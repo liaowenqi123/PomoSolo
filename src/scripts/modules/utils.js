@@ -405,6 +405,7 @@
       settings: {
         // 计时器设置
         minimizeBehavior: 'mini',  // 'mini' 迷你模式 | 'minimize' 最小化到任务栏
+        miniExitMode: 'arrow',     // 'arrow' 点击箭头退出 | 'double-click' 双击番茄退出（拖动叶子）
         // 界面显示
         showDarkModeBtn: true,     // 显示深色模式按钮
         showGardenBtn: true,       // 显示菜园子按钮
