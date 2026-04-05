@@ -35,6 +35,7 @@
     showGardenBtn: 'settings-show-garden-btn',
     showStatsBtn: 'settings-show-stats-btn',
     showAiBtn: 'settings-show-ai-btn',
+    showStudyRoomBtn: 'settings-show-study-room-btn',
     showSidebarCollapseBtn: 'settings-show-sidebar-collapse-btn',
     showHeaderExpandBtn: 'settings-show-header-expand-btn',
     // 音乐播放器
@@ -50,7 +51,7 @@
   // 开关设置项列表
   const TOGGLE_SETTINGS = [
     'showDarkModeBtn', 'showGardenBtn', 'showStatsBtn',
-    'showAiBtn', 'showSidebarCollapseBtn', 'showHeaderExpandBtn',
+    'showAiBtn', 'showStudyRoomBtn', 'showSidebarCollapseBtn', 'showHeaderExpandBtn',
     'showShuffleBtn', 'showVolumeBtn', 'showDeviceBtn', 'showChartsBtn',
     'advancedColorCustomization', 'autoStart'
   ]
@@ -626,6 +627,7 @@
     applyVisibility('ui-garden-btn', currentSettings.showGardenBtn)
     applyVisibility('stats-btn', currentSettings.showStatsBtn)
     applyVisibility('ai-btn', currentSettings.showAiBtn)
+    applyVisibility('ui-study-room-btn', currentSettings.showStudyRoomBtn)
     applyVisibility('ui-sidebar-collapse-btn', currentSettings.showSidebarCollapseBtn)
     
     // 功能按钮展开/收起按钮

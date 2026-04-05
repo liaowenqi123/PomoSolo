@@ -410,6 +410,7 @@
         showGardenBtn: true,       // 显示菜园子按钮
         showStatsBtn: true,        // 显示统计按钮
         showAiBtn: true,           // 显示AI助手按钮
+        showStudyRoomBtn: true,    // 显示自习室按钮
         showSidebarCollapseBtn: true, // 显示侧边栏收起按钮
         showHeaderExpandBtn: true, // 显示功能按钮展开/收起按钮
         // 音乐播放器

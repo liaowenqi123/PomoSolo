@@ -161,13 +161,13 @@
       <!-- 右侧主区域 -->
       <div class="main-content">
         <div class="header-buttons" id="ui-header-buttons">
-          <button class="btn-header" id="ui-study-room-btn" title="自习室">📚</button>
           <button class="btn-header" id="ui-tutorial-btn" title="教程">📖</button>
           <button class="btn-header" id="ui-settings-btn" title="设置">⚙️</button>
           <div class="header-buttons-hidden" id="ui-hidden-buttons">
             <button class="btn-header" id="ui-theme-toggle-btn" title="切换深色模式">🌙</button>
             <button class="btn-header" id="stats-btn" title="数据统计">📈</button>
             <button class="btn-header" id="ai-btn" title="AI规划助手">🤖</button>
+            <button class="btn-header" id="ui-study-room-btn" title="自习室">📚</button>
             <button class="btn-header" id="ui-garden-btn" title="菜园子">🌱</button>
             <button class="btn-header" id="auth-header-btn" title="云端登录">☁️</button>
           </div>
@@ -876,6 +876,18 @@
             <div class="settings-item-control">
               <label class="settings-toggle">
                 <input type="checkbox" id="settings-show-ai-btn">
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="settings-item">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">📚</span>
+              <span>自习室按钮</span>
+            </div>
+            <div class="settings-item-control">
+              <label class="settings-toggle">
+                <input type="checkbox" id="settings-show-study-room-btn">
                 <span class="settings-toggle-slider"></span>
               </label>
             </div>
