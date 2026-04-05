@@ -366,8 +366,8 @@
 }
 
 .header-buttons-hidden.expanded {
-  max-height: 150px; /* 足够容纳5个按钮 */
-  clip-path: circle(150% at center);
+  max-height: 200px; /* 足够容纳6个按钮 */
+  clip-path: circle(200% at center);
   margin-top: 0; /* 展开时恢复正常间距 */
 }
 
