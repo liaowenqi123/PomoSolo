@@ -227,6 +227,32 @@ const StudyRoom = {
   debugOpen() {
     console.log('[StudyRoom] 调试：手动打开弹窗');
     this.openModal();
+  },
+
+  /**
+   * 调试函数 - 设置累计专注时长
+   * @param {number} minutes - 要设置的分钟数
+   */
+  async debugSetTotalMinutes(minutes) {
+    try {
+      const data = await window.electronAPI.readData();
+      data.stats.totalMinutes = minutes;
+      await window.electronAPI.writeData(data);
+      
+      // 刷新显示
+      if (window.Stats) {
+        window.Stats.update();
+      }
+      
+      // 更新自习室需求状态
+      this.updateRequirements();
+      
+      console.log(`[StudyRoom] 累计专注时长已设置为 ${minutes} 分钟`);
+      this.showToast(`累计专注时长已设置为 ${minutes} 分钟`);
+    } catch (error) {
+      console.error('[StudyRoom] 设置累计专注时长失败:', error);
+      this.showToast('设置失败');
+    }
   }
 };
 
