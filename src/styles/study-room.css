@@ -16,9 +16,18 @@
   display: flex;
 }
 
-/* 关闭动画 */
+/* 关闭动画 - 使用 AnimatedModal 的 closing 类 */
+.study-room-modal.closing {
+  display: flex;
+}
+
 .study-room-modal.closing .study-room-modal-content {
   animation: modalBounceOut 0.3s cubic-bezier(0.55, 0.085, 0.68, 0.53) forwards;
+}
+
+/* 无动画模式 */
+.study-room-modal.no-animation .study-room-modal-content {
+  animation: none;
 }
 
 .study-room-modal-content {

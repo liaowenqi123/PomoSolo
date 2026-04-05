@@ -40,15 +40,24 @@ const StudyRoom = {
    */
   initModal() {
     const modalElement = document.getElementById('study-room-modal');
-    if (modalElement && typeof BaseModal !== 'undefined') {
+    if (modalElement && typeof AnimatedModal !== 'undefined') {
+      this.modal = new AnimatedModal({
+        element: modalElement,
+        showClass: 'active',
+        hidingClass: 'closing',
+        closeOnBackground: true,
+        animationDuration: 300
+      });
+      console.log('[StudyRoom] AnimatedModal 实例已创建');
+    } else if (modalElement && typeof BaseModal !== 'undefined') {
       this.modal = new BaseModal({
         element: modalElement,
         showClass: 'active',
         closeOnBackground: true
       });
-      console.log('[StudyRoom] BaseModal 实例已创建');
+      console.log('[StudyRoom] BaseModal 实例已创建（回退方案）');
     } else {
-      console.warn('[StudyRoom] BaseModal 不可用或弹窗元素未找到');
+      console.warn('[StudyRoom] Modal 类不可用或弹窗元素未找到');
     }
   },
 
