@@ -132,9 +132,16 @@ const StudyRoom = {
     if (this.modal) {
       this.modal.hide();
     } else {
+      // 回退方案：添加关闭动画
       const modalElement = document.getElementById('study-room-modal');
-      if (modalElement) {
-        modalElement.classList.remove('active');
+      if (modalElement && modalElement.classList.contains('active')) {
+        // 添加关闭动画类
+        modalElement.classList.add('closing');
+        
+        // 等待动画完成后移除 active 类
+        setTimeout(() => {
+          modalElement.classList.remove('active', 'closing');
+        }, 300); // 动画时长 0.3s
       }
     }
   },

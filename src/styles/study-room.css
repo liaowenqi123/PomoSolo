@@ -16,6 +16,11 @@
   display: flex;
 }
 
+/* 关闭动画 */
+.study-room-modal.closing .study-room-modal-content {
+  animation: modalBounceOut 0.3s cubic-bezier(0.55, 0.085, 0.68, 0.53) forwards;
+}
+
 .study-room-modal-content {
   background: var(--bg-color);
   border-radius: 24px;
@@ -180,14 +185,17 @@
   cursor: pointer;
   transition: all 0.2s;
   flex-shrink: 0;
+  opacity: 1;
+  visibility: visible;
 }
 
-.study-room-btn:hover {
+.study-room-btn:hover:not(:disabled) {
   background: var(--primary-hover);
   transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(255, 107, 107, 0.3);
 }
 
-.study-room-btn:active {
+.study-room-btn:active:not(:disabled) {
   transform: scale(0.98);
 }
 
@@ -199,6 +207,7 @@
 
 .study-room-btn:disabled:hover {
   transform: none;
+  box-shadow: none;
 }
 
 @keyframes modalSlideIn {
@@ -219,6 +228,20 @@
   100% {
     opacity: 1;
     transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes modalBounceOut {
+  0% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  30% {
+    transform: scale(1.05) translateY(-5px);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.7) translateY(20px);
   }
 }
 
