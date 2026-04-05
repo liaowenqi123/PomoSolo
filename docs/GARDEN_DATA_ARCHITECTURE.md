@@ -8,17 +8,19 @@
 - 进度被错误覆盖
 - 专注模式下重置时枯萎弹窗显示不正确
 
-## 架构设计
+**v2.5.0 重大重构**：将菜园子数据从 `data.json` 中完全拆分出来，存储到独立的 `garden_data.json` 文件中，彻底消除与主数据的读写竞争。
 
-### 原子操作 + 互斥锁
+---
 
-v2.4.0 重构后，所有菜园子数据操作都采用**原子操作**模式：
+## 架构设计（v2.5.0）
+
+### 独立文件存储
 
 ```
-读取最新数据 → 执行修改 → 写回文件 → 返回结果
+%APPDATA%/pomodoro-timer/data/
+├── data.json          # 主数据（统计、设置、计划等）
+└── garden_data.json   # 菜园子独立数据
 ```
-
-每次操作都通过**互斥锁**保护，确保同一时间只有一个操作能访问数据文件。
 
 ### 数据流
 
@@ -47,7 +49,12 @@ v2.4.0 重构后，所有菜园子数据操作都采用**原子操作**模式：
 │  └─────────────────────────────────────────────────────────┘    │
 │  withGardenLock(fn) → 获取锁 → 执行 fn → 释放锁                  │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │ 原子操作函数:                                            │    │
+│  │ 独立文件读写:                                            │    │
+│  │ - readGardenFile()     读取 garden_data.json            │    │
+│  │ - writeGardenFile()    写入 garden_data.json            │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │ 原子操作函数（全部操作独立文件，不碰 data.json）:          │    │
 │  │ - gardenPlant()      种植                               │    │
 │  │ - gardenHarvest()    收获                               │    │
 │  │ - gardenBuySeed()    购买种子                           │    │
@@ -64,10 +71,46 @@ v2.4.0 重构后，所有菜园子数据操作都采用**原子操作**模式：
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     数据文件 (data.json)                         │
-│  %APPDATA%/pomodoro-timer/data/data.json                        │
+│                     数据文件                                     │
+│  %APPDATA%/pomodoro-timer/data/                                  │
+│  ├── data.json          ← stats.js 读写（不再包含 garden）       │
+│  └── garden_data.json   ← 所有 garden 操作读写                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 为什么要拆分？
+
+### 问题根源（v2.4.0 及之前）
+
+```javascript
+// 问题场景：
+// 1. 主进程：计时器每分钟触发，调用 updateGardenProgress()
+//    → 读取 data.json → 修改 garden.plots → 写回 data.json
+
+// 2. 渲染进程：番茄钟完成，Stats.increment() 记录历史
+//    → DataStore.getData() 获取缓存（包含旧 garden 数据）
+//    → 修改 statisticsHistory
+//    → writeData(data) 写回整个 data.json
+
+// 结果：渲染进程的 writeData 覆盖了主进程写入的 garden 进度！
+```
+
+### 解决方案（v2.5.0）
+
+```javascript
+// 拆分后：
+// 1. 主进程：updateGardenProgress()
+//    → readGardenFile() → 修改 plots → writeGardenFile()
+
+// 2. 渲染进程：Stats.increment()
+//    → DataStore.getData() → 修改 statisticsHistory → writeData(data)
+
+// 结果：两个进程操作不同文件，互不干扰！
+```
+
+---
 
 ## 互斥锁实现
 
@@ -108,16 +151,72 @@ async function withGardenLock(fn) {
 }
 ```
 
+---
+
+## 独立文件读写
+
+### 读取（含自动迁移）
+
+```javascript
+function readGardenFile() {
+  ensureDataDir()
+  const filePath = getGardenDataFilePath()
+
+  // 首次启动：从旧 data.json 迁移
+  if (!fs.existsSync(filePath)) {
+    const oldData = readData()
+    const gardenData = (oldData && oldData.garden) 
+      ? oldData.garden 
+      : createDefaultGardenData()
+    
+    fs.writeFileSync(filePath, JSON.stringify(gardenData, null, 2), 'utf-8')
+    console.log('[DataManager] 菜园子数据已迁移到 garden_data.json')
+    
+    // 清除旧 data.json 中的 garden 字段
+    if (oldData && oldData.garden) {
+      delete oldData.garden
+      writeData(oldData)
+    }
+    return gardenData
+  }
+
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8')
+    return JSON.parse(content)
+  } catch (e) {
+    console.error('[DataManager] 读取 garden_data.json 失败:', e)
+    return createDefaultGardenData()
+  }
+}
+```
+
+### 写入
+
+```javascript
+function writeGardenFile(gardenData) {
+  ensureDataDir()
+  const filePath = getGardenDataFilePath()
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(gardenData, null, 2), 'utf-8')
+    return true
+  } catch (e) {
+    console.error('[DataManager] 写入 garden_data.json 失败:', e)
+    return false
+  }
+}
+```
+
+---
+
 ## 原子操作示例
 
-### 种植操作
+### 种植操作（v2.5.0 版本）
 
 ```javascript
 async function gardenPlant(plotIndex, cropKey) {
   return withGardenLock(() => {
-    // 1. 读取最新数据
-    const data = readData()
-    const garden = data.garden || createDefaultData().garden
+    // 1. 读取最新 garden 数据（从独立文件）
+    const garden = readGardenFile()
     
     // 2. 验证条件
     const seeds = garden.seeds || {}
@@ -134,9 +233,8 @@ async function gardenPlant(plotIndex, cropKey) {
       plantedAt: new Date().toISOString()
     }
     
-    // 4. 写回文件
-    data.garden = garden
-    writeData(data)
+    // 4. 写回独立文件（不再写 data.json）
+    writeGardenFile(garden)
     
     // 5. 返回结果
     return { success: true, message: '种植成功', garden }
@@ -144,36 +242,39 @@ async function gardenPlant(plotIndex, cropKey) {
 }
 ```
 
-### 惩罚操作
+### 作物生长（v2.5.0 版本）
 
 ```javascript
-async function handleGardenPunishment() {
+async function updateGardenProgress() {
   return withGardenLock(() => {
-    const data = readData()
-    const plots = data.garden.plots || []
-    const losses = []
+    const garden = readGardenFile()
+    const plots = garden.plots || []
+    let hasUpdate = false
     
     for (let i = 0; i < plots.length; i++) {
       const plot = plots[i]
-      if (!plot.locked && plot.crop && plot.progress < totalTime) {
-        losses.push({ crop: plot.crop, name: '...', ... })
-        plots[i] = { id: i, crop: null, progress: 0, plantedAt: null }
+      if (plot.crop && plot.progress < 100) {
+        const cropInfo = CROPS[plot.crop]
+        if (cropInfo) {
+          const growthPerMinute = 100 / cropInfo.growTime
+          plot.progress = Math.min(100, plot.progress + growthPerMinute)
+          hasUpdate = true
+        }
       }
     }
     
-    if (losses.length > 0) {
-      data.garden.plots = plots
-      writeData(data)
+    if (hasUpdate) {
+      writeGardenFile(garden)  // 只写 garden_data.json
     }
     
-    return { hasLoss: losses.length > 0, losses, totalMinutes }
+    return { success: true, garden }
   })
 }
 ```
 
-## IPC 处理器
+---
 
-每个菜园子操作都有独立的 IPC 处理器：
+## IPC 处理器
 
 ```javascript
 // main.js
@@ -194,6 +295,8 @@ ipcMain.handle('garden-punishment', async () => {
   return result
 })
 ```
+
+---
 
 ## 渲染进程调用
 
@@ -225,6 +328,8 @@ async function handleResetPunishment() {
 }
 ```
 
+---
+
 ## 多页面架构
 
 `garden.js` 被两个页面引入，但行为不同：
@@ -245,61 +350,43 @@ async function init() {
   // ... 继续初始化
 }
 ```
-```
+
+---
 
 ## 关键修复点
 
-### 1. 多页面运行环境判断
+### 1. 数据竞争问题（v2.5.0 解决）
 
-**问题：** `garden.js` 同时被 `index.html` 和 `garden.html` 引入，但 DOM 元素只存在于 `garden.html` 中。当在 `index.html` 中调用 `handleResetPunishment` 时，如果尝试执行 UI 渲染，会因为 DOM 元素不存在而抛出异常。
+**问题：** 主进程和渲染进程同时读写 `data.json` 中的 `garden` 字段，导致数据覆盖。
+
+**修复：** 将 `garden` 数据完全独立到 `garden_data.json`，两个进程操作不同文件。
+
+### 2. 多页面运行环境判断
+
+**问题：** `garden.js` 同时被 `index.html` 和 `garden.html` 引入，但 DOM 元素只存在于 `garden.html` 中。
 
 **修复：** 使用 `isGardenPage` 变量判断当前运行环境，只在正确的页面执行 UI 操作。
-
-```javascript
-// garden.js
-let isGardenPage = false
-
-async function init() {
-  // 检测当前页面是否是菜园子页面
-  if (!document.getElementById('gardenGrid')) {
-    return  // 不初始化，避免操作不存在的 DOM
-  }
-  isGardenPage = true
-  // ... 初始化 DOM 元素和事件
-}
-
-async function handleResetPunishment() {
-  if (!window.electronAPI || !window.electronAPI.gardenPunishment) {
-    return { hasLoss: false, losses: [], totalMinutes: 0 }
-  }
-
-  const result = await window.electronAPI.gardenPunishment()
-
-  // 仅在菜园子页面刷新 UI，index.html 中无此 DOM，不执行
-  if (result.hasLoss && isGardenPage) {
-    await loadAndRender()
-    updateTip('⚠️ 专注模式中断！所有正在生长的作物已枯萎')
-  }
-
-  return result
-}
-```
-
-**设计原则：**
-- **数据操作**：在任何页面都可以执行（通过 IPC 调用主进程）
-- **UI 渲染**：只在有对应 DOM 的页面执行
-
-### 2. 多窗口并发问题
-
-**问题：** 主窗口和菜园子窗口同时操作数据时，可能出现读写冲突。
-
-**修复：** 互斥锁确保操作的原子性。
 
 ### 3. 作物生长时机问题
 
 **问题：** 作物在非专注模式下也会生长。
 
 **修复：** `timer.js` 只在专注模式开启时才调用 `gardenGrow`。
+
+---
+
+## 存量数据迁移
+
+首次启动 v2.5.0 时，`readGardenFile()` 会自动：
+
+1. 检测 `garden_data.json` 是否存在
+2. 如不存在，从旧 `data.json` 中读取 `garden` 字段
+3. 写入新文件 `garden_data.json`
+4. 从 `data.json` 中删除 `garden` 字段
+
+**用户无感知，数据不会丢失。**
+
+---
 
 ## 最佳实践
 
@@ -308,3 +395,4 @@ async function handleResetPunishment() {
 3. **UI 渲染和数据处理分离，避免相互影响**
 4. **使用互斥锁保护并发访问**
 5. **每个操作返回最新数据，减少额外的读取调用**
+6. **garden 数据独立存储，不再与主数据混用**
