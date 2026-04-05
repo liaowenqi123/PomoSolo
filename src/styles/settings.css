@@ -623,3 +623,114 @@
     #1a1028 60%, 
     #0a0c10 100%);
 }
+
+/* ============ 快捷键设置样式 ============ */
+
+.hotkey-settings-header {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--sidebar-border, rgba(0, 0, 0, 0.15));
+}
+
+[data-theme="dark"] .hotkey-settings-header {
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+.hotkey-settings-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--sidebar-bg, rgba(0, 0, 0, 0.03));
+  border-radius: 8px;
+}
+
+[data-theme="dark"] .hotkey-settings-container {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.hotkey-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-color, #fff);
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+[data-theme="dark"] .hotkey-item {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.hotkey-item:hover {
+  background: var(--sidebar-hover, rgba(0, 0, 0, 0.05));
+}
+
+[data-theme="dark"] .hotkey-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.hotkey-label {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-color, #333);
+}
+
+.hotkey-display {
+  min-width: 80px;
+  padding: 4px 8px;
+  background: var(--primary-color, #ff6b6b);
+  color: white;
+  border-radius: 4px;
+  font-size: 10px;
+  text-align: center;
+  opacity: 0.9;
+}
+
+.hotkey-set-btn {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--primary-color, #ff6b6b);
+  color: var(--primary-color, #ff6b6b);
+  border-radius: 4px;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.hotkey-set-btn:hover {
+  background: var(--primary-color, #ff6b6b);
+  color: white;
+}
+
+.hotkey-set-btn.recording {
+  background: var(--primary-color, #ff6b6b);
+  color: white;
+  animation: pulse-recording 1s ease-in-out infinite;
+}
+
+@keyframes pulse-recording {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.hotkey-recording-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(255, 107, 107, 0.1);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--primary-color, #ff6b6b);
+  text-align: center;
+}
+
+.hotkey-recording-keys {
+  font-weight: 600;
+  font-size: 12px;
+}

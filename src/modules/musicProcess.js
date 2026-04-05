@@ -28,6 +28,12 @@ class MusicProcess {
     this.onCustomTagsCallback = null  // 自定义标签回调
     this.onCustomTagAddedCallback = null  // 添加自定义标签回调
     this.onCustomTagDeletedCallback = null  // 删除自定义标签回调
+    this.onHotkeysCallback = null  // 快捷键配置回调
+    this.onHotkeysUpdatedCallback = null  // 快捷键更新回调
+    this.onHotkeyRecordingStartedCallback = null  // 开始录制回调
+    this.onHotkeyRecordingStoppedCallback = null  // 停止录制回调
+    this.onHotkeyKeyPressedCallback = null  // 按键按下回调（录制中）
+    this.onRecordingKeysCallback = null  // 获取录制按键回调
   }
 
   /**
@@ -207,6 +213,36 @@ class MusicProcess {
         case 'custom_tag_deleted':
           if (this.onCustomTagDeletedCallback) {
             this.onCustomTagDeletedCallback(data)
+          }
+          break
+        case 'hotkeys':
+          if (this.onHotkeysCallback) {
+            this.onHotkeysCallback(data)
+          }
+          break
+        case 'hotkeys_updated':
+          if (this.onHotkeysUpdatedCallback) {
+            this.onHotkeysUpdatedCallback(data)
+          }
+          break
+        case 'hotkey_recording_started':
+          if (this.onHotkeyRecordingStartedCallback) {
+            this.onHotkeyRecordingStartedCallback(data)
+          }
+          break
+        case 'hotkey_recording_stopped':
+          if (this.onHotkeyRecordingStoppedCallback) {
+            this.onHotkeyRecordingStoppedCallback(data)
+          }
+          break
+        case 'hotkey_key_pressed':
+          if (this.onHotkeyKeyPressedCallback) {
+            this.onHotkeyKeyPressedCallback(data)
+          }
+          break
+        case 'recording_keys':
+          if (this.onRecordingKeysCallback) {
+            this.onRecordingKeysCallback(data)
           }
           break
         default:
@@ -438,6 +474,109 @@ class MusicProcess {
     })
   }
 
+  // ============ 快捷键设置 ============
+
+  /**
+   * 获取当前快捷键配置
+   */
+  async getHotkeys() {
+    return new Promise((resolve) => {
+      const timeoutId = setTimeout(() => {
+        this.onHotkeysCallback = null
+        resolve({ hotkeys: null })
+      }, 5000)
+
+      this.onHotkeysCallback = (data) => {
+        clearTimeout(timeoutId)
+        this.onHotkeysCallback = null
+        resolve({ hotkeys: data.hotkeys })
+      }
+
+      this.sendCommand({ command: 'get_hotkeys' })
+    })
+  }
+
+  /**
+   * 设置快捷键配置
+   * @param {object} hotkeys - 快捷键配置对象
+   */
+  async setHotkeys(hotkeys) {
+    return new Promise((resolve) => {
+      const timeoutId = setTimeout(() => {
+        this.onHotkeysUpdatedCallback = null
+        resolve({ success: false, error: '设置超时' })
+      }, 5000)
+
+      this.onHotkeysUpdatedCallback = (data) => {
+        clearTimeout(timeoutId)
+        this.onHotkeysUpdatedCallback = null
+        resolve({ success: true, hotkeys: data.hotkeys })
+      }
+
+      this.sendCommand({ command: 'set_hotkeys', hotkeys })
+    })
+  }
+
+  /**
+   * 开始录制快捷键
+   */
+  async startHotkeyRecording() {
+    return new Promise((resolve) => {
+      const timeoutId = setTimeout(() => {
+        this.onHotkeyRecordingStartedCallback = null
+        resolve({ success: false })
+      }, 5000)
+
+      this.onHotkeyRecordingStartedCallback = (data) => {
+        clearTimeout(timeoutId)
+        this.onHotkeyRecordingStartedCallback = null
+        resolve({ success: true })
+      }
+
+      this.sendCommand({ command: 'start_hotkey_recording' })
+    })
+  }
+
+  /**
+   * 停止录制快捷键
+   */
+  async stopHotkeyRecording() {
+    return new Promise((resolve) => {
+      const timeoutId = setTimeout(() => {
+        this.onHotkeyRecordingStoppedCallback = null
+        resolve({ keys: [] })
+      }, 5000)
+
+      this.onHotkeyRecordingStoppedCallback = (data) => {
+        clearTimeout(timeoutId)
+        this.onHotkeyRecordingStoppedCallback = null
+        resolve({ keys: data.keys })
+      }
+
+      this.sendCommand({ command: 'stop_hotkey_recording' })
+    })
+  }
+
+  /**
+   * 获取当前录制的按键
+   */
+  async getRecordingKeys() {
+    return new Promise((resolve) => {
+      const timeoutId = setTimeout(() => {
+        this.onRecordingKeysCallback = null
+        resolve({ keys: [] })
+      }, 5000)
+
+      this.onRecordingKeysCallback = (data) => {
+        clearTimeout(timeoutId)
+        this.onRecordingKeysCallback = null
+        resolve({ keys: data.keys })
+      }
+
+      this.sendCommand({ command: 'get_recording_keys' })
+    })
+  }
+
   // ============ 回调设置 ============
 
   onReady(callback) {
@@ -486,6 +625,30 @@ class MusicProcess {
 
   onSongMissing(callback) {
     this.onSongMissingCallback = callback
+  }
+
+  onHotkeys(callback) {
+    this.onHotkeysCallback = callback
+  }
+
+  onHotkeysUpdated(callback) {
+    this.onHotkeysUpdatedCallback = callback
+  }
+
+  onHotkeyRecordingStarted(callback) {
+    this.onHotkeyRecordingStartedCallback = callback
+  }
+
+  onHotkeyRecordingStopped(callback) {
+    this.onHotkeyRecordingStoppedCallback = callback
+  }
+
+  onHotkeyKeyPressed(callback) {
+    this.onHotkeyKeyPressedCallback = callback
+  }
+
+  onRecordingKeys(callback) {
+    this.onRecordingKeysCallback = callback
   }
 }
 

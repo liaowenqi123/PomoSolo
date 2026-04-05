@@ -420,6 +420,14 @@
         showDeviceBtn: true,       // 显示设备切换按钮
         showChartsBtn: true,       // 显示热榜歌单按钮
         advancedColorCustomization: false, // 高级颜色自定义（默认关闭）
+        // 音乐播放器快捷键
+        musicHotkeys: {
+          pause: ['Key.ctrl_r', 'Key.shift_r'],      // 暂停/继续
+          next: ['Key.ctrl_r', 'Key.right'],         // 下一首
+          prev: ['Key.ctrl_r', 'Key.left'],          // 上一首
+          volUp: ['Key.ctrl_r', 'Key.up'],           // 音量增
+          volDown: ['Key.ctrl_r', 'Key.down']        // 音量减
+        },
         // 系统
         autoStart: false           // 开机自启动
       }

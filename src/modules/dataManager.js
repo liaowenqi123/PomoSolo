@@ -9,6 +9,8 @@ const { app } = require('electron')
 
 let dataFilePath = null
 let gardenDataFilePath = null
+let settingsFilePath = null
+let settingsDataFilePath = null
 
 // ============ 游戏配置（与 utils.js 保持同步） ============
 
@@ -165,6 +167,96 @@ function getGardenDataFilePath() {
   const userDataPath = app.getPath('userData')
   gardenDataFilePath = path.join(userDataPath, 'data', 'garden_data.json')
   return gardenDataFilePath
+}
+
+/**
+ * 获取设置数据文件路径
+ * @returns {string}
+ */
+function getSettingsFilePath() {
+  if (settingsFilePath) return settingsFilePath
+  const userDataPath = app.getPath('userData')
+  settingsFilePath = path.join(userDataPath, 'data', 'settings.json')
+  return settingsFilePath
+}
+
+/**
+ * 创建默认设置
+ * @returns {object}
+ */
+function createDefaultSettings() {
+  return {
+    // 计时器设置
+    minimizeBehavior: 'mini',
+    miniExitMode: 'arrow',
+    // 界面显示
+    showDarkModeBtn: true,
+    showGardenBtn: true,
+    showStatsBtn: true,
+    showAiBtn: true,
+    showStudyRoomBtn: true,
+    showSidebarCollapseBtn: true,
+    showHeaderExpandBtn: true,
+    // 音乐播放器
+    showShuffleBtn: true,
+    showVolumeBtn: true,
+    showDeviceBtn: true,
+    showChartsBtn: true,
+    advancedColorCustomization: false,
+    // 音乐播放器快捷键
+    musicHotkeys: {
+      pause: ['Key.ctrl_r', 'Key.shift_r'],
+      next: ['Key.ctrl_r', 'Key.right'],
+      prev: ['Key.ctrl_r', 'Key.left'],
+      volUp: ['Key.ctrl_r', 'Key.up'],
+      volDown: ['Key.ctrl_r', 'Key.down']
+    },
+    // 系统
+    autoStart: false
+  }
+}
+
+/**
+ * 读取设置数据（独立文件）
+ * @returns {object}
+ */
+function readSettings() {
+  const filePath = getSettingsFilePath()
+  
+  // 如果文件不存在，尝试从 data.json 迁移
+  if (!fs.existsSync(filePath)) {
+    const data = readData()
+    if (data && data.settings) {
+      // 迁移设置到新文件
+      ensureDataDir()
+      const settings = { ...createDefaultSettings(), ...data.settings }
+      fs.writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf8')
+      console.log('[DataManager] 设置已从 data.json 迁移到 settings.json')
+      return settings
+    }
+    // 没有旧数据，返回默认设置
+    return createDefaultSettings()
+  }
+  
+  try {
+    const content = fs.readFileSync(filePath, 'utf8')
+    const settings = JSON.parse(content)
+    // 合并默认值（处理新增设置项）
+    return { ...createDefaultSettings(), ...settings }
+  } catch (err) {
+    console.error('[DataManager] 读取设置失败:', err)
+    return createDefaultSettings()
+  }
+}
+
+/**
+ * 写入设置数据（独立文件）
+ * @param {object} settings
+ */
+function writeSettings(settings) {
+  const filePath = getSettingsFilePath()
+  ensureDataDir()
+  fs.writeFileSync(filePath, JSON.stringify(settings, null, 2), 'utf8')
 }
 
 /**
@@ -952,9 +1044,11 @@ function getAchievementProgress(config, stats, garden) {
 module.exports = {
   getDataFilePath,
   getGardenDataFilePath,
+  getSettingsFilePath,
   ensureDataDir,
   createDefaultData,
   createDefaultGardenData,
+  createDefaultSettings,
   readData,
   writeData,
   // 菜园子独立文件读写（直接操作 garden_data.json）
@@ -973,5 +1067,8 @@ module.exports = {
   // Timer 调用的接口
   updateGardenProgress,
   handleGardenPunishment,
-  withGardenLock
+  withGardenLock,
+  // 设置独立文件读写
+  readSettings,
+  writeSettings
 }

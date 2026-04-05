@@ -168,6 +168,19 @@ function createWindow() {
     win.webContents.send('music-song-missing', data)
   })
   
+  // 快捷键设置事件回调
+  musicProcess.onHotkeys((data) => {
+    win.webContents.send('music-hotkeys', data)
+  })
+  
+  musicProcess.onHotkeyKeyPressed((data) => {
+    win.webContents.send('music-hotkey-key-pressed', data)
+  })
+  
+  musicProcess.onHotkeyRecordingStopped((data) => {
+    win.webContents.send('music-hotkey-recording-stopped', data)
+  })
+  
   // 启动前台检测进程
   let foregroundExePath
   if (app.isPackaged) {
@@ -348,6 +361,16 @@ ipcMain.handle('read-data', () => {
 
 ipcMain.handle('write-data', (event, data) => {
   return dataManager.writeData(data)
+})
+
+// ============ 设置独立文件 IPC 处理 ============
+
+ipcMain.handle('read-settings', () => {
+  return dataManager.readSettings()
+})
+
+ipcMain.handle('write-settings', (event, settings) => {
+  return dataManager.writeSettings(settings)
 })
 
 // ============ 菜园子原子操作 IPC 处理（带锁保护） ============
@@ -626,6 +649,44 @@ ipcMain.handle('music-delete-custom-tag', async (event, name) => {
     return { success: true }
   } catch (error) {
     return { success: false, error: error.message }
+  }
+})
+
+// ============ 快捷键设置 IPC 处理 ============
+
+ipcMain.handle('music-get-hotkeys', async () => {
+  try {
+    const result = await musicProcess.getHotkeys()
+    return result
+  } catch (error) {
+    return { hotkeys: null }
+  }
+})
+
+ipcMain.handle('music-set-hotkeys', async (event, hotkeys) => {
+  try {
+    const result = await musicProcess.setHotkeys(hotkeys)
+    return result
+  } catch (error) {
+    return { success: false, error: error.message }
+  }
+})
+
+ipcMain.handle('music-start-hotkey-recording', async () => {
+  try {
+    const result = await musicProcess.startHotkeyRecording()
+    return result
+  } catch (error) {
+    return { success: false }
+  }
+})
+
+ipcMain.handle('music-stop-hotkey-recording', async () => {
+  try {
+    const result = await musicProcess.stopHotkeyRecording()
+    return result
+  } catch (error) {
+    return { keys: [] }
   }
 })
 

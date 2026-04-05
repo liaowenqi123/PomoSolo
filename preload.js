@@ -26,6 +26,14 @@ const { contextBridge, ipcRenderer } = require('electron')
   // 写入数据
   writeData: (data) => ipcRenderer.invoke('write-data', data),
 
+  // ============ 设置独立文件 API ============
+  
+  // 读取设置
+  readSettings: () => ipcRenderer.invoke('read-settings'),
+  
+  // 写入设置
+  writeSettings: (settings) => ipcRenderer.invoke('write-settings', settings),
+
   // ============ 菜园子原子操作 API ============
   
   // 读取菜园子数据
@@ -126,6 +134,12 @@ const { contextBridge, ipcRenderer } = require('electron')
   musicAddCustomTag: (name, color) => ipcRenderer.invoke('music-add-custom-tag', { name, color }),
   musicDeleteCustomTag: (name) => ipcRenderer.invoke('music-delete-custom-tag', name),
   
+  // 快捷键设置
+  musicGetHotkeys: () => ipcRenderer.invoke('music-get-hotkeys'),
+  musicSetHotkeys: (hotkeys) => ipcRenderer.invoke('music-set-hotkeys', hotkeys),
+  musicStartHotkeyRecording: () => ipcRenderer.invoke('music-start-hotkey-recording'),
+  musicStopHotkeyRecording: () => ipcRenderer.invoke('music-stop-hotkey-recording'),
+  
   // 音乐播放器事件监听
   onMusicReady: (callback) => {
     ipcRenderer.on('music-ready', (event, data) => callback(data))
@@ -163,6 +177,15 @@ const { contextBridge, ipcRenderer } = require('electron')
   onMusicSongMissing: (callback) => {
     ipcRenderer.on('music-song-missing', (event, data) => callback(data))
   },
+  onMusicHotkeys: (callback) => {
+    ipcRenderer.on('music-hotkeys', (event, data) => callback(data))
+  },
+  onMusicHotkeyKeyPressed: (callback) => {
+    ipcRenderer.on('music-hotkey-key-pressed', (event, data) => callback(data))
+  },
+  onMusicHotkeyRecordingStopped: (callback) => {
+    ipcRenderer.on('music-hotkey-recording-stopped', (event, data) => callback(data))
+  },
   
   // 移除监听器
   removeMusicListeners: () => {
@@ -178,6 +201,9 @@ const { contextBridge, ipcRenderer } = require('electron')
     ipcRenderer.removeAllListeners('music-play-mode')
     ipcRenderer.removeAllListeners('music-playlist')
     ipcRenderer.removeAllListeners('music-song-missing')
+    ipcRenderer.removeAllListeners('music-hotkeys')
+    ipcRenderer.removeAllListeners('music-hotkey-key-pressed')
+    ipcRenderer.removeAllListeners('music-hotkey-recording-stopped')
   },
 
   // ============ 音乐榜单 API ============

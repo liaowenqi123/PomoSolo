@@ -1017,6 +1017,46 @@
               </label>
             </div>
           </div>
+          
+          <!-- 快捷键设置 -->
+          <div class="settings-item hotkey-settings-header">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">⌨️</span>
+              <span>快捷键设置</span>
+            </div>
+          </div>
+          <div class="settings-item-hint hotkey-hint">* 仅支持双键组合快捷键</div>
+          <div class="hotkey-settings-container" id="hotkey-settings-container">
+            <div class="hotkey-item" data-action="pause">
+              <span class="hotkey-label">暂停/继续</span>
+              <span class="hotkey-display" id="hotkey-display-pause">右Ctrl + 右Shift</span>
+              <button class="hotkey-set-btn" data-action="pause">设置</button>
+            </div>
+            <div class="hotkey-item" data-action="next">
+              <span class="hotkey-label">下一首</span>
+              <span class="hotkey-display" id="hotkey-display-next">右Ctrl + →</span>
+              <button class="hotkey-set-btn" data-action="next">设置</button>
+            </div>
+            <div class="hotkey-item" data-action="prev">
+              <span class="hotkey-label">上一首</span>
+              <span class="hotkey-display" id="hotkey-display-prev">右Ctrl + ←</span>
+              <button class="hotkey-set-btn" data-action="prev">设置</button>
+            </div>
+            <div class="hotkey-item" data-action="volUp">
+              <span class="hotkey-label">音量增</span>
+              <span class="hotkey-display" id="hotkey-display-volUp">右Ctrl + ↑</span>
+              <button class="hotkey-set-btn" data-action="volUp">设置</button>
+            </div>
+            <div class="hotkey-item" data-action="volDown">
+              <span class="hotkey-label">音量减</span>
+              <span class="hotkey-display" id="hotkey-display-volDown">右Ctrl + ↓</span>
+              <button class="hotkey-set-btn" data-action="volDown">设置</button>
+            </div>
+          </div>
+          <div class="hotkey-recording-hint" id="hotkey-recording-hint" style="display: none;">
+            <span>请按下组合键，松开后自动完成设置</span>
+            <span class="hotkey-recording-keys" id="hotkey-recording-keys"></span>
+          </div>
         </div>
         
         <!-- 系统 -->

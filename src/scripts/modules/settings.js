@@ -63,7 +63,7 @@
   /**
    * 初始化模块
    */
-  function init() {
+  async function init() {
     // 获取 DOM 元素
     elements = {
       modal: document.getElementById('settings-modal'),
@@ -77,12 +77,15 @@
     settingsModal = new BaseModal({
       element: elements.modal,
       showClass: 'show',
-      onShow: () => {
+      onShow: async () => {
         // 重新加载设置（确保最新）
-        loadSettings()
+        await loadSettings()
         
-        // 保存原始设置快照
-        originalSettings = { ...currentSettings }
+        // 保存原始设置快照（深拷贝快捷键配置）
+        originalSettings = { 
+          ...currentSettings,
+          musicHotkeys: JSON.parse(JSON.stringify(currentSettings.musicHotkeys || {}))
+        }
         
         // 更新表单值
         updateFormValues()
@@ -100,13 +103,13 @@
     })
 
     // 加载设置
-    loadSettings()
+    await loadSettings()
     
     // 绑定事件
     bindEvents()
     
     // 应用设置到界面
-    applyAllSettings()
+    await applyAllSettings()
     
     // 加载版本号
     loadVersion()
@@ -418,8 +421,8 @@
   /**
    * 加载设置
    */
-  function loadSettings() {
-    currentSettings = DataStore.getSettings()
+  async function loadSettings() {
+    currentSettings = await DataStore.getSettings()
     
     // 确保所有设置项都有默认值
     const defaultSettings = Utils.createDefaultData().settings
@@ -450,6 +453,9 @@
     if (miniExitModeSelect) {
       miniExitModeSelect.addEventListener('change', updateMiniExitHint)
     }
+
+    // 绑定快捷键设置按钮事件
+    bindHotkeyEvents()
   }
 
   /**
@@ -518,6 +524,20 @@
       if (checkbox) {
         const originalValue = originalSettings[key] !== false
         if (checkbox.checked !== originalValue) {
+          return true
+        }
+      }
+    }
+    
+    // 比较快捷键设置
+    if (currentSettings.musicHotkeys && originalSettings.musicHotkeys) {
+      const current = currentSettings.musicHotkeys
+      const original = originalSettings.musicHotkeys
+      const actions = ['pause', 'next', 'prev', 'volUp', 'volDown']
+      for (const action of actions) {
+        const currentKeys = (current[action] || []).sort().join(',')
+        const originalKeys = (original[action] || []).sort().join(',')
+        if (currentKeys !== originalKeys) {
           return true
         }
       }
@@ -609,6 +629,9 @@
     
     // 更新迷你模式退出方式提示
     updateMiniExitHint()
+    
+    // 初始化快捷键设置显示
+    initHotkeySettings()
   }
 
   /**
@@ -633,6 +656,11 @@
         newSettings[key] = checkbox.checked
       }
     })
+    
+    // 快捷键设置（从当前设置中读取，因为不是表单元素）
+    if (currentSettings.musicHotkeys) {
+      newSettings.musicHotkeys = currentSettings.musicHotkeys
+    }
     
     // 保存到存储
     await DataStore.updateSettings(newSettings)
@@ -702,6 +730,15 @@
     if (window.electronAPI && window.electronAPI.setAutoStart) {
       await window.electronAPI.setAutoStart(currentSettings.autoStart)
     }
+
+    // 发送快捷键配置给 Python
+    if (currentSettings.musicHotkeys && window.electronAPI && window.electronAPI.musicSetHotkeys) {
+      try {
+        await window.electronAPI.musicSetHotkeys(currentSettings.musicHotkeys)
+      } catch (err) {
+        console.error('[Settings] 发送快捷键配置失败:', err)
+      }
+    }
   }
 
   /**
@@ -729,22 +766,225 @@
     }, 700)
   }
 
+  // ============ 快捷键设置 ============
+
+  // 快捷键录制状态
+  let isRecordingHotkey = false
+  let currentRecordingAction = null
+  let recordedKeys = []
+
+  // 快捷键名称映射
+  const HOTKEY_NAMES = {
+    'Key.ctrl_l': '左Ctrl',
+    'Key.ctrl_r': '右Ctrl',
+    'Key.shift_l': '左Shift',
+    'Key.shift_r': '右Shift',
+    'Key.alt_l': '左Alt',
+    'Key.alt_r': '右Alt',
+    'Key.left': '←',
+    'Key.right': '→',
+    'Key.up': '↑',
+    'Key.down': '↓',
+    'Key.space': '空格',
+    'Key.enter': '回车',
+    'Key.tab': 'Tab'
+  }
+
+  /**
+   * 将快捷键字符串转换为显示名称
+   */
+  function formatHotkeyDisplay(keyStrs) {
+    if (!keyStrs || keyStrs.length === 0) return '未设置'
+    
+    return keyStrs.map(key => {
+      // 检查是否在映射表中
+      if (HOTKEY_NAMES[key]) {
+        return HOTKEY_NAMES[key]
+      }
+      // 检查是否是普通字符
+      if (key.startsWith('char.')) {
+        return key.substring(5).toUpperCase()
+      }
+      // 其他情况，提取最后部分
+      const parts = key.split('.')
+      return parts[parts.length - 1].toUpperCase()
+    }).join(' + ')
+  }
+
+  /**
+   * 初始化快捷键 UI
+   */
+  function initHotkeySettings() {
+    if (!currentSettings || !currentSettings.musicHotkeys) return
+
+    const hotkeys = currentSettings.musicHotkeys
+    const actions = ['pause', 'next', 'prev', 'volUp', 'volDown']
+
+    actions.forEach(action => {
+      const displayEl = document.getElementById(`hotkey-display-${action}`)
+      if (displayEl && hotkeys[action]) {
+        displayEl.textContent = formatHotkeyDisplay(hotkeys[action])
+      }
+    })
+  }
+
+  /**
+   * 绑定快捷键设置按钮事件
+   */
+  function bindHotkeyEvents() {
+    const buttons = document.querySelectorAll('.hotkey-set-btn')
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => startHotkeyRecording(btn.dataset.action))
+    })
+
+    // 监听快捷键按键事件
+    if (window.electronAPI && window.electronAPI.onMusicHotkeyKeyPressed) {
+      window.electronAPI.onMusicHotkeyKeyPressed((data) => {
+        if (isRecordingHotkey && data.key) {
+          // 添加按键到录制列表
+          if (!recordedKeys.includes(data.key)) {
+            recordedKeys.push(data.key)
+            updateRecordingDisplay()
+            
+            // 2 个按键就完成录制
+            if (recordedKeys.length >= 2) {
+              setTimeout(() => finishHotkeyRecording(), 100)
+            }
+          }
+        }
+      })
+    }
+  }
+
+  /**
+   * 开始录制快捷键
+   */
+  async function startHotkeyRecording(action) {
+    if (isRecordingHotkey) return
+
+    isRecordingHotkey = true
+    currentRecordingAction = action
+    recordedKeys = []
+
+    // 更新按钮状态
+    const btn = document.querySelector(`.hotkey-set-btn[data-action="${action}"]`)
+    if (btn) {
+      btn.classList.add('recording')
+      btn.textContent = '录制中...'
+    }
+
+    // 显示录制提示
+    const hint = document.getElementById('hotkey-recording-hint')
+    const keysDisplay = document.getElementById('hotkey-recording-keys')
+    if (hint) {
+      hint.style.display = 'flex'
+      if (keysDisplay) keysDisplay.textContent = ''
+    }
+
+    // 通知 Python 开始录制
+    try {
+      await window.electronAPI.musicStartHotkeyRecording()
+    } catch (err) {
+      console.error('[Settings] 开始录制快捷键失败:', err)
+      stopHotkeyRecording()
+    }
+  }
+
+  /**
+   * 更新录制显示
+   */
+  function updateRecordingDisplay() {
+    const keysDisplay = document.getElementById('hotkey-recording-keys')
+    if (keysDisplay) {
+      keysDisplay.textContent = formatHotkeyDisplay(recordedKeys)
+    }
+  }
+
+  /**
+   * 完成快捷键录制
+   */
+  async function finishHotkeyRecording() {
+    if (!isRecordingHotkey) return
+
+    const action = currentRecordingAction
+    const keys = [...recordedKeys]
+
+    // 停止录制
+    await stopHotkeyRecording()
+
+    // 如果录制到按键，更新设置
+    if (keys.length > 0) {
+      // 更新本地设置
+      if (!currentSettings.musicHotkeys) {
+        currentSettings.musicHotkeys = {}
+      }
+      currentSettings.musicHotkeys[action] = keys
+
+      // 更新显示
+      const displayEl = document.getElementById(`hotkey-display-${action}`)
+      if (displayEl) {
+        displayEl.textContent = formatHotkeyDisplay(keys)
+      }
+
+      // 通知 Python 更新快捷键
+      try {
+        await window.electronAPI.musicSetHotkeys(currentSettings.musicHotkeys)
+        showToast('快捷键已更新')
+      } catch (err) {
+        console.error('[Settings] 更新快捷键失败:', err)
+        showToast('快捷键更新失败')
+      }
+    }
+  }
+
+  /**
+   * 停止快捷键录制
+   */
+  async function stopHotkeyRecording() {
+    isRecordingHotkey = false
+
+    // 更新按钮状态
+    const btn = document.querySelector(`.hotkey-set-btn[data-action="${currentRecordingAction}"]`)
+    if (btn) {
+      btn.classList.remove('recording')
+      btn.textContent = '设置'
+    }
+
+    // 隐藏录制提示
+    const hint = document.getElementById('hotkey-recording-hint')
+    if (hint) {
+      hint.style.display = 'none'
+    }
+
+    // 通知 Python 停止录制
+    try {
+      await window.electronAPI.musicStopHotkeyRecording()
+    } catch (err) {
+      console.error('[Settings] 停止录制快捷键失败:', err)
+    }
+
+    currentRecordingAction = null
+    recordedKeys = []
+  }
+
   /**
    * 获取设置值
    */
   function getSetting(key) {
     if (!currentSettings) {
-      loadSettings()
+      // 如果还没加载，返回默认值
+      return Utils.createDefaultData().settings[key]
     }
     return currentSettings[key]
   }
 
+  
   /**
    * 获取所有设置
    */
   function getAllSettings() {
     if (!currentSettings) {
-      loadSettings()
+      return { ...Utils.createDefaultData().settings }
     }
     return { ...currentSettings }
   }

@@ -6,6 +6,7 @@
   'use strict'
 
   let cachedData = null
+  let cachedSettings = null  // 设置独立缓存
   let saveTimeout = null
 
   // 使用统一的默认数据结构
@@ -193,16 +194,42 @@
     return await saveImmediate()
   }
 
-  // 获取设置数据
-  function getSettings() {
-    return cachedData ? (cachedData.settings || Utils.createDefaultData().settings) : Utils.createDefaultData().settings
+  // 获取设置数据（独立文件）
+  async function getSettings() {
+    try {
+      if (!cachedSettings) {
+        cachedSettings = await window.electronAPI.readSettings()
+      }
+      return cachedSettings || Utils.createDefaultData().settings
+    } catch (e) {
+      console.error('读取设置失败:', e)
+      return Utils.createDefaultData().settings
+    }
   }
 
-  // 更新设置数据
+  // 更新设置数据（独立文件）
   async function updateSettings(settings) {
-    if (!cachedData) return false
-    cachedData.settings = { ...cachedData.settings, ...settings }
-    return await saveImmediate()
+    cachedSettings = { ...cachedSettings, ...settings }
+    return await saveSettingsImmediate()
+  }
+
+  // 立即保存设置
+  async function saveSettingsImmediate() {
+    try {
+      await window.electronAPI.writeSettings(cachedSettings)
+      return true
+    } catch (e) {
+      console.error('保存设置失败:', e)
+      return false
+    }
+  }
+
+  // 初始化设置缓存
+  async function initSettings() {
+    if (!cachedSettings) {
+      cachedSettings = await getSettings()
+    }
+    return cachedSettings
   }
 
   // 导出到全局
@@ -224,6 +251,7 @@
     updateAchievementStats: updateAchievementStats,
     getSettings: getSettings,
     updateSettings: updateSettings,
+    initSettings: initSettings,
     getTheme: () => cachedData ? (cachedData.theme || 'light') : 'light',
     updateTheme: (theme) => {
       if (!cachedData) return false;
