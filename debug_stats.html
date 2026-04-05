@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>统计数据调试工具</title>
+  <style>
+    body {
+      font-family: 'Microsoft YaHei', sans-serif;
+      padding: 20px;
+      max-width: 1200px;
+      margin: 0 auto;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    h1, h2 {
+      color: #333;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 5px;
+      border: none;
+      border-radius: 4px;
+      background: #4CAF50;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    button.danger {
+      background: #f44336;
+    }
+    button.danger:hover {
+      background: #da190b;
+    }
+    pre {
+      background: #f9f9f9;
+      padding: 15px;
+      border-radius: 4px;
+      overflow-x: auto;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin: 20px 0;
+    }
+    .stat-card {
+      background: #f0f0f0;
+      padding: 15px;
+      border-radius: 4px;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 32px;
+      font-weight: bold;
+      color: #4CAF50;
+    }
+    .stat-label {
+      color: #666;
+      margin-top: 5px;
+    }
+    .warning {
+      background: #fff3cd;
+      border: 1px solid #ffc107;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 15px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>📊 统计数据调试工具</h1>
+  
+  <div class="container">
+    <h2>当前统计概览</h2>
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-value" id="todayCount">-</div>
+        <div class="stat-label">今日专注次数</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="totalMinutes">-</div>
+        <div class="stat-label">今日专注时长（分钟）</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="historyCount">-</div>
+        <div class="stat-label">历史记录条数</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="todayHistoryCount">-</div>
+        <div class="stat-label">今日历史记录</div>
+      </div>
+    </div>
+    
+    <div class="warning" id="warning" style="display:none;">
+      <strong>⚠️ 数据异常：</strong>
+      <span id="warningText"></span>
+    </div>
+    
+    <button onclick="loadData()">🔄 刷新数据</button>
+    <button onclick="showRawData()">📄 查看原始数据</button>
+    <button onclick="fixData()" class="danger">🔧 修复数据（清除重复）</button>
+  </div>
+  
+  <div class="container">
+    <h2>今日历史记录详情</h2>
+    <pre id="todayRecords">点击"刷新数据"加载...</pre>
+  </div>
+  
+  <div class="container">
+    <h2>完整数据（JSON）</h2>
+    <pre id="rawData">点击"查看原始数据"加载...</pre>
+  </div>
+
+  <script>
+    let currentData = null;
+
+    async function loadData() {
+      try {
+        const data = await window.electronAPI.readData();
+        currentData = data;
+        
+        const stats = data.stats || {};
+        const history = data.statisticsHistory || [];
+        const today = new Date().toISOString().split('T')[0];
+        const todayRecords = history.filter(r => r.date === today);
+        
+        // 更新统计卡片
+        document.getElementById('todayCount').textContent = stats.todayCount || 0;
+        document.getElementById('totalMinutes').textContent = stats.totalMinutes || 0;
+        document.getElementById('historyCount').textContent = history.length;
+        document.getElementById('todayHistoryCount').textContent = todayRecords.length;
+        
+        // 检查数据一致性
+        const warning = document.getElementById('warning');
+        const warningText = document.getElementById('warningText');
+        if (stats.todayCount !== todayRecords.length) {
+          warning.style.display = 'block';
+          warningText.textContent = `今日统计次数(${stats.todayCount})与历史记录条数(${todayRecords.length})不一致！`;
+        } else {
+          warning.style.display = 'none';
+        }
+        
+        // 显示今日记录详情
+        const todayRecordsEl = document.getElementById('todayRecords');
+        if (todayRecords.length > 0) {
+          todayRecordsEl.textContent = JSON.stringify(todayRecords, null, 2);
+        } else {
+          todayRecordsEl.textContent = '今日暂无记录';
+        }
+        
+        alert('数据已刷新！');
+      } catch (err) {
+        alert('加载数据失败：' + err.message);
+      }
+    }
+
+    function showRawData() {
+      if (!currentData) {
+        alert('请先点击"刷新数据"');
+        return;
+      }
+      document.getElementById('rawData').textContent = JSON.stringify(currentData, null, 2);
+    }
+
+    async function fixData() {
+      if (!currentData) {
+        alert('请先点击"刷新数据"');
+        return;
+      }
+      
+      if (!confirm('确定要修复数据吗？这将：\n1. 清除所有历史记录\n2. 重置今日统计为0\n\n此操作不可撤销！')) {
+        return;
+      }
+      
+      try {
+        // 清除历史记录和今日统计
+        currentData.statisticsHistory = [];
+        currentData.stats.todayCount = 0;
+        currentData.stats.totalMinutes = 0;
+        currentData.stats.date = new Date().toDateString();
+        
+        await window.electronAPI.writeData(currentData);
+        alert('数据已修复！请重新加载数据查看结果。');
+        loadData();
+      } catch (err) {
+        alert('修复数据失败：' + err.message);
+      }
+    }
+
+    // 页面加载时自动加载数据
+    window.addEventListener('DOMContentLoaded', loadData);
+  </script>
+</body>
+</html>

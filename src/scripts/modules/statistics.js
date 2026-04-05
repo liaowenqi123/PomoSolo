@@ -460,38 +460,13 @@ const Statistics = (function() {
   function getStatisticsHistory() {
     const data = DataStore.getData()
     let history = data.statisticsHistory || []
+    let needsSave = false
     
-    // 如果历史数据为空，但今日有统计数据，尝试恢复
-    if (history.length === 0) {
-      const stats = DataStore.getStats()
-      if (stats.todayCount > 0 && stats.totalMinutes > 0) {
-        console.log('检测到今日有统计数据但历史为空，尝试恢复数据')
-        const today = new Date().toISOString().split('T')[0]
-        const avgMinutes = Math.round(stats.totalMinutes / stats.todayCount)
-        
-        // 根据今日统计恢复历史记录
-        for (let i = 0; i < stats.todayCount; i++) {
-          history.push({
-            date: today,
-            timestamp: new Date().toISOString(),
-            minutes: i === stats.todayCount - 1 ? stats.totalMinutes - (avgMinutes * (stats.todayCount - 1)) : avgMinutes,
-            note: '恢复的数据'
-          })
-        }
-        
-        // 保存恢复的数据
-        data.statisticsHistory = history
-        if (window.electronAPI) {
-          window.electronAPI.writeData(data)
-        }
-        
-        console.log('已恢复', history.length, '条历史记录')
-      }
-    }
-    
-    // 数据迁移：检查是否是旧格式的数据
+    // 数据迁移：检查是否是旧格式的数据（只迁移一次）
+    // 旧格式：每天一条记录，包含 count 和 minutes 字段
+    // 新格式：每个番茄钟一条记录，包含 date、timestamp、minutes、note 字段
     if (history.length > 0 && history[0].count !== undefined) {
-      console.log('检测到旧格式数据，进行数据迁移')
+      console.log('检测到旧格式数据，进行一次性数据迁移')
       const migratedHistory = []
       
       // 将旧格式数据转换为新格式
@@ -510,14 +485,17 @@ const Statistics = (function() {
         }
       })
       
-      // 保存迁移后的数据
-      data.statisticsHistory = migratedHistory
+      history = migratedHistory
+      needsSave = true
+      console.log('数据迁移完成，从旧格式迁移到', migratedHistory.length, '条新记录')
+    }
+    
+    // 保存迁移后的数据（只在需要时保存一次）
+    if (needsSave) {
+      data.statisticsHistory = history
       if (window.electronAPI) {
         window.electronAPI.writeData(data)
       }
-      
-      console.log('数据迁移完成，从', history.length, '条旧记录迁移到', migratedHistory.length, '条新记录')
-      history = migratedHistory
     }
     
     console.log('历史数据:', history)
