@@ -26,7 +26,9 @@ v2.4.0 重构后，所有菜园子数据操作都采用**原子操作**模式：
 ┌─────────────────────────────────────────────────────────────────┐
 │                        渲染进程                                  │
 │  index.html (garden.js)  │  garden.html (garden.js)             │
+│  isGardenPage = false    │  isGardenPage = true                 │
 │  - handleResetPunishment │  - 种植、收获、商店、签到、成就        │
+│    (仅数据操作，无UI)     │  - handleResetPunishment (数据+UI)    │
 └───────────┬─────────────┴──────────────┬────────────────────────┘
             │ IPC                        │ IPC
             ▼                            ▼
@@ -34,6 +36,7 @@ v2.4.0 重构后，所有菜园子数据操作都采用**原子操作**模式：
 │                     主进程 (main.js)                             │
 │  IPC Handlers: garden-plant, garden-harvest, garden-punishment   │
 │  等，每个操作调用 dataManager 对应的原子操作函数                   │
+│  操作完成后向 gardenWindow 发送 garden-refresh 事件               │
 └───────────────────────────────┬─────────────────────────────────┘
                                 │
                                 ▼
@@ -55,6 +58,7 @@ v2.4.0 重构后，所有菜园子数据操作都采用**原子操作**模式：
 │  │ - gardenUpdateFocusMinutes() 更新专注时间               │    │
 │  │ - updateGardenProgress() 作物生长                       │    │
 │  │ - handleGardenPunishment() 惩罚处理                     │    │
+│  │ - readGardenData()   读取数据                           │    │
 │  └─────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
                                 │
@@ -205,57 +209,85 @@ async function plant(plotIndex, cropKey) {
 }
 
 async function handleResetPunishment() {
-  // 只调用 IPC，不做 UI 渲染（因为可能在 index.html 中调用）
+  if (!window.electronAPI || !window.electronAPI.gardenPunishment) {
+    return { hasLoss: false, losses: [], totalMinutes: 0 }
+  }
+
   const result = await window.electronAPI.gardenPunishment()
+
+  // 仅在菜园子页面刷新 UI
+  if (result.hasLoss && isGardenPage) {
+    await loadAndRender()
+    updateTip('⚠️ 专注模式中断！所有正在生长的作物已枯萎')
+  }
+
   return result
 }
+```
+
+## 多页面架构
+
+`garden.js` 被两个页面引入，但行为不同：
+
+| 页面 | DOM 环境 | 执行的操作 |
+|------|----------|-----------|
+| `index.html` | 无菜园子 DOM | 只提供 `handleResetPunishment` 供专注模式惩罚调用 |
+| `garden.html` | 完整菜园子 DOM | 完整功能：种植、收获、商店、签到、成就等 |
+
+**初始化时的判断：**
+```javascript
+async function init() {
+  // 没有 gardenGrid 说明不是菜园子页面，直接返回
+  if (!document.getElementById('gardenGrid')) {
+    return
+  }
+  isGardenPage = true
+  // ... 继续初始化
+}
+```
 ```
 
 ## 关键修复点
 
-### 1. try-catch 范围问题
+### 1. 多页面运行环境判断
 
-**问题：** `garden.js` 的 `handleResetPunishment` 原来将 IPC 调用和 UI 渲染放在同一个 try-catch 中。当在 `index.html` 中调用时，UI 渲染会因为 DOM 元素不存在而抛出异常，导致正确的数据被覆盖。
+**问题：** `garden.js` 同时被 `index.html` 和 `garden.html` 引入，但 DOM 元素只存在于 `garden.html` 中。当在 `index.html` 中调用 `handleResetPunishment` 时，如果尝试执行 UI 渲染，会因为 DOM 元素不存在而抛出异常。
 
-**修复：** 分离 IPC 调用和 UI 渲染的错误处理。
+**修复：** 使用 `isGardenPage` 变量判断当前运行环境，只在正确的页面执行 UI 操作。
 
 ```javascript
-// 修复前（错误）
-async function handleResetPunishment() {
-  try {
-    const result = await window.electronAPI.gardenPunishment()
-    if (result.hasLoss) {
-      await loadAndRender()  // 可能在 index.html 中抛出异常
-    }
-    return result
-  } catch (e) {
-    return { hasLoss: false, ... }  // 异常覆盖了正确结果
+// garden.js
+let isGardenPage = false
+
+async function init() {
+  // 检测当前页面是否是菜园子页面
+  if (!document.getElementById('gardenGrid')) {
+    return  // 不初始化，避免操作不存在的 DOM
   }
+  isGardenPage = true
+  // ... 初始化 DOM 元素和事件
 }
 
-// 修复后（正确）
 async function handleResetPunishment() {
-  let result = { hasLoss: false, losses: [], totalMinutes: 0 }
-  
-  try {
-    result = await window.electronAPI.gardenPunishment()
-  } catch (e) {
-    console.error('IPC 调用失败:', e)
-    return { hasLoss: false, ... }
+  if (!window.electronAPI || !window.electronAPI.gardenPunishment) {
+    return { hasLoss: false, losses: [], totalMinutes: 0 }
   }
-  
-  // 单独处理 UI，不影响 result
-  if (result.hasLoss) {
-    try {
-      await loadAndRender()
-    } catch (e) {
-      console.warn('UI 渲染失败:', e)
-    }
+
+  const result = await window.electronAPI.gardenPunishment()
+
+  // 仅在菜园子页面刷新 UI，index.html 中无此 DOM，不执行
+  if (result.hasLoss && isGardenPage) {
+    await loadAndRender()
+    updateTip('⚠️ 专注模式中断！所有正在生长的作物已枯萎')
   }
-  
+
   return result
 }
 ```
+
+**设计原则：**
+- **数据操作**：在任何页面都可以执行（通过 IPC 调用主进程）
+- **UI 渲染**：只在有对应 DOM 的页面执行
 
 ### 2. 多窗口并发问题
 
