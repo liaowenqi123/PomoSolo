@@ -1,5 +1,7 @@
 {
-  "_customTags": {},
+  "_customTags": {
+    "自定义": "#8c8c8c"
+  },
   "番茄小宇宙 - 番茄钟.mp3": "学习",
   "番茄倒数快一点 - 番茄钟.mp3": "运动",
   "Tick Tock, Take Control - 番茄钟.mp3": "主题曲",
@@ -10,5 +12,9 @@
   "Closer.mp3": {
     "name": "休息",
     "color": "#64e664"
+  },
+  "于是 - 郑润泽.mp3": {
+    "name": "自定义",
+    "color": "#8c8c8c"
   }
 }

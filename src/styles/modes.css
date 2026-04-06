@@ -11,12 +11,12 @@
 
 .container.plan-mode .sidebar {
   background: transparent;
-  border-right-color: var(--plan-sidebar-border);
+  border-right-color: var(--sidebar-border-work);
 }
 
 .container.plan-mode.break-mode .sidebar {
   background: transparent;
-  border-right-color: var(--plan-sidebar-border);
+  border-right-color: var(--sidebar-border-break);
 }
 
 /* 计划模式下隐藏工作/休息模式按钮 */

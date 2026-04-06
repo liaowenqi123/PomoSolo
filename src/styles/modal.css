@@ -7,13 +7,14 @@
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0);
-  backdrop-filter: blur(0px);
+  background: rgba(0, 0, 0, 0.5);
   display: none;
   justify-content: center;
   align-items: center;
   z-index: 200;
   border-radius: 20px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
 }
 
 .tutorial-modal.show,
@@ -22,44 +23,21 @@
 }
 
 .tutorial-modal.show {
-  animation: fadeIn 0.4s ease forwards;
+  opacity: 1;
 }
 
 .tutorial-modal.hiding {
-  animation: fadeOut 0.3s ease forwards;
-}
-
-@keyframes fadeIn {
-  from {
-    background: rgba(0, 0, 0, 0);
-    backdrop-filter: blur(0px);
-  }
-  to {
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(4px);
-  }
-}
-
-@keyframes fadeOut {
-  from {
-    background: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(4px);
-  }
-  to {
-    background: rgba(0, 0, 0, 0);
-    backdrop-filter: blur(0px);
-  }
+  opacity: 0;
 }
 
 .tutorial-content {
-  background: linear-gradient(135deg, rgba(180, 90, 90, 0.98), rgba(160, 100, 100, 0.98));
+  background: linear-gradient(145deg, #a83232 0%, #8a2828 50%, #6e2020 100%);
   border-radius: 15px;
   padding: 25px;
-  width: 380px;
+  width: 400px;
   max-height: 80%;
   position: relative;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 10px 40px rgba(120, 40, 40, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
   transform: translate(200px, -250px) scale(0.05);
   transform-origin: center center;
   opacity: 0;
@@ -120,13 +98,14 @@
   font-size: 18px;
   margin-bottom: 15px;
   text-align: center;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .tutorial-body {
   color: rgba(255, 255, 255, 0.95);
   font-size: 12px;
-  line-height: 1.6;
-  height: 280px;
+  line-height: 1.7;
+  height: 320px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
@@ -197,6 +176,8 @@
   font-size: 14px;
   margin-top: 15px;
   margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
 }
 
 .tutorial-body h3:first-child {
@@ -234,12 +215,20 @@
 /* 休息模式下的教程弹窗 */
 .container.break-mode .tutorial-content,
 .window-frame.break-mode .tutorial-content {
-  background: linear-gradient(135deg, rgba(70, 160, 100, 0.98), rgba(60, 140, 90, 0.98));
+  background: linear-gradient(145deg, #2a7068 0%, #225a54 50%, #1a4842 100%);
+  box-shadow: 0 10px 40px rgba(40, 100, 95, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
 }
 
 .container.break-mode .tutorial-modal,
 .window-frame.break-mode .tutorial-modal {
   background: rgba(0, 0, 0, 0.5);
+}
+
+/* 正向计时模式下的教程弹窗 */
+.container.stopwatch-mode .tutorial-content,
+.window-frame.stopwatch-mode .tutorial-content {
+  background: linear-gradient(145deg, #4a3fa0 0%, #3a3080 50%, #2a2260 100%);
+  box-shadow: 0 10px 40px rgba(70, 60, 150, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
 }
 
 /* ============ 前台检测警告弹窗 ============ */

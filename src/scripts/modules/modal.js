@@ -58,8 +58,36 @@
       if (this._isInitialized) return
 
       window.modalManager?.register(this._modalId, this)
+      this._applyBaseStyles()
       this._bindBackgroundClick()
       this._isInitialized = true
+    }
+
+    /**
+     * 应用基础样式
+     * 确保所有弹窗都有统一的定位和圆角
+     */
+    _applyBaseStyles() {
+      const el = this.element
+      // 只有在样式未设置时才设置默认值
+      if (el.style.position === '' && getComputedStyle(el).position === 'static') {
+        el.style.position = 'absolute'
+      }
+      if (el.style.top === '') {
+        el.style.top = '0'
+      }
+      if (el.style.left === '') {
+        el.style.left = '0'
+      }
+      if (el.style.width === '') {
+        el.style.width = '100%'
+      }
+      if (el.style.height === '') {
+        el.style.height = '100%'
+      }
+      if (el.style.borderRadius === '') {
+        el.style.borderRadius = '20px'
+      }
     }
 
     /**
