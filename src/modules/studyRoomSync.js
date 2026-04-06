@@ -512,8 +512,8 @@ function unsubscribeAll() {
  * 更新在线状态（心跳）- 去中心化检测
  * 每个客户端心跳时会：
  * 1. 更新自己的在线状态
- * 2. 检查其他成员，把超时(>11分钟)的设为离线
- * 3. 如果没有在线成员，把自习室下线
+ * 2. 检查所有自习室的所有成员，把超时(>11分钟)的设为离线
+ * 3. 检查所有自习室，如果没有在线成员则下线
  * @param {string} roomId - 自习室 ID
  * @returns {Promise<{success: boolean, error?: string}>}
  */
@@ -541,52 +541,61 @@ async function updateOnlineStatus(roomId) {
       return { success: false, error: updateError.message }
     }
 
-    // 2. 获取所有成员，检查谁超时了
-    const { data: members, error: membersError } = await supabase
+    // 2. 获取所有自习室的所有成员，检查谁超时了
+    const { data: allMembers, error: membersError } = await supabase
       .from('study_room_members')
-      .select('user_id, last_active, is_online')
-      .eq('room_id', roomId)
+      .select('user_id, room_id, last_active, is_online')
 
-    if (membersError || !members) {
+    if (membersError || !allMembers) {
       console.error('[StudyRoomSync] 获取成员列表失败:', membersError)
       return { success: true } // 自己更新成功了，只是检查失败
     }
 
-    // 找出超时的成员
-    const timeoutUserIds = []
-    members.forEach(member => {
+    // 找出超时的成员（所有自习室）
+    const timeoutMembers = []
+    allMembers.forEach(member => {
       if (member.is_online) {
         const lastActive = new Date(member.last_active)
         const elapsed = now - lastActive
         if (elapsed > timeoutThreshold) {
-          timeoutUserIds.push(member.user_id)
+          timeoutMembers.push({ userId: member.user_id, roomId: member.room_id })
         }
       }
     })
 
     // 批量更新超时成员为离线
-    if (timeoutUserIds.length > 0) {
-      console.log('[StudyRoomSync] 检测到超时成员:', timeoutUserIds)
+    if (timeoutMembers.length > 0) {
+      console.log('[StudyRoomSync] 检测到超时成员:', timeoutMembers.length, '人')
+      const timeoutUserIds = [...new Set(timeoutMembers.map(m => m.userId))]
       await supabase
         .from('study_room_members')
         .update({ is_online: false })
-        .eq('room_id', roomId)
         .in('user_id', timeoutUserIds)
     }
 
-    // 3. 检查是否还有在线成员，没有则下线自习室
-    const { data: onlineMembers } = await supabase
-      .from('study_room_members')
-      .select('user_id')
-      .eq('room_id', roomId)
-      .eq('is_online', true)
+    // 3. 检查所有自习室，如果没有在线成员则下线
+    // 先获取所有活跃的自习室
+    const { data: activeRooms } = await supabase
+      .from('study_rooms')
+      .select('id')
+      .eq('is_active', true)
 
-    if (!onlineMembers || onlineMembers.length === 0) {
-      console.log('[StudyRoomSync] 自习室无在线成员，下线自习室:', roomId)
-      await supabase
-        .from('study_rooms')
-        .update({ is_active: false })
-        .eq('id', roomId)
+    if (activeRooms && activeRooms.length > 0) {
+      for (const room of activeRooms) {
+        const { data: onlineMembers } = await supabase
+          .from('study_room_members')
+          .select('user_id')
+          .eq('room_id', room.id)
+          .eq('is_online', true)
+
+        if (!onlineMembers || onlineMembers.length === 0) {
+          console.log('[StudyRoomSync] 自习室无在线成员，下线:', room.id)
+          await supabase
+            .from('study_rooms')
+            .update({ is_active: false })
+            .eq('id', room.id)
+        }
+      }
     }
 
     return { success: true }

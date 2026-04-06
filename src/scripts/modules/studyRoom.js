@@ -1138,6 +1138,12 @@ const StudyRoom = {
       clearInterval(this.heartbeatInterval);
     }
     
+    // 立即执行一次心跳
+    if (this.currentRoomId) {
+      window.electronAPI.studyRoomUpdateStatus(this.currentRoomId);
+    }
+    
+    // 然后每5分钟执行一次
     this.heartbeatInterval = setInterval(async () => {
       if (this.currentRoomId) {
         await window.electronAPI.studyRoomUpdateStatus(this.currentRoomId);
