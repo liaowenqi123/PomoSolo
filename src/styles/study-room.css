@@ -46,16 +46,18 @@
 }
 
 .study-room-modal-header {
-  padding: 16px 24px 12px 24px;
+  padding: 14px 24px 10px 24px;
   flex-shrink: 0;
   position: relative;
 }
 
 .study-room-modal-body {
-  padding: 0 24px 24px 24px;
-  overflow-y: auto;
-  overflow-x: hidden;
+  padding: 0 24px 20px 24px;
+  overflow: hidden;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 /* 自定义滚动条样式 */
@@ -107,7 +109,7 @@
 
 .study-room-modal h2 {
   margin: 0;
-  font-size: 22px;
+  font-size: 20px;
   color: var(--text-color);
   text-align: center;
   padding-right: 32px;
@@ -116,58 +118,69 @@
 .study-room-options {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 6px;
 }
 
 .study-room-option {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 18px;
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 4px 8px;
+  padding: 6px 10px;
   background: var(--sidebar-bg);
-  border-radius: 16px;
+  border-radius: 8px;
   border: 2px solid transparent;
   transition: all 0.3s;
+  align-items: center;
 }
 
 .study-room-option:hover {
   border-color: var(--primary-color);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(255, 107, 107, 0.2);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(255, 107, 107, 0.2);
 }
 
 .study-room-option-icon {
-  font-size: 40px;
+  font-size: 16px;
   flex-shrink: 0;
+  line-height: 1;
+  grid-row: 1 / 2;
+  grid-column: 1;
+  align-self: start;
 }
 
 .study-room-option-content {
-  flex: 1;
+  grid-row: 1 / 3;
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
 }
 
 .study-room-option-content h3 {
-  margin: 0 0 6px 0;
-  font-size: 17px;
+  margin: 0 0 1px 0;
+  font-size: 13px;
   color: var(--text-color);
+  line-height: 1.2;
 }
 
 .study-room-option-desc {
-  margin: 0 0 10px 0;
-  font-size: 13px;
+  margin: 0 0 2px 0;
+  font-size: 10px;
   color: var(--text-secondary);
-  line-height: 1.5;
+  line-height: 1.2;
 }
 
 .study-room-requirement {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
+  gap: 2px;
+  font-size: 9px;
   color: var(--text-secondary);
-  padding: 6px 12px;
+  padding: 2px 5px;
   background: var(--bg-color);
-  border-radius: 8px;
-  width: fit-content;
+  border-radius: 3px;
 }
 
 .study-room-requirement.met {
@@ -181,16 +194,16 @@
 }
 
 .requirement-icon {
-  font-size: 14px;
+  font-size: 8px;
 }
 
 .study-room-btn {
-  padding: 8px 20px;
+  padding: 4px 10px;
   background: var(--primary-color);
   color: white;
   border: none;
-  border-radius: 10px;
-  font-size: 14px;
+  border-radius: 5px;
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
@@ -200,6 +213,9 @@
   pointer-events: auto !important;
   position: relative;
   z-index: 10;
+  grid-row: 1 / 3;
+  grid-column: 3;
+  align-self: center;
 }
 
 .study-room-btn:hover:not(:disabled) {
@@ -290,71 +306,110 @@
 .room-list-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
+  height: 100%;
+  overflow: hidden;
 }
 
 .room-list-container h3 {
-  margin: 0 0 8px 0;
-  font-size: 18px;
+  margin: 0 0 6px 0;
+  font-size: 16px;
   color: var(--text-color);
   text-align: center;
+  flex-shrink: 0;
 }
 
 .room-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  max-height: 400px;
+  gap: 6px;
   overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+  padding-right: 6px;
+}
+
+/* 浏览自习室列表滚动条样式 */
+.room-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.room-list::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+
+.room-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 2px;
+}
+
+.room-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.dark-mode .room-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.dark-mode .room-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .room-list-item {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
   background: var(--sidebar-bg);
-  border-radius: 12px;
+  border-radius: 8px;
   border: 2px solid transparent;
   transition: all 0.2s;
 }
 
 .room-list-item:hover {
   border-color: var(--primary-color);
-  transform: translateX(4px);
+  transform: translateX(2px);
 }
 
 .room-info {
   flex: 1;
+  min-width: 0;
 }
 
 .room-name {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-color);
-  margin-bottom: 4px;
+  margin-bottom: 3px;
+  word-wrap: break-word;
+  word-break: break-word;
 }
 
 .room-desc {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
+  word-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.4;
 }
 
 .room-meta {
   display: flex;
-  gap: 12px;
-  font-size: 11px;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 10px;
   color: var(--text-secondary);
 }
 
 .room-join-btn {
-  padding: 6px 16px;
+  padding: 4px 12px;
   background: var(--primary-color);
   color: white;
   border: none;
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: 6px;
+  font-size: 11px;
   cursor: pointer;
   transition: all 0.2s;
   flex-shrink: 0;
@@ -367,14 +422,16 @@
 
 .room-list-close-btn {
   width: 100%;
-  padding: 10px;
+  padding: 8px;
   background: var(--sidebar-bg);
   color: var(--text-color);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
-  font-size: 14px;
+  border-radius: 8px;
+  font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
+  margin-top: 4px;
+  flex-shrink: 0;
 }
 
 .room-list-close-btn:hover {
@@ -385,20 +442,21 @@
 .room-view-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
+  height: 100%;
 }
 
 .room-view-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 12px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--border-color);
 }
 
 .room-view-header h3 {
   margin: 0;
-  font-size: 18px;
+  font-size: 16px;
   color: var(--text-color);
   flex: 1;
 }
@@ -406,11 +464,11 @@
 .room-view-close-btn {
   background: none;
   border: none;
-  font-size: 24px;
+  font-size: 20px;
   cursor: pointer;
   color: var(--text-secondary);
   transition: color 0.2s;
-  padding: 4px 8px;
+  padding: 2px 6px;
   line-height: 1;
 }
 
@@ -422,11 +480,11 @@
 .room-id-display {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 6px;
+  padding: 6px 10px;
   background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  font-size: 12px;
+  border-radius: 6px;
+  font-size: 11px;
 }
 
 .dark-mode .room-id-display {
@@ -442,7 +500,7 @@
   flex: 1;
   color: var(--text-color);
   font-family: 'Courier New', monospace;
-  font-size: 11px;
+  font-size: 10px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -450,13 +508,13 @@
 }
 
 .room-id-copy-btn {
-  padding: 4px 8px;
+  padding: 3px 6px;
   background: var(--sidebar-bg);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--text-color);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 12px;
   transition: all 0.2s;
   flex-shrink: 0;
 }
@@ -473,19 +531,19 @@
 
 .room-view-tabs {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   background: var(--sidebar-bg);
-  padding: 4px;
-  border-radius: 10px;
+  padding: 3px;
+  border-radius: 8px;
 }
 
 .room-tab {
   flex: 1;
-  padding: 8px 12px;
+  padding: 6px 10px;
   background: transparent;
   border: none;
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: 6px;
+  font-size: 12px;
   color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
@@ -502,9 +560,43 @@
 }
 
 .room-view-content {
-  min-height: 300px;
-  max-height: 400px;
-  overflow-y: auto;
+  flex: 0 1 auto;
+  max-height: 250px;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  padding-right: 6px;
+}
+
+/* room-view-content 滚动条样式 */
+.room-view-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.room-view-content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+  margin: 4px 0;
+  border-radius: 3px;
+}
+
+.room-view-content::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.room-view-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.dark-mode .room-view-content::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dark-mode .room-view-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.dark-mode .room-view-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .room-tab-panel {
@@ -519,22 +611,22 @@
 .ranking-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 5px;
 }
 
 .ranking-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
+  gap: 8px;
+  padding: 6px 8px;
   background: var(--sidebar-bg);
-  border-radius: 10px;
+  border-radius: 6px;
   transition: all 0.2s;
 }
 
 .ranking-item:hover {
-  transform: translateX(4px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transform: translateX(2px);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
 
 .ranking-item.top-three {
@@ -543,9 +635,9 @@
 }
 
 .ranking-rank {
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 700;
-  min-width: 32px;
+  min-width: 24px;
   text-align: center;
 }
 
@@ -554,16 +646,16 @@
 }
 
 .ranking-username {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-color);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .ranking-stats {
   display: flex;
-  gap: 12px;
-  font-size: 12px;
+  gap: 8px;
+  font-size: 10px;
   color: var(--text-secondary);
 }
 
@@ -571,27 +663,27 @@
 .members-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 5px;
 }
 
 .member-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
+  gap: 8px;
+  padding: 6px 8px;
   background: var(--sidebar-bg);
-  border-radius: 10px;
+  border-radius: 6px;
   transition: all 0.2s;
 }
 
 .member-item:hover {
-  transform: translateX(4px);
+  transform: translateX(2px);
 }
 
 .member-avatar {
-  font-size: 24px;
-  width: 40px;
-  height: 40px;
+  font-size: 18px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -604,14 +696,14 @@
 }
 
 .member-username {
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-color);
-  margin-bottom: 2px;
+  margin-bottom: 1px;
 }
 
 .member-status {
-  font-size: 11px;
+  font-size: 9px;
   color: var(--text-secondary);
 }
 
@@ -649,18 +741,20 @@
 /* 操作按钮样式 */
 .room-view-actions {
   display: flex;
-  gap: 8px;
-  padding-top: 12px;
+  gap: 6px;
+  padding-top: 8px;
   border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
 .room-refresh-btn,
+.room-delete-btn,
 .room-leave-btn {
   flex: 1;
-  padding: 10px;
+  padding: 7px;
   border: none;
-  border-radius: 10px;
-  font-size: 13px;
+  border-radius: 6px;
+  font-size: 12px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -672,7 +766,17 @@
 
 .room-refresh-btn:hover {
   background: var(--bg-color);
-  transform: translateY(-2px);
+  transform: translateY(-1px);
+}
+
+.room-delete-btn {
+  background: #ff9800;
+  color: white;
+}
+
+.room-delete-btn:hover {
+  background: #f57c00;
+  transform: translateY(-1px);
 }
 
 .room-leave-btn {
@@ -682,7 +786,7 @@
 
 .room-leave-btn:hover {
   background: #ff1744;
-  transform: translateY(-2px);
+  transform: translateY(-1px);
 }
 
 /* 自定义输入对话框样式 */
@@ -812,72 +916,81 @@
 .join-options-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
 }
 
 .join-options-container h3 {
-  margin: 0;
+  margin: 0 0 8px 0;
   font-size: 18px;
   color: var(--text-color);
   text-align: center;
 }
 
-.join-options-desc {
-  margin: 0 0 8px 0;
-  font-size: 13px;
-  color: var(--text-secondary);
-  text-align: center;
-}
-
 .join-option-card {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px;
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  grid-template-rows: auto auto;
+  gap: 4px 8px;
+  padding: 6px 10px;
   background: var(--sidebar-bg);
-  border-radius: 12px;
+  border-radius: 8px;
   border: 2px solid transparent;
   transition: all 0.2s;
+  align-items: center;
 }
 
 .join-option-card:hover {
   border-color: var(--primary-color);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(255, 107, 107, 0.2);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(255, 107, 107, 0.2);
 }
 
 .join-option-icon {
-  font-size: 32px;
+  font-size: 16px;
   flex-shrink: 0;
+  line-height: 1;
+  grid-row: 1 / 2;
+  grid-column: 1;
+  align-self: start;
 }
 
 .join-option-content {
-  flex: 1;
+  grid-row: 1 / 3;
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
 }
 
 .join-option-content h4 {
-  margin: 0 0 4px 0;
-  font-size: 15px;
+  margin: 0 0 1px 0;
+  font-size: 13px;
   color: var(--text-color);
+  line-height: 1.2;
 }
 
 .join-option-content p {
   margin: 0;
-  font-size: 12px;
+  font-size: 10px;
   color: var(--text-secondary);
+  line-height: 1.2;
 }
 
 .join-option-btn {
-  padding: 8px 20px;
+  padding: 4px 10px;
   background: var(--primary-color);
   color: white;
   border: none;
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: 5px;
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
   flex-shrink: 0;
+  grid-row: 1 / 3;
+  grid-column: 3;
+  align-self: center;
 }
 
 .join-option-btn:hover {
@@ -887,15 +1000,15 @@
 
 .join-back-btn {
   width: 100%;
-  padding: 10px;
+  padding: 8px;
   background: var(--sidebar-bg);
   color: var(--text-color);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
-  font-size: 14px;
+  border-radius: 8px;
+  font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
-  margin-top: 8px;
+  margin-top: 4px;
 }
 
 .join-back-btn:hover {
@@ -905,19 +1018,20 @@
 /* 操作按钮样式更新 */
 .room-view-actions {
   display: flex;
-  gap: 8px;
-  padding-top: 12px;
+  gap: 6px;
+  padding-top: 8px;
   border-top: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
 .room-refresh-btn,
 .room-delete-btn,
 .room-leave-btn {
   flex: 1;
-  padding: 10px;
+  padding: 7px;
   border: none;
-  border-radius: 10px;
-  font-size: 13px;
+  border-radius: 6px;
+  font-size: 12px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -929,7 +1043,7 @@
 
 .room-refresh-btn:hover {
   background: var(--bg-color);
-  transform: translateY(-2px);
+  transform: translateY(-1px);
 }
 
 .room-delete-btn {
@@ -939,7 +1053,7 @@
 
 .room-delete-btn:hover {
   background: #f57c00;
-  transform: translateY(-2px);
+  transform: translateY(-1px);
 }
 
 .room-leave-btn {
@@ -949,7 +1063,7 @@
 
 .room-leave-btn:hover {
   background: #ff1744;
-  transform: translateY(-2px);
+  transform: translateY(-1px);
 }
 
 /* 确认对话框消息样式优化 */
@@ -986,18 +1100,18 @@
 .create-room-dialog {
   background: var(--bg-color);
   border-radius: 16px;
-  padding: 24px;
+  padding: 20px;
   width: 90%;
   max-width: 480px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  max-height: 80vh;
-  overflow-y: auto;
+  max-height: 85vh;
+  overflow: visible;
 }
 
 .create-room-title {
-  margin: 0 0 20px 0;
-  font-size: 20px;
+  margin: 0 0 12px 0;
+  font-size: 18px;
   color: var(--text-color);
   text-align: center;
 }
@@ -1005,17 +1119,17 @@
 .create-room-form {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .form-label {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-color);
 }
@@ -1027,10 +1141,10 @@
 .form-input,
 .form-textarea {
   width: 100%;
-  padding: 12px 16px;
+  padding: 8px 12px;
   border: 2px solid var(--border-color);
-  border-radius: 10px;
-  font-size: 14px;
+  border-radius: 8px;
+  font-size: 13px;
   color: var(--text-color);
   background: var(--sidebar-bg);
   transition: border-color 0.2s;
@@ -1050,7 +1164,7 @@
 }
 
 .form-textarea {
-  min-height: 80px;
+  min-height: 50px;
   resize: vertical;
 }
 
@@ -1058,15 +1172,15 @@
 .privacy-options {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .privacy-option {
   display: block;
-  padding: 14px;
+  padding: 10px;
   background: var(--sidebar-bg);
   border: 2px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -1088,11 +1202,11 @@
 .privacy-option-content {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .privacy-option-icon {
-  font-size: 28px;
+  font-size: 22px;
   flex-shrink: 0;
 }
 
@@ -1101,30 +1215,30 @@
 }
 
 .privacy-option-title {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-color);
   margin-bottom: 2px;
 }
 
 .privacy-option-desc {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
 }
 
 /* 创建按钮样式 */
 .create-room-buttons {
   display: flex;
-  gap: 12px;
-  margin-top: 8px;
+  gap: 10px;
+  margin-top: 4px;
 }
 
 .create-room-btn {
   flex: 1;
-  padding: 12px 20px;
+  padding: 9px 16px;
   border: none;
-  border-radius: 10px;
-  font-size: 15px;
+  border-radius: 8px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
@@ -1217,74 +1331,112 @@
 .my-rooms-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 10px;
+  height: 100%;
+  overflow: hidden;
 }
 
 .my-rooms-container h3 {
-  margin: 0;
-  font-size: 18px;
+  margin: 0 0 6px 0;
+  font-size: 16px;
   color: var(--text-color);
   text-align: center;
+  flex-shrink: 0;
 }
 
 .my-rooms-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  max-height: 400px;
+  gap: 6px;
   overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1;
+  padding-right: 6px;
+}
+
+/* 我的自习室列表滚动条样式 */
+.my-rooms-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.my-rooms-list::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 4px 0;
+}
+
+.my-rooms-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 2px;
+}
+
+.my-rooms-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.dark-mode .my-rooms-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.dark-mode .my-rooms-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .my-room-item {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
   background: var(--sidebar-bg);
-  border-radius: 12px;
+  border-radius: 8px;
   border: 2px solid transparent;
   transition: all 0.2s;
 }
 
 .my-room-item:hover {
   border-color: var(--primary-color);
-  transform: translateX(4px);
+  transform: translateX(2px);
 }
 
 .my-room-info {
   flex: 1;
+  min-width: 0;
 }
 
 .my-room-name {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-color);
-  margin-bottom: 4px;
+  margin-bottom: 3px;
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .my-room-desc {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
+  word-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.4;
 }
 
 .my-room-meta {
   display: flex;
-  gap: 12px;
-  font-size: 11px;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 10px;
   color: var(--text-secondary);
 }
 
 .my-room-enter-btn {
-  padding: 8px 20px;
+  padding: 4px 12px;
   background: var(--primary-color);
   color: white;
   border: none;
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: 6px;
+  font-size: 11px;
   cursor: pointer;
   transition: all 0.2s;
   flex-shrink: 0;
@@ -1297,15 +1449,16 @@
 
 .my-rooms-back-btn {
   width: 100%;
-  padding: 10px;
+  padding: 8px;
   background: var(--sidebar-bg);
   color: var(--text-color);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
-  font-size: 14px;
+  border-radius: 8px;
+  font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
-  margin-top: 8px;
+  margin-top: 4px;
+  flex-shrink: 0;
 }
 
 .my-rooms-back-btn:hover {
@@ -1315,40 +1468,11 @@
 /* 修复创建表单的圆角和滚动 */
 .create-room-dialog {
   border-radius: 16px;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: visible;
 }
 
 .create-room-form {
   border-radius: 0;
-}
-
-/* 确保滚动区域也有圆角 */
-.create-room-dialog::-webkit-scrollbar {
-  width: 6px;
-}
-
-.create-room-dialog::-webkit-scrollbar-track {
-  background: transparent;
-  margin: 8px 0;
-  border-radius: 16px;
-}
-
-.create-room-dialog::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 3px;
-}
-
-.create-room-dialog::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.3);
-}
-
-.dark-mode .create-room-dialog::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.dark-mode .create-room-dialog::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
 }
 
 /* 迷你ID显示和复制按钮样式 */

@@ -656,7 +656,6 @@ const StudyRoom = {
     const optionsHTML = `
       <div class="join-options-container">
         <h3>加入自习室</h3>
-        <p class="join-options-desc">选择加入方式</p>
         
         <div class="join-option-card" id="join-by-id-card">
           <div class="join-option-icon">🔑</div>
