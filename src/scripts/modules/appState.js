@@ -120,41 +120,44 @@
   
   /**
    * 更新备注输入框的禁用状态
+   * 注意：专注模式下仍然允许编辑备注，只是在运行时不允许
    */
   function updateNoteInputsDisabled() {
-    const disabled = state.focusModeEnabled
+    // 移除专注模式对备注编辑的限制
+    // 备注应该随时可以编辑，不受专注模式影响
     
-    // 计划模式的备注输入框
+    // 计划模式的备注输入框 - 始终可用
     const planNoteTitleInput = document.getElementById('plan-note-title-input')
     const planNoteDetailInput = document.getElementById('plan-note-detail-input')
     
-    // 计时器上方的备注输入框
+    if (planNoteTitleInput) {
+      planNoteTitleInput.disabled = false
+      planNoteTitleInput.style.opacity = '1'
+      planNoteTitleInput.style.cursor = 'text'
+    }
+    if (planNoteDetailInput) {
+      planNoteDetailInput.disabled = false
+      planNoteDetailInput.style.opacity = '1'
+      planNoteDetailInput.style.cursor = 'text'
+    }
+    
+    // 计时器上方的备注输入框 - 始终可用
     const timerNoteTitleInput = document.getElementById('timer-note-title-input')
     const timerNoteInput = document.getElementById('timer-note-input')
     const timerNoteDisplay = document.getElementById('timer-note-display')
     
-    if (planNoteTitleInput) {
-      planNoteTitleInput.disabled = disabled
-      planNoteTitleInput.style.opacity = disabled ? '0.5' : '1'
-      planNoteTitleInput.style.cursor = disabled ? 'not-allowed' : 'text'
-    }
-    if (planNoteDetailInput) {
-      planNoteDetailInput.disabled = disabled
-      planNoteDetailInput.style.opacity = disabled ? '0.5' : '1'
-      planNoteDetailInput.style.cursor = disabled ? 'not-allowed' : 'text'
-    }
     if (timerNoteTitleInput) {
-      timerNoteTitleInput.disabled = disabled
-      timerNoteTitleInput.style.opacity = disabled ? '0.5' : '1'
-      timerNoteTitleInput.style.cursor = disabled ? 'not-allowed' : 'text'
+      timerNoteTitleInput.disabled = false
+      timerNoteTitleInput.style.opacity = '1'
+      timerNoteTitleInput.style.cursor = 'text'
     }
     if (timerNoteInput) {
-      timerNoteInput.style.opacity = disabled ? '0.5' : '1'
-      timerNoteInput.style.pointerEvents = disabled ? 'none' : 'auto'
+      timerNoteInput.style.opacity = '1'
+      timerNoteInput.style.pointerEvents = 'auto'
     }
     if (timerNoteDisplay) {
-      timerNoteDisplay.style.opacity = disabled ? '0.5' : '1'
-      timerNoteDisplay.style.pointerEvents = disabled ? 'none' : 'auto'
+      timerNoteDisplay.style.opacity = '1'
+      timerNoteDisplay.style.pointerEvents = 'auto'
     }
   }
 

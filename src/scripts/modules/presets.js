@@ -660,6 +660,7 @@
       const timerNoteInput = document.getElementById('timer-note-input')
       const timerNoteDisplay = document.getElementById('timer-note-display')
       const timerNoteTitleInput = document.getElementById('timer-note-title-input')
+      const timerNoteText = document.getElementById('timer-note-text')
       
       // 获取当前选中的预设
       const activeMinutes = activePreset
@@ -669,17 +670,20 @@
         return
       }
       
-      // 正向计时模式：直接清空输入框
+      // 正向计时模式：保留当前备注内容
       if (AppState.appMode === 'stopwatch') {
+        const currentNote = timerNoteText.textContent || ''
         timerNoteDisplay.style.display = 'none'
         timerNoteInput.style.display = 'flex'
-        timerNoteTitleInput.value = ''  // 清空输入框
+        timerNoteTitleInput.value = currentNote  // 保留原内容
         timerNoteTitleInput.focus()
+        // 将光标移到末尾
+        timerNoteTitleInput.setSelectionRange(currentNote.length, currentNote.length)
         bindConfirmButton()
         return
       }
       
-      // 单次模式：获取当前预设的索引
+      // 单次模式：获取当前预设的索引和备注
       const index = currentPresets[currentMode].findIndex(preset => {
         const presetMinutes = typeof preset === 'number' ? preset : preset.minutes
         return presetMinutes === activeMinutes
@@ -692,8 +696,10 @@
       
       timerNoteDisplay.style.display = 'none'
       timerNoteInput.style.display = 'flex'
-      timerNoteTitleInput.value = ''  // 清空输入框，等待用户输入
+      timerNoteTitleInput.value = note  // 保留原内容
       timerNoteTitleInput.focus()
+      // 将光标移到末尾
+      timerNoteTitleInput.setSelectionRange(note.length, note.length)
       bindConfirmButton()
     })
   }
