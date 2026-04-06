@@ -94,6 +94,13 @@
         DOM.container.classList.remove('focus-mode')
       }
     }
+    
+    // 更新专注模式状态文字
+    if (DOM.focusModeStatus) {
+      DOM.focusModeStatus.textContent = state.focusModeEnabled ? '开启' : '关闭'
+      DOM.focusModeStatus.classList.toggle('active', state.focusModeEnabled)
+    }
+    
     // 专注模式拨杆在运行阶段不允许拨动（通过禁用点击事件实现）
     if (DOM.focusModeSwitch) {
       // 使用新的阶段系统：只有在 RUNNING 阶段才禁用

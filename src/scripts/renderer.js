@@ -290,10 +290,9 @@
       // 更新菜园子按钮状态
       updateGardenButtonState()
       
-      // 专注模式关闭时，停止前台检测
-      if (!AppState.focusModeEnabled && window.ForegroundDetection) {
-        window.ForegroundDetection.stopDetection()
-      }
+      // 注意：在准备阶段切换专注模式不应该触发前台检测的停止
+      // 前台检测只在计时器运行时才会启动，在暂停/停止时才会停止
+      // 这里不需要调用 stopDetection()
     })
   }
 
@@ -669,6 +668,9 @@
   // ============ 初始化显示 ============
   Timer.setTime(AppState.defaultWorkTime)
   WheelPicker.setValue(AppState.defaultWorkTime)
+  
+  // 初始化专注模式UI（确保状态文字正确显示）
+  AppState.updateFocusModeUI()
   
   // 自动选择默认预设（25分钟）并显示其备注
   const currentMode = Mode.getMode()
