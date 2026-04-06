@@ -122,6 +122,16 @@
     const stats = DataStore.getStats()
     return stats.totalMinutes || 0
   }
+  
+  function getTodayMinutes() {
+    const data = DataStore.getData()
+    if (!data.statisticsHistory) return 0
+    
+    const today = new Date().toISOString().split('T')[0]
+    const todayRecords = data.statisticsHistory.filter(record => record.date === today)
+    
+    return todayRecords.reduce((sum, record) => sum + (record.minutes || 0), 0)
+  }
 
   function init(els) {
     elements = els
@@ -135,6 +145,7 @@
     increment: increment,
     recordPartialFocus: recordPartialFocus,
     getTodayCount: getTodayCount,
-    getTotalMinutes: getTotalMinutes
+    getTotalMinutes: getTotalMinutes,
+    getTodayMinutes: getTodayMinutes
   }
 })()

@@ -46,8 +46,9 @@
 }
 
 .study-room-modal-header {
-  padding: 24px 24px 16px 24px;
+  padding: 16px 24px 12px 24px;
   flex-shrink: 0;
+  position: relative;
 }
 
 .study-room-modal-body {
@@ -196,6 +197,9 @@
   flex-shrink: 0;
   opacity: 1 !important;
   visibility: visible !important;
+  pointer-events: auto !important;
+  position: relative;
+  z-index: 10;
 }
 
 .study-room-btn:hover:not(:disabled) {
@@ -213,6 +217,7 @@
   background: var(--text-secondary);
   cursor: not-allowed;
   opacity: 0.5 !important;
+  pointer-events: none !important;
 }
 
 .study-room-btn:disabled:hover {
@@ -279,4 +284,1139 @@
   .study-room-btn {
     width: 100%;
   }
+}
+
+/* 自习室列表样式 */
+.room-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.room-list-container h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  color: var(--text-color);
+  text-align: center;
+}
+
+.room-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.room-list-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  background: var(--sidebar-bg);
+  border-radius: 12px;
+  border: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.room-list-item:hover {
+  border-color: var(--primary-color);
+  transform: translateX(4px);
+}
+
+.room-info {
+  flex: 1;
+}
+
+.room-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-color);
+  margin-bottom: 4px;
+}
+
+.room-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.room-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.room-join-btn {
+  padding: 6px 16px;
+  background: var(--primary-color);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.room-join-btn:hover {
+  background: #ff5252;
+  transform: scale(1.05);
+}
+
+.room-list-close-btn {
+  width: 100%;
+  padding: 10px;
+  background: var(--sidebar-bg);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.room-list-close-btn:hover {
+  background: var(--bg-color);
+}
+
+/* 自习室视图样式 */
+.room-view-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.room-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.room-view-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-color);
+  flex: 1;
+}
+
+.room-view-close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: color 0.2s;
+  padding: 4px 8px;
+  line-height: 1;
+}
+
+.room-view-close-btn:hover {
+  color: var(--text-color);
+}
+
+/* 自习室ID显示 */
+.room-id-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.dark-mode .room-id-display {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.room-id-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.room-id-value {
+  flex: 1;
+  color: var(--text-color);
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: all;
+}
+
+.room-id-copy-btn {
+  padding: 4px 8px;
+  background: var(--sidebar-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-color);
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.room-id-copy-btn:hover {
+  background: var(--bg-color);
+  transform: scale(1.05);
+  border-color: var(--primary-color);
+}
+
+.room-id-copy-btn:active {
+  transform: scale(0.95);
+}
+
+.room-view-tabs {
+  display: flex;
+  gap: 8px;
+  background: var(--sidebar-bg);
+  padding: 4px;
+  border-radius: 10px;
+}
+
+.room-tab {
+  flex: 1;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.room-tab.active {
+  background: var(--bg-color);
+  color: var(--text-color);
+  font-weight: 600;
+}
+
+.room-tab:hover:not(.active) {
+  color: var(--text-color);
+}
+
+.room-view-content {
+  min-height: 300px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.room-tab-panel {
+  display: none;
+}
+
+.room-tab-panel.active {
+  display: block;
+}
+
+/* 排名列表样式 */
+.ranking-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ranking-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--sidebar-bg);
+  border-radius: 10px;
+  transition: all 0.2s;
+}
+
+.ranking-item:hover {
+  transform: translateX(4px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.ranking-item.top-three {
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.1), rgba(255, 107, 107, 0.1));
+  border: 1px solid rgba(255, 215, 0, 0.3);
+}
+
+.ranking-rank {
+  font-size: 20px;
+  font-weight: 700;
+  min-width: 32px;
+  text-align: center;
+}
+
+.ranking-info {
+  flex: 1;
+}
+
+.ranking-username {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-color);
+  margin-bottom: 4px;
+}
+
+.ranking-stats {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* 成员列表样式 */
+.members-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.member-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--sidebar-bg);
+  border-radius: 10px;
+  transition: all 0.2s;
+}
+
+.member-item:hover {
+  transform: translateX(4px);
+}
+
+.member-avatar {
+  font-size: 24px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-color);
+  border-radius: 50%;
+}
+
+.member-info {
+  flex: 1;
+}
+
+.member-username {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-color);
+  margin-bottom: 2px;
+}
+
+.member-status {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.member-online-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.member-online-indicator.online {
+  background: #4caf50;
+  box-shadow: 0 0 8px rgba(76, 175, 80, 0.6);
+}
+
+.member-online-indicator.offline {
+  background: #9e9e9e;
+}
+
+/* 空状态样式 */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.loading {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+/* 操作按钮样式 */
+.room-view-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.room-refresh-btn,
+.room-leave-btn {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  border-radius: 10px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.room-refresh-btn {
+  background: var(--sidebar-bg);
+  color: var(--text-color);
+}
+
+.room-refresh-btn:hover {
+  background: var(--bg-color);
+  transform: translateY(-2px);
+}
+
+.room-leave-btn {
+  background: #ff5252;
+  color: white;
+}
+
+.room-leave-btn:hover {
+  background: #ff1744;
+  transform: translateY(-2px);
+}
+
+/* 自定义输入对话框样式 */
+.input-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 20000;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.input-dialog {
+  background: var(--bg-color);
+  border-radius: 16px;
+  padding: 24px;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.input-dialog-title {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  color: var(--text-color);
+  text-align: center;
+}
+
+.confirm-dialog-message {
+  margin: 0 0 20px 0;
+  font-size: 15px;
+  color: var(--text-color);
+  text-align: center;
+  line-height: 1.6;
+}
+
+.input-dialog-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid var(--border-color);
+  border-radius: 10px;
+  font-size: 14px;
+  color: var(--text-color);
+  background: var(--sidebar-bg);
+  margin-bottom: 16px;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.input-dialog-input:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.input-dialog-input::placeholder {
+  color: var(--text-secondary);
+}
+
+.input-dialog-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.input-dialog-btn {
+  flex: 1;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.input-dialog-cancel {
+  background: var(--sidebar-bg);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+}
+
+.input-dialog-cancel:hover {
+  background: var(--bg-color);
+}
+
+.input-dialog-confirm {
+  background: var(--primary-color);
+  color: white;
+}
+
+.input-dialog-confirm:hover {
+  background: #ff5252;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4);
+}
+
+.input-dialog-confirm:active {
+  transform: translateY(0);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 加入选项界面样式 */
+.join-options-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.join-options-container h3 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-color);
+  text-align: center;
+}
+
+.join-options-desc {
+  margin: 0 0 8px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.join-option-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  background: var(--sidebar-bg);
+  border-radius: 12px;
+  border: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.join-option-card:hover {
+  border-color: var(--primary-color);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 107, 107, 0.2);
+}
+
+.join-option-icon {
+  font-size: 32px;
+  flex-shrink: 0;
+}
+
+.join-option-content {
+  flex: 1;
+}
+
+.join-option-content h4 {
+  margin: 0 0 4px 0;
+  font-size: 15px;
+  color: var(--text-color);
+}
+
+.join-option-content p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.join-option-btn {
+  padding: 8px 20px;
+  background: var(--primary-color);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.join-option-btn:hover {
+  background: #ff5252;
+  transform: scale(1.05);
+}
+
+.join-back-btn {
+  width: 100%;
+  padding: 10px;
+  background: var(--sidebar-bg);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 8px;
+}
+
+.join-back-btn:hover {
+  background: var(--bg-color);
+}
+
+/* 操作按钮样式更新 */
+.room-view-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.room-refresh-btn,
+.room-delete-btn,
+.room-leave-btn {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  border-radius: 10px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.room-refresh-btn {
+  background: var(--sidebar-bg);
+  color: var(--text-color);
+}
+
+.room-refresh-btn:hover {
+  background: var(--bg-color);
+  transform: translateY(-2px);
+}
+
+.room-delete-btn {
+  background: #ff9800;
+  color: white;
+}
+
+.room-delete-btn:hover {
+  background: #f57c00;
+  transform: translateY(-2px);
+}
+
+.room-leave-btn {
+  background: #ff5252;
+  color: white;
+}
+
+.room-leave-btn:hover {
+  background: #ff1744;
+  transform: translateY(-2px);
+}
+
+/* 确认对话框消息样式优化 */
+.confirm-dialog-message {
+  margin: 0 0 20px 0;
+  font-size: 14px;
+  color: var(--text-color);
+  text-align: left;
+  line-height: 1.8;
+  white-space: pre-line;
+}
+
+/* 隐私标签样式 */
+.room-privacy-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: 6px;
+}
+
+.room-privacy-badge.public {
+  background: rgba(76, 175, 80, 0.15);
+  color: #4caf50;
+}
+
+.room-privacy-badge.private {
+  background: rgba(255, 152, 0, 0.15);
+  color: #ff9800;
+}
+
+/* 创建自习室表单样式 */
+.create-room-dialog {
+  background: var(--bg-color);
+  border-radius: 16px;
+  padding: 24px;
+  width: 90%;
+  max-width: 480px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.create-room-title {
+  margin: 0 0 20px 0;
+  font-size: 20px;
+  color: var(--text-color);
+  text-align: center;
+}
+
+.create-room-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-color);
+}
+
+.form-label .required {
+  color: #ff5252;
+}
+
+.form-input,
+.form-textarea {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid var(--border-color);
+  border-radius: 10px;
+  font-size: 14px;
+  color: var(--text-color);
+  background: var(--sidebar-bg);
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+
+.form-input:focus,
+.form-textarea:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.form-input::placeholder,
+.form-textarea::placeholder {
+  color: var(--text-secondary);
+}
+
+.form-textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+/* 隐私选项样式 */
+.privacy-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.privacy-option {
+  display: block;
+  padding: 14px;
+  background: var(--sidebar-bg);
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.privacy-option:hover {
+  border-color: var(--primary-color);
+  transform: translateX(4px);
+}
+
+.privacy-option.active {
+  border-color: var(--primary-color);
+  background: rgba(255, 107, 107, 0.1);
+}
+
+.privacy-option input[type="radio"] {
+  display: none;
+}
+
+.privacy-option-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.privacy-option-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+}
+
+.privacy-option-text {
+  flex: 1;
+}
+
+.privacy-option-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-color);
+  margin-bottom: 2px;
+}
+
+.privacy-option-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* 创建按钮样式 */
+.create-room-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.create-room-btn {
+  flex: 1;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.create-room-cancel {
+  background: var(--sidebar-bg);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+}
+
+.create-room-cancel:hover {
+  background: var(--bg-color);
+}
+
+.create-room-confirm {
+  background: var(--primary-color);
+  color: white;
+}
+
+.create-room-confirm:hover {
+  background: #ff5252;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4);
+}
+
+.create-room-confirm:active {
+  transform: translateY(0);
+}
+
+/* 自习室视图标题组样式 */
+.room-view-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.room-view-title-group h3 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-color);
+}
+
+.room-view-title-group .room-privacy-badge {
+  margin-left: 0;
+}
+
+/* 弹窗顶部提示样式 */
+.study-room-toast {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.85);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  white-space: nowrap;
+  z-index: 10001;
+  animation: toastSlideDown 0.3s ease-out;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+.study-room-toast.fade-out {
+  animation: toastFadeOut 0.3s ease-out forwards;
+}
+
+@keyframes toastSlideDown {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@keyframes toastFadeOut {
+  to {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px);
+  }
+}
+
+/* 我的自习室样式 */
+.my-rooms-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.my-rooms-container h3 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-color);
+  text-align: center;
+}
+
+.my-rooms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.my-room-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  background: var(--sidebar-bg);
+  border-radius: 12px;
+  border: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+.my-room-item:hover {
+  border-color: var(--primary-color);
+  transform: translateX(4px);
+}
+
+.my-room-info {
+  flex: 1;
+}
+
+.my-room-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-color);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.my-room-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.my-room-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.my-room-enter-btn {
+  padding: 8px 20px;
+  background: var(--primary-color);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.my-room-enter-btn:hover {
+  background: #ff5252;
+  transform: scale(1.05);
+}
+
+.my-rooms-back-btn {
+  width: 100%;
+  padding: 10px;
+  background: var(--sidebar-bg);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 8px;
+}
+
+.my-rooms-back-btn:hover {
+  background: var(--bg-color);
+}
+
+/* 修复创建表单的圆角和滚动 */
+.create-room-dialog {
+  border-radius: 16px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.create-room-form {
+  border-radius: 0;
+}
+
+/* 确保滚动区域也有圆角 */
+.create-room-dialog::-webkit-scrollbar {
+  width: 6px;
+}
+
+.create-room-dialog::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 8px 0;
+  border-radius: 16px;
+}
+
+.create-room-dialog::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.create-room-dialog::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.dark-mode .create-room-dialog::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.dark-mode .create-room-dialog::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* 迷你ID显示和复制按钮样式 */
+.room-id-display-mini,
+.my-room-id {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 6px;
+  font-size: 11px;
+  width: fit-content;
+}
+
+.dark-mode .room-id-display-mini,
+.dark-mode .my-room-id {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.room-id-display-mini .room-id-label,
+.my-room-id .room-id-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.room-id-short {
+  color: var(--text-color);
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  user-select: all;
+}
+
+.room-id-copy-mini {
+  padding: 2px 6px;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-color);
+  cursor: pointer;
+  font-size: 11px;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.room-id-copy-mini:hover {
+  background: var(--sidebar-bg);
+  border-color: var(--primary-color);
+  transform: scale(1.1);
+}
+
+.room-id-copy-mini:active {
+  transform: scale(0.95);
+}
+
+/* 调整自习室视图标题区域 */
+.room-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.room-view-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
 }

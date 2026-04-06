@@ -103,6 +103,44 @@ const { contextBridge, ipcRenderer } = require('electron')
   // 退出登录
   cloudLogout: () => ipcRenderer.invoke('cloud-logout'),
 
+  // ============ 自习室 API ============
+  
+  // 获取我创建的自习室列表
+  studyRoomGetMyRooms: () => ipcRenderer.invoke('study-room-get-my-rooms'),
+  
+  // 获取活跃的自习室列表
+  studyRoomGetActive: (publicOnly = false) => ipcRenderer.invoke('study-room-get-active', { publicOnly }),
+  
+  // 根据ID获取自习室信息
+  studyRoomGetById: (roomId) => ipcRenderer.invoke('study-room-get-by-id', { roomId }),
+  
+  // 创建自习室
+  studyRoomCreate: (name, description, isPublic) => ipcRenderer.invoke('study-room-create', { name, description, isPublic }),
+  
+  // 加入自习室
+  studyRoomJoin: (roomId) => ipcRenderer.invoke('study-room-join', { roomId }),
+  
+  // 离开自习室
+  studyRoomLeave: (roomId) => ipcRenderer.invoke('study-room-leave', { roomId }),
+  
+  // 删除自习室
+  studyRoomDelete: (roomId) => ipcRenderer.invoke('study-room-delete', { roomId }),
+  
+  // 上传今日统计数据
+  studyRoomUploadStats: (roomId, todayMinutes, todayCount) => ipcRenderer.invoke('study-room-upload-stats', { roomId, todayMinutes, todayCount }),
+  
+  // 上传专注会话（已废弃）
+  studyRoomUploadSession: (roomId, minutes, note) => ipcRenderer.invoke('study-room-upload-session', { roomId, minutes, note }),
+  
+  // 获取今日排名
+  studyRoomGetRanking: (roomId) => ipcRenderer.invoke('study-room-get-ranking', { roomId }),
+  
+  // 获取自习室成员
+  studyRoomGetMembers: (roomId) => ipcRenderer.invoke('study-room-get-members', { roomId }),
+  
+  // 更新在线状态
+  studyRoomUpdateStatus: (roomId) => ipcRenderer.invoke('study-room-update-status', { roomId }),
+
   // ============ 凭据存储 API ============
   
   // 保存凭据

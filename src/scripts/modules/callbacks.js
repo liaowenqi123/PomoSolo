@@ -235,7 +235,7 @@
   /**
    * 处理单次模式完成
    */
-  function handleSingleModeComplete() {
+  async function handleSingleModeComplete() {
     const mode = Mode.getMode()
     
     if (mode === 'work') {
@@ -246,8 +246,15 @@
       const timerNoteText = document.getElementById('timer-note-text')
       const currentNote = timerNoteText && timerNoteText.textContent ? timerNoteText.textContent.trim() : ''
       
-      // 记录统计
-      Stats.increment(Math.round(Timer.getTotalTime() / 60), currentNote)
+      // 记录统计（等待完成）
+      await Stats.increment(Math.round(Timer.getTotalTime() / 60), currentNote)
+      
+      // 如果在自习室中，上传专注会话
+      if (window.StudyRoom && window.StudyRoom.isInRoom()) {
+        const minutes = Math.floor(Timer.getTotalTime() / 60)
+        console.log('[Callbacks] 上传专注会话到自习室:', minutes, '分钟, 备注:', currentNote)
+        window.StudyRoom.uploadSession(minutes, currentNote)
+      }
     } else {
       DOM.statusEl.textContent = '⏰ 休息结束！继续加油'
       window.electronAPI.showNotification('☕ 休息结束', '休息时间到，准备好继续工作了吗？')
@@ -258,14 +265,22 @@
    * 处理计划模式完成
    * 当前任务完成，检查是否有下一项
    */
-  function handlePlanModeComplete() {
+  async function handlePlanModeComplete() {
     const currentItem = PlanMode.getCurrentItem()
     
     // 记录工作任务的统计
     if (currentItem && currentItem.type === 'work') {
       const planNote = window.NoteManager ? window.NoteManager.getNote() : { title: '', detail: '' }
       const noteText = planNote.title || planNote.detail || ''
-      Stats.increment(currentItem.minutes, noteText)
+      
+      // 等待统计更新完成
+      await Stats.increment(currentItem.minutes, noteText)
+      
+      // 如果在自习室中，上传专注会话
+      if (window.StudyRoom && window.StudyRoom.isInRoom()) {
+        console.log('[Callbacks] 计划模式：上传专注会话到自习室:', currentItem.minutes, '分钟, 备注:', noteText)
+        window.StudyRoom.uploadSession(currentItem.minutes, noteText)
+      }
     }
     
     // 进入下一项

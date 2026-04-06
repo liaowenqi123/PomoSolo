@@ -38,6 +38,44 @@ function createWindow() {
     }
   })
   
+  // 开发环境下自动打开开发者工具（可选）
+  // 如果需要调试，取消下面的注释
+  // if (!app.isPackaged) {
+  //   win.webContents.openDevTools()
+  // }
+  
+  // 添加快捷键：F12 打开/关闭开发者工具
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12' && input.type === 'keyDown') {
+      if (win.webContents.isDevToolsOpened()) {
+        win.webContents.closeDevTools()
+      } else {
+        win.webContents.openDevTools()
+      }
+    }
+  })
+  
+  // 添加右键菜单（开发模式）
+  if (!app.isPackaged) {
+    win.webContents.on('context-menu', (event, params) => {
+      const menu = Menu.buildFromTemplate([
+        {
+          label: '打开开发者工具',
+          click: () => {
+            win.webContents.openDevTools()
+          }
+        },
+        {
+          label: '刷新',
+          click: () => {
+            win.webContents.reload()
+          }
+        }
+      ])
+      menu.popup()
+    })
+  }
+  
   // 先显示加载页面
   win.loadFile('src/loading.html')
   
@@ -502,7 +540,15 @@ ipcMain.handle('cloud-get-session', async () => {
 })
 
 ipcMain.handle('cloud-login', async (event, { username, password }) => {
-  return await cloudAuth.login(username, password, aiAssistant, songDownloader)
+  const result = await cloudAuth.login(username, password, aiAssistant, songDownloader)
+  
+  // 登录成功后，设置自习室同步模块的当前用户
+  if (result.success && result.user) {
+    studyRoomSync.setCurrentUser(result.user)
+    console.log('[Main] 自习室模块已设置当前用户:', result.user.username)
+  }
+  
+  return result
 })
 
 ipcMain.handle('cloud-register', async (event, { username, password }) => {
@@ -511,6 +557,70 @@ ipcMain.handle('cloud-register', async (event, { username, password }) => {
 
 ipcMain.handle('cloud-logout', async () => {
   return cloudAuth.logout(aiAssistant, foregroundInspection, songDownloader)
+})
+
+// ============ 自习室 IPC 处理 ============
+
+const studyRoomSync = require('./src/modules/studyRoomSync')
+
+// 获取我创建的自习室列表
+ipcMain.handle('study-room-get-my-rooms', async () => {
+  return await studyRoomSync.getMyRooms()
+})
+
+// 获取活跃的自习室列表
+ipcMain.handle('study-room-get-active', async (event, { publicOnly } = {}) => {
+  return await studyRoomSync.getActiveRooms(publicOnly)
+})
+
+// 根据ID获取自习室信息
+ipcMain.handle('study-room-get-by-id', async (event, { roomId }) => {
+  return await studyRoomSync.getRoomById(roomId)
+})
+
+// 创建自习室
+ipcMain.handle('study-room-create', async (event, { name, description, isPublic }) => {
+  return await studyRoomSync.createRoom(name, description, isPublic)
+})
+
+// 加入自习室
+ipcMain.handle('study-room-join', async (event, { roomId }) => {
+  return await studyRoomSync.joinRoom(roomId)
+})
+
+// 离开自习室
+ipcMain.handle('study-room-leave', async (event, { roomId }) => {
+  return await studyRoomSync.leaveRoom(roomId)
+})
+
+// 删除自习室
+ipcMain.handle('study-room-delete', async (event, { roomId }) => {
+  return await studyRoomSync.deleteRoom(roomId)
+})
+
+// 上传今日统计数据
+ipcMain.handle('study-room-upload-stats', async (event, { roomId, todayMinutes, todayCount }) => {
+  return await studyRoomSync.uploadTodayStats(roomId, todayMinutes, todayCount)
+})
+
+// 上传专注会话（已废弃，保留用于兼容）
+ipcMain.handle('study-room-upload-session', async (event, { roomId, minutes, note }) => {
+  return await studyRoomSync.uploadFocusSession(roomId, minutes, note)
+})
+
+// 获取今日排名
+ipcMain.handle('study-room-get-ranking', async (event, { roomId }) => {
+  return await studyRoomSync.getTodayRanking(roomId)
+})
+
+// 获取自习室成员
+ipcMain.handle('study-room-get-members', async (event, { roomId }) => {
+  return await studyRoomSync.getRoomMembers(roomId)
+})
+
+// 更新在线状态
+ipcMain.handle('study-room-update-status', async (event, { roomId }) => {
+  return await studyRoomSync.updateOnlineStatus(roomId)
 })
 
 // ============ API Key 管理 IPC 处理（保留兼容） ============
@@ -941,6 +1051,10 @@ ipcMain.on('update-mini-position', (event) => {
 app.whenReady().then(() => {
   // 初始化云端认证
   cloudAuth.init()
+  
+  // 初始化自习室同步模块
+  studyRoomSync.init()
+  console.log('[Main] 自习室同步模块已初始化')
   
   // 检查本地 API Key 模式并初始化各模块
   const savedData = dataManager.readData()

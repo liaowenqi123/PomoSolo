@@ -124,6 +124,12 @@
         if (window.Stats && window.Stats.increment) {
           window.Stats.increment(minutes, finalNote, false)
         }
+        
+        // 如果在自习室中，上传专注会话
+        if (window.StudyRoom && window.StudyRoom.isInRoom()) {
+          console.log('[Stopwatch] 上传专注会话到自习室:', minutes, '分钟, 备注:', finalNote)
+          window.StudyRoom.uploadSession(minutes, finalNote)
+        }
       }
     }
 
