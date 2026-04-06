@@ -509,7 +509,11 @@ function unsubscribeAll() {
 }
 
 /**
- * 更新在线状态（心跳）
+ * 更新在线状态（心跳）- 去中心化检测
+ * 每个客户端心跳时会：
+ * 1. 更新自己的在线状态
+ * 2. 检查其他成员，把超时(>11分钟)的设为离线
+ * 3. 如果没有在线成员，把自习室下线
  * @param {string} roomId - 自习室 ID
  * @returns {Promise<{success: boolean, error?: string}>}
  */
@@ -519,18 +523,70 @@ async function updateOnlineStatus(roomId) {
   }
 
   try {
-    const { error } = await supabase
+    const now = new Date()
+    const timeoutThreshold = 11 * 60 * 1000 // 11分钟超时（给心跳周期一点宽限）
+
+    // 1. 更新自己的在线状态
+    const { error: updateError } = await supabase
       .from('study_room_members')
       .update({
-        last_active: new Date().toISOString(),
+        last_active: now.toISOString(),
         is_online: true
       })
       .eq('room_id', roomId)
       .eq('user_id', currentUser.id)
 
-    if (error) {
-      console.error('[StudyRoomSync] 更新在线状态失败:', error)
-      return { success: false, error: error.message }
+    if (updateError) {
+      console.error('[StudyRoomSync] 更新在线状态失败:', updateError)
+      return { success: false, error: updateError.message }
+    }
+
+    // 2. 获取所有成员，检查谁超时了
+    const { data: members, error: membersError } = await supabase
+      .from('study_room_members')
+      .select('user_id, last_active, is_online')
+      .eq('room_id', roomId)
+
+    if (membersError || !members) {
+      console.error('[StudyRoomSync] 获取成员列表失败:', membersError)
+      return { success: true } // 自己更新成功了，只是检查失败
+    }
+
+    // 找出超时的成员
+    const timeoutUserIds = []
+    members.forEach(member => {
+      if (member.is_online) {
+        const lastActive = new Date(member.last_active)
+        const elapsed = now - lastActive
+        if (elapsed > timeoutThreshold) {
+          timeoutUserIds.push(member.user_id)
+        }
+      }
+    })
+
+    // 批量更新超时成员为离线
+    if (timeoutUserIds.length > 0) {
+      console.log('[StudyRoomSync] 检测到超时成员:', timeoutUserIds)
+      await supabase
+        .from('study_room_members')
+        .update({ is_online: false })
+        .eq('room_id', roomId)
+        .in('user_id', timeoutUserIds)
+    }
+
+    // 3. 检查是否还有在线成员，没有则下线自习室
+    const { data: onlineMembers } = await supabase
+      .from('study_room_members')
+      .select('user_id')
+      .eq('room_id', roomId)
+      .eq('is_online', true)
+
+    if (!onlineMembers || onlineMembers.length === 0) {
+      console.log('[StudyRoomSync] 自习室无在线成员，下线自习室:', roomId)
+      await supabase
+        .from('study_rooms')
+        .update({ is_active: false })
+        .eq('id', roomId)
     }
 
     return { success: true }
