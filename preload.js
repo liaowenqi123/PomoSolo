@@ -370,5 +370,8 @@ const { contextBridge, ipcRenderer } = require('electron')
   submitFeedback: (content) => ipcRenderer.invoke('submit-feedback', content),
   
   // 获取用户反馈列表
-  getUserFeedbacks: () => ipcRenderer.invoke('get-user-feedbacks')
+  getUserFeedbacks: () => ipcRenderer.invoke('get-user-feedbacks'),
+  
+  // 删除反馈
+  deleteFeedback: (feedbackId) => ipcRenderer.invoke('delete-feedback', feedbackId)
 })

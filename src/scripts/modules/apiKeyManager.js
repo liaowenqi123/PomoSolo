@@ -749,7 +749,19 @@ const CloudAuth = (function() {
       elements.loginHeaderBtn.title = user.username
     }
     
-    // 隐藏弹窗
+    // 非 Admin 用户提示
+    const nonAdminHint = document.getElementById('non-admin-hint')
+    if (nonAdminHint) {
+      if (!user.admin) {
+        nonAdminHint.style.display = 'block'
+        // 非 admin 用户不关闭弹窗
+        return
+      } else {
+        nonAdminHint.style.display = 'none'
+      }
+    }
+    
+    // 隐藏弹窗（仅 admin 用户或 admin 属性不存在时）
     hideModal(hideWithAnimation)
   }
 

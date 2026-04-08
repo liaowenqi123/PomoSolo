@@ -571,6 +571,11 @@ ipcMain.handle('get-user-feedbacks', async () => {
   return await cloudAuth.getUserFeedbacks()
 })
 
+// 删除反馈
+ipcMain.handle('delete-feedback', async (event, feedbackId) => {
+  return await cloudAuth.deleteFeedback(feedbackId)
+})
+
 // ============ 自习室 IPC 处理 ============
 
 const studyRoomSync = require('./src/modules/studyRoomSync')

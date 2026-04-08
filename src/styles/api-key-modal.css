@@ -739,3 +739,44 @@
 .dark-mode .confirm-btn-confirm {
   background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
 }
+
+/* ============ 非 Admin 用户提示 ============ */
+.non-admin-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 152, 0, 0.3);
+}
+
+.dark-mode .non-admin-hint {
+  background: linear-gradient(135deg, rgba(255, 152, 0, 0.15) 0%, rgba(255, 152, 0, 0.1) 100%);
+  border-color: rgba(255, 152, 0, 0.3);
+}
+
+.non-admin-hint-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.non-admin-hint-text {
+  font-size: 12px;
+  color: #e65100;
+  line-height: 1.6;
+}
+
+.dark-mode .non-admin-hint-text {
+  color: #ffcc80;
+}
+
+.non-admin-hint-text strong {
+  color: #bf360c;
+  font-weight: 600;
+}
+
+.dark-mode .non-admin-hint-text strong {
+  color: #ff9800;
+}

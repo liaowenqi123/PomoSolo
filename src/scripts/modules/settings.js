@@ -1217,16 +1217,97 @@
       }
 
       return `
-        <div class="feedback-item">
+        <div class="feedback-item" data-id="${item.id}">
           <div class="feedback-item-header">
             <span class="feedback-item-date">${date}</span>
-            <span class="feedback-item-status ${status.class}">${status.text}</span>
+            <div class="feedback-item-actions">
+              <span class="feedback-item-status ${status.class}">${status.text}</span>
+              <button class="feedback-delete-btn" data-id="${item.id}" title="删除">🗑</button>
+            </div>
           </div>
           <div class="feedback-item-content">${escapeHtml(item.feedback_content)}</div>
           ${remarkHtml}
         </div>
       `
     }).join('')
+
+    // 绑定删除按钮事件
+    listEl.querySelectorAll('.feedback-delete-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const feedbackId = parseInt(btn.dataset.id)
+        const content = btn.closest('.feedback-item').querySelector('.feedback-item-content').textContent
+        showDeleteConfirm(feedbackId, content)
+      })
+    })
+  }
+
+  /**
+   * 显示删除确认对话框
+   */
+  function showDeleteConfirm(feedbackId, content) {
+    // 创建确认对话框
+    const overlay = document.createElement('div')
+    overlay.className = 'feedback-confirm-overlay'
+    overlay.innerHTML = `
+      <div class="feedback-confirm-dialog">
+        <div class="feedback-confirm-icon">🗑️</div>
+        <div class="feedback-confirm-title">确认删除</div>
+        <div class="feedback-confirm-message">确定要删除这条反馈吗？</div>
+        <div class="feedback-confirm-content">${escapeHtml(content.substring(0, 50))}${content.length > 50 ? '...' : ''}</div>
+        <div class="feedback-confirm-buttons">
+          <button class="feedback-confirm-btn feedback-confirm-cancel">取消</button>
+          <button class="feedback-confirm-btn feedback-confirm-ok">删除</button>
+        </div>
+      </div>
+    `
+
+    document.body.appendChild(overlay)
+
+    // 绑定按钮事件
+    const cancelBtn = overlay.querySelector('.feedback-confirm-cancel')
+    const okBtn = overlay.querySelector('.feedback-confirm-ok')
+
+    cancelBtn.addEventListener('click', () => {
+      overlay.remove()
+    })
+
+    okBtn.addEventListener('click', async () => {
+      okBtn.disabled = true
+      okBtn.textContent = '删除中...'
+      
+      const result = await handleDeleteFeedback(feedbackId)
+      
+      if (result.success) {
+        overlay.remove()
+        showToast('删除成功')
+        loadUserFeedbacks()
+      } else {
+        okBtn.disabled = false
+        okBtn.textContent = '删除'
+        showToast(result.error || '删除失败')
+      }
+    })
+
+    // 点击背景关闭
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove()
+      }
+    })
+  }
+
+  /**
+   * 处理删除反馈
+   */
+  async function handleDeleteFeedback(feedbackId) {
+    try {
+      const result = await window.electronAPI.deleteFeedback(feedbackId)
+      return result
+    } catch (err) {
+      console.error('[Settings] 删除反馈失败:', err)
+      return { success: false, error: '删除失败' }
+    }
   }
 
   /**

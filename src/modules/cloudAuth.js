@@ -423,6 +423,51 @@ async function getUserFeedbacks() {
   }
 }
 
+/**
+ * 删除用户反馈
+ * @param {number} feedbackId - 反馈ID
+ * @returns {{ success: boolean, error?: string }}
+ */
+async function deleteFeedback(feedbackId) {
+  if (!supabase || !currentSession) {
+    return { success: false, error: '未登录或 Supabase 未初始化' }
+  }
+
+  try {
+    // 先验证这条反馈是否属于当前用户
+    const { data: feedback, error: fetchError } = await supabase
+      .from('feedback')
+      .select('id, user_id')
+      .eq('id', feedbackId)
+      .single()
+
+    if (fetchError || !feedback) {
+      return { success: false, error: '反馈不存在' }
+    }
+
+    if (feedback.user_id !== currentSession.id) {
+      return { success: false, error: '无权删除此反馈' }
+    }
+
+    // 删除反馈
+    const { error: deleteError } = await supabase
+      .from('feedback')
+      .delete()
+      .eq('id', feedbackId)
+
+    if (deleteError) {
+      console.error('[CloudAuth] 删除反馈失败:', deleteError)
+      return { success: false, error: deleteError.message }
+    }
+
+    console.log('[CloudAuth] 删除反馈成功')
+    return { success: true }
+  } catch (err) {
+    console.error('[CloudAuth] 删除反馈异常:', err)
+    return { success: false, error: err.message }
+  }
+}
+
 module.exports = {
   init,
   getSession,
@@ -435,5 +480,6 @@ module.exports = {
   register,
   logout,
   submitFeedback,
-  getUserFeedbacks
+  getUserFeedbacks,
+  deleteFeedback
 }
