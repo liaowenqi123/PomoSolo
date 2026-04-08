@@ -145,6 +145,8 @@ body {
   flex: 1;
   padding: 16px;
   overflow-y: auto;
+  position: relative;
+  z-index: 5;
 }
 
 /* 菜园网格 - 3列 x 4行 */
@@ -310,24 +312,217 @@ body {
   50% { opacity: 0.7; transform: scale(1.2); }
 }
 
-/* 种子背包 */
-.garden-seed-bag {
-  background: rgba(0, 0, 0, 0.3);
-  padding: 12px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+/* ============ 背包区域容器 ============ */
+
+/* 背包容器 */
+.bags-container {
+  position: relative;
+  min-height: 12px;
+  overflow: visible;
+  margin-top: -10px;
+  margin-bottom: -2px;
+  z-index: 20;
 }
 
-.seed-bag-header {
+/* ============ 上方线区域（分裂成两根） ============ */
+
+.bags-upper-lines {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 0;
+  z-index: 31;
+}
+
+/* 上方线 - 基础样式 */
+.bags-upper-line {
+  position: absolute;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255, 255, 255, 0.3) 20%, 
+    rgba(255, 255, 255, 0.5) 50%, 
+    rgba(255, 255, 255, 0.3) 80%, 
+    transparent 100%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, background 0.4s ease;
+}
+
+/* 种子背包的上方线 - 初始在顶部左侧 */
+.seed-upper-line {
+  left: 0;
+  width: 50%;
+}
+
+/* 作物背包的上方线 - 初始在顶部右侧 */
+.crop-upper-line {
+  right: 0;
+  width: 50%;
+}
+
+/* 展开时上方线变色 */
+.bags-container.has-expanded .bags-upper-line.active {
+  opacity: 1;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(76, 175, 80, 0.4) 20%, 
+    rgba(76, 175, 80, 0.6) 50%, 
+    rgba(76, 175, 80, 0.4) 80%, 
+    transparent 100%);
+}
+
+/* ============ 展开按钮 ============ */
+
+.bag-expand-btn {
+  position: absolute;
+  width: 70px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 0 0 8px 8px;
+  cursor: pointer;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  justify-content: center;
+  gap: 4px;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  -webkit-app-region: no-drag;
+  z-index: 32;
+  bottom: -10px;
+}
+
+.bag-expand-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 0 0 10px 10px;
+  width: 80px;
+  height: 14px;
+  bottom: -12px;
+}
+
+.bag-expand-btn.active {
+  background: rgba(76, 175, 80, 0.3);
+  border-color: rgba(76, 175, 80, 0.6);
+}
+
+.bag-expand-btn.active:hover {
+  background: rgba(76, 175, 80, 0.4);
+}
+
+/* 种子背包按钮 - 左侧，初始在顶部 */
+.seed-expand-btn {
+  left: 55px;
+  transform: translateX(-50%);
+}
+
+/* 作物背包按钮 - 右侧，初始在顶部 */
+.crop-expand-btn {
+  left: 145px;
+  transform: translateX(-50%);
+}
+
+.expand-btn-icon {
+  font-size: 11px;
+}
+
+.expand-btn-bar {
+  width: 24px;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 1px;
+}
+
+/* ============ 背包面板 ============ */
+
+.bag-panel {
+  position: absolute;
+  background: linear-gradient(180deg, rgba(48, 37, 24, 0.98) 0%, rgba(34, 25, 16, 0.98) 100%);
+  border-top: 1px solid rgba(214, 190, 152, 0.35);
+  /*border-bottom: 1px solid rgba(214, 190, 152, 0.22);*/
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.28);
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 21;
+  left: 0;
+  right: 0;
+  bottom: 2px;
+  padding: 0 16px;
+}
+
+/* 背包内容区域 */
+.bag-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.35s cubic-bezier(0.5, 0, 0.5, 1);
+}
+
+/* ============ 种子背包 ============ */
+
+.garden-seed-bag {
+  width: 100%;
 }
 
 .garden-seed-bag h3 {
   font-size: 14px;
   margin: 0;
+  padding: 12px 0 0 0;
   color: rgba(255, 255, 255, 0.85);
+}
+
+.garden-seed-bag.expanded {
+  max-height: 360px;
+  z-index: 24;
+}
+
+.garden-seed-bag.expanded .bag-content {
+  max-height: 336px;
+}
+
+/* ============ 作物背包 ============ */
+
+.garden-crop-bag {
+  width: 100%;
+}
+
+.garden-crop-bag h3 {
+  font-size: 14px;
+  margin: 0;
+  padding: 12px 0 10px 0;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.garden-crop-bag.expanded {
+  max-height: 360px;
+  z-index: 24;
+}
+
+.garden-crop-bag.expanded .bag-content {
+  max-height: 336px;
+}
+
+/* ============ 基准线（固定在底部，不动） ============ */
+
+.bags-baseline-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+  z-index: 29;
+  pointer-events: none;
+}
+
+/* ============ 背包头部 ============ */
+
+.bag-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
 }
 
 /* 缩小版成就按钮 */
@@ -479,16 +674,16 @@ body {
 .seed-item.rare .seed-name { color: #4fc3f7; }
 .seed-item.legend .seed-name { color: #ffc107; }
 
-/* 作物背包 */
-.garden-crop-bag {
-  background: rgba(0, 0, 0, 0.3);
-  padding: 12px 16px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+/* ============ 作物背包 ============ */
+
+.garden-seed-bag .bag-content,
+.garden-crop-bag .bag-content {
+  padding: 14px 0 18px;
 }
 
 .garden-crop-bag h3 {
   font-size: 14px;
-  margin-bottom: 10px;
+  margin: 0 0 10px 0;
   color: rgba(255, 255, 255, 0.85);
 }
 
@@ -545,11 +740,13 @@ body {
 
 /* 提示信息 */
 .garden-tip {
-  text-align: center;
-  padding: 8px;
+  text-align: right;
+  padding: 16px 20px 16px 0;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.6);
   background: rgba(0, 0, 0, 0.2);
+  margin-top: 0;
+  border-top: none;
 }
 
 /* 滚动条样式 */

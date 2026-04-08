@@ -31,23 +31,56 @@
       </div>
     </div>
     
-    <!-- 种子背包 -->
-    <div class="garden-seed-bag">
-      <div class="seed-bag-header">
-        <h3>🎒 种子背包</h3>
-        <button class="garden-achievement-btn-small" id="achievementBtn" title="成就墙">🏆</button>
+    <!-- 背包区域 -->
+    <div class="bags-container" id="bagsContainer">
+      
+      <!-- 上方线区域（分裂成两根） -->
+      <!-- <div class="bags-upper-lines"> -->
+        <!-- 种子背包的上方线（跟随按钮1移动） -->
+        <!-- <div class="bags-upper-line seed-upper-line" id="seedUpperLine"></div> -->
+        <!-- 作物背包的上方线（固定不动，按钮2黏附） -->
+        <!-- <div class="bags-upper-line crop-upper-line" id="cropUpperLine"></div> -->
+      <!-- </div> -->
+      
+      <!-- 按钮1（跟随展开线移动） -->
+      <div class="bag-expand-btn seed-expand-btn" id="seed-expand-btn" title="展开种子背包">
+        <span class="expand-btn-icon">🎒</span>
+        <span class="expand-btn-bar"></span>
       </div>
-      <div class="seed-list" id="seedList">
-        <!-- 种子由 JS 动态生成 -->
+      
+      <!-- 种子背包（向左下展开） -->
+      <div class="garden-seed-bag bag-panel" id="garden-seed-bag">
+        <div class="bag-content seed-bag-content">
+          <div class="bag-header">
+            <h3>🎒 种子背包</h3>
+            <button class="garden-achievement-btn-small" id="achievementBtn" title="成就墙">🏆</button>
+          </div>
+          <div class="seed-list" id="seedList">
+            <!-- 种子由 JS 动态生成 -->
+          </div>
+        </div>
       </div>
-    </div>
-    
-    <!-- 作物背包 -->
-    <div class="garden-crop-bag">
-      <h3>🧺 作物背包</h3>
-      <div class="crop-list" id="cropList">
-        <!-- 作物由 JS 动态生成 -->
+      
+      <!-- 按钮2（固定在上方线位置） -->
+      <div class="bag-expand-btn crop-expand-btn" id="crop-expand-btn" title="展开作物背包">
+        <span class="expand-btn-icon">🧺</span>
+        <span class="expand-btn-bar"></span>
       </div>
+      
+      <!-- 作物背包（向右下展开） -->
+      <div class="garden-crop-bag bag-panel" id="garden-crop-bag">
+        <div class="bag-content crop-bag-content">
+          <div class="bag-header">
+            <h3>🧺 作物背包</h3>
+          </div>
+          <div class="crop-list" id="cropList">
+            <!-- 作物由 JS 动态生成 -->
+          </div>
+        </div>
+      </div>
+      
+      <!-- 基准线（固定在底部，不动） -->
+      <div class="bags-baseline-bar" id="bagsBaselineBar"></div>
     </div>
     
     <!-- 提示信息 -->

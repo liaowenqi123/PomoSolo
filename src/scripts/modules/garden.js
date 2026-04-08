@@ -20,6 +20,10 @@
   let selectedSeed = null
   let selectedPlotIndex = null
   
+  // 背包展开状态（初始：两个都收起）
+  let seedBagExpanded = false
+  let cropBagExpanded = false
+  
   // 弹窗实例
   let shopModal = null
   let signinModal = null
@@ -54,6 +58,10 @@
       cropList: document.getElementById('cropList'),
       gardenTip: document.getElementById('gardenTip'),
       gardenCloseBtn: document.getElementById('gardenCloseBtn'),
+      // 背包相关
+      bagsContainer: document.getElementById('bagsContainer'),
+      seedBag: document.getElementById('garden-seed-bag'),
+      cropBag: document.getElementById('garden-crop-bag'),
       // 商店相关
       shopBtn: document.getElementById('shopBtn'),
       shopModal: document.getElementById('shopModal'),
@@ -117,6 +125,9 @@
     
     // 绑定成就墙事件
     initAchievementEvents()
+    
+    // 绑定背包收起按钮事件
+    initBagCollapseEvents()
   }
   
   /**
@@ -141,6 +152,143 @@
         element: elements.achievementModal,
         showClass: 'show',
         expandSidebarOnShow: false
+      })
+    }
+  }
+  
+  /**
+   * 初始化背包展开按钮事件
+   * 左侧按钮 → 种子背包
+   * 右侧按钮 → 作物背包
+   * 互斥：同时只能展开一个
+   * 
+   * 新设计逻辑：
+   * - 两个背包完全重叠在同一位置
+   * - 按钮独立于背包结构，始终跟随展开线移动
+   * - 展开新背包时直接覆盖原来的（z-index控制）
+   * - 展开线跟随背包移动
+   */
+  function initBagCollapseEvents() {
+    // 获取元素
+    const seedExpandBtn = document.getElementById('seed-expand-btn')
+    const cropExpandBtn = document.getElementById('crop-expand-btn')
+    const seedBag = document.getElementById('garden-seed-bag')
+    const cropBag = document.getElementById('garden-crop-bag')
+    const seedUpperLine = document.getElementById('seedUpperLine')
+    const cropUpperLine = document.getElementById('cropUpperLine')
+    const bagsContainer = document.getElementById('bagsContainer')
+    
+    // 位置常量
+    const POSITION_COLLAPSED = 0   // 收起时在上方
+    const POSITION_EXPANDED = 200  // 展开时向下移动的距离
+    
+    // 设置初始状态（两个都收起）
+    seedBagExpanded = false
+    cropBagExpanded = false
+    
+    // 重置所有元素位置
+    function resetPositions() {
+      if (seedUpperLine) {
+        seedUpperLine.classList.remove('active')
+      }
+      if (cropUpperLine) {
+        cropUpperLine.classList.remove('active')
+      }
+      if (seedExpandBtn) {
+        seedExpandBtn.classList.remove('active')
+      }
+      if (cropExpandBtn) {
+        cropExpandBtn.classList.remove('active')
+      }
+      if (seedBag) seedBag.classList.remove('expanded')
+      if (cropBag) cropBag.classList.remove('expanded')
+      if (bagsContainer) bagsContainer.classList.remove('has-expanded')
+    }
+    
+    // 初始状态
+    resetPositions()
+    
+    // 种子背包按钮
+    if (seedExpandBtn) {
+      seedExpandBtn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        
+        if (seedBagExpanded) {
+          // 收起种子背包
+          resetPositions()
+          seedBagExpanded = false
+        } else {
+          // 收起作物背包（如果展开的话）
+          if (cropBagExpanded) {
+            cropBagExpanded = false
+          }
+          // 展开种子背包
+          seedBagExpanded = true
+          cropBagExpanded = false
+          
+          // 种子线上方线向下移动，按钮跟随
+          if (seedUpperLine) {
+            seedUpperLine.classList.add('active')
+          }
+          if (seedExpandBtn) {
+            seedExpandBtn.classList.add('active')
+          }
+          
+          // 作物线上方线保持不动（按钮2固定）
+          if (cropUpperLine) {
+            cropUpperLine.classList.remove('active')
+          }
+          if (cropExpandBtn) {
+            cropExpandBtn.classList.remove('active')
+          }
+          
+          // 展开背包
+          if (seedBag) seedBag.classList.add('expanded')
+          if (cropBag) cropBag.classList.remove('expanded')
+          if (bagsContainer) bagsContainer.classList.add('has-expanded')
+        }
+      })
+    }
+    
+    // 作物背包按钮
+    if (cropExpandBtn) {
+      cropExpandBtn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        
+        if (cropBagExpanded) {
+          // 收起作物背包
+          resetPositions()
+          cropBagExpanded = false
+        } else {
+          // 收起种子背包（如果展开的话）
+          if (seedBagExpanded) {
+            seedBagExpanded = false
+          }
+          // 展开作物背包
+          cropBagExpanded = true
+          seedBagExpanded = false
+          
+          // 作物线上方线向下移动，按钮跟随
+          if (cropUpperLine) {
+            cropUpperLine.classList.add('active')
+          }
+          if (cropExpandBtn) {
+            cropExpandBtn.classList.add('active')
+          }
+          
+          // 种子线上方线保持不动（按钮1固定）
+          if (seedUpperLine) {
+            seedUpperLine.classList.remove('active')
+          }
+          if (seedExpandBtn) {
+            seedExpandBtn.classList.remove('active')
+          }
+          
+          // 展开背包
+          if (cropBag) cropBag.classList.add('expanded')
+          if (seedBag) seedBag.classList.remove('expanded')
+          if (bagsContainer) bagsContainer.classList.add('has-expanded')
+        }
       })
     }
   }
