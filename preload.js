@@ -362,5 +362,13 @@ const { contextBridge, ipcRenderer } = require('electron')
   setAutoStart: (enabled) => ipcRenderer.invoke('set-auto-start', enabled),
   
   // 获取开机自启动状态
-  getAutoStart: () => ipcRenderer.invoke('get-auto-start')
+  getAutoStart: () => ipcRenderer.invoke('get-auto-start'),
+
+  // ============ 意见反馈 API ============
+  
+  // 提交反馈
+  submitFeedback: (content) => ipcRenderer.invoke('submit-feedback', content),
+  
+  // 获取用户反馈列表
+  getUserFeedbacks: () => ipcRenderer.invoke('get-user-feedbacks')
 })

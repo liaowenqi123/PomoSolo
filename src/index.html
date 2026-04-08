@@ -1118,6 +1118,19 @@
           </div>
         </div>
         
+        <!-- 意见反馈按钮 -->
+        <div class="settings-section">
+          <div class="settings-item">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">💬</span>
+              <span>意见反馈</span>
+            </div>
+            <div class="settings-item-control">
+              <button class="feedback-open-btn" id="feedback-open-btn">提交反馈</button>
+            </div>
+          </div>
+        </div>
+        
         <div class="settings-buttons">
           <button class="settings-reset-btn" id="settings-reset-btn">恢复默认</button>
           <button class="settings-save-btn" id="settings-save-btn">保存设置</button>
@@ -1171,6 +1184,46 @@
                 </div>
               </div>
               <button class="study-room-btn" id="study-room-join-btn">加入</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 意见反馈弹窗 -->
+    <div class="feedback-modal" id="feedback-modal">
+      <div class="feedback-modal-content">
+        <button class="feedback-modal-close" id="feedback-modal-close">×</button>
+        <h2 class="feedback-modal-title">💬 意见反馈</h2>
+        
+        <!-- 未登录状态 -->
+        <div class="feedback-login-prompt" id="feedback-login-prompt" style="display: none;">
+          <span class="feedback-login-icon">🔐</span>
+          <span class="feedback-login-text">请先登录后再提交反馈</span>
+          <button class="feedback-login-btn" id="feedback-login-btn">去登录</button>
+        </div>
+        
+        <!-- 已登录状态 -->
+        <div class="feedback-logged-in" id="feedback-logged-in">
+          <!-- 提交反馈 -->
+          <div class="feedback-submit-area">
+            <textarea class="feedback-input" id="feedback-input" placeholder="请输入您的意见或建议..." maxlength="500"></textarea>
+            <div class="feedback-submit-footer">
+              <span class="feedback-char-count"><span id="feedback-char-count">0</span>/500</span>
+              <button class="feedback-submit-btn" id="feedback-submit-btn">提交反馈</button>
+            </div>
+          </div>
+          
+          <!-- 我的反馈列表 -->
+          <div class="feedback-list-section">
+            <div class="feedback-list-header">
+              <span>我的反馈</span>
+              <button class="feedback-refresh-btn" id="feedback-refresh-btn" title="刷新">🔄</button>
+            </div>
+            <div class="feedback-list-container" id="feedback-list-container">
+              <div class="feedback-loading" id="feedback-loading">加载中...</div>
+              <div class="feedback-empty" id="feedback-empty" style="display: none;">暂无反馈记录</div>
+              <div class="feedback-list" id="feedback-list"></div>
             </div>
           </div>
         </div>

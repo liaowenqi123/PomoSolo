@@ -559,6 +559,18 @@ ipcMain.handle('cloud-logout', async () => {
   return cloudAuth.logout(aiAssistant, foregroundInspection, songDownloader)
 })
 
+// ============ 意见反馈 IPC 处理 ============
+
+// 提交反馈
+ipcMain.handle('submit-feedback', async (event, content) => {
+  return await cloudAuth.submitFeedback(content)
+})
+
+// 获取用户反馈列表
+ipcMain.handle('get-user-feedbacks', async () => {
+  return await cloudAuth.getUserFeedbacks()
+})
+
 // ============ 自习室 IPC 处理 ============
 
 const studyRoomSync = require('./src/modules/studyRoomSync')

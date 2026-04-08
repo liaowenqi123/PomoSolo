@@ -116,6 +116,9 @@
 
     // 绑定版本号点击事件
     bindVersionClickHandler()
+
+    // 初始化意见反馈功能
+    initFeedback()
   }
 
   /**
@@ -989,12 +992,259 @@
     return { ...currentSettings }
   }
 
+  // ============ 意见反馈功能 ============
+
+  // 反馈状态映射
+  const FEEDBACK_STATUS = {
+    0: { text: '已收到', class: 'feedback-status-0' },
+    1: { text: '已采纳(待更新)', class: 'feedback-status-1' },
+    2: { text: '已采纳(已更新)', class: 'feedback-status-2' },
+    3: { text: '已拒绝', class: 'feedback-status-3' }
+  }
+
+  // 反馈弹窗实例
+  let feedbackModal = null
+
+  /**
+   * 初始化意见反馈功能
+   */
+  function initFeedback() {
+    // 绑定打开反馈弹窗按钮
+    const openBtn = document.getElementById('feedback-open-btn')
+    if (openBtn) {
+      openBtn.addEventListener('click', openFeedbackModal)
+    }
+
+    // 绑定弹窗关闭按钮
+    const closeBtn = document.getElementById('feedback-modal-close')
+    if (closeBtn) {
+      closeBtn.addEventListener('click', closeFeedbackModal)
+    }
+
+    // 绑定输入框事件
+    const feedbackInput = document.getElementById('feedback-input')
+    const submitBtn = document.getElementById('feedback-submit-btn')
+    const refreshBtn = document.getElementById('feedback-refresh-btn')
+    const loginBtn = document.getElementById('feedback-login-btn')
+
+    if (feedbackInput) {
+      // 输入字数统计
+      feedbackInput.addEventListener('input', () => {
+        const count = feedbackInput.value.length
+        const countEl = document.getElementById('feedback-char-count')
+        if (countEl) {
+          countEl.textContent = count
+        }
+      })
+    }
+
+    if (submitBtn) {
+      submitBtn.addEventListener('click', handleSubmitFeedback)
+    }
+
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', loadUserFeedbacks)
+    }
+
+    if (loginBtn) {
+      loginBtn.addEventListener('click', () => {
+        // 关闭反馈弹窗和设置弹窗，打开登录弹窗
+        closeFeedbackModal()
+        close()
+        const modal = document.getElementById('auth-modal')
+        if (modal) {
+          modal.classList.add('show')
+        }
+      })
+    }
+
+    // 初始化弹窗实例
+    const modalEl = document.getElementById('feedback-modal')
+    if (modalEl) {
+      feedbackModal = new BaseModal({
+        element: modalEl,
+        showClass: 'show',
+        onShow: async () => {
+          await updateFeedbackVisibility()
+        }
+      })
+    }
+  }
+
+  /**
+   * 打开反馈弹窗
+   */
+  function openFeedbackModal() {
+    feedbackModal?.show()
+  }
+
+  /**
+   * 关闭反馈弹窗
+   */
+  function closeFeedbackModal() {
+    feedbackModal?.hide()
+  }
+
+  /**
+   * 更新反馈区域的显示状态
+   */
+  async function updateFeedbackVisibility() {
+    const loginPrompt = document.getElementById('feedback-login-prompt')
+    const loggedInArea = document.getElementById('feedback-logged-in')
+
+    // 检查登录状态
+    let isLoggedIn = false
+    try {
+      const result = await window.electronAPI.cloudGetSession()
+      isLoggedIn = result.success && result.session
+    } catch (err) {
+      console.error('[Settings] 检查登录状态失败:', err)
+    }
+
+    if (loginPrompt && loggedInArea) {
+      if (isLoggedIn) {
+        loginPrompt.style.display = 'none'
+        loggedInArea.style.display = 'block'
+        // 加载反馈列表
+        loadUserFeedbacks()
+      } else {
+        loginPrompt.style.display = 'flex'
+        loggedInArea.style.display = 'none'
+      }
+    }
+  }
+
+  /**
+   * 提交反馈
+   */
+  async function handleSubmitFeedback() {
+    const input = document.getElementById('feedback-input')
+    const submitBtn = document.getElementById('feedback-submit-btn')
+
+    if (!input || !submitBtn) return
+
+    const content = input.value.trim()
+    if (!content) {
+      showToast('请输入反馈内容')
+      return
+    }
+
+    // 禁用按钮
+    submitBtn.disabled = true
+    submitBtn.textContent = '提交中...'
+
+    try {
+      const result = await window.electronAPI.submitFeedback(content)
+      
+      if (result.success) {
+        showToast('反馈提交成功')
+        input.value = ''
+        const countEl = document.getElementById('feedback-char-count')
+        if (countEl) {
+          countEl.textContent = '0'
+        }
+        // 刷新列表
+        loadUserFeedbacks()
+      } else {
+        showToast(result.error || '提交失败')
+      }
+    } catch (err) {
+      console.error('[Settings] 提交反馈失败:', err)
+      showToast('提交失败')
+    } finally {
+      submitBtn.disabled = false
+      submitBtn.textContent = '提交反馈'
+    }
+  }
+
+  /**
+   * 加载用户反馈列表
+   */
+  async function loadUserFeedbacks() {
+    const loadingEl = document.getElementById('feedback-loading')
+    const emptyEl = document.getElementById('feedback-empty')
+    const listEl = document.getElementById('feedback-list')
+
+    if (!listEl) return
+
+    // 显示加载状态
+    if (loadingEl) loadingEl.style.display = 'block'
+    if (emptyEl) emptyEl.style.display = 'none'
+    listEl.innerHTML = ''
+
+    try {
+      const result = await window.electronAPI.getUserFeedbacks()
+      
+      if (loadingEl) loadingEl.style.display = 'none'
+
+      if (result.success && result.data && result.data.length > 0) {
+        renderFeedbackList(result.data)
+      } else {
+        if (emptyEl) emptyEl.style.display = 'block'
+      }
+    } catch (err) {
+      console.error('[Settings] 加载反馈列表失败:', err)
+      if (loadingEl) loadingEl.style.display = 'none'
+      if (emptyEl) emptyEl.style.display = 'block'
+    }
+  }
+
+  /**
+   * 渲染反馈列表
+   */
+  function renderFeedbackList(feedbacks) {
+    const listEl = document.getElementById('feedback-list')
+    if (!listEl) return
+
+    listEl.innerHTML = feedbacks.map(item => {
+      const status = FEEDBACK_STATUS[item.feedback_status] || FEEDBACK_STATUS[0]
+      const date = new Date(item.create_time).toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+
+      let remarkHtml = ''
+      if (item.feedback_status === 3 && item.remark) {
+        remarkHtml = `
+          <div class="feedback-item-remark">
+            <div class="feedback-item-remark-title">拒绝理由：</div>
+            <div>${escapeHtml(item.remark)}</div>
+          </div>
+        `
+      }
+
+      return `
+        <div class="feedback-item">
+          <div class="feedback-item-header">
+            <span class="feedback-item-date">${date}</span>
+            <span class="feedback-item-status ${status.class}">${status.text}</span>
+          </div>
+          <div class="feedback-item-content">${escapeHtml(item.feedback_content)}</div>
+          ${remarkHtml}
+        </div>
+      `
+    }).join('')
+  }
+
+  /**
+   * HTML 转义
+   */
+  function escapeHtml(text) {
+    const div = document.createElement('div')
+    div.textContent = text
+    return div.innerHTML
+  }
+
   // 导出到全局
   window.Settings = {
     init: init,
     open: open,
     close: close,
     getSetting: getSetting,
-    getAllSettings: getAllSettings
+    getAllSettings: getAllSettings,
+    updateFeedbackVisibility: updateFeedbackVisibility
   }
 })()

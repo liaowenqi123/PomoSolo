@@ -349,6 +349,80 @@ function logout(aiAssistant, foregroundInspection, songDownloader) {
   return { success: true }
 }
 
+// ============ 意见反馈功能 ============
+
+/**
+ * 提交用户反馈
+ * @param {string} content - 反馈内容
+ * @returns {{ success: boolean, data?: object, error?: string }}
+ */
+async function submitFeedback(content) {
+  if (!supabase || !currentSession) {
+    return { success: false, error: '未登录或 Supabase 未初始化' }
+  }
+
+  if (!content || content.trim().length === 0) {
+    return { success: false, error: '反馈内容不能为空' }
+  }
+
+  if (content.length > 500) {
+    return { success: false, error: '反馈内容不能超过500字' }
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('feedback')
+      .insert([{
+        user_id: currentSession.id,
+        feedback_content: content.trim(),
+        feedback_status: 0, // 默认状态：已收到
+        create_time: new Date().toISOString()
+      }])
+      .select()
+      .single()
+
+    if (error) {
+      console.error('[CloudAuth] 提交反馈失败:', error)
+      return { success: false, error: error.message }
+    }
+
+    console.log('[CloudAuth] 提交反馈成功')
+    return { success: true, data }
+  } catch (err) {
+    console.error('[CloudAuth] 提交反馈异常:', err)
+    return { success: false, error: err.message }
+  }
+}
+
+/**
+ * 获取用户的反馈列表
+ * @returns {{ success: boolean, data?: array, error?: string }}
+ */
+async function getUserFeedbacks() {
+  if (!supabase || !currentSession) {
+    return { success: false, error: '未登录或 Supabase 未初始化' }
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('feedback')
+      .select('*')
+      .eq('user_id', currentSession.id)
+      .order('create_time', { ascending: false })
+      .limit(50)
+
+    if (error) {
+      console.error('[CloudAuth] 获取反馈列表失败:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true, data: data || [] }
+  } catch (err) {
+    console.error('[CloudAuth] 获取反馈列表异常:', err)
+    return { success: false, error: err.message }
+  }
+}
+
 module.exports = {
   init,
   getSession,
@@ -359,5 +433,7 @@ module.exports = {
   getSessionWithKey,
   login,
   register,
-  logout
+  logout,
+  submitFeedback,
+  getUserFeedbacks
 }
