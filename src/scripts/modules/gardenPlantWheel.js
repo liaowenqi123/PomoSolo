@@ -149,7 +149,7 @@
       const isHover = (hoverIdx === i)
       const isDisabled = seed.count <= 0
 
-      // 图标（大一点）
+      // 图标（居中显示）
       ctx.font = `${Math.floor(radius * 0.32)}px "Segoe UI Emoji", "Apple Color Emoji", system-ui`
       ctx.textAlign = "center"
       ctx.textBaseline = "middle"
@@ -163,7 +163,7 @@
       } else {
         ctx.fillStyle = "rgba(220, 220, 220, 0.9)"
       }
-      ctx.fillText(seed.icon, x, y - 5)
+      ctx.fillText(seed.icon, x, y)
 
       // 数量（右下角显示）
       ctx.font = `700 ${Math.floor(radius * 0.14)}px "Segoe UI", system-ui`
