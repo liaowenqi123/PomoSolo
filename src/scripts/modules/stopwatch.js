@@ -46,10 +46,20 @@
       elements.timeDisplay.textContent = timeStr
     }
 
-    // 正向计时不需要进度圈动画
+    // 正向计时：进度圈随时间增长而填充（60分钟填满一圈）
     if (elements.progressCircle) {
       elements.progressCircle.style.animation = 'none'
-      elements.progressCircle.style.strokeDashoffset = '0'
+      
+      // 计算进度：以60分钟为一个周期
+      const maxSeconds = 60 * 60  // 60分钟 = 3600秒
+      const progress = Math.min(totalSeconds / maxSeconds, 1)  // 限制在0-1之间
+      
+      // SVG圆圈周长：2 * π * r，这里r=116，周长约728
+      const circumference = 728
+      const offset = circumference * (1 - progress)  // 进度越大，offset越小，显示越多
+      
+      elements.progressCircle.style.strokeDasharray = circumference
+      elements.progressCircle.style.strokeDashoffset = offset
     }
   }
 
@@ -61,6 +71,11 @@
 
     isRunning = true
     startTime = Date.now() - elapsedTime
+
+    // 如果是从0开始，先将进度圈归零
+    if (elapsedTime === 0 && elements.progressCircle) {
+      elements.progressCircle.style.strokeDashoffset = '728'  // 归零（空圈）
+    }
 
     // 更新按钮文字
     if (elements.startBtn) {
@@ -157,6 +172,11 @@
     startTime = 0
     elapsedTime = 0
     note = ''
+
+    // 重置进度圈为满圈（准备状态）
+    if (elements.progressCircle) {
+      elements.progressCircle.style.strokeDashoffset = '0'
+    }
 
     // 更新显示
     updateDisplay()

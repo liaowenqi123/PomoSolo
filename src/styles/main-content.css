@@ -887,6 +887,8 @@
 }
 
 .container.stopwatch-mode .timer-progress-circle {
-  stroke-dasharray: 390;
-  stroke-dashoffset: 292.5; /* 75% 的圈 */
+  /* 正向计时模式：准备状态显示完整亮圈，开始后由JavaScript动态控制 */
+  stroke-dasharray: 728;
+  stroke-dashoffset: 0; /* 初始为满圈（准备状态） */
+  transition: stroke-dashoffset 0.1s linear; /* 平滑过渡 */
 }
