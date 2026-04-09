@@ -143,6 +143,9 @@ const { contextBridge, ipcRenderer } = require('electron')
   
   // 更新在线状态
   studyRoomUpdateStatus: (roomId) => ipcRenderer.invoke('study-room-update-status', { roomId }),
+  
+  // 检查房间状态（不更新当前用户）
+  studyRoomCheckStatus: (roomId) => ipcRenderer.invoke('study-room-check-status', { roomId }),
 
   // ============ 凭据存储 API ============
   

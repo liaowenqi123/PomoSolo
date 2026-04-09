@@ -159,6 +159,22 @@ async function joinRoom(roomId) {
   }
 
   try {
+    // 先获取房间信息，检查房间状态
+    const { data: room, error: roomError } = await supabase
+      .from('study_rooms')
+      .select('*')
+      .eq('id', roomId)
+      .single()
+
+    if (roomError || !room) {
+      return { success: false, error: '自习室不存在' }
+    }
+
+    // 如果房间不活跃，只有创建者可以加入（用于重新激活）
+    if (!room.is_active && room.creator_id !== currentUser.id) {
+      return { success: false, error: '自习室当前无人在线，只有创建者可以进入激活' }
+    }
+
     // 检查是否已加入
     const { data: existing } = await supabase
       .from('study_room_members')
@@ -183,6 +199,15 @@ async function joinRoom(roomId) {
         return { success: false, error: error.message }
       }
 
+      // 如果房间之前不活跃，现在激活
+      if (!room.is_active) {
+        await supabase
+          .from('study_rooms')
+          .update({ is_active: true })
+          .eq('id', roomId)
+        console.log('[StudyRoomSync] 房间已重新激活:', roomId)
+      }
+
       currentRoom = roomId
       return { success: true, data, rejoined: true }
     }
@@ -200,6 +225,15 @@ async function joinRoom(roomId) {
     if (error) {
       console.error('[StudyRoomSync] 加入自习室失败:', error)
       return { success: false, error: error.message }
+    }
+
+    // 如果房间之前不活跃，现在激活
+    if (!room.is_active) {
+      await supabase
+        .from('study_rooms')
+        .update({ is_active: true })
+        .eq('id', roomId)
+      console.log('[StudyRoomSync] 房间已重新激活:', roomId)
     }
 
     currentRoom = roomId
@@ -509,6 +543,75 @@ function unsubscribeAll() {
 }
 
 /**
+ * 检查房间状态（不更新当前用户的在线状态）
+ * 用于离开房间后检查房间是否需要下线
+ * @param {string} roomId - 自习室 ID
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+async function checkRoomStatus(roomId) {
+  if (!supabase) {
+    return { success: false, error: 'Supabase 未初始化' }
+  }
+
+  try {
+    const now = new Date()
+    const timeoutThreshold = 11 * 60 * 1000 // 11分钟超时
+
+    // 1. 获取该房间的所有成员，检查谁超时了
+    const { data: members, error: membersError } = await supabase
+      .from('study_room_members')
+      .select('user_id, last_active, is_online')
+      .eq('room_id', roomId)
+
+    if (membersError || !members) {
+      console.error('[StudyRoomSync] 获取成员列表失败:', membersError)
+      return { success: true }
+    }
+
+    // 找出超时的成员
+    const timeoutUserIds = []
+    members.forEach(member => {
+      if (member.is_online) {
+        const lastActive = new Date(member.last_active)
+        const elapsed = now - lastActive
+        if (elapsed > timeoutThreshold) {
+          timeoutUserIds.push(member.user_id)
+        }
+      }
+    })
+
+    // 批量更新超时成员为离线
+    if (timeoutUserIds.length > 0) {
+      console.log('[StudyRoomSync] 检测到超时成员:', timeoutUserIds.length, '人')
+      await supabase
+        .from('study_room_members')
+        .update({ is_online: false })
+        .in('user_id', timeoutUserIds)
+    }
+
+    // 2. 检查房间是否还有在线成员
+    const { data: onlineMembers } = await supabase
+      .from('study_room_members')
+      .select('user_id')
+      .eq('room_id', roomId)
+      .eq('is_online', true)
+
+    if (!onlineMembers || onlineMembers.length === 0) {
+      console.log('[StudyRoomSync] 自习室无在线成员，下线:', roomId)
+      await supabase
+        .from('study_rooms')
+        .update({ is_active: false })
+        .eq('id', roomId)
+    }
+
+    return { success: true }
+  } catch (err) {
+    console.error('[StudyRoomSync] 检查房间状态异常:', err)
+    return { success: false, error: err.message }
+  }
+}
+
+/**
  * 更新在线状态（心跳）- 去中心化检测
  * 每个客户端心跳时会：
  * 1. 更新自己的在线状态
@@ -721,7 +824,7 @@ async function getRoomById(roomId) {
 }
 
 /**
- * 获取我创建的自习室列表
+ * 获取我创建的自习室列表（包括 active 和 inactive 的房间）
  * @returns {Promise<{success: boolean, data?: array, error?: string}>}
  */
 async function getMyRooms() {
@@ -730,11 +833,11 @@ async function getMyRooms() {
   }
 
   try {
+    // 获取我创建的所有房间（无论是否 active）
     const { data: rooms, error: roomsError } = await supabase
       .from('study_rooms')
       .select('*')
       .eq('creator_id', currentUser.id)
-      .eq('is_active', true)
       .order('created_at', { ascending: false })
 
     if (roomsError) {
@@ -742,16 +845,25 @@ async function getMyRooms() {
       return { success: false, error: roomsError.message }
     }
 
-    // 为每个自习室获取成员数
+    // 为每个自习室获取成员数和在线成员数
     const roomsWithDetails = await Promise.all(rooms.map(async (room) => {
-      const { count } = await supabase
+      // 总成员数
+      const { count: totalCount } = await supabase
         .from('study_room_members')
         .select('*', { count: 'exact', head: true })
         .eq('room_id', room.id)
       
+      // 在线成员数
+      const { count: onlineCount } = await supabase
+        .from('study_room_members')
+        .select('*', { count: 'exact', head: true })
+        .eq('room_id', room.id)
+        .eq('is_online', true)
+      
       return {
         ...room,
-        member_count: count || 0
+        member_count: totalCount || 0,
+        online_count: onlineCount || 0
       }
     }))
 
@@ -778,5 +890,6 @@ module.exports = {
   getRoomMembers,
   subscribeRoomUpdates,
   unsubscribeAll,
-  updateOnlineStatus
+  updateOnlineStatus,
+  checkRoomStatus
 }

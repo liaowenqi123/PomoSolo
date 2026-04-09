@@ -1448,6 +1448,30 @@
   transform: scale(1.05);
 }
 
+.my-room-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.my-room-delete-btn {
+  padding: 4px 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.my-room-delete-btn:hover {
+  background: rgba(255, 82, 82, 0.1);
+  color: #ff5252;
+  border-color: rgba(255, 82, 82, 0.3);
+}
+
 .my-rooms-back-btn {
   width: 100%;
   padding: 8px;

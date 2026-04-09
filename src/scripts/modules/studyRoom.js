@@ -1229,9 +1229,16 @@ const StudyRoom = {
     if (!confirmed) return;
     
     this.showToast('正在离开自习室...');
+    
+    // 保存房间ID用于后续检查
+    const roomIdForCheck = this.currentRoomId;
+    
     const result = await window.electronAPI.studyRoomLeave(this.currentRoomId);
     
     if (result.success) {
+      // 离开后检查房间状态（只检查不更新当前用户），确保房间状态正确
+      await window.electronAPI.studyRoomCheckStatus(roomIdForCheck);
+      
       this.showToast('已离开自习室');
       this.stopTimers();
       
@@ -1386,13 +1393,18 @@ const StudyRoom = {
           '<span class="room-privacy-badge public">🌐 公开</span>' : 
           '<span class="room-privacy-badge private">🔒 私密</span>';
         
+        // active 状态标签
+        const activeBadge = room.is_active ? 
+          '<span class="room-active-badge active">🟢 活跃</span>' : 
+          '<span class="room-active-badge inactive">⚫ 无人</span>';
+        
         // 截取ID的前8位用于显示
         const shortId = room.id.substring(0, 8);
         
         listHTML += `
-          <div class="my-room-item">
+          <div class="my-room-item ${room.is_active ? '' : 'inactive-room'}">
             <div class="my-room-info">
-              <div class="my-room-name">${room.name} ${privacyBadge}</div>
+              <div class="my-room-name">${room.name} ${privacyBadge} ${activeBadge}</div>
               <div class="my-room-desc">${room.description || '暂无描述'}</div>
               <div class="my-room-id">
                 <span class="room-id-label">ID:</span>
@@ -1400,11 +1412,14 @@ const StudyRoom = {
                 <button class="room-id-copy-mini" data-room-id="${room.id}" title="复制完整ID">📋</button>
               </div>
               <div class="my-room-meta">
-                <span>👥 成员: ${room.member_count}</span>
+                <span>👥 在线: ${room.online_count || 0}</span>
                 <span>📅 创建于: ${new Date(room.created_at).toLocaleDateString()}</span>
               </div>
             </div>
-            <button class="my-room-enter-btn" data-room-id="${room.id}" data-room-name="${room.name}" data-is-public="${room.is_public}">进入</button>
+            <div class="my-room-actions">
+              <button class="my-room-enter-btn" data-room-id="${room.id}" data-room-name="${room.name}" data-is-public="${room.is_public}" data-is-active="${room.is_active}">${room.is_active ? '进入' : '激活并进入'}</button>
+              <button class="my-room-delete-btn" data-room-id="${room.id}" data-room-name="${room.name}" title="删除自习室">🗑️</button>
+            </div>
           </div>
         `;
       });
@@ -1438,6 +1453,15 @@ const StudyRoom = {
         const roomId = e.target.dataset.roomId;
         const roomName = e.target.dataset.roomName;
         const isPublic = e.target.dataset.isPublic === 'true';
+        const isActive = e.target.dataset.isActive === 'true';
+        
+        // 如果房间不活跃，提示创建者
+        if (!isActive) {
+          const confirmed = await this.showConfirmDialog(
+            `「${roomName}」当前无人在线。\n\n进入后房间将重新激活，确定要进入吗？`
+          );
+          if (!confirmed) return;
+        }
         
         // 先加入（如果还没加入）
         await window.electronAPI.studyRoomJoin(roomId);
@@ -1448,6 +1472,39 @@ const StudyRoom = {
         
         // 打开自习室视图
         this.openRoomView(roomId, roomName, isPublic);
+      });
+    });
+    
+    // 绑定删除按钮
+    const deleteBtns = modalBody.querySelectorAll('.my-room-delete-btn');
+    deleteBtns.forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const roomId = e.target.dataset.roomId;
+        const roomName = e.target.dataset.roomName;
+        
+        // 确认删除
+        const confirmed = await this.showConfirmDialog(
+          `确定要删除「${roomName}」吗？\n\n⚠️ 警告：这将清除该自习室的所有数据，此操作不可恢复！`
+        );
+        if (!confirmed) return;
+        
+        // 二次确认
+        const doubleConfirm = await this.showConfirmDialog(
+          `最后确认：真的要删除「${roomName}」吗？`
+        );
+        if (!doubleConfirm) return;
+        
+        this.showToast('正在删除自习室...');
+        const result = await window.electronAPI.studyRoomDelete(roomId);
+        
+        if (result.success) {
+          this.showToast('自习室已删除');
+          // 重新加载我的自习室列表
+          await this.showMyRooms();
+        } else {
+          this.showToast('删除失败：' + result.error);
+        }
       });
     });
     

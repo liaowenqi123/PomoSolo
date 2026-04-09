@@ -701,6 +701,10 @@ ipcMain.handle('study-room-update-status', async (event, { roomId }) => {
   return await studyRoomSync.updateOnlineStatus(roomId)
 })
 
+ipcMain.handle('study-room-check-status', async (event, { roomId }) => {
+  return await studyRoomSync.checkRoomStatus(roomId)
+})
+
 // ============ API Key 管理 IPC 处理（保留兼容） ============
 
 ipcMain.handle('get-api-key', () => {
