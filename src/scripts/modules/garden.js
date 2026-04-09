@@ -112,8 +112,9 @@
    */
   async function loadWheelModeSetting() {
     try {
-      const data = await window.electronAPI.readData()
-      plantWheelMode = data.settings?.plantWheelMode !== false
+      // 从独立的 settings.json 读取
+      const settings = await window.electronAPI.readSettings()
+      plantWheelMode = settings?.plantWheelMode !== false
     } catch (e) {
       console.error('读取种植轮盘模式设置失败:', e)
       plantWheelMode = true
