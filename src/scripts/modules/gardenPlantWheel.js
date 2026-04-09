@@ -201,18 +201,23 @@
 
   // 显示轮盘
   function show(x, y, plotIndex, data, onPlant) {
+    console.log('[PlantWheel] show called:', { x, y, plotIndex, hasData: !!data, isActive })
     if (isActive) return
 
     // 获取可用种子
     currentSeeds = getAvailableSeeds(data)
+    console.log('[PlantWheel] available seeds:', currentSeeds.length, currentSeeds.map(s => s.key))
     if (currentSeeds.length === 0) {
       // 没有可用种子
+      console.log('[PlantWheel] No seeds available')
       if (onPlant) onPlant(null)
       return
     }
 
     createWheelDOM()
+    console.log('[PlantWheel] DOM created:', { hasWheel: !!wheelEl, hasCanvas: !!canvas, hasCtx: !!ctx })
     positionAt(x, y)
+    console.log('[PlantWheel] Positioned at:', wheelEl.style.left, wheelEl.style.top)
 
     currentIndex = plotIndex
     onPlantCallback = onPlant
@@ -221,6 +226,7 @@
 
     wheelEl.classList.add('active')
     drawWheel(-1)
+    console.log('[PlantWheel] Wheel shown')
   }
 
   // 隐藏轮盘

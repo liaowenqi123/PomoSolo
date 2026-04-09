@@ -288,6 +288,7 @@
    * 处理格子点击
    */
   async function handlePlotClick(index, event) {
+    console.log('[Garden] handlePlotClick called:', { index, plantWheelMode, hasEvent: !!event, hasPlantWheel: !!window.PlantWheel })
     const plot = currentGardenData.plots[index]
     
     // 如果已有作物且成熟，收获
@@ -311,8 +312,10 @@
     if (!plot.crop) {
       if (plantWheelMode) {
         // 轮盘模式：显示种植轮盘
+        console.log('[Garden] Wheel mode, calling PlantWheel.show')
         if (window.PlantWheel && event) {
           PlantWheel.show(event.clientX, event.clientY, index, currentGardenData, async (seedKey) => {
+            console.log('[Garden] PlantWheel callback, seedKey:', seedKey)
             if (seedKey) {
               const result = await GardenPlot.plantCrop(index, seedKey, onDataUpdate, updateTip)
               if (result && result.success) {
@@ -320,6 +323,8 @@
               }
             }
           })
+        } else {
+          console.log('[Garden] PlantWheel or event missing:', { hasPlantWheel: !!window.PlantWheel, hasEvent: !!event })
         }
       } else {
         // 传统模式：使用选中的种子
