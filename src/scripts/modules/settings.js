@@ -678,6 +678,11 @@
     // 应用设置
     await applyAllSettings()
     
+    // 通知菜园子窗口刷新设置
+    if (window.electronAPI && window.electronAPI.refreshGarden) {
+      window.electronAPI.refreshGarden()
+    }
+    
     // 关闭弹窗
     close()
   }

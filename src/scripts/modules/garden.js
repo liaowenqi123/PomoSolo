@@ -95,6 +95,10 @@
     // 监听刷新事件
     if (window.electronAPI && window.electronAPI.onGardenRefresh) {
       window.electronAPI.onGardenRefresh(async () => {
+        // 重新读取轮盘模式设置
+        await loadWheelModeSetting()
+        applyWheelMode()
+        // 重新渲染数据
         await loadAndRender()
       })
     }
@@ -404,8 +408,17 @@
   }
 
   /**
-   * 更新成就统计数据
+   * 设置种植轮盘模式
    */
+  function setWheelMode(enabled) {
+    plantWheelMode = enabled
+    applyWheelMode()
+    
+    // 传统模式下初始化背包事件
+    if (!plantWheelMode && window.GardenBag) {
+      GardenBag.initBagEvents()
+    }
+  }
   async function updateAchievementStats(type, value) {
     if (window.GardenAchievement) {
       return await GardenAchievement.updateAchievementStats(type, value, updateTip)
@@ -430,8 +443,9 @@
     updateData: onDataUpdate,
     updateTip: updateTip,
     render: render,
-    // 获取当前模式
-    getWheelMode: () => plantWheelMode
+    // 轮盘模式
+    getWheelMode: () => plantWheelMode,
+    setWheelMode: setWheelMode
   }
 
   // 页面加载完成后自动初始化
