@@ -4,8 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>菜园子</title>
+  <!-- 基础样式 -->
   <link rel="stylesheet" href="styles/base.css">
+  <!-- 菜园样式 - 分模块 -->
   <link rel="stylesheet" href="styles/garden.css">
+  <link rel="stylesheet" href="styles/gardenBag.css">
+  <link rel="stylesheet" href="styles/gardenShop.css">
+  <link rel="stylesheet" href="styles/gardenSignin.css">
+  <link rel="stylesheet" href="styles/gardenAchievement.css">
 </head>
 <body>
   <div class="garden-frame">
@@ -33,22 +39,13 @@
     
     <!-- 背包区域 -->
     <div class="bags-container" id="bagsContainer">
-      
-      <!-- 上方线区域（分裂成两根） -->
-      <!-- <div class="bags-upper-lines"> -->
-        <!-- 种子背包的上方线（跟随按钮1移动） -->
-        <!-- <div class="bags-upper-line seed-upper-line" id="seedUpperLine"></div> -->
-        <!-- 作物背包的上方线（固定不动，按钮2黏附） -->
-        <!-- <div class="bags-upper-line crop-upper-line" id="cropUpperLine"></div> -->
-      <!-- </div> -->
-      
-      <!-- 按钮1（跟随展开线移动） -->
+      <!-- 按钮1（种子背包） -->
       <div class="bag-expand-btn seed-expand-btn" id="seed-expand-btn" title="展开种子背包">
         <span class="expand-btn-icon">🎒</span>
         <span class="expand-btn-bar"></span>
       </div>
       
-      <!-- 种子背包（向左下展开） -->
+      <!-- 种子背包 -->
       <div class="garden-seed-bag bag-panel" id="garden-seed-bag">
         <div class="bag-content seed-bag-content">
           <div class="bag-header">
@@ -61,13 +58,13 @@
         </div>
       </div>
       
-      <!-- 按钮2（固定在上方线位置） -->
+      <!-- 按钮2（作物背包） -->
       <div class="bag-expand-btn crop-expand-btn" id="crop-expand-btn" title="展开作物背包">
         <span class="expand-btn-icon">🧺</span>
         <span class="expand-btn-bar"></span>
       </div>
       
-      <!-- 作物背包（向右下展开） -->
+      <!-- 作物背包 -->
       <div class="garden-crop-bag bag-panel" id="garden-crop-bag">
         <div class="bag-content crop-bag-content">
           <div class="bag-header">
@@ -79,7 +76,7 @@
         </div>
       </div>
       
-      <!-- 基准线（固定在底部，不动） -->
+      <!-- 基准线 -->
       <div class="bags-baseline-bar" id="bagsBaselineBar"></div>
     </div>
     
@@ -216,8 +213,15 @@
     </div>
   </div>
 
-  <!-- 引入依赖 -->
+  <!-- 引入依赖 - 按顺序加载 -->
   <script src="scripts/modules/utils.js"></script>
+  <!-- 菜园子模块 - 分模块加载 -->
+  <script src="scripts/modules/gardenPlot.js"></script>
+  <script src="scripts/modules/gardenBag.js"></script>
+  <script src="scripts/modules/gardenShop.js"></script>
+  <script src="scripts/modules/gardenSignin.js"></script>
+  <script src="scripts/modules/gardenAchievement.js"></script>
+  <!-- 主入口 -->
   <script src="scripts/modules/garden.js"></script>
 </body>
 </html>

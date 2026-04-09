@@ -1,0 +1,243 @@
+/* 菜园子 - 签到弹窗样式 */
+
+/* ============ 签到按钮 ============ */
+.garden-signin-btn {
+  background: linear-gradient(135deg, #FFD700, #FFA000);
+  border: 2px solid #FF8F00;
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  -webkit-app-region: no-drag;
+  z-index: 1;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.garden-signin-btn:hover {
+  background: linear-gradient(135deg, #FFEB3B, #FFD700);
+  transform: scale(1.05);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+}
+
+.garden-signin-btn.signed {
+  background: linear-gradient(135deg, #4CAF50, #45A049);
+  border-color: #388E3C;
+}
+
+.garden-signin-btn.signed:hover {
+  background: linear-gradient(135deg, #66BB6A, #4CAF50);
+}
+
+/* ============ 签到弹窗 ============ */
+.signin-modal {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+  border-radius: 20px;
+}
+
+.signin-modal.show {
+  display: flex;
+  animation: signinFadeIn 0.3s ease;
+}
+
+@keyframes signinFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.signin-content {
+  background: linear-gradient(145deg, #4CAF50, #388E3C);
+  border-radius: 16px;
+  padding: 20px;
+  width: 280px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  border: 2px solid #2E7D32;
+}
+
+.signin-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.signin-title {
+  font-size: 18px;
+  font-weight: bold;
+  color: #FFF;
+}
+
+.signin-close {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #FFF;
+  font-size: 20px;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: all 0.3s ease;
+}
+
+.signin-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* 签到统计 */
+.signin-stats {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 15px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+.signin-stat {
+  text-align: center;
+}
+
+.signin-stat-value {
+  display: block;
+  font-size: 24px;
+  font-weight: bold;
+  color: #FFD700;
+}
+
+.signin-stat-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.signin-stat-divider {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 20px;
+}
+
+/* 本周签到日历 */
+.signin-calendar {
+  margin-bottom: 15px;
+}
+
+.signin-calendar-row {
+  display: flex;
+  justify-content: space-around;
+  margin-bottom: 5px;
+}
+
+.signin-day-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  width: 24px;
+  text-align: center;
+}
+
+.signin-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  transition: all 0.3s ease;
+}
+
+.signin-dot.signed {
+  background: #4CAF50;
+  border-color: #388E3C;
+  box-shadow: 0 0 6px rgba(76, 175, 80, 0.5);
+}
+
+.signin-dot.today {
+  border-color: #FFD700;
+  box-shadow: 0 0 6px rgba(255, 215, 0, 0.5);
+}
+
+.signin-dot.today.signed {
+  background: #4CAF50;
+}
+
+/* 今日奖励 */
+.signin-rewards {
+  margin-bottom: 15px;
+}
+
+.signin-rewards-title {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.signin-rewards-list {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 12px;
+  min-height: 60px;
+}
+
+.signin-reward-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 14px;
+  color: #FFF;
+}
+
+.signin-reward-item.extra {
+  color: #FFD700;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin-top: 6px;
+  padding-top: 10px;
+}
+
+.signin-reward-icon {
+  font-size: 18px;
+}
+
+/* 签到按钮 */
+.signin-btn {
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, #FFD700, #FFA000);
+  border: 2px solid #FF8F00;
+  border-radius: 10px;
+  color: #5D4037;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.signin-btn:hover {
+  background: linear-gradient(135deg, #FFEB3B, #FFD700);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.4);
+}
+
+.signin-btn:disabled {
+  background: linear-gradient(135deg, #9E9E9E, #757575);
+  border-color: #616161;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+  color: #FFF;
+}

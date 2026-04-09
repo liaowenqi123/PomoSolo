@@ -93,7 +93,11 @@ electron_pomodoro/
 │   │   ├── charts.css         # 热歌榜单
 │   │   ├── ai-helper.css      # AI助手
 │   │   ├── api-key-modal.css  # API配置弹窗
-│   │   ├── garden.css         # 菜园子
+│   │   ├── garden.css         # 菜园子基础样式
+│   │   ├── gardenBag.css      # 菜园子背包样式
+│   │   ├── gardenShop.css     # 菜园子商店样式
+│   │   ├── gardenSignin.css   # 菜园子签到样式
+│   │   ├── gardenAchievement.css # 菜园子成就样式
 │   │   └── settings.css       # 设置弹窗
 │   │
 │   ├── scripts/               # 渲染进程脚本
@@ -118,7 +122,12 @@ electron_pomodoro/
 │   │       ├── musicPlayer.js # 音乐播放器 UI
 │   │       ├── aiHelper.js    # AI 规划助手 UI
 │   │       ├── statistics.js  # 数据统计（Chart.js集成）
-│   │       ├── garden.js      # 菜园子系统（种植、收获、商店、签到、成就）
+│   │       ├── garden.js           # 菜园子主入口
+│   │       ├── gardenPlot.js       # 菜园子-土地格子模块
+│   │       ├── gardenBag.js        # 菜园子-背包模块
+│   │       ├── gardenShop.js       # 菜园子-商店模块
+│   │       ├── gardenSignin.js     # 菜园子-签到模块
+│   │       ├── gardenAchievement.js # 菜园子-成就模块
 │   │       ├── foregroundDetection.js # 前台检测 UI（警告、惩罚弹窗）
 │   │       ├── charts.js      # 热歌榜单（网易云/QQ音乐）
 │   │       └── settings.js    # 设置管理
@@ -243,17 +252,41 @@ Timer.getTimeLeft()               // 获取剩余时间
 
 ---
 
-### 4. 菜园子系统 (garden.js)
+### 4. 菜园子系统 (garden.*.js)
 
 **职责：** 游戏化激励机制，种菜收获增加趣味性
 
+**模块架构（v2.6.0 重构）：**
+
+菜园子代码按功能拆分为多个模块，每个模块控制在500行以内：
+
+| 模块 | 文件 | 职责 |
+|------|------|------|
+| 主入口 | `garden.js` | 初始化、状态管理、协调子模块 |
+| 土地格子 | `gardenPlot.js` | 格子渲染、种植、收获、解锁 |
+| 背包系统 | `gardenBag.js` | 背包展开/收起、种子/作物列表渲染 |
+| 商店系统 | `gardenShop.js` | 购买种子、出售作物 |
+| 签到系统 | `gardenSignin.js` | 每日签到、奖励发放 |
+| 成就系统 | `gardenAchievement.js` | 成就墙、进度显示 |
+
+**样式拆分（garden.*.css）：**
+- `garden.css` - 基础框架、格子样式
+- `gardenBag.css` - 背包样式
+- `gardenShop.css` - 商店弹窗样式
+- `gardenSignin.css` - 签到弹窗样式
+- `gardenAchievement.css` - 成就墙弹窗样式
+
 **核心功能：**
-- **种植系统：** 12块土地，7种作物（胡萝卜、番茄、向日葵、玫瑰、桂花等）
+- **种植系统：** 12块土地，5种作物（胡萝卜、番茄、向日葵、玫瑰、金桂树）
 - **成长机制：** 专注时间内作物持续生长，每分钟更新进度
 - **惩罚机制：** 专注中断（前台检测3次警告/手动重置）导致作物枯萎
 - **商店系统：** 购买种子、出售作物、金币交易
 - **签到系统：** 每日签到奖励、连续签到里程碑、每周特殊奖励
 - **成就系统：** 6大类成就（专注、收获、种植、收集、财富、坚持）
+
+**性能优化（v2.6.0）：**
+- 入场动画等待数据加载完成后触发，避免内容闪烁
+- 模块化加载，代码更易维护
 
 **数据结构：**
 ```javascript

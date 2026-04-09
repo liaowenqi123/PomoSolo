@@ -1,0 +1,276 @@
+/* 菜园子 - 商店弹窗样式 */
+
+/* ============ 商店按钮 ============ */
+.garden-shop-btn {
+  background: linear-gradient(135deg, #8B4513, #654321);
+  border: 2px solid #3d2817;
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  -webkit-app-region: no-drag;
+  z-index: 1;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.garden-shop-btn:hover {
+  background: linear-gradient(135deg, #a0522d, #8B4513);
+  animation: woodShake 0.5s ease-in-out;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+@keyframes woodShake {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-3deg); }
+  75% { transform: rotate(3deg); }
+}
+
+/* ============ 商店弹窗 ============ */
+.shop-modal {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+  border-radius: 20px;
+}
+
+.shop-modal.show {
+  display: flex;
+  animation: shopFadeIn 0.3s ease;
+}
+
+@keyframes shopFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.shop-content {
+  background: linear-gradient(135deg, rgba(45, 90, 39, 0.98), rgba(26, 58, 21, 0.98));
+  border-radius: 16px;
+  width: 90%;
+  max-width: 420px;
+  max-height: 80%;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.shop-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.shop-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.shop-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.shop-close:hover {
+  background: rgba(244, 67, 54, 0.7);
+  color: white;
+}
+
+/* 标签页 */
+.shop-tabs {
+  display: flex;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.shop-tab {
+  flex: 1;
+  padding: 12px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border-bottom: 2px solid transparent;
+}
+
+.shop-tab:hover {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.shop-tab.active {
+  color: #ffc107;
+  border-bottom-color: #ffc107;
+  background: rgba(255, 193, 7, 0.1);
+}
+
+/* 面板 */
+.shop-panel {
+  display: none;
+  padding: 16px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.shop-panel.active {
+  display: block;
+}
+
+/* 商品网格 */
+.shop-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+/* 商品卡片 */
+.shop-item {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 12px;
+  text-align: center;
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+}
+
+.shop-item:hover {
+  transform: scale(1.05);
+  background: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.shop-item-icon {
+  font-size: 28px;
+  margin-bottom: 6px;
+}
+
+.shop-item-icon .seed-icon {
+  margin: 0 auto;
+  display: block;
+}
+
+.shop-item-name {
+  font-size: 12px;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.shop-item-price {
+  font-size: 12px;
+  color: #ffc107;
+  margin-bottom: 8px;
+}
+
+.shop-item-btn {
+  background: linear-gradient(135deg, #4caf50, #45a049);
+  border: none;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.shop-item-btn:hover {
+  background: linear-gradient(135deg, #66bb6a, #4caf50);
+  transform: scale(1.05);
+}
+
+.shop-item-btn:disabled {
+  background: rgba(128, 128, 128, 0.5);
+  cursor: not-allowed;
+  transform: none;
+}
+
+.shop-item-btn.sell {
+  background: linear-gradient(135deg, #ff9800, #f57c00);
+}
+
+.shop-item-btn.sell:hover {
+  background: linear-gradient(135deg, #ffb74d, #ff9800);
+}
+
+/* 拥有数量 */
+.shop-item-count {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 6px;
+}
+
+/* 一键出售 */
+.shop-sell-all {
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px;
+  background: linear-gradient(135deg, #ff9800, #f57c00);
+  border: none;
+  color: white;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.shop-sell-all:hover {
+  background: linear-gradient(135deg, #ffb74d, #ff9800);
+  transform: scale(1.02);
+}
+
+.shop-sell-all:disabled {
+  background: rgba(128, 128, 128, 0.5);
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 空状态 */
+.shop-empty {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 14px;
+  padding: 40px 0;
+  grid-column: 1 / -1;
+}
+
+/* 滚动条 */
+.shop-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.shop-panel::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+}
+
+.shop-panel::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
