@@ -276,9 +276,12 @@
       if (selectedSeed.count <= 0) {
         return  // 数量为0，不允许种植
       }
+      // 先保存回调引用，再隐藏轮盘
+      const callback = onPlantCallback
+      const seedKey = selectedSeed.key
       hide()
-      if (onPlantCallback) {
-        onPlantCallback(selectedSeed.key)
+      if (callback) {
+        callback(seedKey)
       }
     }
   }
