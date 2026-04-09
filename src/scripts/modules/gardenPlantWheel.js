@@ -163,21 +163,21 @@
       } else {
         ctx.fillStyle = "rgba(220, 220, 220, 0.9)"
       }
-      ctx.fillText(seed.icon, x, y - 8)
+      ctx.fillText(seed.icon, x, y - 5)
 
-      // 数量（大一点，不显示名称）
-      ctx.font = `600 ${Math.floor(radius * 0.12)}px "Segoe UI", system-ui`
+      // 数量（往下移一点，避开图标，稍微大一点）
+      ctx.font = `700 ${Math.floor(radius * 0.14)}px "Segoe UI", system-ui`
       ctx.shadowBlur = 0
       
       if (isDisabled) {
         ctx.fillStyle = "rgba(150, 150, 150, 0.4)"
-        ctx.fillText("×0", x, y + 22)
+        ctx.fillText("×0", x, y + 28)
       } else if (isHover) {
         ctx.fillStyle = "#ffffff"
-        ctx.fillText(`×${seed.count}`, x, y + 22)
+        ctx.fillText(`×${seed.count}`, x, y + 28)
       } else {
-        ctx.fillStyle = "rgba(200, 200, 200, 0.7)"
-        ctx.fillText(`×${seed.count}`, x, y + 22)
+        ctx.fillStyle = "rgba(200, 200, 200, 0.8)"
+        ctx.fillText(`×${seed.count}`, x, y + 28)
       }
     }
     ctx.shadowBlur = 0
