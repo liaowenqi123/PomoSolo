@@ -325,6 +325,41 @@ ipcMain.on('show-notification', (event, data) => {
   }
 })
 
+/**
+ * 发送成就解锁通知
+ * @param {Array} unlockedAchievements - 解锁的成就列表
+ */
+function sendAchievementNotifications(unlockedAchievements) {
+  if (!unlockedAchievements || unlockedAchievements.length === 0) return
+  
+  unlockedAchievements.forEach(achievement => {
+    if (Notification.isSupported()) {
+      let body = achievement.description || ''
+      if (achievement.rewards) {
+        const rewardParts = []
+        if (achievement.rewards.seeds) {
+          Object.entries(achievement.rewards.seeds).forEach(([seedKey, count]) => {
+            if (count > 0) rewardParts.push(`种子×${count}`)
+          })
+        }
+        if (achievement.rewards.coins > 0) {
+          rewardParts.push(`💰${achievement.rewards.coins}`)
+        }
+        if (rewardParts.length > 0) {
+          body += ` - 获得 ${rewardParts.join('、')}`
+        }
+      }
+      
+      const notification = new Notification({
+        title: `🏆 成就解锁：${achievement.name}`,
+        body: body,
+        silent: false
+      })
+      notification.show()
+    }
+  })
+}
+
 // ============ 菜园子窗口 IPC 处理 ============
 
 ipcMain.on('open-garden', () => {
@@ -418,6 +453,16 @@ ipcMain.handle('garden-read', async () => {
   return await dataManager.readGardenData()
 })
 
+// 写入菜园子数据（用于成就等直接更新）
+ipcMain.handle('garden-write', async (event, gardenData) => {
+  dataManager.writeGardenFile(gardenData)
+  // 通知菜园子窗口刷新
+  if (gardenWindow && !gardenWindow.isDestroyed()) {
+    gardenWindow.webContents.send('garden-refresh')
+  }
+  return true
+})
+
 // 种植作物
 ipcMain.handle('garden-plant', async (event, plotIndex, cropKey) => {
   const result = await dataManager.gardenPlant(plotIndex, cropKey)
@@ -425,6 +470,8 @@ ipcMain.handle('garden-plant', async (event, plotIndex, cropKey) => {
   if (gardenWindow && !gardenWindow.isDestroyed()) {
     gardenWindow.webContents.send('garden-refresh')
   }
+  // 成就解锁通知
+  sendAchievementNotifications(result.unlockedAchievements)
   return result
 })
 
@@ -435,6 +482,8 @@ ipcMain.handle('garden-harvest', async (event, plotIndex) => {
   if (gardenWindow && !gardenWindow.isDestroyed()) {
     gardenWindow.webContents.send('garden-refresh')
   }
+  // 成就解锁通知
+  sendAchievementNotifications(result.unlockedAchievements)
   return result
 })
 
@@ -445,6 +494,8 @@ ipcMain.handle('garden-buy-seed', async (event, cropKey) => {
   if (gardenWindow && !gardenWindow.isDestroyed()) {
     gardenWindow.webContents.send('garden-refresh')
   }
+  // 成就解锁通知
+  sendAchievementNotifications(result.unlockedAchievements)
   return result
 })
 
@@ -455,6 +506,8 @@ ipcMain.handle('garden-sell-crop', async (event, cropKey) => {
   if (gardenWindow && !gardenWindow.isDestroyed()) {
     gardenWindow.webContents.send('garden-refresh')
   }
+  // 成就解锁通知
+  sendAchievementNotifications(result.unlockedAchievements)
   return result
 })
 
@@ -465,6 +518,8 @@ ipcMain.handle('garden-sell-all', async () => {
   if (gardenWindow && !gardenWindow.isDestroyed()) {
     gardenWindow.webContents.send('garden-refresh')
   }
+  // 成就解锁通知
+  sendAchievementNotifications(result.unlockedAchievements)
   return result
 })
 
@@ -475,6 +530,8 @@ ipcMain.handle('garden-unlock-plot', async (event, plotIndex) => {
   if (gardenWindow && !gardenWindow.isDestroyed()) {
     gardenWindow.webContents.send('garden-refresh')
   }
+  // 成就解锁通知
+  sendAchievementNotifications(result.unlockedAchievements)
   return result
 })
 
@@ -485,6 +542,8 @@ ipcMain.handle('garden-signin', async () => {
   if (gardenWindow && !gardenWindow.isDestroyed()) {
     gardenWindow.webContents.send('garden-refresh')
   }
+  // 成就解锁通知
+  sendAchievementNotifications(result.unlockedAchievements)
   return result
 })
 
@@ -496,6 +555,8 @@ ipcMain.handle('garden-update-focus', async (event, minutes) => {
     if (gardenWindow && !gardenWindow.isDestroyed()) {
       gardenWindow.webContents.send('garden-refresh')
     }
+    // 成就解锁通知
+    sendAchievementNotifications(result.unlockedAchievements)
   }
   return result
 })

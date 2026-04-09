@@ -96,6 +96,9 @@
    * 渲染成就墙弹窗
    */
   function renderAchievementModal(data) {
+    // 更新当前数据引用
+    currentData = data
+    
     const achievements = data.achievements || {}
     const totalAchievements = Object.keys(ACHIEVEMENT_CONFIG).length
     const unlockedCount = Object.keys(achievements).filter(id => achievements[id] && achievements[id].unlocked).length
@@ -171,6 +174,13 @@
         return stats.totalCoinsEarned || 0
       case 'persist':
         return (currentData && currentData.signIn && currentData.signIn.continuousDays) || 0
+      case 'hidden':
+        // 隐藏成就：检查是否已解锁
+        const achievements = currentData?.achievements || {}
+        if (achievements[config.id] && achievements[config.id].unlocked) {
+          return 1
+        }
+        return 0
       default:
         return 0
     }

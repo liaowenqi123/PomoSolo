@@ -39,6 +39,9 @@ const { contextBridge, ipcRenderer } = require('electron')
   // 读取菜园子数据
   gardenRead: () => ipcRenderer.invoke('garden-read'),
   
+  // 写入菜园子数据（用于成就等直接更新）
+  gardenWrite: (gardenData) => ipcRenderer.invoke('garden-write', gardenData),
+  
   // 种植作物
   gardenPlant: (plotIndex, cropKey) => ipcRenderer.invoke('garden-plant', plotIndex, cropKey),
   

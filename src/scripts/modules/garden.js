@@ -228,6 +228,14 @@
         gardenFrame.classList.add('ready')
       }
     })
+    
+    // 热更新：如果成就墙是打开的，刷新成就墙
+    const achievementModal = document.getElementById('achievementModal')
+    if (achievementModal && achievementModal.classList.contains('show')) {
+      if (window.GardenAchievement) {
+        window.GardenAchievement.renderAchievementModal(currentGardenData)
+      }
+    }
   }
 
   /**

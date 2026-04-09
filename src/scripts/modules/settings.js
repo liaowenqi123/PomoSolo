@@ -204,33 +204,39 @@
    */
   async function unlockEasterEggAchievement() {
     try {
-      // 直接调用 garden.js 的成就解锁函数
-      if (window.Garden && window.Garden.checkAndUnlockAchievements) {
-        // 手动设置成就数据
-        const data = await window.electronAPI.readData()
-        if (data.garden && data.garden.achievements) {
-          // 检查是否已解锁
-          if (data.garden.achievements.easteregg && data.garden.achievements.easteregg.unlocked) {
-            return // 已解锁，不重复
-          }
-          
-          // 解锁成就
-          data.garden.achievements.easteregg = {
-            unlocked: true,
-            unlockedAt: new Date().toISOString()
-          }
-          
-          // 发放奖励
-          if (data.garden.seeds) {
-            data.garden.seeds.osmanthus = (data.garden.seeds.osmanthus || 0) + 1
-          }
-          data.garden.coins = (data.garden.coins || 0) + 50
-          
-          await window.electronAPI.writeData(data)
-          
-          // 显示提示
-          console.log('%c🏆 成就解锁：发现彩蛋！', 'font-size: 16px; color: #FFD700; font-weight: bold;')
+      // 从独立的 garden_data.json 读取
+      const gardenData = await window.electronAPI.gardenRead()
+      
+      if (gardenData && gardenData.achievements) {
+        // 检查是否已解锁
+        if (gardenData.achievements.easteregg && gardenData.achievements.easteregg.unlocked) {
+          return // 已解锁，不重复
         }
+        
+        // 解锁成就
+        gardenData.achievements.easteregg = {
+          unlocked: true,
+          unlockedAt: new Date().toISOString()
+        }
+        
+        // 发放奖励
+        if (gardenData.seeds) {
+          gardenData.seeds.osmanthus = (gardenData.seeds.osmanthus || 0) + 1
+        }
+        gardenData.coins = (gardenData.coins || 0) + 50
+        
+        // 写回 garden_data.json
+        await window.electronAPI.gardenWrite(gardenData)
+        
+        // 发送通知
+        if (window.electronAPI && window.electronAPI.showNotification) {
+          window.electronAPI.showNotification({
+            title: '🏆 成就解锁！',
+            body: '发现彩蛋 - 获得 🌳金桂树种子×1 + 50金币'
+          })
+        }
+        
+        console.log('%c🏆 成就解锁：发现彩蛋！', 'font-size: 16px; color: #FFD700; font-weight: bold;')
       }
     } catch (e) {
       console.error('[Settings] 解锁成就失败:', e)
