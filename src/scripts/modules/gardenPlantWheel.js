@@ -38,6 +38,7 @@
   let currentSeeds = []
   let currentIndex = -1  // 当前点击的格子索引
   let onPlantCallback = null
+  let showTime = 0  // 轮盘显示时间戳（用于解决事件冒泡竞争）
 
   // 创建轮盘 DOM
   function createWheelDOM() {
@@ -223,6 +224,7 @@
     onPlantCallback = onPlant
     isActive = true
     currentHover = -1
+    showTime = Date.now()  // 记录显示时间
 
     wheelEl.classList.add('active')
     drawWheel(-1)
@@ -285,9 +287,12 @@
     }
   }
 
-  // 点击文档
+  // 点击文档（关闭轮盘）
   function onDocumentClick(e) {
     if (!isActive) return
+    // 忽略触发轮盘显示的同一个点击事件（事件冒泡竞争问题）
+    // 如果点击发生在轮盘显示后 50ms 内，说明是同一个事件在冒泡
+    if (Date.now() - showTime < 50) return
     if (wheelEl && !wheelEl.contains(e.target)) {
       hide()
     }
