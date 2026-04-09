@@ -24,7 +24,7 @@ import json
 import os
 import sys
 import threading
-from openai import OpenAI
+import requests
 
 # 设置UTF-8编码（用于与Electron通信）
 sys.stdin.reconfigure(encoding='utf-8')
@@ -123,22 +123,25 @@ def validate_api_key(api_key, model_config):
     if not api_key:
         return False, None
     
-    # 尝试一次简单请求验证
+    # 尝试一次简单请求验证（用 requests 直接调用，避免 openai 包的巨大体积）
     try:
-        client = OpenAI(
-            api_key=api_key,
-            base_url=model_config.get("base_url", "https://api.deepseek.com"),
-        )
-        
+        base_url = model_config.get("base_url", "https://api.deepseek.com")
         model = model_config.get("model", "deepseek-chat")
         
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "user", "content": "hi"}
-            ],
-            max_tokens=5
+        response = requests.post(
+            f"{base_url}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 5
+            },
+            timeout=10
         )
+        response.raise_for_status()
         return True, None
     except Exception as e:
         # 验证失败，静默处理
@@ -201,13 +204,9 @@ def check_is_entertainment(window_title, api_key, model_config, list_config, api
     if not api_key_valid:
         return "不是", "no_api", window_title, list_config
     
-    # 5. 调用 AI API
+    # 5. 调用 AI API（用 requests 直接调用，避免 openai 包的巨大体积）
     try:
-        client = OpenAI(
-            api_key=api_key,
-            base_url=model_config.get("base_url", "https://api.deepseek.com"),
-        )
-        
+        base_url = model_config.get("base_url", "https://api.deepseek.com")
         model = model_config.get("model", "deepseek-chat")
         
         system_prompt = """你是一个窗口分类助手。根据用户提供的窗口名称，判断该应用是否属于娱乐类（如游戏、视频、音乐、直播、社交媒体等）。
@@ -221,15 +220,26 @@ def check_is_entertainment(window_title, api_key, model_config, list_config, api
 
         user_prompt = f"窗口名称：{window_title}"
 
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            response_format={'type': 'json_object'}
+        response = requests.post(
+            f"{base_url}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "response_format": {"type": "json_object"}
+            },
+            timeout=30
         )
-        result = json.loads(response.choices[0].message.content)
+        response.raise_for_status()
+        data = response.json()
+        
+        result = json.loads(data["choices"][0]["message"]["content"])
         is_entertainment = result.get("is_entertainment", "不是")
         
         # 保存到历史记录
@@ -373,25 +383,30 @@ def process_command(command_obj):
 
 def stdin_reader():
     """读取来自Electron的命令（后台线程）"""
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            command = json.loads(line)
-            process_command(command)
-        except json.JSONDecodeError as e:
-            print(f"JSON解析错误: {e}", file=sys.stderr)
-        
-        # 检查是否应该退出
-        with state.lock:
-            if state.should_exit:
-                break
+    try:
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                command = json.loads(line)
+                process_command(command)
+            except json.JSONDecodeError as e:
+                print(f"JSON解析错误: {e}", file=sys.stderr)
+            
+            # 检查是否应该退出
+            with state.lock:
+                if state.should_exit:
+                    break
+    except Exception as e:
+        print(f"stdin 异常: {e}", file=sys.stderr)
+    
+    print("stdin 已断开，线程结束", file=sys.stderr)
 
 
 # ============ 检测循环 ============
 
-def detection_loop():
+def detection_loop(stdin_thread):
     """检测循环（主线程）"""
     print("前台检测程序已启动，等待命令...", file=sys.stderr)
     
@@ -406,6 +421,11 @@ def detection_loop():
     check_interval = 1.0  # 检测间隔（秒）
     
     while True:
+        # 检查 stdin_reader 线程是否存活（父进程崩溃时线程会死）
+        if not stdin_thread.is_alive():
+            print("stdin_reader 线程已死亡，退出进程", file=sys.stderr)
+            break
+        
         # 检查是否应该退出
         with state.lock:
             if state.should_exit:
@@ -469,4 +489,4 @@ if __name__ == "__main__":
     stdin_thread.start()
     
     # 主线程运行检测循环
-    detection_loop()
+    detection_loop(stdin_thread)

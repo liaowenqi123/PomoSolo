@@ -1151,15 +1151,20 @@ def process_command(cmd_obj):
 
 def stdin_reader():
     """读取来自Electron的命令（守护线程）"""
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            cmd = json.loads(line)
-            process_command(cmd)
-        except json.JSONDecodeError as e:
-            print(f"JSON解析错误: {e}", file=sys.stderr)
+    try:
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                cmd = json.loads(line)
+                process_command(cmd)
+            except json.JSONDecodeError as e:
+                print(f"JSON解析错误: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"stdin 异常: {e}", file=sys.stderr)
+    
+    print("stdin 已断开，线程结束", file=sys.stderr)
 
 
 # ============================================================================
@@ -1237,6 +1242,11 @@ def main():
     current_position = 0
     
     while True:
+        # 检查 stdin_reader 线程是否存活（父进程崩溃时线程会死）
+        if not stdin_thread.is_alive():
+            print("stdin_reader 线程已死亡，退出进程", file=sys.stderr)
+            break
+        
         with state.lock:
             if state.exit_program:
                 break
