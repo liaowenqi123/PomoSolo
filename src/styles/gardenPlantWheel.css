@@ -1,0 +1,103 @@
+/* 菜园子 - 种植轮盘样式 */
+
+/* 轮盘浮层 */
+.plant-wheel {
+  position: fixed;
+  z-index: 10000;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.5));
+}
+
+.plant-wheel.active {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.plant-wheel-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  cursor: pointer;
+  display: block;
+  pointer-events: auto;
+}
+
+/* 中心关闭按钮 */
+.plant-wheel-close {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 44px;
+  background: rgba(30, 40, 30, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 500;
+  color: #a8d5a2;
+  cursor: pointer;
+  z-index: 20;
+  border: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  transition: 0.1s linear;
+  font-family: monospace;
+  pointer-events: auto;
+}
+
+.plant-wheel-close:active {
+  transform: translate(-50%, -50%) scale(0.95);
+}
+
+/* 轮盘模式下的作物背包样式调整 */
+.wheel-mode .bags-container {
+  /* 只显示作物背包 */
+}
+
+.wheel-mode .buttons-row {
+  display: none;
+}
+
+.wheel-mode .garden-seed-bag {
+  display: none;
+}
+
+.wheel-mode .garden-crop-bag {
+  max-height: 180px;
+  background: linear-gradient(180deg, rgba(48, 37, 24, 0.98) 0%, rgba(34, 25, 16, 0.98) 100%);
+  border-top: 1px solid rgba(214, 190, 152, 0.35);
+  padding: 0 16px;
+}
+
+.wheel-mode .garden-crop-bag .bag-content {
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+/* 轮盘模式下背包容器始终显示 */
+.wheel-mode .bags-container {
+  min-height: auto;
+}
+
+.wheel-mode .garden-crop-bag.expanded,
+.wheel-mode .garden-crop-bag {
+  max-height: 180px;
+}
+
+.wheel-mode .garden-crop-bag.expanded .bag-content,
+.wheel-mode .garden-crop-bag .bag-content {
+  max-height: 160px;
+}

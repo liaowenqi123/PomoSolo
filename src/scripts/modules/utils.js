@@ -409,6 +409,7 @@
         // 界面显示
         showDarkModeBtn: true,     // 显示深色模式按钮
         showGardenBtn: true,       // 显示菜园子按钮
+        plantWheelMode: true,      // 种植轮盘模式（默认开启）
         showStatsBtn: true,        // 显示统计按钮
         showAiBtn: true,           // 显示AI助手按钮
         showStudyRoomBtn: true,    // 显示自习室按钮

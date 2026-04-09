@@ -34,6 +34,7 @@
     // 界面显示
     showDarkModeBtn: 'settings-dark-mode',
     showGardenBtn: 'settings-show-garden-btn',
+    plantWheelMode: 'settings-plant-wheel-mode',
     showStatsBtn: 'settings-show-stats-btn',
     showAiBtn: 'settings-show-ai-btn',
     showStudyRoomBtn: 'settings-show-study-room-btn',
@@ -54,7 +55,7 @@
 
   // 开关设置项列表
   const TOGGLE_SETTINGS = [
-    'showDarkModeBtn', 'showGardenBtn', 'showStatsBtn',
+    'showDarkModeBtn', 'showGardenBtn', 'plantWheelMode', 'showStatsBtn',
     'showAiBtn', 'showStudyRoomBtn', 'showSidebarCollapseBtn', 'showHeaderExpandBtn',
     'showShuffleBtn', 'showVolumeBtn', 'showDeviceBtn', 'showChartsBtn',
     'advancedColorCustomization', 'autoStart'

@@ -41,7 +41,7 @@
       }
       
       if (!plot.locked) {
-        plotEl.addEventListener('click', () => onPlotClick(index))
+        plotEl.addEventListener('click', (event) => onPlotClick(index, event))
       }
       
       gridEl.appendChild(plotEl)

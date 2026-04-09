@@ -20,6 +20,9 @@
   let currentGardenData = null
   let selectedSeed = null
   
+  // 种植轮盘模式（默认开启）
+  let plantWheelMode = true
+  
   /**
    * 初始化菜园子
    */
@@ -41,6 +44,7 @@
       bagsContainer: document.getElementById('bagsContainer'),
       seedBag: document.getElementById('garden-seed-bag'),
       cropBag: document.getElementById('garden-crop-bag'),
+      gardenFrame: document.querySelector('.garden-frame'),
       // 商店相关
       shopBtn: document.getElementById('shopBtn'),
       shopModal: document.getElementById('shopModal'),
@@ -67,14 +71,19 @@
       achievementList: document.getElementById('achievementList')
     }
     
+    // 读取种植轮盘模式设置
+    await loadWheelModeSetting()
+    
+    // 应用模式到 UI
+    applyWheelMode()
+    
     // 初始化子模块
     initSubModules()
 
     // 绑定关闭按钮事件
     elements.gardenCloseBtn.addEventListener('click', () => {
-      const gardenFrame = document.querySelector('.garden-frame')
-      if (gardenFrame) {
-        gardenFrame.classList.add('closing')
+      if (elements.gardenFrame) {
+        elements.gardenFrame.classList.add('closing')
         setTimeout(() => {
           window.electronAPI.closeGarden()
         }, 500)
@@ -95,11 +104,37 @@
   }
   
   /**
+   * 读取种植轮盘模式设置
+   */
+  async function loadWheelModeSetting() {
+    try {
+      const data = await window.electronAPI.readData()
+      plantWheelMode = data.settings?.plantWheelMode !== false
+    } catch (e) {
+      console.error('读取种植轮盘模式设置失败:', e)
+      plantWheelMode = true
+    }
+  }
+  
+  /**
+   * 应用轮盘模式到 UI
+   */
+  function applyWheelMode() {
+    if (!elements.gardenFrame) return
+    
+    if (plantWheelMode) {
+      elements.gardenFrame.classList.add('wheel-mode')
+    } else {
+      elements.gardenFrame.classList.remove('wheel-mode')
+    }
+  }
+  
+  /**
    * 初始化子模块
    */
   function initSubModules() {
-    // 初始化背包
-    if (window.GardenBag) {
+    // 非轮盘模式：初始化背包展开事件
+    if (!plantWheelMode && window.GardenBag) {
       GardenBag.initBagEvents()
     }
     
@@ -114,7 +149,6 @@
         sellAllBtn: elements.sellAllBtn
       })
       
-      // 绑定商店按钮
       if (elements.shopBtn) {
         elements.shopBtn.addEventListener('click', () => {
           GardenShop.openShop(currentGardenData, updateTip)
@@ -135,7 +169,6 @@
         signinConfirmBtn: elements.signinConfirmBtn
       })
       
-      // 绑定签到按钮
       if (elements.signinBtn) {
         elements.signinBtn.addEventListener('click', () => {
           GardenSignin.openSigninModal(currentGardenData, updateTip)
@@ -155,7 +188,6 @@
         achievementList: elements.achievementList
       })
       
-      // 绑定成就按钮
       if (elements.achievementBtn) {
         elements.achievementBtn.addEventListener('click', async () => {
           await loadAndRender()
@@ -194,8 +226,15 @@
     if (!currentGardenData) return
     renderCoins()
     renderPlots()
-    renderSeeds()
-    renderCrops()
+    
+    // 轮盘模式：只渲染作物背包，不渲染种子背包
+    if (plantWheelMode) {
+      renderCrops()
+    } else {
+      renderSeeds()
+      renderCrops()
+    }
+    
     updateSigninBtnStatus()
   }
 
@@ -248,7 +287,7 @@
   /**
    * 处理格子点击
    */
-  async function handlePlotClick(index) {
+  async function handlePlotClick(index, event) {
     const plot = currentGardenData.plots[index]
     
     // 如果已有作物且成熟，收获
@@ -268,17 +307,34 @@
       }
     }
     
-    // 如果选择了种子且格子为空，种植
-    if (selectedSeed && !plot.crop) {
-      const result = await GardenPlot.plantCrop(index, selectedSeed, onDataUpdate, updateTip)
-      if (result && result.success) {
-        if (result.clearSeed) {
-          selectedSeed = null
+    // 空格子处理
+    if (!plot.crop) {
+      if (plantWheelMode) {
+        // 轮盘模式：显示种植轮盘
+        if (window.PlantWheel && event) {
+          PlantWheel.show(event.clientX, event.clientY, index, currentGardenData, async (seedKey) => {
+            if (seedKey) {
+              const result = await GardenPlot.plantCrop(index, seedKey, onDataUpdate, updateTip)
+              if (result && result.success) {
+                render()
+              }
+            }
+          })
         }
-        render()
+      } else {
+        // 传统模式：使用选中的种子
+        if (selectedSeed) {
+          const result = await GardenPlot.plantCrop(index, selectedSeed, onDataUpdate, updateTip)
+          if (result && result.success) {
+            if (result.clearSeed) {
+              selectedSeed = null
+            }
+            render()
+          }
+        } else {
+          updateTip('请先选择一个种子')
+        }
       }
-    } else if (!selectedSeed) {
-      updateTip('请先选择一个种子')
     }
   }
 
@@ -368,7 +424,9 @@
     // 新增：供子模块调用
     updateData: onDataUpdate,
     updateTip: updateTip,
-    render: render
+    render: render,
+    // 获取当前模式
+    getWheelMode: () => plantWheelMode
   }
 
   // 页面加载完成后自动初始化
