@@ -4,6 +4,30 @@
 
 ---
 
+## 2026-04-10
+
+### 1. 父进程崩溃后子进程残留
+
+**问题描述：**
+- 当番茄钟主进程被强制关闭时，music.exe 和 foreground_inspection.exe 会残留
+- 残留进程占用资源，需要手动清理
+
+**原因分析：**
+- Python子进程的 stdin_reader 线程检测到stdin断开后无法通知主线程退出
+- 主线程在播放/检测循环中阻塞，无法及时响应退出信号
+
+**解决方案：**
+1. 前台检测：用 requests 替换 openai 包，减少打包体积（从1GB+降至~12MB）
+2. stdin_reader：捕获stdin断开（EOF），线程自然结束
+3. 主线程：定期检查 stdin_thread.is_alive()，线程死亡则退出
+4. music播放器：在播放循环和暂停等待循环中都检查线程存活状态
+
+**影响范围：**
+- `foreground_inspection/foreground_inspection.py`
+- `music-player/music.py`
+
+---
+
 ## 2026-04-04
 
 ### 1. 前台检测警告弹窗无法正确置顶

@@ -94,6 +94,9 @@ class PlayerState:
         self.preloaded_fs = None
         self.preloaded_song = None
         
+        # stdin 线程引用（用于检测父进程是否存活）
+        self.stdin_thread = None
+        
         # 初始化标志
         self.initialized = False
         
@@ -818,6 +821,12 @@ class Player:
             
             # 主播放循环
             while current_frame < total_frames:
+                # 检查 stdin_thread 是否存活（父进程崩溃时线程会死）
+                if state.stdin_thread and not state.stdin_thread.is_alive():
+                    print("stdin_thread 已死亡，退出播放", file=sys.stderr)
+                    Player._close_stream(stream)
+                    return "exit"
+                
                 # 检查控制命令
                 with state.lock:
                     if state.exit_program:
@@ -865,6 +874,11 @@ class Player:
                     
                     # 暂停等待循环
                     while True:
+                        # 检查 stdin_thread 是否存活
+                        if state.stdin_thread and not state.stdin_thread.is_alive():
+                            print("stdin_thread 已死亡，退出暂停", file=sys.stderr)
+                            return "exit"
+                        
                         with state.lock:
                             if state.exit_program:
                                 return "exit"
@@ -1201,6 +1215,7 @@ def main():
     # 启动命令读取线程
     stdin_thread = threading.Thread(target=stdin_reader, daemon=True)
     stdin_thread.start()
+    state.stdin_thread = stdin_thread  # 保存引用供播放循环检查
     
     # 初始化播放列表
     if not PlaylistManager.init_playlist():
