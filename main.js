@@ -21,6 +21,129 @@ let foregroundInspectionReady = false
 // 系统托盘
 let tray = null
 
+// 主窗口引用（用于单实例聚焦）
+let mainWindow = null
+
+// ============ 单实例锁 ============
+const gotTheLock = app.requestSingleInstanceLock()
+
+if (!gotTheLock) {
+  // 已经有实例在运行，直接退出
+  app.quit()
+} else {
+  // 当第二个实例尝试启动时，显示警告并聚焦到已有窗口
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    showInstanceExistsDialog()
+  })
+}
+
+/**
+ * 显示"实例已存在"警告弹窗（自定义样式）
+ */
+function showInstanceExistsDialog() {
+  // 聚焦到主窗口
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  }
+  
+  // 创建自定义警告窗口
+  const warningWindow = new BrowserWindow({
+    width: 360,
+    height: 180,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    parent: mainWindow,
+    modal: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js')
+    }
+  })
+  
+  // 自定义 HTML 内容（番茄钟风格，深色调对齐透明度效果）
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+          width: 100%; height: 100%;
+          overflow: hidden;
+        }
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          background: linear-gradient(145deg, #c24a4a 0%, #8a3030 100%);
+          border-radius: 16px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+        }
+        .icon {
+          font-size: 48px;
+          margin-bottom: 16px;
+          animation: shake 0.5s ease-in-out;
+        }
+        @keyframes shake {
+          0%, 100% { transform: translateX(0); }
+          25% { transform: translateX(-5px); }
+          75% { transform: translateX(5px); }
+        }
+        .message {
+          color: white;
+          font-size: 16px;
+          font-weight: 500;
+          text-align: center;
+          margin-bottom: 20px;
+          text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .btn {
+          background: white;
+          color: #a04040;
+          border: none;
+          padding: 10px 32px;
+          border-radius: 20px;
+          font-size: 14px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+        }
+        .btn:active { transform: translateY(0); }
+      </style>
+    </head>
+    <body>
+      <div class="icon">🍅</div>
+      <div class="message">同一路径下只能启动一个实例！</div>
+      <button class="btn" id="closeBtn">知道了</button>
+      <script>
+        document.getElementById('closeBtn').addEventListener('click', () => {
+          window.close();
+        });
+      </script>
+    </body>
+    </html>
+  `
+  
+  warningWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(htmlContent))
+  
+  // 点击外部关闭（可选）
+  warningWindow.on('blur', () => {
+    // 不自动关闭，让用户必须点击按钮
+  })
+}
+
 function createWindow() {
   const iconPath = path.join(__dirname, 'src/tomato-page-1.ico')
   
@@ -37,6 +160,9 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js')
     }
   })
+  
+  // 保存主窗口引用（用于单实例聚焦）
+  mainWindow = win
   
   // 开发环境下自动打开开发者工具（可选）
   // 如果需要调试，取消下面的注释
@@ -617,7 +743,7 @@ ipcMain.handle('cloud-register', async (event, { username, password }) => {
 })
 
 ipcMain.handle('cloud-logout', async () => {
-  return cloudAuth.logout(aiAssistant, foregroundInspection, songDownloader)
+  return await cloudAuth.logout(aiAssistant, foregroundInspection, songDownloader)
 })
 
 // ============ 意见反馈 IPC 处理 ============
@@ -1170,4 +1296,17 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   musicProcess.stop()
   foregroundInspection.stop()
+  
+  // 单点登录：停止心跳并标记离线
+  cloudAuth.stopHeartbeat()
+  const session = cloudAuth.getSession()
+  console.log('[Main] before-quit, session:', session ? session.username : 'null')
+  if (session) {
+    // 异步标记离线，不等待结果（因为 app 即将退出）
+    cloudAuth.markOffline(session.id).then(() => {
+      console.log('[Main] markOffline 完成')
+    }).catch((err) => {
+      console.error('[Main] markOffline 失败:', err)
+    })
+  }
 })

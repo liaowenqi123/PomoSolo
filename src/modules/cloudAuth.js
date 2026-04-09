@@ -13,8 +13,14 @@ const { createClient } = require('@supabase/supabase-js')
 const SUPABASE_URL = 'https://sjexeynibnfqxvwehnxk.supabase.co'
 const SUPABASE_ANON_KEY = 'sb_publishable_NtzlEhTWwC4qpSY0DEvQ0Q_ER6yJoTz'
 
+// 单点登录配置
+const HEARTBEAT_INTERVAL = 60 * 1000      // 心跳间隔：1 分钟
+const HEARTBEAT_TIMEOUT = 2 * 60 * 1000   // 超时阈值：2 分钟
+
 let supabase = null
 let currentSession = null
+let heartbeatTimer = null                 // 心跳定时器
+let localClientId = null                  // 本地 client_id（内存缓存）
 
 /**
  * 密码哈希函数
@@ -56,6 +62,261 @@ function init() {
  */
 function getSession() {
   return currentSession
+}
+
+// ============ 单点登录：client_id 管理 ============
+
+/**
+ * 获取机器标识（尽可能稳定的唯一标识）
+ * @returns {string}
+ */
+function getMachineId() {
+  const os = require('os')
+  const hostname = os.hostname()
+  const platform = os.platform()
+  const cpus = os.cpus()
+  const cpuModel = cpus.length > 0 ? cpus[0].model : 'unknown'
+  
+  // 组合多个因素生成机器标识
+  const machineInfo = `${hostname}-${platform}-${cpuModel}`
+  return crypto.createHash('sha256').update(machineInfo).digest('hex').substring(0, 32)
+}
+
+/**
+ * 获取可执行文件路径
+ * @returns {string}
+ */
+function getExecutablePath() {
+  try {
+    // Electron 应用的执行路径
+    return app.getPath('exe') || app.getAppPath() || 'unknown'
+  } catch (err) {
+    return 'unknown'
+  }
+}
+
+/**
+ * 生成客户端 ID
+ * @returns {string}
+ */
+function generateClientId() {
+  const machineId = getMachineId()
+  const execPath = getExecutablePath()
+  const combined = `${machineId}-${execPath}`
+  return crypto.createHash('sha256').update(combined).digest('hex').substring(0, 32)
+}
+
+/**
+ * 获取本地 client_id（优先从内存缓存，其次从文件，最后生成新值）
+ * @returns {{ success: boolean, clientId?: string, error?: string }}
+ */
+function getLocalClientId() {
+  // 优先返回内存缓存
+  if (localClientId) {
+    return { success: true, clientId: localClientId }
+  }
+  
+  try {
+    const credentialsPath = getCredentialsPath()
+    
+    // 尝试从凭据文件读取
+    if (fs.existsSync(credentialsPath)) {
+      const data = fs.readFileSync(credentialsPath, 'utf-8')
+      const credentials = JSON.parse(data)
+      
+      if (credentials.client_id) {
+        localClientId = credentials.client_id
+        console.log('[CloudAuth] 从文件加载 client_id:', localClientId)
+        return { success: true, clientId: localClientId }
+      }
+    }
+    
+    // 生成新的 client_id
+    localClientId = generateClientId()
+    console.log('[CloudAuth] 生成新 client_id:', localClientId)
+    
+    // 持久化存储
+    saveClientIdToFile(localClientId)
+    
+    return { success: true, clientId: localClientId }
+  } catch (err) {
+    console.error('[CloudAuth] 获取 client_id 失败:', err)
+    // 失败时生成临时 ID（不持久化）
+    localClientId = generateClientId()
+    return { success: true, clientId: localClientId }
+  }
+}
+
+/**
+ * 将 client_id 保存到凭据文件
+ * @param {string} clientId
+ */
+function saveClientIdToFile(clientId) {
+  try {
+    const credentialsPath = getCredentialsPath()
+    
+    let credentials = {}
+    if (fs.existsSync(credentialsPath)) {
+      const data = fs.readFileSync(credentialsPath, 'utf-8')
+      credentials = JSON.parse(data)
+    }
+    
+    credentials.client_id = clientId
+    fs.writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2), 'utf-8')
+    console.log('[CloudAuth] client_id 已持久化存储')
+  } catch (err) {
+    console.error('[CloudAuth] 保存 client_id 失败:', err)
+  }
+}
+
+// ============ 单点登录：登录检查 ============
+
+/**
+ * 检查是否允许登录（单点登录检查）
+ * @param {number} userId - 用户ID
+ * @param {string} clientId - 本地 client_id
+ * @returns {{ allowed: boolean, reason?: string, error?: string }}
+ */
+async function checkLoginAllowed(userId, clientId) {
+  if (!supabase) {
+    return { allowed: false, error: 'Supabase 未初始化' }
+  }
+  
+  try {
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('is_online, last_main_login_heartbeat, client_id')
+      .eq('id', userId)
+      .single()
+    
+    if (error) {
+      console.error('[CloudAuth] 查询用户状态失败:', error)
+      return { allowed: false, error: '查询用户状态失败' }
+    }
+    
+    // 优先级 1：client_id 一致，同一设备重新登录
+    if (user.client_id && user.client_id === clientId) {
+      console.log('[CloudAuth] 同一设备重新登录，允许')
+      return { allowed: true, reason: 'same_device' }
+    }
+    
+    // 优先级 2：云端显示 offline
+    if (!user.is_online) {
+      console.log('[CloudAuth] 云端显示离线，允许登录')
+      return { allowed: true, reason: 'offline' }
+    }
+    
+    // 优先级 3：云端显示 online，检查心跳超时
+    if (user.last_main_login_heartbeat) {
+      const lastHeartbeat = new Date(user.last_main_login_heartbeat)
+      const elapsed = Date.now() - lastHeartbeat.getTime()
+      
+      if (elapsed > HEARTBEAT_TIMEOUT) {
+        console.log('[CloudAuth] 心跳超时，对方已掉线，允许登录')
+        return { allowed: true, reason: 'heartbeat_timeout' }
+      }
+    } else {
+      // 没有心跳记录，但显示在线，可能是异常状态，允许登录
+      console.log('[CloudAuth] 无心跳记录但显示在线，允许登录')
+      return { allowed: true, reason: 'no_heartbeat_record' }
+    }
+    
+    // 对方确实在线
+    console.log('[CloudAuth] 账号已在其他设备登录，拒绝登录')
+    return { allowed: false, reason: 'already_online' }
+  } catch (err) {
+    console.error('[CloudAuth] 检查登录状态异常:', err)
+    return { allowed: false, error: err.message }
+  }
+}
+
+// ============ 单点登录：心跳管理 ============
+
+/**
+ * 启动心跳
+ * @param {number} userId - 用户ID
+ * @param {string} clientId - 客户端ID
+ */
+function startHeartbeat(userId, clientId) {
+  // 先停止之前的心跳
+  stopHeartbeat()
+  
+  // 立即发送一次心跳
+  sendHeartbeat(userId, clientId)
+  
+  // 启动定时器
+  heartbeatTimer = setInterval(() => {
+    sendHeartbeat(userId, clientId)
+  }, HEARTBEAT_INTERVAL)
+  
+  console.log('[CloudAuth] 心跳已启动，间隔:', HEARTBEAT_INTERVAL / 1000, '秒')
+}
+
+/**
+ * 发送心跳
+ * @param {number} userId
+ * @param {string} clientId
+ */
+async function sendHeartbeat(userId, clientId) {
+  if (!supabase || !currentSession) {
+    return
+  }
+  
+  try {
+    const now = new Date().toISOString()
+    
+    const { error } = await supabase
+      .from('users')
+      .update({
+        is_online: true,
+        last_main_login_heartbeat: now,
+        client_id: clientId
+      })
+      .eq('id', userId)
+    
+    if (error) {
+      console.error('[CloudAuth] 心跳发送失败:', error)
+    } else {
+      console.log('[CloudAuth] 心跳发送成功:', now)
+    }
+  } catch (err) {
+    console.error('[CloudAuth] 心跳发送异常:', err)
+  }
+}
+
+/**
+ * 停止心跳
+ */
+function stopHeartbeat() {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer)
+    heartbeatTimer = null
+    console.log('[CloudAuth] 心跳已停止')
+  }
+}
+
+/**
+ * 标记离线
+ * @param {number} userId
+ */
+async function markOffline(userId) {
+  if (!supabase) {
+    return
+  }
+  
+  try {
+    await supabase
+      .from('users')
+      .update({
+        is_online: false,
+        last_main_login_heartbeat: new Date().toISOString()
+      })
+      .eq('id', userId)
+    
+    console.log('[CloudAuth] 已标记离线')
+  } catch (err) {
+    console.error('[CloudAuth] 标记离线失败:', err)
+  }
 }
 
 /**
@@ -193,6 +454,13 @@ async function login(username, password, aiAssistant, songDownloader) {
   }
 
   try {
+    // 获取本地 client_id
+    const clientIdResult = getLocalClientId()
+    if (!clientIdResult.success) {
+      return { success: false, error: '获取客户端ID失败' }
+    }
+    const clientId = clientIdResult.clientId
+
     const { data: users, error } = await supabase
       .from('users')
       .select('*')
@@ -209,14 +477,31 @@ async function login(username, password, aiAssistant, songDownloader) {
 
     const user = users[0]
 
+    // ===== 单点登录检查 =====
+    const loginCheck = await checkLoginAllowed(user.id, clientId)
+    if (!loginCheck.allowed) {
+      if (loginCheck.reason === 'already_online') {
+        return { success: false, error: '账号已在其他设备登录，请稍后再试' }
+      }
+      return { success: false, error: loginCheck.error || '登录检查失败' }
+    }
+    console.log('[CloudAuth] 单点登录检查通过:', loginCheck.reason)
+
+    // ===== 密码验证 =====
     if (!verifyPassword(password, user.password_hash, user.salt)) {
       return { success: false, error: '密码错误' }
     }
 
-    // 更新最后登录时间
+    // 更新最后登录时间和在线状态
+    const now = new Date().toISOString()
     await supabase
       .from('users')
-      .update({ last_login: new Date().toISOString() })
+      .update({ 
+        last_login: now,
+        is_online: true,
+        last_main_login_heartbeat: now,
+        client_id: clientId
+      })
       .eq('id', user.id)
 
     // 创建会话
@@ -226,6 +511,9 @@ async function login(username, password, aiAssistant, songDownloader) {
       created_at: user.created_at,
       admin: user.admin || false
     }
+
+    // ===== 启动心跳 =====
+    startHeartbeat(user.id, clientId)
 
     // 如果是 admin，获取 DeepSeek API Key
     let deepseekKey = null
@@ -331,8 +619,17 @@ async function register(username, password) {
  * @param {object} songDownloader - 歌曲下载模块引用
  * @returns {{ success: boolean }}
  */
-function logout(aiAssistant, foregroundInspection, songDownloader) {
+async function logout(aiAssistant, foregroundInspection, songDownloader) {
+  // 停止心跳
+  stopHeartbeat()
+  
+  // 标记云端离线状态
+  if (currentSession) {
+    await markOffline(currentSession.id)
+  }
+  
   currentSession = null
+  
   // 清除 AI 助手的 API Key
   if (aiAssistant) {
     aiAssistant.setApiKey(null)
@@ -481,5 +778,11 @@ module.exports = {
   logout,
   submitFeedback,
   getUserFeedbacks,
-  deleteFeedback
+  deleteFeedback,
+  // 单点登录相关
+  getLocalClientId,
+  checkLoginAllowed,
+  startHeartbeat,
+  stopHeartbeat,
+  markOffline
 }
