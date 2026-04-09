@@ -165,20 +165,24 @@
       }
       ctx.fillText(seed.icon, x, y - 5)
 
-      // 数量（往下移一点，避开图标，稍微大一点）
+      // 数量（右下角显示）
       ctx.font = `700 ${Math.floor(radius * 0.14)}px "Segoe UI", system-ui`
       ctx.shadowBlur = 0
+      ctx.textAlign = "left"  // 左对齐，从图标右侧开始
       
       if (isDisabled) {
         ctx.fillStyle = "rgba(150, 150, 150, 0.4)"
-        ctx.fillText("×0", x, y + 28)
+        ctx.fillText("×0", x + 18, y + 12)
       } else if (isHover) {
         ctx.fillStyle = "#ffffff"
-        ctx.fillText(`×${seed.count}`, x, y + 28)
+        ctx.fillText(`×${seed.count}`, x + 18, y + 12)
       } else {
         ctx.fillStyle = "rgba(200, 200, 200, 0.8)"
-        ctx.fillText(`×${seed.count}`, x, y + 28)
+        ctx.fillText(`×${seed.count}`, x + 18, y + 12)
       }
+      
+      // 恢复居中对齐
+      ctx.textAlign = "center"
     }
     ctx.shadowBlur = 0
   }
