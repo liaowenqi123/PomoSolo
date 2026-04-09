@@ -92,6 +92,13 @@
 .wheel-mode .garden-crop-bag .bag-content {
   max-height: 160px;
   overflow-y: auto;
+  /* 隐藏滚动条但保留滚动功能 */
+  scrollbar-width: none;  /* Firefox */
+  -ms-overflow-style: none;  /* IE/Edge */
+}
+
+.wheel-mode .garden-crop-bag .bag-content::-webkit-scrollbar {
+  display: none;  /* Chrome/Safari/Opera */
 }
 
 /* 轮盘模式下背包容器始终显示 */

@@ -12,6 +12,13 @@ body {
   min-height: 100vh;
   color: #fff;
   overflow: hidden;
+  /* 隐藏所有滚动条 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+body::-webkit-scrollbar {
+  display: none;
 }
 
 /* 窗口框架 */
