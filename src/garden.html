@@ -39,10 +39,16 @@
     
     <!-- 背包区域 -->
     <div class="bags-container" id="bagsContainer">
-      <!-- 按钮1（种子背包） -->
-      <div class="bag-expand-btn seed-expand-btn" id="seed-expand-btn" title="展开种子背包">
-        <span class="expand-btn-icon">🎒</span>
-        <span class="expand-btn-bar"></span>
+      <!-- 按钮行 - 在棕色区域内 -->
+      <div class="buttons-row">
+        <div class="bag-expand-btn seed-expand-btn" id="seed-expand-btn" title="展开种子背包">
+          <span class="expand-btn-icon">🎒</span>
+          <span class="expand-btn-bar"></span>
+        </div>
+        <div class="bag-expand-btn crop-expand-btn" id="crop-expand-btn" title="展开作物背包">
+          <span class="expand-btn-icon">🧺</span>
+          <span class="expand-btn-bar"></span>
+        </div>
       </div>
       
       <!-- 种子背包 -->
@@ -58,12 +64,6 @@
         </div>
       </div>
       
-      <!-- 按钮2（作物背包） -->
-      <div class="bag-expand-btn crop-expand-btn" id="crop-expand-btn" title="展开作物背包">
-        <span class="expand-btn-icon">🧺</span>
-        <span class="expand-btn-bar"></span>
-      </div>
-      
       <!-- 作物背包 -->
       <div class="garden-crop-bag bag-panel" id="garden-crop-bag">
         <div class="bag-content crop-bag-content">
@@ -75,9 +75,6 @@
           </div>
         </div>
       </div>
-      
-      <!-- 基准线 -->
-      <div class="bags-baseline-bar" id="bagsBaselineBar"></div>
     </div>
     
     <!-- 提示信息 -->

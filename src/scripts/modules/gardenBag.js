@@ -18,18 +18,10 @@
   function initBagEvents() {
     const seedExpandBtn = document.getElementById('seed-expand-btn')
     const cropExpandBtn = document.getElementById('crop-expand-btn')
-    const seedBag = document.getElementById('garden-seed-bag')
-    const cropBag = document.getElementById('garden-crop-bag')
-    const seedUpperLine = document.getElementById('seedUpperLine')
-    const cropUpperLine = document.getElementById('cropUpperLine')
-    const bagsContainer = document.getElementById('bagsContainer')
     
     // 设置初始状态
     seedBagExpanded = false
     cropBagExpanded = false
-    
-    // 重置所有元素位置
-    resetPositions()
     
     // 种子背包按钮
     if (seedExpandBtn) {
@@ -49,54 +41,28 @@
   }
 
   /**
-   * 重置所有元素位置
-   */
-  function resetPositions() {
-    const seedUpperLine = document.getElementById('seedUpperLine')
-    const cropUpperLine = document.getElementById('cropUpperLine')
-    const seedExpandBtn = document.getElementById('seed-expand-btn')
-    const cropExpandBtn = document.getElementById('crop-expand-btn')
-    const seedBag = document.getElementById('garden-seed-bag')
-    const cropBag = document.getElementById('garden-crop-bag')
-    const bagsContainer = document.getElementById('bagsContainer')
-    
-    if (seedUpperLine) seedUpperLine.classList.remove('active')
-    if (cropUpperLine) cropUpperLine.classList.remove('active')
-    if (seedExpandBtn) seedExpandBtn.classList.remove('active')
-    if (cropExpandBtn) cropExpandBtn.classList.remove('active')
-    if (seedBag) seedBag.classList.remove('expanded')
-    if (cropBag) cropBag.classList.remove('expanded')
-    if (bagsContainer) bagsContainer.classList.remove('has-expanded')
-  }
-
-  /**
    * 切换种子背包
    */
   function toggleSeedBag() {
-    const seedUpperLine = document.getElementById('seedUpperLine')
-    const cropUpperLine = document.getElementById('cropUpperLine')
     const seedExpandBtn = document.getElementById('seed-expand-btn')
     const cropExpandBtn = document.getElementById('crop-expand-btn')
     const seedBag = document.getElementById('garden-seed-bag')
     const cropBag = document.getElementById('garden-crop-bag')
-    const bagsContainer = document.getElementById('bagsContainer')
     
     if (seedBagExpanded) {
       // 收起种子背包
-      resetPositions()
+      if (seedExpandBtn) seedExpandBtn.classList.remove('active')
+      if (seedBag) seedBag.classList.remove('expanded')
       seedBagExpanded = false
     } else {
-      // 展开种子背包
+      // 展开种子背包（收起作物背包）
       cropBagExpanded = false
       seedBagExpanded = true
       
-      if (seedUpperLine) seedUpperLine.classList.add('active')
       if (seedExpandBtn) seedExpandBtn.classList.add('active')
-      if (cropUpperLine) cropUpperLine.classList.remove('active')
       if (cropExpandBtn) cropExpandBtn.classList.remove('active')
       if (seedBag) seedBag.classList.add('expanded')
       if (cropBag) cropBag.classList.remove('expanded')
-      if (bagsContainer) bagsContainer.classList.add('has-expanded')
     }
   }
 
@@ -104,39 +70,30 @@
    * 切换作物背包
    */
   function toggleCropBag() {
-    const seedUpperLine = document.getElementById('seedUpperLine')
-    const cropUpperLine = document.getElementById('cropUpperLine')
     const seedExpandBtn = document.getElementById('seed-expand-btn')
     const cropExpandBtn = document.getElementById('crop-expand-btn')
     const seedBag = document.getElementById('garden-seed-bag')
     const cropBag = document.getElementById('garden-crop-bag')
-    const bagsContainer = document.getElementById('bagsContainer')
     
     if (cropBagExpanded) {
       // 收起作物背包
-      resetPositions()
+      if (cropExpandBtn) cropExpandBtn.classList.remove('active')
+      if (cropBag) cropBag.classList.remove('expanded')
       cropBagExpanded = false
     } else {
-      // 展开作物背包
+      // 展开作物背包（收起种子背包）
       seedBagExpanded = false
       cropBagExpanded = true
       
-      if (cropUpperLine) cropUpperLine.classList.add('active')
       if (cropExpandBtn) cropExpandBtn.classList.add('active')
-      if (seedUpperLine) seedUpperLine.classList.remove('active')
       if (seedExpandBtn) seedExpandBtn.classList.remove('active')
       if (cropBag) cropBag.classList.add('expanded')
       if (seedBag) seedBag.classList.remove('expanded')
-      if (bagsContainer) bagsContainer.classList.add('has-expanded')
     }
   }
 
   /**
    * 渲染种子背包
-   * @param {HTMLElement} listEl - 种子列表容器
-   * @param {Object} data - 菜园数据
-   * @param {string|null} selectedSeed - 当前选中的种子
-   * @param {Function} onSeedSelect - 种子选择回调
    */
   function renderSeeds(listEl, data, selectedSeed, onSeedSelect) {
     if (!listEl || !data) return
@@ -177,8 +134,6 @@
 
   /**
    * 渲染作物背包
-   * @param {HTMLElement} listEl - 作物列表容器
-   * @param {Object} data - 菜园数据
    */
   function renderCrops(listEl, data) {
     if (!listEl || !data) return
@@ -215,10 +170,6 @@
 
   /**
    * 处理种子选择
-   * @param {string} cropKey - 作物类型
-   * @param {string|null} currentSelected - 当前选中的种子
-   * @param {Function} updateTip - 更新提示回调
-   * @returns {string|null} 新的选中状态
    */
   function handleSeedSelect(cropKey, currentSelected, updateTip) {
     if (currentSelected === cropKey) {
