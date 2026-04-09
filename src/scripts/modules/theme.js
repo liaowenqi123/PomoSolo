@@ -18,12 +18,14 @@
       // 切换按钮图标为太阳（表示当前是深色，点击会切回亮色）
       if (elements.themeToggleBtn) {
         elements.themeToggleBtn.textContent = '☀️'
+        elements.themeToggleBtn.title = '切换亮色模式'
       }
     } else {
       document.body.classList.remove('dark-theme')
       // 切换按钮图标为月亮
       if (elements.themeToggleBtn) {
         elements.themeToggleBtn.textContent = '🌙'
+        elements.themeToggleBtn.title = '切换深色模式'
       }
     }
     currentTheme = theme
