@@ -145,6 +145,28 @@ def stdin_reader():
 **关键发现：** stdin_reader 线程消失了，但没有执行任何退出代码。这意味着线程可能被操作系统直接终止了，而不是收到了 EOF。
 
 ### 尝试3：主线程定期检查 stdin 线程存活状态
+```python
+ def stdin_reader():
+    """读取来自Electron的命令（守护线程）"""
+    try:
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                process_command(cmd)
+            except json.JSONDecodeError as e:
+                print(f"JSON解析错误: {e}", file=sys.stderr)
+    except Exception as e:
+        # stdin 断开（父进程崩溃），立即退出
+        print(f"stdin 断开，父进程已退出: {e}", file=sys.stderr)
+        os._exit(1)
+
+    print("stdin_reader 正常退出", file=sys.stderr)
+```
+**结果：** 无效。stdin_reader 线程"静默死亡"，os._exit(1)。
+
+**关键发现：** 意味着实际上sys.stdin并没有报错。
+
+### 尝试4：主线程定期检查 stdin 线程存活状态
 
 ```python
 # 在主循环中
