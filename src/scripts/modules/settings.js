@@ -678,9 +678,9 @@
     // 应用设置
     await applyAllSettings()
     
-    // 通知菜园子窗口刷新设置
-    if (window.electronAPI && window.electronAPI.refreshGarden) {
-      window.electronAPI.refreshGarden()
+    // 提示用户菜园子设置需要重启生效
+    if ('plantWheelMode' in newSettings) {
+      showToast('菜园子设置将在重新打开后生效')
     }
     
     // 关闭弹窗

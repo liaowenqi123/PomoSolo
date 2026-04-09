@@ -63,6 +63,7 @@
       signinConfirmBtn: document.getElementById('signinConfirmBtn'),
       // 成就墙相关
       achievementBtn: document.getElementById('achievementBtn'),
+      achievementBtnCrop: document.getElementById('achievementBtnCrop'),
       achievementModal: document.getElementById('achievementModal'),
       achievementCloseBtn: document.getElementById('achievementCloseBtn'),
       achievementUnlocked: document.getElementById('achievementUnlocked'),
@@ -95,10 +96,6 @@
     // 监听刷新事件
     if (window.electronAPI && window.electronAPI.onGardenRefresh) {
       window.electronAPI.onGardenRefresh(async () => {
-        // 重新读取轮盘模式设置
-        await loadWheelModeSetting()
-        applyWheelMode()
-        // 重新渲染数据
         await loadAndRender()
       })
     }
@@ -193,8 +190,17 @@
         achievementList: elements.achievementList
       })
       
+      // 种子背包中的成就按钮
       if (elements.achievementBtn) {
         elements.achievementBtn.addEventListener('click', async () => {
+          await loadAndRender()
+          GardenAchievement.openAchievementModal(currentGardenData)
+        })
+      }
+      
+      // 作物背包中的成就按钮
+      if (elements.achievementBtnCrop) {
+        elements.achievementBtnCrop.addEventListener('click', async () => {
           await loadAndRender()
           GardenAchievement.openAchievementModal(currentGardenData)
         })
