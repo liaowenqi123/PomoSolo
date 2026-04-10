@@ -427,9 +427,10 @@ ipcMain.on('open-external', (event, url) => {
 ipcMain.on('close-window', (event) => {
   const win = BrowserWindow.fromWebContents(event.sender)
   if (win) {
-    // 先停止音乐进程
-    musicProcess.stop()
-    win.close()
+    // 直接隐藏窗口（用户感觉已关闭），然后触发退出流程
+    // before-quit 会处理音乐停止、离线标记等
+    win.hide()
+    app.quit()
   }
 })
 
@@ -1293,20 +1294,55 @@ app.on('window-all-closed', () => {
   }
 })
 
-app.on('before-quit', () => {
+// 标记是否正在处理退出（防止重复触发）
+let isQuitting = false
+
+app.on('before-quit', (e) => {
+  // 防止重复触发
+  if (isQuitting) {
+    return
+  }
+  
+  const session = cloudAuth.getSession()
+  console.log('[Main] before-quit, session:', session ? session.username : 'null')
+  
+  // 如果没有登录会话，直接退出
+  if (!session) {
+    musicProcess.stop()
+    foregroundInspection.stop()
+    return
+  }
+  
+  // 有登录会话：先隐藏窗口（用户感觉已关闭），后台处理离线标记
+  e.preventDefault()
+  isQuitting = true
+  
+  // 立即隐藏所有窗口，让用户感觉应用已关闭
+  BrowserWindow.getAllWindows().forEach(win => {
+    if (!win.isDestroyed()) {
+      win.hide()
+    }
+  })
+  
+  // 停止心跳和各种进程
+  cloudAuth.stopHeartbeat()
   musicProcess.stop()
   foregroundInspection.stop()
   
-  // 单点登录：停止心跳并标记离线
-  cloudAuth.stopHeartbeat()
-  const session = cloudAuth.getSession()
-  console.log('[Main] before-quit, session:', session ? session.username : 'null')
-  if (session) {
-    // 异步标记离线，不等待结果（因为 app 即将退出）
-    cloudAuth.markOffline(session.id).then(() => {
-      console.log('[Main] markOffline 完成')
-    }).catch((err) => {
-      console.error('[Main] markOffline 失败:', err)
-    })
-  }
+  // 设置超时保护（2秒），防止网络问题导致进程残留
+  const timeout = setTimeout(() => {
+    console.log('[Main] markOffline 超时，强制退出')
+    app.exit(0)
+  }, 2000)
+  
+  // 后台标记离线，完成后退出
+  cloudAuth.markOffline(session.id).then(() => {
+    console.log('[Main] markOffline 完成，退出应用')
+    clearTimeout(timeout)
+    app.exit(0)
+  }).catch((err) => {
+    console.error('[Main] markOffline 失败:', err)
+    clearTimeout(timeout)
+    app.exit(0)  // 即使失败也要退出
+  })
 })
