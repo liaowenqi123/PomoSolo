@@ -98,6 +98,7 @@
     ],
     "win": {
       "icon": "src/tomato-page-1-256.ico",
+      "artifactName": "pomodoro-timer-setup-${version}.${ext}",
       "target": [
         {
           "target": "nsis",
