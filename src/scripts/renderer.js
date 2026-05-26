@@ -236,7 +236,7 @@
     
     // 如果是计划模式且计划列表为空，则不允许开始
     if (AppState.appMode === 'plan' && !PlanMode.hasPlan()) {
-      alert('请先添加计划任务')
+      showToast('请先添加计划任务')
       return
     }
 
@@ -846,6 +846,36 @@
 
       confirmInterruptModal.show()
     })
+  }
+
+  // ============ Toast 提示工具 ============
+  function showToast(message, duration = 2500) {
+    const existing = document.querySelector('.app-toast')
+    if (existing) existing.remove()
+
+    const toast = document.createElement('div')
+    toast.className = 'app-toast'
+    toast.textContent = message
+    Object.assign(toast.style, {
+      position: 'fixed',
+      bottom: '20px',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      background: 'rgba(0,0,0,0.75)',
+      color: '#fff',
+      padding: '8px 20px',
+      borderRadius: '10px',
+      fontSize: '13px',
+      zIndex: '9999',
+      whiteSpace: 'nowrap',
+      transition: 'opacity 0.3s ease'
+    })
+    document.body.appendChild(toast)
+
+    setTimeout(() => {
+      toast.style.opacity = '0'
+      setTimeout(() => toast.remove(), 300)
+    }, duration)
   }
 
   console.log('[App] 初始化完成')
