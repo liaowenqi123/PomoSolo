@@ -71,7 +71,9 @@
       closeBtn: document.getElementById('settings-modal-close'),
       saveBtn: document.getElementById('settings-save-btn'),
       resetBtn: document.getElementById('settings-reset-btn'),
-      versionText: document.getElementById('settings-version-text')
+      versionText: document.getElementById('settings-version-text'),
+      updateBtn: document.getElementById('settings-update-btn'),
+      updateStatus: document.getElementById('settings-update-status')
     }
     
     // 创建弹窗实例
@@ -456,6 +458,18 @@
     // 恢复默认按钮
     if (elements.resetBtn) {
       elements.resetBtn.addEventListener('click', resetToDefault)
+    }
+    
+    // 检查更新按钮
+    if (elements.updateBtn) {
+      elements.updateBtn.addEventListener('click', handleCheckUpdate)
+    }
+    
+    // 监听更新状态事件
+    if (window.electronAPI && window.electronAPI.onUpdateStatus) {
+      window.electronAPI.onUpdateStatus((data) => {
+        handleUpdateStatus(data)
+      })
     }
     
     // 迷你模式退出方式选择变化时显示/隐藏提示
@@ -1329,6 +1343,112 @@
     const div = document.createElement('div')
     div.textContent = text
     return div.innerHTML
+  }
+
+  /**
+   * 处理"检查更新"按钮点击
+   */
+  async function handleCheckUpdate() {
+    if (!elements.updateBtn || !elements.updateStatus) return
+
+    // 禁用按钮，防止重复点击
+    elements.updateBtn.disabled = true
+    elements.updateBtn.textContent = '检查中...'
+    elements.updateStatus.textContent = '正在检查更新...'
+    elements.updateStatus.className = 'settings-update-status info'
+
+    try {
+      await window.electronAPI.checkForUpdates()
+    } catch (err) {
+      console.error('[Settings] 检查更新失败:', err)
+      elements.updateStatus.textContent = '检查更新失败: ' + err.message
+      elements.updateStatus.className = 'settings-update-status error'
+      resetUpdateBtn()
+    }
+  }
+
+  /**
+   * 处理更新状态事件（来自主进程）
+   */
+  function handleUpdateStatus(data) {
+    if (!elements.updateStatus || !elements.updateBtn) return
+
+    switch (data.status) {
+      case 'checking':
+        elements.updateStatus.textContent = '正在检查更新...'
+        elements.updateStatus.className = 'settings-update-status info'
+        break
+
+      case 'available':
+        elements.updateStatus.textContent = `发现新版本 v${data.version}，点击下载`
+        elements.updateStatus.className = 'settings-update-status info'
+        elements.updateBtn.textContent = '下载更新'
+        elements.updateBtn.disabled = false
+        // 切换按钮行为：下载
+        elements.updateBtn.onclick = async () => {
+          elements.updateBtn.disabled = true
+          elements.updateBtn.textContent = '下载中...'
+          try {
+            await window.electronAPI.downloadUpdate()
+          } catch (err) {
+            console.error('[Settings] 下载更新失败:', err)
+            resetUpdateBtn()
+          }
+        }
+        break
+
+      case 'not-available':
+        elements.updateStatus.textContent = '已是最新版本'
+        elements.updateStatus.className = 'settings-update-status success'
+        resetUpdateBtn()
+        // 3秒后清除状态文字
+        setTimeout(() => {
+          if (elements.updateStatus) elements.updateStatus.textContent = ''
+        }, 3000)
+        break
+
+      case 'downloading':
+        elements.updateStatus.textContent = `正在下载... ${data.percent}%`
+        elements.updateStatus.className = 'settings-update-status info'
+        break
+
+      case 'downloaded':
+        elements.updateStatus.textContent = `更新 v${data.version} 已下载，点击安装`
+        elements.updateStatus.className = 'settings-update-status success'
+        elements.updateBtn.textContent = '安装更新'
+        elements.updateBtn.disabled = false
+        // 切换按钮行为：安装
+        elements.updateBtn.onclick = async () => {
+          elements.updateBtn.disabled = true
+          elements.updateBtn.textContent = '安装中...'
+          try {
+            await window.electronAPI.installUpdate()
+          } catch (err) {
+            console.error('[Settings] 安装更新失败:', err)
+            resetUpdateBtn()
+          }
+        }
+        break
+
+      case 'error':
+        elements.updateStatus.textContent = '更新失败: ' + (data.message || '未知错误')
+        elements.updateStatus.className = 'settings-update-status error'
+        resetUpdateBtn()
+        break
+
+      default:
+        break
+    }
+  }
+
+  /**
+   * 重置更新按钮为初始状态
+   */
+  function resetUpdateBtn() {
+    if (!elements.updateBtn) return
+    elements.updateBtn.disabled = false
+    elements.updateBtn.textContent = '检查更新'
+    elements.updateBtn.onclick = handleCheckUpdate
   }
 
   // 导出到全局

@@ -379,5 +379,26 @@ const { contextBridge, ipcRenderer } = require('electron')
   getUserFeedbacks: () => ipcRenderer.invoke('get-user-feedbacks'),
   
   // 删除反馈
-  deleteFeedback: (feedbackId) => ipcRenderer.invoke('delete-feedback', feedbackId)
+  deleteFeedback: (feedbackId) => ipcRenderer.invoke('delete-feedback', feedbackId),
+
+  // ============ 自动更新 API ============
+
+  // 检查更新
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+
+  // 下载更新
+  downloadUpdate: () => ipcRenderer.invoke('download-update'),
+
+  // 安装更新并重启
+  installUpdate: () => ipcRenderer.invoke('install-update'),
+
+  // 监听更新状态事件
+  onUpdateStatus: (callback) => {
+    ipcRenderer.on('update-status', (event, data) => callback(data))
+  },
+
+  // 移除更新监听器
+  removeUpdateListeners: () => {
+    ipcRenderer.removeAllListeners('update-status')
+  }
 })

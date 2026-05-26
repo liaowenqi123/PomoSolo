@@ -20,6 +20,7 @@ const cloudAuth = require('./src/modules/cloudAuth')
 const dataManager = require('./src/modules/dataManager')
 const { showInstanceExistsDialog } = require('./main/windows')
 const { loadMiniModePosition } = require('./main/ipc-window')
+const { restoreUserData } = require('./main/userData-backup')
 
 // ============ 单实例锁 ============
 const gotTheLock = app.requestSingleInstanceLock()
@@ -52,6 +53,10 @@ function createWindow() {
   })
 
   state.mainWindow = win
+
+  // 初始化自动更新模块
+  const autoUpdate = require('./main/auto-update')
+  autoUpdate.init(win)
 
   // F12 开发者工具快捷键
   win.webContents.on('before-input-event', (event, input) => {
@@ -195,6 +200,7 @@ function registerAllIPC() {
   require('./main/ipc-window').register(ipcMain)
   require('./main/ipc-foreground').register(ipcMain)
   require('./main/ipc-ai').register(ipcMain)
+  require('./main/ipc-update').register(ipcMain)
 }
 
 // ============ 应用生命周期 ============
@@ -203,6 +209,15 @@ function registerAllIPC() {
 registerAllIPC()
 
 app.whenReady().then(() => {
+  // 还原用户数据（如果有更新备份）
+  if (app.isPackaged) {
+    const resourcesPath = path.join(process.resourcesPath)
+    const restored = restoreUserData(resourcesPath)
+    if (restored) {
+      console.log('[Main] 用户数据已从备份还原')
+    }
+  }
+
   cloudAuth.init()
 
   const studyRoomSync = require('./src/modules/studyRoomSync')

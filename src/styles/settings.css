@@ -265,6 +265,51 @@
   border-top-color: rgba(255, 255, 255, 0.1);
 }
 
+/* 检查更新按钮 */
+.settings-update-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 6px 16px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 12px;
+  color: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.settings-update-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: translateY(-1px);
+}
+.settings-update-btn:active {
+  transform: translateY(0);
+}
+.settings-update-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.settings-update-status {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted, #999);
+  margin-top: 6px;
+  min-height: 16px;
+}
+.settings-update-status.success {
+  color: #4caf50;
+}
+.settings-update-status.error {
+  color: #f44336;
+}
+.settings-update-status.info {
+  color: #2196f3;
+}
+
 /* 滚动条样式 */
 .settings-modal-content::-webkit-scrollbar {
   width: 4px;
