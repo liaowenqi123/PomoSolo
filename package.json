@@ -5,6 +5,8 @@
   "main": "main.js",
   "scripts": {
     "start": "chcp 65001 >nul && electron .",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "supabase": "cd supabase-test && npm start",
     "build": "npx @electron/packager . 番茄钟 --platform=win32 --arch=x64 --out=dist --overwrite --icon=src/tomato-page-1.ico --ignore=\"[/\\\\\\\\]music-player$|[/\\\\\\\\]music-player[/\\\\\\\\]|[/\\\\\\\\]foreground_inspection$|[/\\\\\\\\]foreground_inspection[/\\\\\\\\]|[/\\\\\\\\]supabase-test$|[/\\\\\\\\]supabase-test[/\\\\\\\\]|[/\\\\\\\\].workbuddy$|[/\\\\\\\\].workbuddy[/\\\\\\\\]\" --extra-resource=music-player/music.exe --extra-resource=music-player/music --extra-resource=music-player/manual_downloader.exe --extra-resource=foreground_inspection/foreground_inspection.exe --extra-resource=foreground_inspection/list_config.json --extra-resource=foreground_inspection/model_config.json --no-prune",
     "build:installer": "electron-builder --win",
@@ -20,7 +22,9 @@
   "devDependencies": {
     "@electron/packager": "^19.0.5",
     "electron": "^34.0.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "jsdom": "^29.1.1",
+    "vitest": "^4.1.7"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",
@@ -96,7 +100,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
