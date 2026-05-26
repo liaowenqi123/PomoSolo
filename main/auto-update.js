@@ -8,7 +8,7 @@ const { autoUpdater } = require('electron-updater')
 const { backupUserData } = require('./userData-backup')
 
 // autoUpdater.autoDownload = false  // 手动触发下载（用户点"更新"才下载）
-autoUpdater.allowPrerelease = true   // 允许预发布版本（beta 测试用）
+autoUpdater.allowPrerelease = false   // 正式版发布，不推送预览版
 
 let mainWindow = null
 let statusCallback = null
