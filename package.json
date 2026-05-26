@@ -1,6 +1,6 @@
 {
   "name": "pomodoro-timer",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "一个美观的番茄钟应用",
   "main": "main.js",
   "scripts": {
@@ -119,6 +119,14 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "番茄钟"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "liaowenqi123",
+        "repo": "electron_pomodoro",
+        "releaseType": "release"
+      }
+    ]
   }
 }
