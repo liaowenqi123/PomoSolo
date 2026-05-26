@@ -3,96 +3,58 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>番茄钟 - 反馈管理后台</title>
+  <title>番茄钟 · 反馈管理后台</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
-      background: #f5f5f7;
-      color: #1d1d1f;
-      padding: 20px;
-      max-width: 1000px;
-      margin: 0 auto;
-    }
-    h1 { font-size: 22px; margin-bottom: 8px; color: #ff6b6b; }
+    body { font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; background: #f5f5f7; color: #1d1d1f; padding: 20px; max-width: 1000px; margin: 0 auto; }
+    h1 { font-size: 22px; margin-bottom: 4px; color: #ff6b6b; }
     .subtitle { color: #888; font-size: 13px; margin-bottom: 20px; }
-    .login-box {
-      background: white; border-radius: 12px; padding: 24px;
-      box-shadow: 0 2px 12px rgba(0,0,0,0.08); max-width: 400px; margin: 60px auto;
-    }
-    .login-box h2 { margin-bottom: 16px; }
-    .login-box input {
-      width: 100%; padding: 10px 12px; margin-bottom: 12px;
-      border: 1px solid #ddd; border-radius: 8px; font-size: 14px;
-    }
-    .login-box button {
-      width: 100%; padding: 10px; background: #ff6b6b; color: white;
-      border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
-    }
-    .login-box button:hover { background: #ff5252; }
+    .login-box { background: white; border-radius: 12px; padding: 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); max-width: 400px; margin: 60px auto; }
+    .login-box h2 { margin-bottom: 16px; font-size: 18px; }
+    .login-box input { width: 100%; padding: 10px 12px; margin-bottom: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; }
+    .login-box button { width: 100%; padding: 10px; background: #ff6b6b; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .login-box button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .login-box button:hover:not(:disabled) { background: #ff5252; }
     .error { color: #f44336; font-size: 13px; margin-top: 8px; }
-    .toolbar {
-      display: flex; gap: 12px; align-items: center; margin-bottom: 16px;
-      flex-wrap: wrap;
-    }
-    .toolbar select, .toolbar button {
-      padding: 6px 14px; border-radius: 8px; border: 1px solid #ddd;
-      font-size: 13px; cursor: pointer; background: white;
-    }
-    .toolbar select:hover, .toolbar button:hover { background: #f0f0f0; }
+    .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    .toolbar select, .toolbar button { padding: 6px 14px; border-radius: 8px; border: 1px solid #ddd; font-size: 13px; cursor: pointer; background: white; }
+    .toolbar button:hover { background: #f0f0f0; }
     .btn-primary { background: #ff6b6b !important; color: white !important; border: none !important; }
     .btn-primary:hover { background: #ff5252 !important; }
-    .btn-sm { padding: 4px 10px !important; font-size: 12px !important; }
-    .card {
-      background: white; border-radius: 10px; padding: 16px; margin-bottom: 10px;
-      box-shadow: 0 1px 6px rgba(0,0,0,0.06);
-    }
-    .card-header {
-      display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
-    }
-    .card-id { color: #aaa; font-size: 12px; }
-    .card-time { color: #999; font-size: 12px; }
-    .card-content { font-size: 14px; line-height: 1.6; margin-bottom: 10px; }
-    .card-footer { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .badge {
-      display: inline-block; padding: 2px 10px; border-radius: 12px;
-      font-size: 11px; font-weight: 500;
-    }
+    .btn-sm { padding: 3px 8px !important; font-size: 11px !important; }
+    .card { background: white; border-radius: 10px; padding: 14px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+    .card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .card-hd { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .card-id { color: #ccc; font-size: 11px; }
+    .card-time { color: #999; font-size: 11px; }
+    .card-content { font-size: 14px; line-height: 1.6; margin-bottom: 8px; color: #333; }
+    .card-ft { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+    .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 500; }
     .badge-0 { background: #e3f2fd; color: #1565c0; }
     .badge-1 { background: #fff3e0; color: #e65100; }
     .badge-2 { background: #e8f5e9; color: #2e7d32; }
     .badge-3 { background: #fce4ec; color: #c62828; }
-    .remark-area {
-      width: 100%; min-height: 28px; padding: 4px 8px; margin-top: 6px;
-      border: 1px dashed #ddd; border-radius: 6px; font-size: 12px;
-      font-family: inherit; resize: vertical;
-    }
-    .remark-area:focus { border-color: #ff6b6b; outline: none; }
-    .save-hint { color: #4caf50; font-size: 11px; margin-left: 8px; display: none; }
-    .count { color: #888; font-size: 13px; }
-    .loading { text-align: center; color: #aaa; padding: 40px; }
-    .user-info { display: flex; align-items: center; gap: 8px; }
-    .user-info span { font-size: 13px; color: #666; }
-    .user-info button { padding: 4px 10px; font-size: 12px; }
-    .empty { text-align: center; color: #aaa; padding: 60px; font-size: 14px; }
+    .remark-input { border: 1px solid #eee; border-radius: 4px; padding: 4px 6px; font-size: 11px; width: 140px; font-family: inherit; }
+    .remark-input:focus { border-color: #ff6b6b; outline: none; }
+    .save-ok { color: #4caf50; font-size: 11px; margin-left: 4px; display: none; }
+    .count { color: #999; font-size: 13px; margin-left: auto; }
+    .loading { text-align: center; color: #bbb; padding: 60px; }
+    .empty { text-align: center; color: #ccc; padding: 60px; font-size: 14px; }
   </style>
 </head>
 <body>
-  <!-- 登录界面 -->
-  <form class="login-box" id="loginBox" onsubmit="handleLogin(event)">
+  <form class="login-box" id="loginBox" onsubmit="return false">
     <h2>🔐 管理员登录</h2>
-    <input type="text" id="loginUser" placeholder="用户名" required>
+    <input type="text" id="loginUser" placeholder="用户名" required autofocus>
     <input type="password" id="loginPass" placeholder="密码" required>
-    <button type="submit">登录</button>
+    <button id="loginBtn" onclick="handleLogin()">登录</button>
     <div class="error" id="loginError"></div>
   </form>
 
-  <!-- 管理界面（初始隐藏） -->
   <div id="mainUI" style="display:none">
-    <h1>🍅 番茄钟 · 反馈管理</h1>
-    <div class="subtitle">连接 Supabase 项目管理用户反馈</div>
-
+    <h1>🍅 反馈管理</h1>
+    <div class="subtitle">Supabase 直连 · on-premise admin</div>
     <div class="toolbar">
       <select id="statusFilter" onchange="loadFeedback()">
         <option value="all">全部状态</option>
@@ -105,7 +67,6 @@
       <button class="btn-primary btn-sm" onclick="handleLogout()">退出</button>
       <span class="count" id="feedbackCount"></span>
     </div>
-
     <div id="feedbackList"></div>
     <div class="empty" id="emptyMsg" style="display:none">暂无反馈</div>
   </div>
@@ -113,173 +74,137 @@
 <script>
 const SUPABASE_URL = 'https://sjexeynibnfqxvwehnxk.supabase.co'
 const SUPABASE_ANON_KEY = 'sb_publishable_NtzlEhTWwC4qpSY0DEvQ0Q_ER6yJoTz'
+const STATUS_LABELS = ['已收到', '已采纳(待更新)', '已采纳(已更新)', '已拒绝']
+const STATUS_CLASSES = ['badge-0', 'badge-1', 'badge-2', 'badge-3']
 
-const STATUS_MAP = {
-  0: { text: '已收到',     cls: 'badge-0' },
-  1: { text: '已采纳(待更新)', cls: 'badge-1' },
-  2: { text: '已采纳(已更新)', cls: 'badge-2' },
-  3: { text: '已拒绝',     cls: 'badge-3' }
+let supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+let adminUser = null
+
+const loginBtn = document.getElementById('loginBtn')
+const loginError = document.getElementById('loginError')
+
+// PBKDF2 with Web Crypto API
+async function verifyBrowser(password, storedHashHex, saltHex) {
+  const encoder = new TextEncoder()
+  const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits'])
+  const salt = new Uint8Array(saltHex.match(/.{2}/g).map(b => parseInt(b, 16)))
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-512', salt, iterations: 100000 }, key, 512)
+  const hashHex = Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('')
+  return hashHex === storedHashHex
 }
 
-let supabase
-let currentSession
+async function handleLogin() {
+  loginBtn.disabled = true
+  loginBtn.textContent = '验证中...'
+  loginError.textContent = ''
 
-// 初始化 Supabase 客户端
-function initSupabase() {
-  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-}
-
-// 登录处理
-async function handleLogin(e) {
-  e.preventDefault()
   const username = document.getElementById('loginUser').value.trim()
   const password = document.getElementById('loginPass').value
 
-  if (!supabase) initSupabase()
-
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: `${username}@pomodoro.app`,
-    password: password
-  })
-
-  if (error || !data.session) {
-    document.getElementById('loginError').textContent = '登录失败：' + (error?.message || '用户名或密码错误')
+  if (!username || !password) {
+    loginError.textContent = '请输入用户名和密码'
+    loginBtn.disabled = false
+    loginBtn.textContent = '登录'
     return
   }
 
-  currentSession = data.session
+  try {
+    const { data: users, error } = await supabase.from('users')
+      .select('*').eq('username', username).single()
 
-  // 验证是否为 admin
-  const { data: userData } = await supabase.from('users')
-    .select('username,admin').eq('username', username).single()
+    if (error || !users) {
+      loginError.textContent = '用户名不存在'
+      loginBtn.disabled = false
+      loginBtn.textContent = '登录'
+      return
+    }
 
-  if (!userData?.admin) {
-    document.getElementById('loginError').textContent = '非管理员用户，无权访问此管理后台'
-    await supabase.auth.signOut()
-    currentSession = null
-    return
+    if (!users.admin) {
+      loginError.textContent = '非管理员用户，无权访问'
+      loginBtn.disabled = false
+      loginBtn.textContent = '登录'
+      return
+    }
+
+    const ok = await verifyBrowser(password, users.password_hash, users.salt)
+    if (!ok) {
+      loginError.textContent = '密码错误'
+      loginBtn.disabled = false
+      loginBtn.textContent = '登录'
+      return
+    }
+
+    adminUser = users
+    document.getElementById('loginBox').style.display = 'none'
+    document.getElementById('mainUI').style.display = 'block'
+    loadFeedback()
+  } catch (e) {
+    loginError.textContent = '登录异常: ' + e.message
+    loginBtn.disabled = false
+    loginBtn.textContent = '登录'
   }
-
-  document.getElementById('loginBox').style.display = 'none'
-  document.getElementById('mainUI').style.display = 'block'
-  loadFeedback()
 }
 
-// 加载反馈列表
+// 回车登录
+document.getElementById('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin() })
+
 async function loadFeedback() {
   const list = document.getElementById('feedbackList')
-  const emptyMsg = document.getElementById('emptyMsg')
-  const statusFilter = document.getElementById('statusFilter').value
+  const empty = document.getElementById('emptyMsg')
+  const filter = document.getElementById('statusFilter').value
 
   list.innerHTML = '<div class="loading">加载中...</div>'
 
-  let query = supabase.from('feedback')
-    .select('*')
-    .order('create_time', { ascending: false })
-    .limit(100)
+  let q = supabase.from('feedback').select('*').order('create_time', { ascending: false }).limit(100)
+  if (filter !== 'all') q = q.eq('feedback_status', parseInt(filter))
 
-  if (statusFilter !== 'all') {
-    query = query.eq('feedback_status', parseInt(statusFilter))
-  }
-
-  const { data, error } = await query
-
-  if (error) {
-    list.innerHTML = `<div class="error">查询失败: ${error.message}</div>`
-    return
-  }
+  const { data, error } = await q
+  if (error) { list.innerHTML = `<div class="error">查询失败: ${error.message}</div>`; return }
 
   document.getElementById('feedbackCount').textContent = `共 ${data.length} 条`
 
-  if (!data || data.length === 0) {
-    list.innerHTML = ''
-    emptyMsg.style.display = 'block'
-    return
-  }
+  if (!data?.length) { list.innerHTML = ''; empty.style.display = 'block'; return }
+  empty.style.display = 'none'
 
-  emptyMsg.style.display = 'none'
-
-  // 获取用户名映射
   const userIds = [...new Set(data.map(f => f.user_id))]
   const { data: users } = await supabase.from('users').select('id,username').in('id', userIds)
-  const userMap = {}
-  if (users) users.forEach(u => { userMap[u.id] = u.username || `用户#${u.id}` })
+  const userMap = {}; if (users) users.forEach(u => { userMap[u.id] = u.username || `#${u.id}` })
 
   list.innerHTML = data.map(f => `
     <div class="card">
-      <div class="card-header">
+      <div class="card-hd">
         <span class="card-id">#${f.id}</span>
-        <span class="card-time">${formatTime(f.create_time)}</span>
+        <span class="card-time">${fmt(f.create_time)}</span>
       </div>
-      <div class="card-content">${escapeHtml(f.feedback_content)}</div>
-      <div class="card-footer">
-        <span style="font-size:12px;color:#888">${userMap[f.user_id] || '未知用户'}</span>
-        <span class="badge ${STATUS_MAP[f.feedback_status]?.cls || 'badge-0'}">${STATUS_MAP[f.feedback_status]?.text || '未知'}</span>
-        <select onchange="updateStatus(${f.id}, this.value)" style="font-size:11px;padding:2px 6px;border-radius:4px;border:1px solid #ddd">
-          ${[0,1,2,3].map(s => `<option value="${s}" ${f.feedback_status === s ? 'selected' : ''}>${STATUS_MAP[s].text}</option>`).join('')}
+      <div class="card-content">${esc(f.feedback_content)}</div>
+      <div class="card-ft">
+        <span style="color:#888">${userMap[f.user_id] || '?'}</span>
+        <span class="badge ${STATUS_CLASSES[f.feedback_status]||'badge-0'}">${STATUS_LABELS[f.feedback_status]||'?'}</span>
+        <select onchange="updateStatus(${f.id},this.value)" style="font-size:11px;padding:2px 4px;border-radius:4px;border:1px solid #ddd">
+          ${[0,1,2,3].map(s => `<option value="${s}" ${f.feedback_status===s?'selected':''}>${STATUS_LABELS[s]}</option>`).join('')}
         </select>
-        <button class="btn-sm" onclick="saveRemark(${f.id})" style="background:#eee;border:1px solid #ddd;">💾</button>
-        <span class="save-hint" id="hint-${f.id}">已保存</span>
-        <input type="text" class="remark-area" id="remark-${f.id}" value="${escapeHtml(f.remark || '')}" placeholder="备注（如：下版本修复 / 技术限制 等）">
+        <input class="remark-input" id="rm${f.id}" value="${esc(f.remark||'')}" placeholder="备注">
+        <button class="btn-sm" onclick="saveRemark(${f.id})" style="background:#eee;border:1px solid #ddd">💾</button>
+        <span class="save-ok" id="ok${f.id}">✓</span>
       </div>
     </div>
   `).join('')
 }
 
-// 更新状态
-async function updateStatus(id, status) {
-  const { error } = await supabase.from('feedback').update({
-    feedback_status: parseInt(status)
-  }).eq('id', id)
-
-  if (error) {
-    alert('更新失败: ' + error.message)
-    return
-  }
+async function updateStatus(id, s) {
+  await supabase.from('feedback').update({ feedback_status: parseInt(s) }).eq('id', id)
   loadFeedback()
 }
 
-// 保存备注
 async function saveRemark(id) {
-  const remark = document.getElementById('remark-' + id).value
-  const { error } = await supabase.from('feedback').update({
-    remark: remark
-  }).eq('id', id)
-
-  if (error) {
-    alert('保存失败: ' + error.message)
-    return
-  }
-
-  const hint = document.getElementById('hint-' + id)
-  hint.style.display = 'inline'
-  setTimeout(() => { hint.style.display = 'none' }, 1500)
+  await supabase.from('feedback').update({ remark: document.getElementById('rm'+id).value }).eq('id', id)
+  const ok = document.getElementById('ok'+id)
+  ok.style.display = 'inline'; setTimeout(() => ok.style.display = 'none', 1200)
 }
 
-// 退出登录
-async function handleLogout() {
-  if (supabase) await supabase.auth.signOut()
-  currentSession = null
-  document.getElementById('loginBox').style.display = 'block'
-  document.getElementById('mainUI').style.display = 'none'
-}
-
-// 工具函数
-function formatTime(t) {
-  if (!t) return ''
-  const d = new Date(t)
-  return d.toLocaleString('zh-CN', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' })
-}
-
-function escapeHtml(text) {
-  if (!text) return ''
-  const div = document.createElement('div')
-  div.textContent = text
-  return div.innerHTML
-}
-
-// 初始化
-initSupabase()
+function handleLogout() { adminUser = null; document.getElementById('loginBox').style.display = 'block'; document.getElementById('mainUI').style.display = 'none' }
+function fmt(t) { if (!t) return ''; const d = new Date(t); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` }
+function esc(s) { const d = document.createElement('div'); d.textContent = s||''; return d.innerHTML }
 </script>
 </body>
 </html>
