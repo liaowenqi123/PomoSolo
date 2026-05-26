@@ -267,6 +267,26 @@
   border-top-color: rgba(255, 255, 255, 0.1);
 }
 
+/* 操作按钮组（意见反馈 + 检查更新）去掉多余分割线 */
+.settings-section-actions {
+  border-bottom: none !important;
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+.settings-section-actions + .settings-buttons {
+  border-top: 1px solid var(--sidebar-border, rgba(0, 0, 0, 0.1));
+  padding-top: 10px;
+}
+[data-theme="dark"] .settings-section-actions + .settings-buttons {
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+/* 对齐意见反馈和检查更新的按钮宽度 */
+.settings-section-actions .settings-item-control button {
+  min-width: 80px;
+  text-align: center;
+}
+
 /* 检查更新按钮（与意见反馈按钮同款样式） */
 .settings-update-btn {
   padding: 6px 16px;
