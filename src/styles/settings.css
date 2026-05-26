@@ -267,6 +267,14 @@
   border-top-color: rgba(255, 255, 255, 0.1);
 }
 
+/* 检查更新区域（独立于版本号） */
+.settings-update-section {
+  text-align: center;
+  padding: 10px 0 6px;
+  border-top: 1px solid var(--sidebar-border, rgba(0, 0, 0, 0.1));
+  overflow-x: hidden;
+}
+
 /* 检查更新按钮 */
 .settings-update-btn {
   display: inline-flex;
@@ -313,6 +321,10 @@
 }
 .settings-update-status.info {
   color: #2196f3;
+}
+
+[data-theme="dark"] .settings-update-section {
+  border-top-color: rgba(255, 255, 255, 0.1);
 }
 
 /* 滚动条样式 */
