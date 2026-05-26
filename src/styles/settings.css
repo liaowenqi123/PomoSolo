@@ -267,31 +267,20 @@
   border-top-color: rgba(255, 255, 255, 0.1);
 }
 
-/* 检查更新区域（独立于版本号） */
-.settings-update-section {
-  text-align: center;
-  padding: 10px 0 6px;
-  border-top: 1px solid var(--sidebar-border, rgba(0, 0, 0, 0.1));
-  overflow-x: hidden;
-}
-
-/* 检查更新按钮 */
+/* 检查更新按钮（与意见反馈按钮同款样式） */
 .settings-update-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 8px;
   padding: 6px 16px;
-  font-size: 12px;
-  background: rgba(255, 255, 255, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 12px;
-  color: inherit;
+  background: var(--primary-color, #ff6b6b);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.2s;
 }
 .settings-update-btn:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: #ff5252;
   transform: translateY(-1px);
 }
 .settings-update-btn:active {
@@ -303,15 +292,16 @@
   transform: none;
 }
 
+/* 更新状态文字（放在 settings-item 下方） */
 .settings-update-status {
-  display: block;
   font-size: 11px;
   color: var(--text-muted, #999);
-  margin-top: 6px;
+  padding: 3px 12px 6px;
   min-height: 16px;
   word-break: break-word;
   white-space: normal;
   line-height: 1.4;
+  text-align: left;
 }
 .settings-update-status.success {
   color: #4caf50;
@@ -321,10 +311,6 @@
 }
 .settings-update-status.info {
   color: #2196f3;
-}
-
-[data-theme="dark"] .settings-update-section {
-  border-top-color: rgba(255, 255, 255, 0.1);
 }
 
 /* 滚动条样式 */

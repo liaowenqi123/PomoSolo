@@ -98,6 +98,16 @@ function sendToRenderer(channel, data) {
  * 会被渲染进程的"检查更新"按钮触发
  */
 function checkForUpdates() {
+  // dev 模式下 autoUpdater.checkForUpdates() 静默跳过不触发任何事件
+  // 主动检测并通知渲染进程以免 UI 卡在"检查中..."
+  if (!require('electron').app.isPackaged) {
+    console.log('[AutoUpdate] 开发模式，跳过更新检查')
+    sendToRenderer('update-status', {
+      status: 'not-available',
+      version: require('electron').app.getVersion()
+    })
+    return
+  }
   autoUpdater.checkForUpdates()
 }
 

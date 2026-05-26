@@ -1159,20 +1159,30 @@
             </div>
           </div>
         </div>
+
+        <!-- 检查更新（紧接意见反馈下方） -->
+        <div class="settings-section">
+          <div class="settings-item">
+            <div class="settings-item-label">
+              <span class="settings-item-icon">🔄</span>
+              <span>检查更新</span>
+            </div>
+            <div class="settings-item-control">
+              <button class="settings-update-btn" id="settings-update-btn">检查更新</button>
+            </div>
+          </div>
+          <div class="settings-update-status" id="settings-update-status"></div>
+        </div>
         
         <div class="settings-buttons">
           <button class="settings-reset-btn" id="settings-reset-btn">恢复默认</button>
           <button class="settings-save-btn" id="settings-save-btn">保存设置</button>
-        </div>
-        
-        <div class="settings-version">
-          <span id="settings-version-text">版本 3.1.0</span>
+        </div>          </div>
+          <div class="settings-update-status" id="settings-update-status"></div>
         </div>
 
-        <!-- 检查更新区域（独立于版本号，避免误触彩蛋） -->
-        <div class="settings-update-section">
-          <button class="settings-update-btn" id="settings-update-btn">检查更新</button>
-          <span class="settings-update-status" id="settings-update-status"></span>
+        <div class="settings-version">
+          <span id="settings-version-text">版本 3.1.0</span>
         </div>
       </div>
     </div>
