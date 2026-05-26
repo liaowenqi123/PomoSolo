@@ -37,3 +37,6 @@ nul
 
 # AI Agent context
 AGENTS.md
+
+# Admin tools (private)
+admin/feedback.html
