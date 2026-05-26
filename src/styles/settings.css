@@ -29,6 +29,7 @@
   width: 320px;
   max-height: 75vh;
   overflow-y: auto;
+  overflow-x: hidden;
   position: relative;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
   z-index: 1;
@@ -241,6 +242,7 @@
   padding: 12px 0 8px;
   margin-top: 8px;
   border-top: 1px solid var(--sidebar-border, rgba(0, 0, 0, 0.1));
+  overflow-x: hidden;
 }
 
 .settings-version span {
@@ -299,6 +301,9 @@
   color: var(--text-muted, #999);
   margin-top: 6px;
   min-height: 16px;
+  word-break: break-word;
+  white-space: normal;
+  line-height: 1.4;
 }
 .settings-update-status.success {
   color: #4caf50;
