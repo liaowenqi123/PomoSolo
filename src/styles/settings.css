@@ -281,37 +281,6 @@
   border-top-color: rgba(255, 255, 255, 0.1);
 }
 
-/* 对齐意见反馈和检查更新的按钮宽度 */
-.settings-section-actions .settings-item-control button {
-  min-width: 80px;
-  text-align: center;
-}
-
-/* 检查更新按钮（与意见反馈按钮同款样式） */
-.settings-update-btn {
-  padding: 6px 16px;
-  background: var(--primary-color, #ff6b6b);
-  color: white;
-  border: none;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.settings-update-btn:hover {
-  background: #ff5252;
-  transform: translateY(-1px);
-}
-.settings-update-btn:active {
-  transform: translateY(0);
-}
-.settings-update-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-}
-
 /* 更新状态文字（放在 settings-item 下方） */
 .settings-update-status {
   font-size: 11px;
