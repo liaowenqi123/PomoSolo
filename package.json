@@ -29,7 +29,8 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",
     "axios": "^1.13.6",
-    "chart.js": "^4.5.1"
+    "chart.js": "^4.5.1",
+    "electron-updater": "^6.8.3"
   },
   "build": {
     "appId": "com.pomodoro.timer",
