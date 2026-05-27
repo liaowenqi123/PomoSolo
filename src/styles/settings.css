@@ -281,6 +281,31 @@
   border-top-color: rgba(255, 255, 255, 0.1);
 }
 
+/* 更新下载进度条 */
+.settings-update-progress {
+  padding: 6px 12px 2px;
+}
+.settings-update-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: rgba(255,255,255,0.15);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.settings-update-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--primary-color, #ff6b6b);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.settings-update-progress-text {
+  font-size: 11px;
+  color: var(--text-muted, #999);
+  display: block;
+  margin-top: 4px;
+}
+
 /* 更新状态文字（放在 settings-item 下方） */
 .settings-update-status {
   font-size: 11px;

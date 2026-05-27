@@ -73,7 +73,10 @@
       resetBtn: document.getElementById('settings-reset-btn'),
       versionText: document.getElementById('settings-version-text'),
       updateBtn: document.getElementById('settings-update-btn'),
-      updateStatus: document.getElementById('settings-update-status')
+      updateStatus: document.getElementById('settings-update-status'),
+      updateProgress: document.getElementById('settings-update-progress'),
+      updateProgressFill: document.getElementById('settings-update-progress-fill'),
+      updateProgressText: document.getElementById('settings-update-progress-text')
     }
     
     // 创建弹窗实例
@@ -1375,11 +1378,13 @@
 
     switch (data.status) {
       case 'checking':
+        hideProgress()
         elements.updateStatus.textContent = '正在检查更新...'
         elements.updateStatus.className = 'settings-update-status info'
         break
 
       case 'available':
+        hideProgress()
         elements.updateStatus.textContent = `发现新版本 v${data.version}，点击下载`
         elements.updateStatus.className = 'settings-update-status info'
         elements.updateBtn.textContent = '下载更新'
@@ -1408,11 +1413,19 @@
         break
 
       case 'downloading':
-        elements.updateStatus.textContent = `正在下载... ${data.percent}%`
+        // 显示进度条和速度
+        if (elements.updateProgress) elements.updateProgress.style.display = 'block'
+        if (elements.updateProgressFill) elements.updateProgressFill.style.width = `${data.percent}%`
+        if (elements.updateProgressText) {
+          const speed = data.bytesPerSecond ? formatSpeed(data.bytesPerSecond) : ''
+          elements.updateProgressText.textContent = `下载中 ${data.percent}%${speed ? ' · ' + speed : ''}`
+        }
+        elements.updateStatus.textContent = `总大小 ${formatSize(data.total)}`
         elements.updateStatus.className = 'settings-update-status info'
         break
 
       case 'downloaded':
+        hideProgress()
         elements.updateStatus.textContent = `更新 v${data.version} 已下载，点击安装`
         elements.updateStatus.className = 'settings-update-status success'
         elements.updateBtn.textContent = '安装更新'
@@ -1449,6 +1462,24 @@
     elements.updateBtn.disabled = false
     elements.updateBtn.textContent = '检查更新'
     elements.updateBtn.onclick = handleCheckUpdate
+    hideProgress()
+  }
+
+  function hideProgress() {
+    if (elements.updateProgress) elements.updateProgress.style.display = 'none'
+  }
+
+  function formatSpeed(bytesPerSec) {
+    if (bytesPerSec >= 1048576) return (bytesPerSec / 1048576).toFixed(1) + ' MB/s'
+    if (bytesPerSec >= 1024) return (bytesPerSec / 1024).toFixed(0) + ' KB/s'
+    return bytesPerSec + ' B/s'
+  }
+
+  function formatSize(bytes) {
+    if (!bytes) return ''
+    if (bytes >= 1048576) return (bytes / 1048576).toFixed(0) + ' MB'
+    if (bytes >= 1024) return (bytes / 1024).toFixed(0) + ' KB'
+    return bytes + ' B'
   }
 
   // 导出到全局
