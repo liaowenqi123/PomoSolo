@@ -38,6 +38,20 @@ function getBackupItems(resourcesPath) {
 }
 
 /**
+ * 默认歌曲文件名列表（应用自带的，不需要备份/还原）
+ * 备份时跳过这些文件可以减少增量更新的差分体积
+ */
+const DEFAULT_SONGS = [
+  'Tick Tock, Take Control - 番茄钟.mp3',
+  '番茄倒数快一点 - 番茄钟.mp3',
+  '番茄小宇宙 - 番茄钟.mp3'
+]
+
+function isDefaultSong(filename) {
+  return DEFAULT_SONGS.includes(filename)
+}
+
+/**
  * 获取备份根目录
  */
 function getBackupDir() {
@@ -65,7 +79,25 @@ function backupUserData(resourcesPath) {
     const dest = path.join(backupDir, item.relPath)
 
     if (item.isDir) {
-      fs.cpSync(item.src, dest, { recursive: true, force: true })
+      fs.mkdirSync(dest, { recursive: true })
+      // 复制音乐目录，跳过默认歌曲
+      const musicFiles = fs.readdirSync(item.src)
+      let musicCopied = 0
+      for (const file of musicFiles) {
+        if (isDefaultSong(file)) {
+          continue  // 跳过默认歌曲，它们在新版安装包中自带
+        }
+        const srcFile = path.join(item.src, file)
+        const destFile = path.join(dest, file)
+        const stat = fs.statSync(srcFile)
+        if (stat.isFile()) {
+          fs.copyFileSync(srcFile, destFile)
+        } else if (stat.isDirectory()) {
+          fs.cpSync(srcFile, destFile, { recursive: true, force: true })
+        }
+        musicCopied++
+      }
+      console.log(`[UserData] 备份音乐文件: ${musicCopied} 首（跳过 ${musicFiles.length - musicCopied} 首默认歌曲）`)
     } else {
       fs.mkdirSync(path.dirname(dest), { recursive: true })
       fs.copyFileSync(item.src, dest)
@@ -101,7 +133,24 @@ function restoreUserData(resourcesPath) {
       if (!fs.existsSync(item.src)) {
         fs.mkdirSync(item.src, { recursive: true })
       }
-      fs.cpSync(src, item.src, { recursive: true, force: true })
+      // 还原音乐文件，跳过默认歌曲（新安装包已有）
+      const backupFiles = fs.readdirSync(src)
+      let musicRestored = 0
+      for (const file of backupFiles) {
+        if (isDefaultSong(file)) {
+          continue
+        }
+        const srcFile = path.join(src, file)
+        const destFile = path.join(item.src, file)
+        const stat = fs.statSync(srcFile)
+        if (stat.isFile()) {
+          fs.copyFileSync(srcFile, destFile)
+        } else if (stat.isDirectory()) {
+          fs.cpSync(srcFile, destFile, { recursive: true, force: true })
+        }
+        musicRestored++
+      }
+      console.log(`[UserData] 还原音乐文件: ${musicRestored} 首`)
     } else {
       const destDir = path.dirname(item.src)
       if (!fs.existsSync(destDir)) {
