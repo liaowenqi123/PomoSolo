@@ -132,14 +132,14 @@
     CloudAuth.init()
     
     // 登录成功后的回调
-    CloudAuth.onLogin((user, deepseekKey) => {
+    CloudAuth.onLogin((user, hasDeepseekKey) => {
       if (user) {
         console.log('用户已登录:', user.username)
       } else {
         console.log('本地配置模式已激活')
       }
-      if (deepseekKey) {
-        console.log('DeepSeek API Key 已获取')
+      if (hasDeepseekKey) {
+        console.log('DeepSeek API Key 已在主进程就绪')
       }
     })
   }

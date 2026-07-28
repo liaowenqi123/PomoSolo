@@ -15,7 +15,8 @@ const CloudAuth = (function() {
   let elements = {}
   let confirmElements = {}
   let onLoginCallback = null
-  let currentDeepseekKey = null  // 内存中保存 API Key
+  let currentDeepseekKey = null  // 本地模式下内存中保存 API Key（云端模式不存储实际密钥）
+  let cloudHasKey = false        // 云端模式是否有 API Key（仅布尔值，密钥留在主进程）
   let isAutoLoggingIn = false    // 是否正在自动登录
   let currentMode = 'cloud'      // 当前模式：'cloud' | 'local'
   let pendingModeSwitch = null   // 待确认的模式切换
@@ -450,6 +451,7 @@ const CloudAuth = (function() {
     
     // 清空当前内存中的 API Key
     currentDeepseekKey = null
+    cloudHasKey = false
     
     // 清空输入框
     if (elements.localApiKeyInput) elements.localApiKeyInput.value = ''
@@ -614,14 +616,14 @@ const CloudAuth = (function() {
 
       if (loginResult.success) {
         console.log('[CloudAuth] 自动登录成功')
-        currentDeepseekKey = loginResult.deepseekKey
+        cloudHasKey = !!loginResult.hasDeepseekKey
         
         // 更新 UI（无动画关闭弹窗）
-        showLoggedInPanel(loginResult.user, loginResult.deepseekKey, false)
+        showLoggedInPanel(loginResult.user, !!loginResult.hasDeepseekKey, false)
         
         // 调用回调
         if (onLoginCallback) {
-          onLoginCallback(loginResult.user, loginResult.deepseekKey)
+          onLoginCallback(loginResult.user, !!loginResult.hasDeepseekKey)
         }
         
         return true
@@ -659,9 +661,9 @@ const CloudAuth = (function() {
     try {
       const result = await window.electronAPI.cloudGetSession()
       if (result.success && result.session) {
-        showLoggedInPanel(result.session, result.deepseekKey, false)
-        // 获取 API Key（内存中）
-        currentDeepseekKey = result.deepseekKey
+        showLoggedInPanel(result.session, !!result.hasDeepseekKey, false)
+        // 云端模式仅记录是否有 Key（密钥留在主进程）
+        cloudHasKey = !!result.hasDeepseekKey
       } else {
         // 没有会话，检查是否有保存的凭据
         const credResult = await window.electronAPI.loadCredentials()
@@ -728,7 +730,7 @@ const CloudAuth = (function() {
    * 显示已登录面板
    * @param {boolean} hideWithAnimation - 是否用动画隐藏弹窗（默认true）
    */
-  function showLoggedInPanel(user, deepseekKey = null, hideWithAnimation = true) {
+  function showLoggedInPanel(user, hasDeepseekKey = false, hideWithAnimation = true) {
     elements.authPanel.style.display = 'none'
     elements.loggedInPanel.style.display = 'block'
     
@@ -740,8 +742,8 @@ const CloudAuth = (function() {
     }
     elements.userMetaText.textContent = metaText
 
-    // 保存 API Key 到内存（不显示）
-    currentDeepseekKey = deepseekKey
+    // 云端模式：仅记录是否有 Key（密钥留在主进程）
+    cloudHasKey = !!hasDeepseekKey
 
     // 更新顶部按钮
     if (elements.loginHeaderBtn) {
@@ -787,7 +789,7 @@ const CloudAuth = (function() {
 
       if (result.success) {
         showMessage('登录成功！', 'success')
-        showLoggedInPanel(result.user, result.deepseekKey)
+        showLoggedInPanel(result.user, !!result.hasDeepseekKey)
         
         // 保存凭据（如果勾选了记住密码）
         if (rememberPassword) {
@@ -803,7 +805,7 @@ const CloudAuth = (function() {
         
         // 调用回调
         if (onLoginCallback) {
-          onLoginCallback(result.user, result.deepseekKey)
+          onLoginCallback(result.user, !!result.hasDeepseekKey)
         }
       } else {
         showMessage('登录失败: ' + result.error, 'error')
@@ -880,6 +882,7 @@ const CloudAuth = (function() {
     try {
       await window.electronAPI.cloudLogout()
       currentDeepseekKey = null
+      cloudHasKey = false
       showAuthPanel()
       
       // 清除保存的凭据
@@ -921,24 +924,24 @@ const CloudAuth = (function() {
     
     try {
       const result = await window.electronAPI.cloudGetSession()
-      return result.success && result.session
+      return !!(result.success && result.session)
     } catch {
       return false
     }
   }
 
   /**
-   * 获取当前 API Key（内存中）
+   * 获取当前 API Key（仅本地模式返回实际密钥；云端模式返回 null，密钥留在主进程）
    */
   function getApiKey() {
-    return currentDeepseekKey
+    return currentMode === 'local' ? currentDeepseekKey : null
   }
 
   /**
-   * 检查是否有有效的 API Key
+   * 检查是否有有效的 API Key（本地模式检查密钥，云端模式检查主进程是否已设置）
    */
   function hasApiKey() {
-    return currentDeepseekKey !== null
+    return currentMode === 'local' ? (currentDeepseekKey !== null) : cloudHasKey
   }
 
   /**

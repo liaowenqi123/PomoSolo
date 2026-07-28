@@ -43,13 +43,15 @@ function register(ipcMain) {
   ipcMain.handle('cloud-get-session', async () => {
     const aiAssistant = require('../src/modules/aiAssistant')
     const songDownloader = require('../src/modules/songDownloader')
-    return await cloudAuth.getSessionWithKey(aiAssistant, songDownloader)
+    const foregroundInspection = require('../src/modules/foregroundInspection')
+    return await cloudAuth.getSessionWithKey(aiAssistant, songDownloader, foregroundInspection)
   })
 
   ipcMain.handle('cloud-login', async (event, { username, password }) => {
     const aiAssistant = require('../src/modules/aiAssistant')
     const songDownloader = require('../src/modules/songDownloader')
-    const result = await cloudAuth.login(username, password, aiAssistant, songDownloader)
+    const foregroundInspection = require('../src/modules/foregroundInspection')
+    const result = await cloudAuth.login(username, password, aiAssistant, songDownloader, foregroundInspection)
 
     if (result.success && result.user) {
       studyRoomSync.setCurrentUser(result.user)

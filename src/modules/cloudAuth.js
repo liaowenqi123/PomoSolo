@@ -6,7 +6,7 @@
 const crypto = require('crypto')
 const fs = require('fs')
 const path = require('path')
-const { app } = require('electron')
+const { app, safeStorage } = require('electron')
 const { createClient } = require('@supabase/supabase-js')
 
 // Supabase 配置
@@ -23,28 +23,32 @@ let heartbeatTimer = null                 // 心跳定时器
 let localClientId = null                  // 本地 client_id（内存缓存）
 
 /**
- * 密码哈希函数
+ * 密码哈希函数（异步，避免阻塞主进程事件循环）
  * @param {string} password - 原始密码
  * @param {string|null} salt - 盐值（可选）
- * @returns {{ hash: string, salt: string }}
+ * @returns {Promise<{ hash: string, salt: string }>}
  */
-function hashPassword(password, salt = null) {
+async function hashPassword(password, salt = null) {
   if (!salt) {
     salt = crypto.randomBytes(16).toString('hex')
   }
-  const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex')
-  return { hash, salt }
+  return new Promise((resolve, reject) => {
+    crypto.pbkdf2(password, salt, 100000, 64, 'sha512', (err, derivedKey) => {
+      if (err) return reject(err)
+      resolve({ hash: derivedKey.toString('hex'), salt })
+    })
+  })
 }
 
 /**
- * 验证密码
+ * 验证密码（异步）
  * @param {string} password - 原始密码
  * @param {string} hash - 存储的哈希值
  * @param {string} salt - 盐值
- * @returns {boolean}
+ * @returns {Promise<boolean>}
  */
-function verifyPassword(password, hash, salt) {
-  const result = hashPassword(password, salt)
+async function verifyPassword(password, hash, salt) {
+  const result = await hashPassword(password, salt)
   return result.hash === hash
 }
 
@@ -328,14 +332,20 @@ function getCredentialsPath() {
 }
 
 /**
- * 保存凭据到本地
+ * 保存凭据到本地（使用 safeStorage 加密密码）
  * @param {object} credentials - { username, password, autoLogin }
  * @returns {{ success: boolean, error?: string }}
  */
 function saveCredentials(credentials) {
   try {
     const credentialsPath = getCredentialsPath()
-    fs.writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2), 'utf-8')
+    // 加密密码字段（使用 OS 级加密：Windows DPAPI / macOS Keychain / Linux libsecret）
+    const toStore = { ...credentials }
+    if (toStore.password && safeStorage.isEncryptionAvailable()) {
+      toStore.passwordEncrypted = safeStorage.encryptString(toStore.password).toString('base64')
+      delete toStore.password
+    }
+    fs.writeFileSync(credentialsPath, JSON.stringify(toStore, null, 2), 'utf-8')
     return { success: true }
   } catch (err) {
     console.error('[CloudAuth] 保存凭据失败:', err)
@@ -344,7 +354,7 @@ function saveCredentials(credentials) {
 }
 
 /**
- * 加载本地凭据
+ * 加载本地凭据（自动解密密码）
  * @returns {{ success: boolean, credentials?: object|null, error?: string }}
  */
 function loadCredentials() {
@@ -352,7 +362,13 @@ function loadCredentials() {
     const credentialsPath = getCredentialsPath()
     if (fs.existsSync(credentialsPath)) {
       const data = fs.readFileSync(credentialsPath, 'utf-8')
-      return { success: true, credentials: JSON.parse(data) }
+      const parsed = JSON.parse(data)
+      // 解密密码字段
+      if (parsed.passwordEncrypted && safeStorage.isEncryptionAvailable()) {
+        parsed.password = safeStorage.decryptString(Buffer.from(parsed.passwordEncrypted, 'base64'))
+        delete parsed.passwordEncrypted
+      }
+      return { success: true, credentials: parsed }
     }
     return { success: true, credentials: null }
   } catch (err) {
@@ -401,18 +417,19 @@ async function testConnection() {
 }
 
 /**
- * 获取会话信息（包含 DeepSeek API Key）
+ * 获取会话信息（不向渲染进程暴露 API Key）
  * @param {object} aiAssistant - AI 助手模块引用
  * @param {object} songDownloader - 歌曲下载模块引用
- * @returns {{ success: boolean, session?: object|null, deepseekKey?: string|null }}
+ * @param {object} [foregroundInspection] - 前台检测模块引用
+ * @returns {{ success: boolean, session?: object|null, hasDeepseekKey?: boolean }}
  */
-async function getSessionWithKey(aiAssistant, songDownloader) {
+async function getSessionWithKey(aiAssistant, songDownloader, foregroundInspection) {
   if (!currentSession) {
-    return { success: true, session: null, deepseekKey: null }
+    return { success: true, session: null, hasDeepseekKey: false }
   }
-  
-  // 如果是 admin，重新获取 DeepSeek API Key
-  let deepseekKey = null
+
+  // 如果是 admin，重新获取 DeepSeek API Key（仅留在主进程，不返回给渲染进程）
+  let hasDeepseekKey = false
   if (currentSession.admin && supabase) {
     try {
       const { data: keyData } = await supabase
@@ -422,22 +439,25 @@ async function getSessionWithKey(aiAssistant, songDownloader) {
         .limit(1)
 
       if (keyData && keyData.length > 0) {
-        deepseekKey = keyData[0].api_key
-        // 更新 AI 助手的 API Key
+        const deepseekKey = keyData[0].api_key
+        hasDeepseekKey = true
+        // 更新主进程各模块的 API Key（不经过渲染进程）
         if (aiAssistant) {
           aiAssistant.setApiKey(deepseekKey)
         }
-        // 更新下载模块的 API Key
         if (songDownloader) {
           songDownloader.setApiKey(deepseekKey)
+        }
+        if (foregroundInspection) {
+          foregroundInspection.setApiKey(deepseekKey)
         }
       }
     } catch (err) {
       console.error('[CloudAuth] 获取 API Key 失败:', err)
     }
   }
-  
-  return { success: true, session: currentSession, deepseekKey: deepseekKey }
+
+  return { success: true, session: currentSession, hasDeepseekKey: hasDeepseekKey }
 }
 
 /**
@@ -446,9 +466,10 @@ async function getSessionWithKey(aiAssistant, songDownloader) {
  * @param {string} password - 密码
  * @param {object} aiAssistant - AI 助手模块引用
  * @param {object} songDownloader - 歌曲下载模块引用
- * @returns {{ success: boolean, user?: object, deepseekKey?: string|null, error?: string }}
+ * @param {object} [foregroundInspection] - 前台检测模块引用
+ * @returns {{ success: boolean, user?: object, hasDeepseekKey?: boolean, error?: string }}
  */
-async function login(username, password, aiAssistant, songDownloader) {
+async function login(username, password, aiAssistant, songDownloader, foregroundInspection) {
   if (!supabase) {
     return { success: false, error: 'Supabase 未初始化' }
   }
@@ -488,7 +509,7 @@ async function login(username, password, aiAssistant, songDownloader) {
     console.log('[CloudAuth] 单点登录检查通过:', loginCheck.reason)
 
     // ===== 密码验证 =====
-    if (!verifyPassword(password, user.password_hash, user.salt)) {
+    if (!(await verifyPassword(password, user.password_hash, user.salt))) {
       return { success: false, error: '密码错误' }
     }
 
@@ -515,8 +536,8 @@ async function login(username, password, aiAssistant, songDownloader) {
     // ===== 启动心跳 =====
     startHeartbeat(user.id, clientId)
 
-    // 如果是 admin，获取 DeepSeek API Key
-    let deepseekKey = null
+    // 如果是 admin，获取 DeepSeek API Key（仅留在主进程，不返回给渲染进程）
+    let hasDeepseekKey = false
     if (user.admin) {
       const { data: keyData } = await supabase
         .from('api_keys')
@@ -525,16 +546,19 @@ async function login(username, password, aiAssistant, songDownloader) {
         .limit(1)
 
       if (keyData && keyData.length > 0) {
-        deepseekKey = keyData[0].api_key
-        // 更新 AI 助手的 API Key
+        const deepseekKey = keyData[0].api_key
+        hasDeepseekKey = true
+        // 更新主进程各模块的 API Key（不经过渲染进程）
         if (aiAssistant) {
           aiAssistant.setApiKey(deepseekKey)
         }
-        // 更新下载模块的 API Key
         if (songDownloader) {
           songDownloader.setApiKey(deepseekKey)
         }
-        console.log('[CloudAuth] Admin 用户登录，已获取 DeepSeek API Key（仅内存）')
+        if (foregroundInspection) {
+          foregroundInspection.setApiKey(deepseekKey)
+        }
+        console.log('[CloudAuth] Admin 用户登录，已获取 DeepSeek API Key（仅主进程内存）')
       }
     }
 
@@ -542,7 +566,7 @@ async function login(username, password, aiAssistant, songDownloader) {
     return { 
       success: true, 
       user: currentSession,
-      deepseekKey: deepseekKey 
+      hasDeepseekKey: hasDeepseekKey 
     }
   } catch (err) {
     console.error('[CloudAuth] 登录异常:', err)
@@ -582,7 +606,7 @@ async function register(username, password) {
     }
 
     // 哈希密码
-    const { hash, salt } = hashPassword(password)
+    const { hash, salt } = await hashPassword(password)
 
     // 插入用户
     const { data, error } = await supabase

@@ -58,9 +58,13 @@ function createWindow() {
   const autoUpdate = require('./main/auto-update')
   autoUpdate.init(win)
 
-  // F12 开发者工具快捷键
+  // F12 开发者工具快捷键（仅开发模式可用，生产环境禁用以防篡改）
   win.webContents.on('before-input-event', (event, input) => {
     if (input.key === 'F12' && input.type === 'keyDown') {
+      if (app.isPackaged) {
+        event.preventDefault()
+        return
+      }
       if (win.webContents.isDevToolsOpened()) {
         win.webContents.closeDevTools()
       } else {

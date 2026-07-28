@@ -251,12 +251,12 @@
     state.warningCount = 0
     state.isDetecting = true
     
-    // 在开始检测前，发送 API Key 给 Python
+    // 在开始检测前，发送 API Key 给 Python（仅本地模式需要，云端模式密钥已在主进程设置）
     if (window.CloudAuth && window.CloudAuth.hasApiKey()) {
       const apiKey = window.CloudAuth.getApiKey()
-      if (window.electronAPI) {
+      if (apiKey && window.electronAPI) {
         window.electronAPI.foregroundSetApiKey(apiKey)
-        console.log('[ForegroundDetection] 已发送 API Key 到前台检测')
+        console.log('[ForegroundDetection] 已发送本地 API Key 到前台检测')
       }
     }
     
