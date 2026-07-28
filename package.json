@@ -21,6 +21,7 @@
   "license": "MIT",
   "devDependencies": {
     "@electron/packager": "^19.0.5",
+    "@vitest/coverage-v8": "^4.1.10",
     "electron": "^34.0.0",
     "electron-builder": "^25.1.8",
     "jsdom": "^29.1.1",

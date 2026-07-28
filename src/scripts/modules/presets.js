@@ -715,6 +715,11 @@
     setEnabled: setEnabled,
     getActivePreset: getActivePreset,
     initializeNoteEditButton: initializeNoteEditButton,
-    reinitializeNoteDisplay: reinitializeNoteDisplay
+    reinitializeNoteDisplay: reinitializeNoteDisplay,
+    // 导出便于测试覆盖（这些函数原本仅供内部使用）
+    _editNoteForPreset: editNoteForPreset,
+    _showNoteDetail: showNoteDetail,
+    _updatePresetNote: updatePresetNote,
+    _bindConfirmButton: bindConfirmButton
   }
 })()

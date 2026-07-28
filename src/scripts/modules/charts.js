@@ -119,7 +119,7 @@ const Charts = (function() {
     if (elements.tableContainer) {
       elements.tableContainer.style.display = state.isLoading ? 'none' : 'block'
     }
-    if (elements.error) {
+    if (elements.error && state.isLoading) {
       elements.error.style.display = 'none'
     }
     if (elements.refreshBtn) {

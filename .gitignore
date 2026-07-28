@@ -40,3 +40,31 @@ AGENTS.md
 
 # Admin tools (private)
 admin/feedback.html
+
+# Test coverage
+coverage/
+.npm-cache/
+
+# Test artifacts / debug output
+*.txt
+!docs/**/*.txt
+!src/cursors/readme.txt
+test-output.log
+test-result.json
+test-results.json
+modules-test.log
+apikey_out.txt
+apikey_test_output.txt
+cov*.txt
+cov*.json
+coverage*.txt
+coverage.json
+debug-output*.txt
+fd_out.txt
+
+# Debug scripts
+analyze-coverage*.cjs
+analyze-coverage*.js
+run-vitest*.cjs
+presentation_showcase.html
+test_study_room.html

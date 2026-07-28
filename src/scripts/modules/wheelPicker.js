@@ -219,12 +219,27 @@
     onChangeCallback = callback
   }
 
+  // 重置内部状态（用于测试）
+  function _resetState() {
+    wheelValue = 25
+    isDragging = false
+    dragStartY = 0
+    dragStartValue = 0
+    dragVelocity = 0
+    lastDragY = 0
+    lastDragTime = 0
+    animFrameId = null
+    isDisabled = false
+    onChangeCallback = null
+  }
+
   // 导出到全局
   window.WheelPicker = {
     init: init,
     setValue: setValue,
     getValue: getValue,
     setEnabled: setEnabled,
-    setChangeCallback: setChangeCallback
+    setChangeCallback: setChangeCallback,
+    _resetState: _resetState
   }
 })()

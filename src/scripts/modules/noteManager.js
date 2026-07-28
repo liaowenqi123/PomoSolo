@@ -98,12 +98,19 @@
     // 不再需要绑定编辑模态框相关事件
   }
 
+  // 重置内部状态（用于测试）
+  function _resetState() {
+    currentNote = { title: '', detail: '' }
+    noteModal = null
+  }
+
   // 导出
   window.NoteManager = {
     init,
     showViewModal,
     clearNote,
     getNote,
-    setNote
+    setNote,
+    _resetState
   }
 })()

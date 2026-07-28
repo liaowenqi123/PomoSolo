@@ -174,36 +174,38 @@
       if (window.Timer && window.Timer.getPhase() === window.Timer.PHASE.RUNNING) {
         window.Timer.reset()
       }
-      state.appMode = mode
+      // 先执行切换逻辑（switchToStopwatchMode 需要读取旧的 appMode 来保存备注），再更新状态
       switchToStopwatchMode()
+      state.appMode = mode
       return
     }
-    
+
     // 从正向计时切换到其他模式
     if (state.appMode === 'stopwatch') {
       // 停止正向计时器
       if (window.Stopwatch && window.Stopwatch.getIsRunning()) {
         window.Stopwatch.reset()
       }
-      state.appMode = mode
+      // 先执行切换逻辑（switchToSingleMode / switchToPlanMode 需要读取旧的 appMode 来保存备注），再更新状态
       if (mode === 'single') {
         switchToSingleMode()
       } else if (mode === 'plan') {
         switchToPlanMode()
       }
+      state.appMode = mode
       return
     }
-    
+
     // 单次和计划模式之间切换：只能在准备阶段切换
     if (Timer.getPhase() !== Timer.PHASE.READY) return
-    
-    state.appMode = mode
-    
+
+    // 先执行切换逻辑（switchToSingleMode / switchToPlanMode 需要读取旧的 appMode 来保存备注），再更新状态
     if (mode === 'single') {
       switchToSingleMode()
     } else if (mode === 'plan') {
       switchToPlanMode()
     }
+    state.appMode = mode
   }
 
   function switchToSingleMode() {

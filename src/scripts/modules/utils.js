@@ -360,7 +360,7 @@
         todayCount: 0,
         totalMinutes: 0
       },
-      presets: { ...DEFAULT_PRESETS },
+      presets: { work: [...DEFAULT_PRESETS.work], break: [...DEFAULT_PRESETS.break] },
       planList: [],
       audioDevice: null,
       // 菜园子系统
