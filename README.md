@@ -267,6 +267,111 @@ Rust 端的结构体（如 `Session`、`TimerState`、`DetectionResult`）和 Ty
 
 ---
 
+## 测试
+
+### 概览
+
+| 维度 | 数量 | 说明 |
+|------|------|------|
+| 前端测试文件 | 41 | `src/**/__tests__/*.test.ts` |
+| 前端测试用例 | 794 | 全部通过 |
+| Rust 测试用例 | 26 | `cargo test` 全部通过 |
+| 语句覆盖率 | 94.5% | v8 provider |
+| 分支覆盖率 | 88.57% | |
+| 函数覆盖率 | 92.6% | |
+| TypeScript 类型检查 | 通过 | `vue-tsc --noEmit` |
+
+### 测试分层
+
+```
+src/
+├── api/__tests__/           # API 层：验证每个 invoke 命令名 + 参数 + 错误传播
+│   ├── data.test.ts         # readData/writeData/readSettings/writeSettings
+│   ├── auth.test.ts         # cloudLogin/Register/Logout/Session + 凭据 + ApiKey
+│   ├── garden.test.ts       # gardenRead/Plant/Harvest/BuySeed/SellCrop/...
+│   ├── foreground.test.ts   # foregroundStart/Stop + 事件监听
+│   ├── music.test.ts        # musicTogglePlay/Next/Prev/Seek/...
+│   ├── ai.test.ts           # aiGeneratePlan
+│   ├── charts.test.ts       # chartsFetch/downloadSong
+│   ├── studyRoom.test.ts    # studyRoomCreate/Join/Leave/...
+│   ├── timer.test.ts        # getTimerState
+│   ├── window.test.ts       # minimizeWindow/closeWindow/...
+│   ├── events.test.ts       # listen/emit/emitTo + useTauriEvent/useTauriEventOnce
+│   └── index.test.ts        # 统一出口 re-export 完整性验证
+│
+├── stores/__tests__/        # Store 层：验证 state/getter/action + 副作用
+│   ├── timer.test.ts        # 三阶段状态机 + tick + complete + 自动切换 work/break
+│   ├── settings.test.ts     # load/save/update/reset/toggleTheme + localStorage 回退
+│   ├── garden.test.ts       # load/plant/harvest/buySeed/sellCrop/signIn/... + 静态配置
+│   ├── auth.test.ts         # init/switchMode/login/register/logout/saveLocalApiKey
+│   ├── music.test.ts        # togglePlay/next/prev/seek/setVolume/cyclePlayMode + 事件 handler
+│   └── stats.test.ts        # load/recordSession/resetToday + 跨天重置 + last7Days
+│
+└── components/__tests__/    # 组件层：验证渲染 + 交互 + 事件 + 条件分支
+    ├── App.test.ts          # 主应用壳：布局 + 主题 class + 键盘快捷键 + 完成联动 + 卸载清理
+    ├── Timer.test.ts        # 时间显示 + 三态状态文本（ready/running/finished 全分支）
+    ├── ModeSwitch.test.ts   # 专注/休息按钮 + active 类 + 运行中忽略
+    ├── TimerProgress.test.ts # SVG 圆环 + dashOffset 响应性（已修复 bug）
+    ├── Modal.test.ts        # v-if + 背景点击 + ESC + body overflow + width
+    ├── WindowControls.test.ts # 最小化/关闭按钮 + 错误捕获
+    ├── NoteManager.test.ts  # 输入 + 清除 + disabled + modelValue 同步
+    ├── Presets.test.ts      # 选中/添加/删除 + 持久化 + localStorage 回退（已修复 bug）
+    ├── SettingsPanel.test.ts # 主题/选择器/开关 + reset + 持久化
+    ├── Statistics.test.ts   # 三卡片 + Chart 实例生命周期 + updateChart + 卸载销毁
+    ├── StudyRoom.test.ts    # 四视图切换 + 创建/加入/离开 + 30s 刷新
+    ├── AuthPanel.test.ts    # 模式切换 + 登录/注册 + 确认弹窗 + Admin 徽章
+    ├── AIHelper.test.ts     # 输入校验 + 生成 + 加载态 + 结果渲染 + Apply
+    ├── ForegroundWarning.test.ts # 警告计数 + 惩罚触发 + API Key 弹窗
+    ├── MusicPlayer.test.ts  # 收起/展开 + 控制按钮 + 进度条 + 设备/播放列表
+    ├── Charts.test.ts       # 源切换 + 下载模式 + 表格 + toast
+    ├── GardenMain.test.ts   # 金币 + 导航按钮 + 弹窗切换 + 种植/收获分发
+    ├── GardenPlot.test.ts   # 三态格子 + 解锁 + 成熟判定 + stopPropagation
+    ├── GardenBag.test.ts    # 种子/作物列表 + 选中态 + 空状态
+    ├── GardenShop.test.ts   # 购买/出售 tab + 金币不足禁用 + 空状态
+    ├── GardenSignin.test.ts # 连续/总天数 + 周点 + 奖励列表 + 签到按钮
+    ├── GardenAchievement.test.ts # 分类筛选 + 进度条 + 已解锁徽章
+    └── GardenPlantWheel.test.ts  # Canvas 扇区命中 + 中心 -1 + 关闭
+```
+
+### 运行测试
+
+```bash
+# 前端测试（watch 模式）
+npm test
+
+# 前端测试（单次运行 + 覆盖率）
+npm run test:coverage
+
+# Rust 测试
+cd src-tauri
+cargo test
+```
+
+### 测试发现并修复的 Bug
+
+UI 测试在重构过程中发现了 2 个真实 bug，均已修复：
+
+1. **TimerProgress.vue 响应性 bug**：`dashOffset` 以普通常量计算（`const dashOffset = circumference * (1 - timer.progress)`），未使用 `computed()`，导致进度圆环不随计时推进而动画。修复为 `computed(() => circumference * (1 - timer.progress))`。
+
+2. **Presets.vue localStorage 格式不一致**：`persist()` 写入 localStorage 的格式为 `{ presets: { work, break } }`，但 `load()` 的 catch 分支直接将 `JSON.parse(saved)` 传给 `normalizePresets()`（期望 `{ work, break }` 而非 `{ presets: {...} }`），导致后端不可用时无法读回 localStorage 中的预设。修复为先解包 `.presets` 字段。
+
+### 与旧版 Electron 的 UI 行为对照
+
+测试用例基于对旧 Electron 版本 30 个渲染模块的完整行为清单编写，覆盖：
+
+- 三阶段计时器状态机（READY/RUNNING/FINISHED）
+- 工作/休息模式切换 + 配色
+- 预设管理（选中/添加/删除/持久化）
+- 菜园子全流程（种植/收获/解锁/商店/签到/成就墙/轮盘）
+- 认证双模式（云端登录/注册 + 本地 API Key）
+- AI 规划助手（输入/生成/应用）
+- 前台检测警告（计数/惩罚/API Key 错误）
+- 音乐播放器（播放控制/进度/音量/设备/播放列表）
+- 设置面板（主题/选择器/开关/恢复默认）
+- 统计/自习室/音乐榜单
+
+---
+
 ## 许可证
 
 MIT License

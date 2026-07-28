@@ -1,10 +1,11 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { useTimerStore } from "../stores/timer";
 
 const timer = useTimerStore();
 
 const circumference = 2 * Math.PI * 120;
-const dashOffset = circumference * (1 - timer.progress);
+const dashOffset = computed(() => circumference * (1 - timer.progress));
 </script>
 
 <template>

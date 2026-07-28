@@ -107,4 +107,51 @@ describe("Timer.vue", () => {
 
     expect(wrapper.find(".timer-display__time").text()).toBe(store.displayTime);
   });
+
+  it("phase=finished 时应显示『已完成』（覆盖 v-else 分支）", async () => {
+    const wrapper = mountComponent();
+    const store = useTimerStore();
+    // 直接设置 phase 为 finished（complete() 中此状态稍纵即逝）
+    store.phase = "finished";
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find(".timer-display__status").text()).toBe("已完成");
+  });
+
+  it("phase=ready 且 mode=work 时显示『准备开始』（覆盖 ready 分支）", async () => {
+    const wrapper = mountComponent();
+    const store = useTimerStore();
+    store.phase = "ready";
+    store.mode = "work";
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find(".timer-display__status").text()).toBe("准备开始");
+  });
+
+  it("phase=running 且 mode=work 时显示『专注中』（覆盖 running+work 分支）", async () => {
+    const wrapper = mountComponent();
+    const store = useTimerStore();
+    store.phase = "running";
+    store.mode = "work";
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find(".timer-display__status").text()).toBe("专注中");
+  });
+
+  it("phase=running 且 mode=break 时显示『休息中』（覆盖 running+break 分支）", async () => {
+    const wrapper = mountComponent();
+    const store = useTimerStore();
+    store.phase = "running";
+    store.mode = "break";
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find(".timer-display__status").text()).toBe("休息中");
+  });
+
+  it("phase 切换 finished → ready 时状态文本应同步更新", async () => {
+    const wrapper = mountComponent();
+    const store = useTimerStore();
+    store.phase = "finished";
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find(".timer-display__status").text()).toBe("已完成");
+    store.phase = "ready";
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find(".timer-display__status").text()).toBe("准备开始");
+  });
 });

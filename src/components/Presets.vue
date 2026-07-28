@@ -61,7 +61,10 @@ async function load(): Promise<void> {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
-        presets.value = normalizePresets(JSON.parse(saved) as JsonObject);
+        // persist() 写入的格式为 { presets: { work, break } }，需先解包
+        const parsed = JSON.parse(saved) as JsonObject;
+        const rawPresets = (parsed.presets as JsonObject | undefined) ?? parsed;
+        presets.value = normalizePresets(rawPresets);
       } catch {
         presets.value = { ...DEFAULT_PRESETS };
       }
