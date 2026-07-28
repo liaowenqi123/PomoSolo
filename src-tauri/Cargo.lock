@@ -2601,6 +2601,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-shell",
+ "tempfile",
  "tokio",
  "whoami",
  "windows 0.58.0",

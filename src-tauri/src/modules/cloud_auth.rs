@@ -17,8 +17,8 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
-const SUPABASE_URL: &str = "https://sjexeynibnfqxvwehnxk.supabase.co";
-const SUPABASE_ANON_KEY: &str = "sb_publishable_NtzlEhTWwC4qpSY0DEvQ0Q_ER6yJoTz";
+pub(crate) const SUPABASE_URL: &str = "https://sjexeynibnfqxvwehnxk.supabase.co";
+pub(crate) const SUPABASE_ANON_KEY: &str = "sb_publishable_NtzlEhTWwC4qpSY0DEvQ0Q_ER6yJoTz";
 const PBKDF2_ITERATIONS: u32 = 100_000;
 const KEY_LENGTH: usize = 32; // AES-256
 
@@ -37,6 +37,9 @@ pub struct Credentials {
     pub password_encrypted: Option<String>, // AES-GCM 加密
     pub client_id: Option<String>,
     pub auto_login: Option<bool>,
+    /// 解密后的明文密码（仅在内存中，不持久化）
+    #[serde(skip)]
+    pub password: Option<String>,
 }
 
 /// 从机器特征派生加密密钥
@@ -141,8 +144,9 @@ pub fn save_credentials(app: &AppHandle, username: &str, password: &str, auto_lo
         password_encrypted: Some(password_encrypted),
         client_id: Some(generate_client_id()),
         auto_login: Some(auto_login),
+        password: None,
     };
-    
+
     let path = get_credentials_path(app);
     let content = serde_json::to_string_pretty(&creds).map_err(|e| e.to_string())?;
     fs::write(&path, content).map_err(|e| e.to_string())
@@ -154,19 +158,15 @@ pub fn load_credentials(app: &AppHandle) -> Result<Option<Credentials>, String> 
     if !path.exists() {
         return Ok(None);
     }
-    
+
     let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let creds: Credentials = serde_json::from_str(&content).map_err(|e| e.to_string())?;
-    
-    // 解密密码（原地替换）
+    let mut creds: Credentials = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+
+    // 解密密码并填入内存字段（不持久化）
     if let Some(ref encrypted) = creds.password_encrypted {
-        let plaintext = decrypt_string(encrypted)?;
-        // 注意：解密后的明文密码只在内存中短暂存在，不持久化
-        // 为了兼容上层接口，我们返回解密后的密码
-        // 但实际使用时应在验证后立即丢弃
-        let _ = plaintext; // 调用方通过单独接口获取
+        creds.password = Some(decrypt_string(encrypted)?);
     }
-    
+
     Ok(Some(creds))
 }
 
@@ -193,4 +193,105 @@ fn base64_decode(s: &str) -> Result<Vec<u8>, String> {
 
 fn hex_encode(data: &[u8]) -> String {
     data.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_encrypt_decrypt_roundtrip() {
+        let plaintext = "my-secret-password-123";
+        let encrypted = encrypt_string(plaintext).expect("加密应成功");
+        assert_ne!(encrypted, plaintext, "加密后内容应不同于原文");
+        let decrypted = decrypt_string(&encrypted).expect("解密应成功");
+        assert_eq!(decrypted, plaintext, "解密后应得到原文");
+    }
+
+    #[test]
+    fn test_encrypt_produces_different_ciphertext() {
+        // 由于 nonce 随机，同一明文加密两次应产生不同密文
+        let plaintext = "same-password";
+        let a = encrypt_string(plaintext).expect("加密 a");
+        let b = encrypt_string(plaintext).expect("加密 b");
+        assert_ne!(a, b, "不同次加密应产生不同密文（nonce 随机）");
+        // 但都能解回原文
+        assert_eq!(decrypt_string(&a).unwrap(), plaintext);
+        assert_eq!(decrypt_string(&b).unwrap(), plaintext);
+    }
+
+    #[test]
+    fn test_hash_password_consistency() {
+        let password = "p@ssw0rd";
+        let salt = "fixed-salt-value";
+        let h1 = hash_password(password, salt);
+        let h2 = hash_password(password, salt);
+        assert_eq!(h1, h2, "相同密码+salt 应得到相同哈希");
+    }
+
+    #[test]
+    fn test_hash_password_different_salt() {
+        let password = "p@ssw0rd";
+        let h1 = hash_password(password, "salt-one");
+        let h2 = hash_password(password, "salt-two");
+        assert_ne!(h1, h2, "不同 salt 应得到不同哈希");
+    }
+
+    #[test]
+    fn test_hash_password_different_password() {
+        let salt = "same-salt";
+        let h1 = hash_password("password-a", salt);
+        let h2 = hash_password("password-b", salt);
+        assert_ne!(h1, h2, "不同密码应得到不同哈希");
+    }
+
+    #[test]
+    fn test_generate_salt_length() {
+        let salt = generate_salt();
+        assert_eq!(salt.len(), 32, "salt 应为 32 字符的 hex 字符串（16 字节）");
+        // 应为合法的十六进制字符串
+        assert!(
+            salt.chars().all(|c| c.is_ascii_hexdigit()),
+            "salt 应仅包含十六进制字符"
+        );
+    }
+
+    #[test]
+    fn test_generate_salt_uniqueness() {
+        let a = generate_salt();
+        let b = generate_salt();
+        assert_ne!(a, b, "两次生成的 salt 应不同（随机）");
+    }
+
+    #[test]
+    fn test_generate_client_id_length() {
+        let client_id = generate_client_id();
+        assert_eq!(client_id.len(), 32, "client_id 应为 32 字符（16 字节 hex）");
+        assert!(
+            client_id.chars().all(|c| c.is_ascii_hexdigit()),
+            "client_id 应仅包含十六进制字符"
+        );
+    }
+
+    #[test]
+    fn test_generate_client_id_stability() {
+        // 同一机器上多次调用应一致（基于 hostname+username）
+        let a = generate_client_id();
+        let b = generate_client_id();
+        assert_eq!(a, b, "同一机器生成的 client_id 应稳定一致");
+    }
+
+    #[test]
+    fn test_decrypt_invalid_input_returns_error() {
+        let result = decrypt_string("not-valid-base64-!!!@@@");
+        assert!(result.is_err(), "非法密文应返回错误");
+    }
+
+    #[test]
+    fn test_decrypt_short_input_returns_error() {
+        // 长度小于 12 字节（nonce 长度）应失败
+        let short = base64_encode(b"short");
+        let result = decrypt_string(&short);
+        assert!(result.is_err(), "过短的密文应返回错误");
+    }
 }

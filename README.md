@@ -1,93 +1,269 @@
-# 🍅 番茄钟
+# 🍅 PomoSolo
 
-**一个让你爱上专注的桌面番茄钟，专为效率爱好者打造。**
+**一款功能丰富的番茄钟专注应用 —— 用 Tauri v2 + Vue 3 重新构建。**
 
-[![Release](https://img.shields.io/badge/Release-v3.2.2-ff6b6b)](https://github.com/liaowenqi123/electron_pomodoro/releases)
+[![Release](https://img.shields.io/badge/Release-v4.0.0-ff6b6b)](https://github.com/liaowenqi123/electron_pomodoro/releases)
+[![Tauri](https://img.shields.io/badge/Tauri-v2-blue)](https://tauri.app)
+[![Vue](https://img.shields.io/badge/Vue-3.5-42b883)](https://vuejs.org)
 
 ---
 
 ## 这是什么？
 
-番茄钟是一款 Windows 桌面应用，帮你用番茄工作法管理时间——专注 25 分钟，休息 5 分钟。但它不止于此：**种菜园子、听音乐、加入自习室、AI 帮你规划任务**……专注从此不枯燥。
+PomoSolo 是一款 Windows 桌面番茄钟应用，从原 Electron 版本（v3.x）重构为 Tauri v2 + Vue 3 架构（v4.0）。它不止是倒计时工具，还整合了**专注激励游戏、AI 分心检测、内置音乐播放器、自习室、AI 任务规划**等功能，让专注不再枯燥。
 
 ---
 
-## 为什么选择番茄钟？
+## 为什么选择 PomoSolo？
 
-| 对比 | 普通番茄钟 | 番茄钟 |
-|------|-----------|--------|
+| 对比 | 普通番茄钟 | PomoSolo |
+|------|-----------|---------|
 | 专注激励 | 只有倒计时 | 🌱 种菜园子，专注时长可收获作物 |
 | 分心防护 | 靠自己克制 | 🔍 AI 检测娱乐应用，违规自动惩罚 |
 | 音乐陪伴 | 需要另开播放器 | 🎵 内置音乐播放器，支持榜单下载 |
 | 社交学习 | 孤独学习 | 👥 自习室，实时排名 |
 | 任务规划 | 手动排期 | 🤖 AI 一句话生成任务计划 |
-| 静默更新 | 手动下载安装包 | 🔄 点一下自动更新到最新版 |
+| 安装体积 | Electron 动辄 100MB+ | 💾 Tauri 安装包 ~10MB |
+
+---
+
+## 技术栈
+
+| 层级 | 技术 | 说明 |
+|------|------|------|
+| 桌面框架 | **Tauri v2** | 用 Rust 调用系统 WebView，替代 Electron |
+| 前端框架 | **Vue 3.5** + Composition API | 单文件组件 + `<script setup>` |
+| 类型系统 | **TypeScript 5.6** | 前端全量 TS，与 Rust 端结构体一一对应 |
+| 状态管理 | **Pinia 2.2** | 替代 Vuex / 全局事件总线 |
+| 构建工具 | **Vite 6** | 替代 Webpack，HMR 极速 |
+| 后端语言 | **Rust (Edition 2021)** | 内存安全，零成本抽象 |
+| 加密 | **aes-gcm + pbkdf2 + sha2** | AES-256-GCM + PBKDF2-SHA512 |
+| 图表 | **Chart.js 4.5** | 统计可视化 |
+| 进程通信 | Tauri IPC + 事件 | `invoke` 调用命令、`listen` 监听事件 |
+
+---
+
+## 功能列表
+
+| 模块 | 说明 |
+|------|------|
+| 🍅 **计时器** | 三种模式（工作/休息/自定义）、时间戳计时、键盘快捷键 |
+| 🌱 **菜园子游戏** | 5 种作物（胡萝卜/番茄/向日葵/玫瑰/金桂树）、12 块土地、成就系统、每日签到 |
+| 🔍 **专注模式 / 前台检测** | AI 判断前台窗口是否为娱乐应用，黑白名单 + 历史记录多源判定，违规触发作物枯萎惩罚 |
+| 🎵 **音乐播放器** | Python 子进程驱动、播放列表、标签管理、输出设备切换、播放模式 |
+| 👥 **自习室** | 公开/私密房间、实时排名、专注时长同步 |
+| 📊 **统计** | 日/周/月专注时长图表、热力图、趋势分析 |
+| 🤖 **AI 规划助手** | 一句话生成番茄钟计划，调用 DeepSeek（云端 / 本地双模式） |
+| 🔐 **云端账号** | Supabase 后端、本地凭据 AES-256-GCM 加密、单点登录心跳 |
 
 ---
 
 ## 快速开始
 
-### 1. 下载安装
+### 1. 环境要求
 
-前往 [Releases](https://github.com/liaowenqi123/electron_pomodoro/releases/latest) 页面，下载 `pomodoro-timer-setup-x.x.x.exe`，双击安装即可。
+| 工具 | 版本 | 用途 |
+|------|------|------|
+| Node.js | ≥ 18 | 前端构建 |
+| Rust | ≥ 1.77 | 后端编译 |
+| Tauri CLI | v2 | 已随 `package.json` 安装 |
 
-> 系统要求：Windows 10 / 11，无需额外安装任何运行环境。
+Windows 10 / 11 自带 WebView2，无需额外运行环境。
 
-### 2. 开始使用
-
-1. 打开后选择一个预设时间（如 25 分钟）
-2. 点击 **开始**，进入专注
-3. 完成一次番茄钟后，去 **菜园子** 看看你的作物长大了没 🌱
-
-> 💡 进阶玩法：打开 **专注模式** 后，切换去刷 B 站会被 AI 警告，三次警告作物枯萎！
-
-### 3. 保持更新
-
-设置页点击「**检查更新**」，有新版自动静默安装，无需重新下载安装包。
-
----
-
-## 核心亮点
-
-| 🍅 计时器 | 🌱 菜园子 | 🔍 专注模式 | 🎵 音乐 | 👥 自习室 | 🤖 AI 助手 |
-|:---:|:---:|:---:|:---:|:---:|:---:|
-| 三种模式 | 5种作物 | AI窗口检测 | 榜单下载 | 实时排名 | 智能规划 |
-| 时间戳计时 | 成就系统 | 黑白名单 | 全局快捷键 | 公开/私密 | 一键应用 |
-
----
-
-## 🚧 开发者的自我鞭策
-
-> 以下是已经列入计划但尚未开始的事情，催更请提交 Issue 🙏
-
-| 计划 | 说明 |
-|------|------|
-| 🎮 图标升级 | 接入 [Nieobie Game Icon Pack](https://github.com/Nieobie/Game-Icon-Pack)（570+ SVG 圆角图标）替换现有 emoji 按钮 |
-| 🪟 迷你模式透明度 | 滚轮调节置顶小组件透明度 |
-| 🔔 关闭确认 | 计时运行中关闭窗口时弹确认提示 |
-| 🌱 作物删除 | 菜园子支持拔除已种植作物 |
-| 🎁 手动领取成就 | 成就达成后需手动领取奖励 |
-| 🔄 自动重置 | 设置开关：倒计时结束后自动进入下一轮 |
-| 💻 开发体验 | preload.js 工厂化、ES Module 迁移、Vite 构建 |
-
----
-
-## 完整功能说明
-
-详细功能介绍见 [docs/FEATURES.md](docs/FEATURES.md)
-
----
-
-## 从源码运行
+### 2. 安装依赖
 
 ```bash
-git clone https://github.com/liaowenqi123/electron_pomodoro.git
-cd electron_pomodoro
+# 前端依赖
 npm install
-npm start
+
+# Rust 依赖（首次会自动拉取）
+cd src-tauri
+cargo fetch
+cd ..
 ```
 
-需要 Node.js >= 16。
+### 3. 开发模式
+
+```bash
+# 同时启动 Vite 开发服务器 + Tauri 后端（带 DevTools）
+npm run tauri:dev
+```
+
+开发模式下，Tauri 主窗口会自动打开 DevTools（见 `src-tauri/src/lib.rs` 中 `#[cfg(debug_assertions)]` 分支）。
+
+### 4. 构建生产包
+
+```bash
+# 类型检查 + Vite 构建 + Rust release 编译 + 打包
+npm run tauri:build
+```
+
+产物位于 `src-tauri/target/release/bundle/` 下，包含 NSIS（`.exe`）和 MSI 两种安装包格式（见 `tauri.conf.json` 中 `bundle.targets`）。
+
+`Cargo.toml` 中的 release profile 已做体积优化：
+
+```toml
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+```
+
+### 5. 仅前端开发（不启动 Rust）
+
+```bash
+npm run dev      # 仅 Vite
+npm run build    # 仅类型检查 + 前端构建
+```
+
+> 注意：仅前端模式下，所有 `invoke()` 调用会失败，部分 store 会回退到 localStorage（见 `src/stores/settings.ts` 的容错逻辑）。
+
+---
+
+## 项目结构
+
+```
+electron_pomodoro/
+├── src-tauri/                    # Rust 后端（Tauri v2）
+│   ├── src/
+│   │   ├── lib.rs                # 应用入口，注册所有 commands
+│   │   ├── main.rs               # Windows 入口（防止控制台窗口）
+│   │   ├── state.rs              # 全局 AppState（替代 electron/main/state.js）
+│   │   ├── commands/             # Tauri 命令层（前端可调用）
+│   │   │   ├── timer.rs          # 计时器状态
+│   │   │   ├── data.rs           # 数据/设置读写
+│   │   │   ├── window.rs         # 窗口控制
+│   │   │   ├── cloud_auth.rs     # 云端认证 + API Key 管理
+│   │   │   ├── garden.rs         # 菜园子操作
+│   │   │   └── foreground.rs     # 前台检测控制
+│   │   └── modules/              # 业务模块（不直接暴露给前端）
+│   │       ├── cloud_auth.rs     # AES-GCM 加密 + PBKDF2 + Supabase
+│   │       ├── data_manager.rs   # JSON 文件持久化（带锁）
+│   │       ├── foreground_inspection.rs  # windows crate 前台检测
+│   │       └── music_process.rs  # Python 子进程通信
+│   ├── capabilities/default.json # Tauri 权限配置
+│   ├── Cargo.toml                # Rust 依赖
+│   └── tauri.conf.json           # Tauri 应用配置（窗口/CSP/打包）
+│
+├── src/                          # Vue 3 前端
+│   ├── main.ts                   # 入口，挂载 Pinia
+│   ├── App.vue                   # 主布局
+│   ├── api/                      # Tauri 命令封装（替代 preload.js）
+│   │   ├── index.ts              # 统一出口
+│   │   ├── data.ts               # read_data / write_data
+│   │   ├── auth.ts               # 云端认证 + API Key
+│   │   ├── garden.ts             # 菜园子操作
+│   │   ├── foreground.ts         # 前台检测 + 事件监听
+│   │   ├── music.ts              # 音乐播放器
+│   │   ├── ai.ts                 # AI 规划
+│   │   ├── timer.ts / window.ts  # 计时器/窗口
+│   │   ├── charts.ts / studyRoom.ts
+│   │   └── events.ts             # 通用事件封装
+│   ├── stores/                   # Pinia stores
+│   │   ├── timer.ts              # 计时器逻辑
+│   │   ├── settings.ts           # 应用设置
+│   │   ├── garden.ts             # 菜园子状态 + 静态配置
+│   │   ├── auth.ts / music.ts / stats.ts
+│   ├── components/               # Vue 单文件组件
+│   │   ├── Timer.vue / TimerProgress.vue
+│   │   ├── ModeSwitch.vue / Presets.vue
+│   │   ├── WindowControls.vue
+│   │   ├── SettingsPanel.vue / Statistics.vue
+│   │   ├── AIHelper.vue / AuthPanel.vue
+│   │   ├── MusicPlayer.vue / StudyRoom.vue
+│   │   ├── ForegroundWarning.vue
+│   │   ├── NoteManager.vue / Modal.vue
+│   │   ├── Charts.vue
+│   │   └── garden/               # 菜园子子组件
+│   └── styles/global.css
+│
+├── electron/                     # 旧 Electron 代码（保留参考，不再维护）
+│   ├── main.js                   # Electron 主进程
+│   ├── preload.js                # contextBridge 桥接
+│   ├── main/                     # IPC 处理器（按领域拆分）
+│   └── src/                      # 渲染层（旧版纯 JS）
+│
+├── foreground_inspection/        # Python 前台检测（已用 Rust 替代，保留源码）
+│   ├── foreground_inspection.py
+│   └── foreground_inspection.exe
+│
+├── music-player/                 # Python 音乐播放器（保留，Rust 子进程调用）
+│   ├── music.py / music.exe
+│   ├── manual_downloader.py      # 歌曲下载工具
+│   ├── you-get.exe / ffmpeg.exe
+│   └── README.md
+│
+├── docs/                         # 项目文档
+│   ├── ARCHITECTURE.md           # 架构设计
+│   ├── MIGRATION.md              # 迁移指南
+│   ├── SECURITY.md               # 安全设计
+│   └── ...                       # 其他历史文档
+│
+├── index.html                    # Vite 入口 HTML
+├── package.json                  # 前端依赖与脚本
+├── vite.config.ts                # Vite 配置（隐式）
+└── tsconfig.json                 # TypeScript 配置
+```
+
+---
+
+## 与旧版 Electron 的对比
+
+| 维度 | Electron v3.x | Tauri v2 (v4.0) |
+|------|---------------|------------------|
+| **安装包体积** | ~120MB（含 Chromium + Node） | ~10MB（复用系统 WebView2） |
+| **内存占用** | 200-400MB | 80-150MB |
+| **后端语言** | JavaScript (Node.js) | Rust（内存安全、无 GC 暂停） |
+| **渲染层** | Chromium 内嵌 | 系统 WebView2（Edge 内核） |
+| **IPC 模型** | `ipcMain.handle` + `contextBridge` | `#[tauri::command]` + `invoke` |
+| **加密** | `safeStorage`（依赖 OS DPAPI） | AES-256-GCM（跨平台、密钥由机器特征派生） |
+| **CSP** | 默认宽松 | 严格白名单（见 `tauri.conf.json`） |
+| **权限模型** | 全有或全无 | Tauri capabilities（按窗口/按权限粒度） |
+| **前端框架** | 原生 JS + 全局变量 | Vue 3 + TypeScript + Pinia |
+| **构建工具** | electron-builder | Tauri CLI + Vite |
+| **跨平台** | Windows/Mac/Linux | Windows/Mac/Linux/iOS/Android |
+
+> 旧 Electron 代码完整保留在 `electron/` 目录，便于参考对照，但不再维护新功能。
+
+---
+
+## 开发指南
+
+### 新增一个 Tauri 命令
+
+1. 在 `src-tauri/src/commands/<领域>.rs` 中添加 `#[tauri::command]` 函数
+2. 在 `src-tauri/src/lib.rs` 的 `generate_handler!` 宏中注册
+3. 在 `src/api/<领域>.ts` 中封装 `invoke()` 调用，附带 TypeScript 类型
+4. 在 `src/stores/` 或 `src/components/` 中消费
+
+### 新增一个 Vue 组件
+
+- 使用 `<script setup lang="ts">` 语法
+- 状态跨组件共享走 Pinia store，不要直接全局事件总线
+- 调用后端走 `src/api/`，不要在组件里直接 `invoke`
+
+### 类型对齐
+
+Rust 端的结构体（如 `Session`、`TimerState`、`DetectionResult`）和 TypeScript 接口必须保持字段一致：
+
+- Rust 用 `snake_case`
+- TypeScript 用 `camelCase`
+- Tauri 自动做命名转换，前端 `invoke` 时传 `camelCase` 参数即可
+
+### 调试技巧
+
+- Rust 日志：用 `eprintln!`，输出到 `tauri dev` 终端
+- 前端日志：DevTools Console
+- IPC 调用：DevTools Network → Tauri 面板
+- 事件流：在 `src/api/events.ts` 中加日志监听所有事件
+
+### 提交规范
+
+- 一次提交只做一件事
+- commit message 用中文，前缀：`feat:` / `fix:` / `docs:` / `refactor:`
+- 不要把 `src-tauri/target/` 加入版本控制
 
 ---
 

@@ -157,3 +157,81 @@ pub fn stop_detection(state: &DetectionState) {
 pub async fn set_api_key(state: &DetectionState, key: String) {
     *state.api_key.write().await = Some(key);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_detection_state_default() {
+        let state = DetectionState::default();
+        assert_eq!(
+            state.running.load(Ordering::Relaxed),
+            false,
+            "默认 running 应为 false"
+        );
+
+        // 通过 block_on 检查 api_key 默认为 None
+        let rt = tokio::runtime::Runtime::new().expect("创建 tokio 运行时失败");
+        let api_key = rt.block_on(async { state.api_key.read().await.clone() });
+        assert!(api_key.is_none(), "默认 api_key 应为 None");
+    }
+
+    #[test]
+    fn test_stop_detection_sets_running_false() {
+        let state = DetectionState::default();
+        // 先置为 true，再 stop，应变为 false
+        state.running.store(true, Ordering::Relaxed);
+        assert!(state.running.load(Ordering::Relaxed));
+
+        stop_detection(&state);
+
+        assert_eq!(
+            state.running.load(Ordering::Relaxed),
+            false,
+            "stop_detection 后 running 应为 false"
+        );
+    }
+
+    #[test]
+    fn test_stop_detection_idempotent() {
+        let state = DetectionState::default();
+        // 已经是 false，再 stop 一次也应保持 false，不报错
+        stop_detection(&state);
+        stop_detection(&state);
+        assert!(!state.running.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn test_set_and_clear_api_key() {
+        let state = DetectionState::default();
+        let rt = tokio::runtime::Runtime::new().expect("创建 tokio 运行时失败");
+
+        rt.block_on(set_api_key(&state, "sk-test-key".to_string()));
+
+        let key = rt.block_on(async { state.api_key.read().await.clone() });
+        assert_eq!(key.as_deref(), Some("sk-test-key"));
+
+        // 清空
+        rt.block_on(set_api_key(&state, String::new()));
+        let key = rt.block_on(async { state.api_key.read().await.clone() });
+        // 注意：set_api_key 把空字符串也当作 Some("")，这里仅验证写入逻辑
+        assert_eq!(key, Some(String::new()));
+    }
+
+    #[test]
+    fn test_detection_result_serialization() {
+        let result = DetectionResult {
+            window_title: "Test Window".to_string(),
+            is_entertainment: true,
+            source: "ai".to_string(),
+            keyword: "game".to_string(),
+        };
+        let json = serde_json::to_string(&result).expect("序列化应成功");
+        let back: DetectionResult = serde_json::from_str(&json).expect("反序列化应成功");
+        assert_eq!(back.window_title, "Test Window");
+        assert!(back.is_entertainment);
+        assert_eq!(back.source, "ai");
+        assert_eq!(back.keyword, "game");
+    }
+}

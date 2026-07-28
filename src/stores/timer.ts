@@ -16,6 +16,10 @@ export const useTimerStore = defineStore("timer", () => {
   const totalMs = ref(DEFAULT_WORK_MINUTES * 60 * 1000);
   const todayCount = ref(0);
   const totalMinutes = ref(0);
+  /** 最近一次完成的工作番茄钟时长（分钟），供外部监听 */
+  const lastCompletedMinutes = ref(0);
+  /** 完成事件自增信号，每次工作番茄钟完成 +1，供外部 watch */
+  const completionId = ref(0);
 
   let tickTimer: ReturnType<typeof setInterval> | null = null;
   let lastTickTime = 0;
@@ -118,8 +122,11 @@ export const useTimerStore = defineStore("timer", () => {
     phase.value = "finished";
 
     if (mode.value === "work") {
+      const minutes = Math.round(totalMs.value / 60000);
       todayCount.value++;
-      totalMinutes.value += DEFAULT_WORK_MINUTES;
+      totalMinutes.value += minutes;
+      lastCompletedMinutes.value = minutes;
+      completionId.value++;
       // 自动切换到休息
       setMode("break");
     } else {
@@ -150,6 +157,8 @@ export const useTimerStore = defineStore("timer", () => {
     totalMs,
     todayCount,
     totalMinutes,
+    lastCompletedMinutes,
+    completionId,
     progress,
     displayTime,
     isRunning,
