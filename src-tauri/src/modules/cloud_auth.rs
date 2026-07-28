@@ -156,7 +156,7 @@ pub fn load_credentials(app: &AppHandle) -> Result<Option<Credentials>, String> 
     }
     
     let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let mut creds: Credentials = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    let creds: Credentials = serde_json::from_str(&content).map_err(|e| e.to_string())?;
     
     // 解密密码（原地替换）
     if let Some(ref encrypted) = creds.password_encrypted {

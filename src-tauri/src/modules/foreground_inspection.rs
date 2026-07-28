@@ -11,8 +11,6 @@ use tokio::sync::mpsc;
 
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowTextW};
-#[cfg(windows)]
-use windows::Win32::Foundation::HWND;
 
 /// 检测状态
 pub struct DetectionState {
@@ -43,7 +41,7 @@ pub struct DetectionResult {
 pub fn get_foreground_window_title() -> Option<String> {
     unsafe {
         let hwnd = GetForegroundWindow();
-        if hwnd.0 == 0 {
+        if hwnd.0.is_null() {
             return None;
         }
         
