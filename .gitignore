@@ -45,6 +45,11 @@ admin/feedback.html
 coverage/
 .npm-cache/
 
+# Rust build artifacts
+src-tauri/target/
+
+# Cargo lock (binary project, keep it; but target is huge)
+
 # Test artifacts / debug output
 *.txt
 !docs/**/*.txt
