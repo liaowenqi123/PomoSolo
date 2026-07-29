@@ -19,59 +19,15 @@ describe("Timer.vue", () => {
     return mount(Timer);
   };
 
-  it("应渲染 .timer-display 容器", () => {
+  it("应渲染 .time-display 容器", () => {
     const wrapper = mountComponent();
-    expect(wrapper.find(".timer-display").exists()).toBe(true);
+    expect(wrapper.find(".time-display").exists()).toBe(true);
   });
 
   it("初始应显示格式化时间 25:00", () => {
     const wrapper = mountComponent();
-    const timeEl = wrapper.find(".timer-display__time");
+    const timeEl = wrapper.find(".time-display");
     expect(timeEl.text()).toBe("25:00");
-  });
-
-  it("初始 phase=ready 时应显示『准备开始』", () => {
-    const wrapper = mountComponent();
-    const status = wrapper.find(".timer-display__status");
-    expect(status.text()).toBe("准备开始");
-  });
-
-  it("running 状态下 work 模式应显示『专注中』", async () => {
-    const wrapper = mountComponent();
-    const store = useTimerStore();
-    store.start();
-    await wrapper.vm.$nextTick();
-
-    const status = wrapper.find(".timer-display__status");
-    expect(status.text()).toBe("专注中");
-  });
-
-  it("running 状态下 break 模式应显示『休息中』", async () => {
-    const wrapper = mountComponent();
-    const store = useTimerStore();
-    store.setMode("break");
-    store.start();
-    await wrapper.vm.$nextTick();
-
-    const status = wrapper.find(".timer-display__status");
-    expect(status.text()).toBe("休息中");
-  });
-
-  it("finished 状态应显示『已完成』", async () => {
-    const wrapper = mountComponent();
-    const store = useTimerStore();
-    // 通过推进时间触发完成
-    store.start();
-    vi.advanceTimersByTime(25 * 60 * 1000 + 1000);
-    await wrapper.vm.$nextTick();
-
-    // 注意：complete 后会自动 setMode('break') 并把 phase 设为 ready
-    // 因此 finished 状态可能稍纵即逝。这里直接断言 store 行为：
-    // 已经完成至少一次番茄钟，且最终回到 ready/break 状态
-    expect(store.todayCount).toBe(1);
-    // 状态文本应为『休息中』或『准备开始』
-    const status = wrapper.find(".timer-display__status");
-    expect(["休息中", "准备开始"]).toContain(status.text());
   });
 
   it("切换到 break 模式应显示 05:00", async () => {
@@ -80,7 +36,7 @@ describe("Timer.vue", () => {
     store.setMode("break");
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.find(".timer-display__time").text()).toBe("05:00");
+    expect(wrapper.find(".time-display").text()).toBe("05:00");
   });
 
   it("时间应随计时减少而更新", async () => {
@@ -91,7 +47,7 @@ describe("Timer.vue", () => {
     vi.advanceTimersByTime(5000);
     await wrapper.vm.$nextTick();
 
-    const text = wrapper.find(".timer-display__time").text();
+    const text = wrapper.find(".time-display").text();
     // 时间格式应为 MM:SS
     expect(text).toMatch(/^\d{2}:\d{2}$/);
     // 应小于 25:00
@@ -105,53 +61,21 @@ describe("Timer.vue", () => {
     vi.advanceTimersByTime(10000); // 10 秒
     await wrapper.vm.$nextTick();
 
-    expect(wrapper.find(".timer-display__time").text()).toBe(store.displayTime);
+    expect(wrapper.find(".time-display").text()).toBe(store.displayTime);
   });
 
-  it("phase=finished 时应显示『已完成』（覆盖 v-else 分支）", async () => {
+  it("完成后应增加 todayCount 并切换到 break 模式显示 05:00", async () => {
     const wrapper = mountComponent();
     const store = useTimerStore();
-    // 直接设置 phase 为 finished（complete() 中此状态稍纵即逝）
-    store.phase = "finished";
+    // 通过推进时间触发完成
+    store.start();
+    vi.advanceTimersByTime(25 * 60 * 1000 + 1000);
     await wrapper.vm.$nextTick();
-    expect(wrapper.find(".timer-display__status").text()).toBe("已完成");
-  });
 
-  it("phase=ready 且 mode=work 时显示『准备开始』（覆盖 ready 分支）", async () => {
-    const wrapper = mountComponent();
-    const store = useTimerStore();
-    store.phase = "ready";
-    store.mode = "work";
-    await wrapper.vm.$nextTick();
-    expect(wrapper.find(".timer-display__status").text()).toBe("准备开始");
-  });
-
-  it("phase=running 且 mode=work 时显示『专注中』（覆盖 running+work 分支）", async () => {
-    const wrapper = mountComponent();
-    const store = useTimerStore();
-    store.phase = "running";
-    store.mode = "work";
-    await wrapper.vm.$nextTick();
-    expect(wrapper.find(".timer-display__status").text()).toBe("专注中");
-  });
-
-  it("phase=running 且 mode=break 时显示『休息中』（覆盖 running+break 分支）", async () => {
-    const wrapper = mountComponent();
-    const store = useTimerStore();
-    store.phase = "running";
-    store.mode = "break";
-    await wrapper.vm.$nextTick();
-    expect(wrapper.find(".timer-display__status").text()).toBe("休息中");
-  });
-
-  it("phase 切换 finished → ready 时状态文本应同步更新", async () => {
-    const wrapper = mountComponent();
-    const store = useTimerStore();
-    store.phase = "finished";
-    await wrapper.vm.$nextTick();
-    expect(wrapper.find(".timer-display__status").text()).toBe("已完成");
-    store.phase = "ready";
-    await wrapper.vm.$nextTick();
-    expect(wrapper.find(".timer-display__status").text()).toBe("准备开始");
+    // complete 后会自动 setMode('break') 并把 phase 设为 ready
+    expect(store.todayCount).toBe(1);
+    expect(store.mode).toBe("break");
+    // 时间应显示 break 模式的初始时间
+    expect(wrapper.find(".time-display").text()).toBe("05:00");
   });
 });

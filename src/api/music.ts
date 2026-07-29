@@ -120,21 +120,21 @@ export function musicSetPlayMode(mode: PlayMode): Promise<void> {
   return invoke<void>("music_set_play_mode", { mode });
 }
 
-// ===== 状态查询 =====
+// ===== 状态查询（fire-and-forget，数据通过事件返回） =====
 
-/** 获取当前播放状态 */
-export function musicGetStatus(): Promise<MusicStatus> {
-  return invoke<MusicStatus>("music_get_status");
+/** 获取当前播放状态（结果通过 music-status 事件返回） */
+export function musicGetStatus(): Promise<void> {
+  return invoke<void>("music_get_status");
 }
 
-/** 获取播放列表 */
-export function musicGetPlaylist(): Promise<PlaylistData> {
-  return invoke<PlaylistData>("music_get_playlist");
+/** 获取播放列表（结果通过 music-playlist 事件返回） */
+export function musicGetPlaylist(): Promise<void> {
+  return invoke<void>("music_get_playlist");
 }
 
-/** 获取输出设备列表 */
-export function musicGetDevices(): Promise<MusicDevicesPayload> {
-  return invoke<MusicDevicesPayload>("music_get_devices");
+/** 获取输出设备列表（结果通过 music-devices 事件返回） */
+export function musicGetDevices(): Promise<void> {
+  return invoke<void>("music_get_devices");
 }
 
 /** 设置输出设备 */

@@ -1,26 +1,37 @@
 <script setup lang="ts">
 /**
- * 窗口控制按钮
+ * 窗口控制按钮（最小化 / 关闭）
  *
- * 调用 src/api/window.ts 的最小化 / 关闭命令。
- * 参考 electron 旧版 titlebar minimize / close 按钮。
+ * 参照原 Electron 版 .btn-minimize / .btn-close 样式：
+ *   圆形按钮，半透明白色背景，右上角绝对定位。
+ *   使用 × / − 字符图标。
+ *
+ * 最小化按钮在计时器运行时会触发迷你模式（由父组件控制）。
  */
-import { minimizeWindow, closeWindow } from "../api/window";
+import { closeWindow, minimizeWindow } from "../api/window";
 
-async function onMinimize(): Promise<void> {
-  try {
-    await minimizeWindow();
-  } catch (e) {
-    // 后端未就绪时降级到浏览器 API（开发环境）
-    console.warn("[WindowControls] minimizeWindow 失败:", e);
+const props = defineProps<{
+  /** 最小化按钮回调（父组件可拦截进入迷你模式） */
+  onMinimize?: () => void;
+}>();
+
+async function onMinimizeClick() {
+  if (props.onMinimize) {
+    props.onMinimize();
+  } else {
+    try {
+      await minimizeWindow();
+    } catch (e) {
+      console.warn("[WindowControls] minimize failed:", e);
+    }
   }
 }
 
-async function onClose(): Promise<void> {
+async function onClose() {
   try {
     await closeWindow();
   } catch (e) {
-    console.warn("[WindowControls] closeWindow 失败:", e);
+    console.warn("[WindowControls] close failed:", e);
   }
 }
 </script>
@@ -30,54 +41,50 @@ async function onClose(): Promise<void> {
     <button
       class="window-controls__btn window-controls__btn--minimize"
       title="最小化"
-      @click="onMinimize"
+      @click="onMinimizeClick"
     >
-      <svg width="12" height="12" viewBox="0 0 12 12">
-        <rect x="1" y="5.5" width="10" height="1" fill="currentColor" />
-      </svg>
+      −
     </button>
     <button
       class="window-controls__btn window-controls__btn--close"
       title="关闭"
       @click="onClose"
     >
-      <svg width="12" height="12" viewBox="0 0 12 12">
-        <path
-          d="M1 1 L11 11 M11 1 L1 11"
-          stroke="currentColor"
-          stroke-width="1.2"
-            fill="none"
-        />
-      </svg>
+      ×
     </button>
   </div>
 </template>
 
 <style scoped>
-.window-controls {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
 .window-controls__btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  position: absolute;
+  top: 10px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  transition: all 0.3s ease;
   display: flex;
-  align-items: center;
   justify-content: center;
-  color: var(--text-secondary);
-  transition: all 0.15s ease;
+  align-items: center;
+  z-index: 100;
 }
 
-.window-controls__btn--minimize:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
+.window-controls__btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  color: white;
 }
 
-.window-controls__btn--close:hover {
-  background: #e94560;
-  color: #fff;
+.window-controls__btn--close {
+  right: 10px;
+  font-size: 14px;
+}
+
+.window-controls__btn--minimize {
+  right: 42px;
+  font-size: 16px;
 }
 </style>

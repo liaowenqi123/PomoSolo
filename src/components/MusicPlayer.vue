@@ -10,6 +10,7 @@
  */
 import { ref, computed, onMounted } from "vue";
 import { useMusicStore } from "@/stores/music";
+import { useSettingsStore } from "@/stores/settings";
 import { useTauriEvent } from "@/api/events";
 import type {
   MusicReadyPayload,
@@ -25,6 +26,11 @@ import type {
 } from "@/api/music";
 
 const store = useMusicStore();
+const settings = useSettingsStore();
+
+const emit = defineEmits<{
+  (e: "charts"): void;
+}>();
 
 // ===== 局部 UI 状态 =====
 const isPlaylistOpen = ref(false);
@@ -150,8 +156,13 @@ if (typeof document !== "undefined") {
 
 <template>
   <div class="music-player" :class="{ collapsed: store.isCollapsed }">
-    <!-- 收起状态：仅显示律动条和曲名 -->
-    <div v-if="store.isCollapsed" class="music-player__collapsed" @click="store.toggleCollapse()">
+    <!-- 顶部收起按钮（始终可见） -->
+    <button class="music-collapse-btn" title="收起" @click="store.toggleCollapse()">
+      <span class="music-collapse-icon">▼</span>
+    </button>
+
+    <!-- 收起状态：律动条 + 曲名（绝对定位，opacity 过渡） -->
+    <div class="music-player__collapsed" @click="store.toggleCollapse()">
       <div class="music-visualizer">
         <span
           v-for="i in 4"
@@ -164,21 +175,83 @@ if (typeof document !== "undefined") {
       <span class="music-player__collapsed-track">{{ store.trackName || "未播放" }}</span>
     </div>
 
-    <!-- 展开状态：完整控制栏 -->
-    <div v-else class="music-player__main">
-      <!-- 左侧：曲名信息 -->
-      <div class="music-player__track">
-        <span
-          class="music-player__track-name"
-          :class="{ error: !!store.playError, empty: !store.hasMusic }"
-        >
-          {{ store.playError || (store.hasMusic ? (store.trackName || "未播放") : "无音乐") }}
-        </span>
-      </div>
+    <!-- 展开内容（max-height 过渡动画，收起时挤压上方空间） -->
+    <div class="music-wrapper">
+      <div class="music-player__main">
+        <!-- 顶部信息行：🎵 曲名 + 音量 + 设备 + 播放列表 -->
+        <div class="music-info">
+          <span class="music-icon">🎵</span>
+          <span
+            class="music-player__track-name"
+            :class="{ error: !!store.playError, empty: !store.hasMusic }"
+          >
+            {{ store.playError || (store.hasMusic ? (store.trackName || "未播放") : "无音乐") }}
+          </span>
 
-      <!-- 中间：控制按钮 + 进度条 -->
-      <div class="music-player__center">
+          <!-- 音量 -->
+          <div class="music-volume">
+            <button
+              class="music-btn"
+              :title="`音量 ${Math.round(store.volume * 100)}%`"
+              @click="isVolumeOpen = !isVolumeOpen"
+            >
+              {{ store.volumeIcon }}
+            </button>
+            <div v-show="isVolumeOpen" class="music-volume__slider">
+              <input
+                type="range"
+                min="0"
+                max="100"
+                :value="Math.round(store.volume * 100)"
+                @input="handleVolumeInput"
+              />
+            </div>
+          </div>
+
+          <!-- 设备 -->
+          <div class="music-device">
+            <button class="music-btn" title="输出设备" @click="toggleDeviceList">🎧</button>
+            <div v-show="isDeviceOpen" class="music-device__list">
+              <div class="music-device__warning">⚠️ 除非你真的知道你在做什么，请不要更改此设置</div>
+              <div
+                v-for="device in store.devices"
+                :key="device.id"
+                class="music-device__item"
+                :class="{ current: device.id === store.currentDeviceId }"
+                @click="store.setDevice(device.id); isDeviceOpen = false"
+              >
+                <span class="music-device__name">{{ device.name }}</span>
+                <span v-if="device.id === store.currentDeviceId" class="music-device__check">✓</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 播放列表 -->
+          <button class="music-btn music-playlist-btn" title="播放列表" @click="togglePlaylist">
+            📋
+          </button>
+        </div>
+
+        <!-- 中间进度条行：当前时间 + 进度条 + 总时长 -->
+        <div class="music-progress" @click="handleProgressClick">
+          <span class="music-progress__time">{{ store.currentTimeText }}</span>
+          <div ref="progressBarRef" class="music-progress__bar">
+            <div class="music-progress__fill" :style="{ width: store.progress + '%' }"></div>
+            <div class="music-progress__handle" :style="{ left: store.progress + '%' }"></div>
+          </div>
+          <span class="music-progress__time">{{ store.durationText }}</span>
+        </div>
+
+        <!-- 底部控制行：📊榜单(左) + ⏮上一首 + ▶播放 + ⏭下一首 + 🔀模式(右) -->
         <div class="music-controls">
+          <button
+            v-if="settings.settings.showChartsBtn"
+            class="music-btn music-btn--small music-charts-btn"
+            title="热歌榜单"
+            @click="emit('charts')"
+          >
+            📊
+          </button>
           <button
             class="music-btn music-btn--prev"
             :disabled="!store.hasPrev"
@@ -206,60 +279,6 @@ if (typeof document !== "undefined") {
             {{ store.playModeIcon }}
           </button>
         </div>
-
-        <div class="music-progress" @click="handleProgressClick">
-          <span class="music-progress__time">{{ store.currentTimeText }}</span>
-          <div ref="progressBarRef" class="music-progress__bar">
-            <div class="music-progress__fill" :style="{ width: store.progress + '%' }"></div>
-            <div class="music-progress__handle" :style="{ left: store.progress + '%' }"></div>
-          </div>
-          <span class="music-progress__time">{{ store.durationText }}</span>
-        </div>
-      </div>
-
-      <!-- 右侧：音量、设备、播放列表、收起 -->
-      <div class="music-player__right">
-        <!-- 音量 -->
-        <div class="music-volume">
-          <button class="music-btn" :title="`音量 ${Math.round(store.volume * 100)}%`" @click="isVolumeOpen = !isVolumeOpen">
-            {{ store.volumeIcon }}
-          </button>
-          <div v-show="isVolumeOpen" class="music-volume__slider">
-            <input
-              type="range"
-              min="0"
-              max="100"
-              :value="Math.round(store.volume * 100)"
-              @input="handleVolumeInput"
-            />
-          </div>
-        </div>
-
-        <!-- 设备 -->
-        <div class="music-device">
-          <button class="music-btn" title="输出设备" @click="toggleDeviceList">🔊</button>
-          <div v-show="isDeviceOpen" class="music-device__list">
-            <div class="music-device__warning">⚠️ 除非你真的知道你在做什么，请不要更改此设置</div>
-            <div
-              v-for="device in store.devices"
-              :key="device.id"
-              class="music-device__item"
-              :class="{ current: device.id === store.currentDeviceId }"
-              @click="store.setDevice(device.id); isDeviceOpen = false"
-            >
-              <span class="music-device__name">{{ device.name }}</span>
-              <span v-if="device.id === store.currentDeviceId" class="music-device__check">✓</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 播放列表 -->
-        <button class="music-btn music-playlist-btn" title="播放列表" @click="togglePlaylist">
-          📋
-        </button>
-
-        <!-- 收起 -->
-        <button class="music-btn" title="收起" @click="store.toggleCollapse()">▼</button>
 
         <!-- 播放列表面板 -->
         <div v-show="isPlaylistOpen" class="music-playlist">
@@ -303,29 +322,94 @@ if (typeof document !== "undefined") {
 </template>
 
 <style scoped>
+/* 音乐播放器 - 绝对定位在 main-content 底部居中（匹配原版） */
+/* z-index 提升至 200，高于 HeaderButtons(100)/ModeSlider(50)/sidebar-collapse-btn(10)，
+   确保输出设备弹框与播放列表浮层不被侧边栏区域遮挡 */
 .music-player {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
   width: 100%;
-  background: rgba(20, 20, 30, 0.85);
-  backdrop-filter: blur(10px);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  color: #eee;
+  max-width: 300px;
+  overflow: visible;
+  z-index: 200;
+  color: #fff;
   font-size: 13px;
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
+/* 收起按钮 - 顶部小条（紧贴播放器顶部边缘） */
+.music-collapse-btn {
+  position: absolute;
+  top: -1px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  z-index: 10;
+}
+
+.music-collapse-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  width: 70px;
+  height: 10px;
+  border-radius: 0 0 9px 9px;
+}
+
+.music-collapse-icon {
+  font-size: 6px;
+  color: rgba(255, 255, 255, 0.6);
+  transition: transform 0.45s cubic-bezier(0.5, 0, 0.5, 1);
+  transform: rotate(0deg);  /* 展开状态：▼向下 */
+}
+
+/* 收起状态：图标翻转 ▲向上 */
+.music-player.collapsed .music-collapse-icon {
+  transform: rotate(180deg);
+}
+
+/* ============ 收起状态：律动条 + 曲名（绝对定位，opacity 过渡） ============ */
 .music-player__collapsed {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 6px 16px;
   cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.45s cubic-bezier(0.5, 0, 0.5, 1);
+}
+
+.music-player.collapsed .music-player__collapsed {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .music-player__collapsed-track {
   font-size: 12px;
-  color: #ccc;
+  color: rgba(255, 255, 255, 0.7);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
 }
 
 .music-visualizer {
@@ -338,7 +422,7 @@ if (typeof document !== "undefined") {
 .music-visualizer__bar {
   width: 3px;
   height: 4px;
-  background: #e94560;
+  background: rgba(255, 255, 255, 0.5);
   border-radius: 2px;
 }
 
@@ -351,25 +435,46 @@ if (typeof document !== "undefined") {
   50% { height: 14px; }
 }
 
-.music-player__main {
-  display: flex;
-  align-items: center;
-  padding: 8px 16px;
-  gap: 16px;
+/* ============ 展开内容容器：max-height 过渡实现收起/展开动画 ============ */
+.music-wrapper {
+  overflow: visible;
+  max-height: 300px;
+  transition: max-height 0.45s cubic-bezier(0.5, 0, 0.5, 1);
 }
 
-.music-player__track {
-  flex-shrink: 0;
-  width: 140px;
+.music-player.collapsed .music-wrapper {
+  max-height: 0;
   overflow: hidden;
 }
 
+.music-player__main {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 14px 6px 14px;
+  gap: 6px;
+}
+
+/* ============ 顶部信息行：🎵 曲名 + 音量 + 设备 + 播放列表 ============ */
+.music-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  overflow: visible;
+}
+
+.music-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
 .music-player__track-name {
-  display: block;
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  color: rgba(255, 255, 255, 0.95);
 }
 
 .music-player__track-name.error {
@@ -377,64 +482,124 @@ if (typeof document !== "undefined") {
 }
 
 .music-player__track-name.empty {
-  color: #666;
+  color: rgba(255, 255, 255, 0.5);
 }
 
-.music-player__center {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
+/* ============ 底部控制行：榜单(左) + 上一首 + 播放 + 下一首 + 模式(右) ============ */
 .music-controls {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 12px;
+  position: relative;
 }
 
+/* 左侧榜单按钮用绝对定位，不影响中间按钮居中 */
+.music-controls .music-charts-btn {
+  position: absolute;
+  left: 0;
+}
+
+/* 右侧模式按钮用绝对定位，不影响中间按钮居中 */
+.music-controls .music-btn--mode {
+  position: absolute;
+  right: 0;
+}
+
+/* 基础按钮（音量/设备/播放列表）：24x24 圆形，参照原版 .music-device-btn */
 .music-btn {
-  background: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
   border: none;
-  color: #ddd;
-  font-size: 16px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition: all 0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
 }
 
 .music-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+  transform: scale(1.1);
+}
+
+.music-btn:active {
+  transform: scale(0.95);
 }
 
 .music-btn:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: not-allowed;
+  pointer-events: none;
 }
 
-.music-btn--play {
-  font-size: 18px;
+/* 小按钮（榜单/模式/播放列表）：20x20 圆形，参照原版 .music-btn-small */
+.music-btn--small,
+.music-btn--mode,
+.music-playlist-btn {
+  width: 20px;
+  height: 20px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.music-btn--small:hover,
+.music-btn--mode:hover,
+.music-playlist-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+  transform: scale(1.1);
+}
+
+/* 主控制按钮（上一首/下一首）：32x32 圆形，参照原版 .music-btn */
+.music-btn--prev,
+.music-btn--next {
   width: 32px;
   height: 32px;
-  background: rgba(233, 69, 96, 0.2);
-  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 12px;
+}
+
+.music-btn--prev:hover,
+.music-btn--next:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: scale(1.05);
+}
+
+/* 播放按钮：38x38 圆形，参照原版 .music-play */
+.music-btn--play {
+  width: 38px;
+  height: 38px;
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+  font-size: 14px;
+}
+
+.music-btn--play:hover {
+  background: rgba(255, 255, 255, 0.35);
+  transform: scale(1.05);
 }
 
 .music-btn--play[data-playing="true"] {
-  background: rgba(233, 69, 96, 0.4);
+  background: rgba(255, 255, 255, 0.35);
 }
 
+/* 模式按钮 active 状态：参照原版，背景变亮 */
 .music-btn--mode.active {
-  color: #e94560;
+  background: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.95);
 }
 
+/* ============ 进度条行 ============ */
 .music-progress {
   display: flex;
   align-items: center;
@@ -443,7 +608,7 @@ if (typeof document !== "undefined") {
 
 .music-progress__time {
   font-size: 11px;
-  color: #999;
+  color: #fff;
   font-variant-numeric: tabular-nums;
   width: 36px;
   text-align: center;
@@ -476,47 +641,109 @@ if (typeof document !== "undefined") {
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
 }
 
-.music-player__right {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+/* ============ 音量控制 ============ */
+/* 仅 .music-volume 设为 relative，让音量拨动条相对其定位 */
+/* .music-device 不设 relative，让设备列表相对 .music-info 定位（参照原版） */
+.music-volume {
   position: relative;
 }
 
-.music-volume,
-.music-device {
-  position: relative;
-}
-
+/* 音量拨动条：z-index 高于收起按钮（10），可暂时遮住展开/收起按钮 */
 .music-volume__slider {
   position: absolute;
   bottom: 100%;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(30, 30, 40, 0.95);
-  padding: 10px;
-  border-radius: 8px;
   margin-bottom: 6px;
+  background: linear-gradient(145deg, rgba(255, 120, 120, 0.5), rgba(255, 100, 100, 0.4));
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 10px 6px;
+  z-index: 1000;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(4px);
 }
 
+/* 休息模式 - 绿色调 */
+.container.break-mode .music-volume__slider {
+  background: linear-gradient(145deg, rgba(100, 200, 140, 0.5), rgba(80, 180, 120, 0.4));
+}
+
+/* 竖向滑块：4px 宽 × 100px 高（参照原版） */
 .music-volume__slider input {
-  width: 100px;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 4px;
+  height: 100px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
   writing-mode: vertical-lr;
   direction: rtl;
 }
 
+.music-volume__slider input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s ease;
+}
+
+.music-volume__slider input::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+
+.music-volume__slider input::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+/* ============ 输出设备列表 ============ */
+/* z-index 提升至 9999，确保在 .music-player 层叠上下文内高于其他浮层；
+   .music-player 自身 z-index 已提升至 200，高于侧边栏与 HeaderButtons */
 .music-device__list {
   position: absolute;
   bottom: 100%;
   right: 0;
-  background: rgba(30, 30, 40, 0.95);
+  margin-bottom: 4px;
+  background: rgba(40, 40, 50, 0.98);
   border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
   padding: 6px;
-  margin-bottom: 6px;
   min-width: 220px;
-  max-height: 240px;
+  max-height: 200px;
   overflow-y: auto;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 9999;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+/* 设备列表滚动条 */
+.music-device__list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.music-device__list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.music-device__list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.music-device__list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .music-device__warning {
@@ -557,18 +784,22 @@ if (typeof document !== "undefined") {
   font-weight: 700;
 }
 
+/* ============ 播放列表面板 ============ */
+/* z-index 与设备列表一致(9999)；宽度由 200px 扩展至 240px，完整显示歌曲信息 */
 .music-playlist {
   position: absolute;
   bottom: 100%;
   right: 0;
-  background: rgba(25, 25, 35, 0.97);
-  border-radius: 10px;
-  margin-bottom: 6px;
-  width: 320px;
-  max-height: 360px;
+  background: rgba(40, 40, 50, 0.98);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  margin-bottom: 8px;
+  width: 240px;
+  max-height: 280px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  z-index: 9999;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
 .music-playlist__header {
@@ -594,6 +825,24 @@ if (typeof document !== "undefined") {
   flex: 1;
 }
 
+/* 播放列表滚动条 */
+.music-playlist__items::-webkit-scrollbar {
+  width: 4px;
+}
+
+.music-playlist__items::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.music-playlist__items::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+}
+
+.music-playlist__items::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
 .music-playlist__empty {
   text-align: center;
   color: #666;
@@ -604,7 +853,7 @@ if (typeof document !== "undefined") {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   cursor: pointer;
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
 }
@@ -618,7 +867,7 @@ if (typeof document !== "undefined") {
 }
 
 .music-playlist__tag {
-  font-size: 10px;
+  font-size: 8px;
   padding: 2px 6px;
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.1);
@@ -628,7 +877,7 @@ if (typeof document !== "undefined") {
 
 .music-playlist__name {
   flex: 1;
-  font-size: 12px;
+  font-size: 10px;
   color: #ddd;
   white-space: nowrap;
   overflow: hidden;
@@ -650,6 +899,6 @@ if (typeof document !== "undefined") {
 
 .music-playlist__playing {
   color: #e94560;
-  font-size: 12px;
+  font-size: 9px;
 }
 </style>

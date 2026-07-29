@@ -84,7 +84,7 @@ describe("WindowControls.vue", () => {
     expect(minimizeWindowMock).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalled();
     const warnArgs = warnSpy.mock.calls[0];
-    expect(warnArgs[0]).toContain("minimizeWindow 失败");
+    expect(warnArgs[0]).toContain("[WindowControls] minimize failed");
     warnSpy.mockRestore();
   });
 
@@ -103,15 +103,15 @@ describe("WindowControls.vue", () => {
     expect(closeWindowMock).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalled();
     const warnArgs = warnSpy.mock.calls[0];
-    expect(warnArgs[0]).toContain("closeWindow 失败");
+    expect(warnArgs[0]).toContain("[WindowControls] close failed");
     warnSpy.mockRestore();
   });
 
-  it("两个按钮都应包含 svg 图标", () => {
+  it("两个按钮都应包含图标字符", () => {
     const wrapper = mountComponent();
     const buttons = wrapper.findAll("button");
-    expect(buttons[0].find("svg").exists()).toBe(true);
-    expect(buttons[1].find("svg").exists()).toBe(true);
+    expect(buttons[0].text().trim()).toBe("−");
+    expect(buttons[1].text().trim()).toBe("×");
   });
 
   it("根元素应包含 window-controls 类名", () => {

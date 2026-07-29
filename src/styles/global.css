@@ -1,7 +1,61 @@
+/* 番茄钟 - 基础样式 */
+/* 亮色模式变量（默认） */
+:root {
+  --bg-color: #f5f5f5;
+  --text-color: #333333;
+  --primary-color: #ff6b6b;
+  --accent: #e94560;
+  --secondary-color: #4ecdc4;
+  --card-bg: #ffffff;
+  --sidebar-bg: #fafafa;
+  --border-color: #dddddd;
+  --btn-bg: #e0e0e0;
+  --btn-hover: #d0d0d0;
+  --container-gradient-start: rgba(234, 102, 102, 0.88);
+  --container-gradient-end: rgba(140, 50, 50, 0.85);
+  --break-gradient-start: rgba(90, 180, 140, 0.88);
+  --break-gradient-end: rgba(75, 118, 162, 0.78);
+  --plan-sidebar-bg: rgba(50, 60, 80, 0.75);
+  --plan-sidebar-border: rgba(100, 120, 150, 0.3);
+  --sidebar-border-work: rgba(255, 200, 200, 0.25);
+  --sidebar-border-break: rgba(200, 240, 220, 0.25);
+  --plan-sidebar-work-bg: rgba(200, 100, 100, 0.88);
+  --plan-sidebar-break-bg: rgba(100, 180, 130, 0.75);
+  --plan-item-work-bg: rgba(200, 80, 80, 0.85);
+  --plan-item-break-bg: rgba(80, 140, 100, 0.75);
+}
+
+/* 深色模式变量 */
+body.dark-theme {
+  --bg-color: #1e1e1e;
+  --text-color: #f0f0f0;
+  --primary-color: #ff8a8a;
+  --accent: #e94560;
+  --secondary-color: #6dd5d5;
+  --card-bg: #2d2d2d;
+  --sidebar-bg: #252525;
+  --border-color: #444444;
+  --btn-bg: #3a3a3a;
+  --btn-hover: #4a4a4a;
+  --container-gradient-start: rgba(80, 40, 40, 0.85);
+  --container-gradient-end: rgba(60, 30, 30, 0.8);
+  --break-gradient-start: rgba(30, 60, 30, 0.95);
+  --break-gradient-end: rgba(20, 40, 20, 0.85);
+  --plan-sidebar-bg: rgba(20, 30, 40, 0.85);
+  --plan-sidebar-border: rgba(60, 80, 100, 0.4);
+  --sidebar-border-work: rgba(255, 180, 180, 0.2);
+  --sidebar-border-break: rgba(180, 230, 200, 0.2);
+  --plan-sidebar-work-bg: rgba(80, 40, 40, 0.85);
+  --plan-sidebar-break-bg: rgba(30, 60, 30, 0.95);
+  --plan-item-work-bg: rgba(120, 40, 40, 0.8);
+  --plan-item-break-bg: rgba(30, 70, 40, 0.8);
+}
+
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  user-select: none;
 }
 
 html,
@@ -10,10 +64,19 @@ body,
   width: 100%;
   height: 100%;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: transparent;
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
   user-select: none;
   -webkit-user-select: none;
+}
+
+body {
+  background: transparent;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
 }
 
 button {
@@ -22,4 +85,46 @@ button {
   background: none;
   color: inherit;
   font-family: inherit;
+}
+
+/* ============ 公共滚动条样式 ============ */
+.scrollable {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+  scrollbar-gutter: stable;
+}
+
+.scrollable::-webkit-scrollbar {
+  width: 5px;
+}
+
+.scrollable::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.scrollable::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+}
+
+.scrollable::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+/* ============ 通用弹窗遮罩模板 ============ */
+/* 所有 Modal/浮层组件的遮罩层都应使用此类，或直接使用 <Modal> 组件 */
+/* 自动处理：相对 .container 定位 + 被圆角裁剪 + 居中 + 暗色背景 */
+/* 新增弹窗组件时只需 <div class="app-modal-overlay"> 即可，无需手动设置 position */
+.app-modal-overlay {
+  position: absolute;  /* 相对 .container 定位，被 .container 的 overflow:hidden 裁剪在圆角内 */
+  inset: 0;
+  z-index: 3000;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  box-sizing: border-box;
 }

@@ -2,7 +2,7 @@ mod commands;
 mod modules;
 mod state;
 
-use state::AppState;
+use state::{AppState, ChartsState, MusicState};
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -10,6 +10,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(AppState::new())
+        .manage(MusicState::new())
+        .manage(ChartsState::new())
         .invoke_handler(tauri::generate_handler![
             // 计时器
             commands::timer::get_timer_state,
@@ -24,6 +26,10 @@ pub fn run() {
             commands::window::set_always_on_top,
             commands::window::bring_to_front,
             commands::window::cancel_always_on_top,
+            commands::window::show_garden_window,
+            commands::window::hide_garden_window,
+            commands::window::enter_mini_mode,
+            commands::window::exit_mini_mode,
             // 云端认证
             commands::cloud_auth::save_credentials,
             commands::cloud_auth::load_credentials,
@@ -52,8 +58,41 @@ pub fn run() {
             commands::foreground::foreground_get_status,
             commands::foreground::foreground_set_api_key,
             commands::foreground::foreground_is_ready,
+            // 音乐播放器
+            commands::music::music_toggle_play,
+            commands::music::music_next,
+            commands::music::music_prev,
+            commands::music::music_seek,
+            commands::music::music_set_volume,
+            commands::music::music_set_play_mode,
+            commands::music::music_get_status,
+            commands::music::music_get_playlist,
+            commands::music::music_get_devices,
+            commands::music::music_set_device,
+            commands::music::music_play_song,
+            commands::music::music_delete_song,
+            commands::music::music_get_custom_tags,
+            commands::music::music_add_custom_tag,
+            commands::music::music_delete_custom_tag,
+            commands::music::music_update_tag,
+            // 音乐榜单 / 下载
+            commands::charts::charts_fetch,
+            commands::charts::download_song,
+            commands::charts::get_download_status,
         ])
         .setup(|_app| {
+            // Windows 11：禁用 DWM 系统级窗口圆角，避免与 CSS 圆角形成双层圆角。
+            // 系统边框（细线阴影）由 tauri.conf.json 的 `shadow: false` 配置移除，
+            // 不要在此处修改窗口样式（WS_THICKFRAME 等），否则 DWM 会回退到老式边框渲染。
+            #[cfg(windows)]
+            {
+                if let Some(main_window) = _app.get_webview_window("main") {
+                    commands::window::disable_window_rounding(&main_window);
+                }
+                if let Some(garden_window) = _app.get_webview_window("garden") {
+                    commands::window::disable_window_rounding(&garden_window);
+                }
+            }
             #[cfg(debug_assertions)]
             {
                 // 开发模式下打开 DevTools

@@ -27,6 +27,15 @@ describe("Charts.vue", () => {
   const mountComponent = (visible = true) =>
     mount(Charts, { props: { visible } });
 
+  /** 辅助：通过自定义免责声明弹窗开启下载模式 */
+  async function enableDownloadMode(wrapper: ReturnType<typeof mountComponent>) {
+    await wrapper.find('.charts-download-toggle input[type="checkbox"]').trigger("change");
+    // 免责声明弹窗出现
+    expect(wrapper.find(".charts-disclaimer").exists()).toBe(true);
+    // 点击「继续开启」
+    await wrapper.find(".charts-disclaimer__btn--confirm").trigger("click");
+  }
+
   it("visible=false 时不渲染", () => {
     const wrapper = mountComponent(false);
     expect(wrapper.find(".charts-modal").exists()).toBe(false);
@@ -64,32 +73,134 @@ describe("Charts.vue", () => {
     expect(chartsFetchMock).toHaveBeenCalled();
   });
 
-  it("下载模式切换：confirm 后开启，显示下载列", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("下载模式切换：显示自定义免责声明弹窗（不使用 window.confirm）", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm");
     const wrapper = mountComponent(true);
-    expect(wrapper.find(".charts-th-download").exists()).toBe(false);
-    const checkbox = wrapper.find('.charts-download-toggle input[type="checkbox"]');
-    await checkbox.trigger("change");
-    expect(confirmSpy).toHaveBeenCalled();
-    expect(wrapper.find(".charts-th-download").exists()).toBe(true);
+    expect(wrapper.find(".charts-disclaimer").exists()).toBe(false);
+    await wrapper.find('.charts-download-toggle input[type="checkbox"]').trigger("change");
+    // 应显示自定义免责声明弹窗，而非调用 window.confirm
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(wrapper.find(".charts-disclaimer").exists()).toBe(true);
+    expect(wrapper.find(".charts-disclaimer__title").text()).toBe("⚠️ 下载须知");
     confirmSpy.mockRestore();
   });
 
-  it("confirm 取消时不开启下载模式", async () => {
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+  it("免责声明确认后开启下载模式，显示下载列", async () => {
+    const wrapper = mountComponent(true);
+    expect(wrapper.find(".charts-th-download").exists()).toBe(false);
+    await enableDownloadMode(wrapper);
+    expect(wrapper.find(".charts-th-download").exists()).toBe(true);
+    // 免责声明弹窗关闭
+    expect(wrapper.find(".charts-disclaimer").exists()).toBe(false);
+  });
+
+  it("免责声明取消时不开启下载模式", async () => {
     const wrapper = mountComponent(true);
     await wrapper.find('.charts-download-toggle input[type="checkbox"]').trigger("change");
+    expect(wrapper.find(".charts-disclaimer").exists()).toBe(true);
+    await wrapper.find(".charts-disclaimer__btn--cancel").trigger("click");
     expect(wrapper.find(".charts-th-download").exists()).toBe(false);
-    confirmSpy.mockRestore();
+    expect(wrapper.find(".charts-disclaimer").exists()).toBe(false);
   });
 
   it("下载列仅在 downloadMode=true 时可见", async () => {
     const wrapper = mountComponent(true);
     expect(wrapper.find(".charts-th-download").exists()).toBe(false);
-    // 直接通过 vm 不可访问内部状态；通过 confirm 开启
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    await wrapper.find('.charts-download-toggle input[type="checkbox"]').trigger("change");
+    await enableDownloadMode(wrapper);
     expect(wrapper.find(".charts-th-download").exists()).toBe(true);
+  });
+
+  it("开启下载模式后显示手动下载按钮", async () => {
+    const wrapper = mountComponent(true);
+    expect(wrapper.find(".charts-manual-download-btn").exists()).toBe(false);
+    await enableDownloadMode(wrapper);
+    expect(wrapper.find(".charts-manual-download-btn").exists()).toBe(true);
+    expect(wrapper.find(".charts-manual-download-btn").text()).toBe("📥 手动下载");
+  });
+
+  it("点击手动下载按钮打开下载弹窗", async () => {
+    const wrapper = mountComponent(true);
+    await enableDownloadMode(wrapper);
+    expect(wrapper.find(".download-dialog").exists()).toBe(false);
+    await wrapper.find(".charts-manual-download-btn").trigger("click");
+    expect(wrapper.find(".download-dialog").exists()).toBe(true);
+    expect(wrapper.find(".download-dialog__title").text()).toBe("📥 下载歌曲");
+  });
+
+  it("下载弹窗包含歌曲名称输入框", async () => {
+    const wrapper = mountComponent(true);
+    await enableDownloadMode(wrapper);
+    await wrapper.find(".charts-manual-download-btn").trigger("click");
+    const inputs = wrapper.findAll(".download-dialog__input");
+    expect(inputs).toHaveLength(2); // 歌曲名称 + 歌手
+    expect(inputs[0].attributes("placeholder")).toBe("请输入歌曲名称");
+  });
+
+  it("下载弹窗输入空歌曲名时显示提示，不调用 API", async () => {
+    const wrapper = mountComponent(true);
+    await enableDownloadMode(wrapper);
+    await wrapper.find(".charts-manual-download-btn").trigger("click");
+    // 直接点击下载（输入为空）
+    await wrapper.find(".download-dialog__btn--download").trigger("click");
+    expect(downloadSongMock).not.toHaveBeenCalled();
+    expect(wrapper.find(".download-dialog__hint").exists()).toBe(true);
+    expect(wrapper.find(".download-dialog__hint").text()).toBe("请输入歌曲名称");
+  });
+
+  it("下载弹窗输入歌曲名后调用 downloadSong API", async () => {
+    downloadSongMock.mockResolvedValue({ success: true, status: "downloaded" });
+    const wrapper = mountComponent(true);
+    await enableDownloadMode(wrapper);
+    await wrapper.find(".charts-manual-download-btn").trigger("click");
+    // 输入歌曲名
+    const inputs = wrapper.findAll(".download-dialog__input");
+    await inputs[0].setValue("我的歌");
+    await inputs[1].setValue("歌手名");
+    // 点击下载
+    await wrapper.find(".download-dialog__btn--download").trigger("click");
+    await flushPromises();
+    expect(downloadSongMock).toHaveBeenCalledWith("我的歌", "歌手名");
+  });
+
+  it("下载弹窗下载成功后显示成功状态", async () => {
+    downloadSongMock.mockResolvedValue({ success: true, status: "downloaded" });
+    const wrapper = mountComponent(true);
+    await enableDownloadMode(wrapper);
+    await wrapper.find(".charts-manual-download-btn").trigger("click");
+    await wrapper.find(".download-dialog__input").setValue("我的歌");
+    await wrapper.find(".download-dialog__btn--download").trigger("click");
+    await flushPromises();
+    const status = wrapper.find(".download-dialog__status");
+    expect(status.exists()).toBe(true);
+    expect(status.classes()).toContain("success");
+    expect(status.text()).toContain("下载成功");
+  });
+
+  it("下载弹窗下载失败显示错误状态", async () => {
+    downloadSongMock.mockResolvedValue({
+      success: false,
+      status: "no_video",
+      error: "未找到相关视频",
+    });
+    const wrapper = mountComponent(true);
+    await enableDownloadMode(wrapper);
+    await wrapper.find(".charts-manual-download-btn").trigger("click");
+    await wrapper.find(".download-dialog__input").setValue("不存在的歌");
+    await wrapper.find(".download-dialog__btn--download").trigger("click");
+    await flushPromises();
+    const status = wrapper.find(".download-dialog__status");
+    expect(status.exists()).toBe(true);
+    expect(status.classes()).toContain("error");
+    expect(status.text()).toContain("未找到相关视频");
+  });
+
+  it("下载弹窗取消按钮关闭弹窗", async () => {
+    const wrapper = mountComponent(true);
+    await enableDownloadMode(wrapper);
+    await wrapper.find(".charts-manual-download-btn").trigger("click");
+    expect(wrapper.find(".download-dialog").exists()).toBe(true);
+    await wrapper.find(".download-dialog__btn--cancel").trigger("click");
+    expect(wrapper.find(".download-dialog").exists()).toBe(false);
   });
 
   it("表格：rank（1/2/3 名带奖牌类）、歌曲、歌手、专辑", async () => {
@@ -109,19 +220,16 @@ describe("Charts.vue", () => {
   });
 
   it("空数据：未加载且无错误时显示『暂无数据』行", () => {
-    // mount visible=true，watch 非立即，不会自动 fetch → songs=[] errorMsg=null
     const wrapper = mountComponent(true);
     expect(wrapper.find(".charts-empty").exists()).toBe(true);
     expect(wrapper.find(".charts-empty").text()).toBe("暂无数据");
   });
 
-  it("下载按钮点击调用 handleDownload 并显示 toast", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    downloadSongMock.mockResolvedValue({ success: true, status: "success" });
+  it("榜单下载按钮点击调用 handleDownload 并显示 toast", async () => {
+    downloadSongMock.mockResolvedValue({ success: true, status: "downloaded" });
     chartsFetchMock.mockResolvedValue({ success: true, songs: SAMPLE_SONGS });
     const wrapper = mountComponent(true);
-    // 开启下载模式
-    await wrapper.find('.charts-download-toggle input[type="checkbox"]').trigger("change");
+    await enableDownloadMode(wrapper);
     // 刷新获取数据
     await wrapper.find(".charts-refresh-btn").trigger("click");
     await flushPromises();
@@ -135,11 +243,10 @@ describe("Charts.vue", () => {
   });
 
   it("下载已存在歌曲显示 info toast", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     downloadSongMock.mockResolvedValue({ success: true, status: "exists" });
     chartsFetchMock.mockResolvedValue({ success: true, songs: SAMPLE_SONGS });
     const wrapper = mountComponent(true);
-    await wrapper.find('.charts-download-toggle input[type="checkbox"]').trigger("change");
+    await enableDownloadMode(wrapper);
     await wrapper.find(".charts-refresh-btn").trigger("click");
     await flushPromises();
     await wrapper.find(".charts-download-btn").trigger("click");
@@ -148,11 +255,10 @@ describe("Charts.vue", () => {
   });
 
   it("下载未找到视频显示 error toast", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     downloadSongMock.mockResolvedValue({ success: false, status: "no_video" });
     chartsFetchMock.mockResolvedValue({ success: true, songs: SAMPLE_SONGS });
     const wrapper = mountComponent(true);
-    await wrapper.find('.charts-download-toggle input[type="checkbox"]').trigger("change");
+    await enableDownloadMode(wrapper);
     await wrapper.find(".charts-refresh-btn").trigger("click");
     await flushPromises();
     await wrapper.find(".charts-download-btn").trigger("click");
@@ -161,7 +267,6 @@ describe("Charts.vue", () => {
   });
 
   it("加载中状态显示加载指示", async () => {
-    // 用一个可控的延迟 promise
     let resolveFetch: (v: unknown) => void = () => {};
     chartsFetchMock.mockReturnValue(
       new Promise((r) => {
@@ -173,7 +278,6 @@ describe("Charts.vue", () => {
     await flushPromises();
     expect(wrapper.find(".charts-loading").exists()).toBe(true);
     expect(wrapper.find(".charts-loading").text()).toBe("加载中...");
-    // 释放以避免悬挂 promise
     resolveFetch({ success: true, songs: SAMPLE_SONGS });
     await flushPromises();
   });
@@ -201,7 +305,6 @@ describe("Charts.vue", () => {
 
   it("刷新按钮加载中时禁用", () => {
     const wrapper = mountComponent(true);
-    // 初始未加载，按钮可用
     expect(wrapper.find(".charts-refresh-btn").attributes("disabled")).toBeUndefined();
   });
 });

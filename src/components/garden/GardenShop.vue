@@ -153,7 +153,7 @@ function handleBackdropClick(e: MouseEvent) {
 .shop-modal__close {
   background: none;
   border: none;
-  color: #aaa;
+  color: rgba(255, 255, 255, 0.7);
   font-size: 18px;
   cursor: pointer;
   padding: 4px 8px;
@@ -181,7 +181,7 @@ function handleBackdropClick(e: MouseEvent) {
   padding: 10px;
   background: none;
   border: none;
-  color: #888;
+  color: rgba(255, 255, 255, 0.6);
   cursor: pointer;
   font-size: 14px;
   border-bottom: 2px solid transparent;
@@ -221,13 +221,13 @@ function handleBackdropClick(e: MouseEvent) {
 
 .shop-item__name {
   font-size: 13px;
-  color: #eee;
+  color: rgba(255, 255, 255, 0.95);
   font-weight: 600;
 }
 
 .shop-item__info {
   font-size: 11px;
-  color: #aaa;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .shop-item__price {
@@ -262,5 +262,23 @@ function handleBackdropClick(e: MouseEvent) {
   text-align: center;
   color: rgba(255, 255, 255, 0.5);
   padding: 40px 0;
+}
+
+/* ============ 统一滚动条样式 ============ */
+.shop-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.shop-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.shop-panel::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.shop-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 </style>

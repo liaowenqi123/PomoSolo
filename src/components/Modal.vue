@@ -92,7 +92,7 @@ onBeforeUnmount(() => {
   <Transition name="modal">
     <div
       v-if="visible"
-      class="modal-overlay"
+      class="app-modal-overlay modal-overlay"
       @click="onBackgroundClick"
     >
       <div
@@ -125,29 +125,26 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* 遮罩层基础样式由全局 .app-modal-overlay 类提供（position/z-index/background 等） */
+/* 此处仅保留组件特有的过渡动画样式 */
 .modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  z-index: 3000;
-  box-sizing: border-box;
+  /* position/inset/z-index/background 等由 .app-modal-overlay 全局类提供 */
 }
 
 .modal-container {
-  background: var(--bg-secondary, #16213e);
-  color: var(--text-primary, #eee);
+  background: #1a1a1a;
+  color: #fff;
   border-radius: 16px;
   padding: 20px;
   width: 100%;
   max-width: 420px;
+  max-height: 85vh;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.2);
   position: relative;
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
 }
 
 .modal-header {
@@ -161,12 +158,13 @@ onBeforeUnmount(() => {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
+  color: #fff;
 }
 
 .modal-close-btn {
   background: transparent;
   border: none;
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
   font-size: 24px;
   line-height: 1;
   cursor: pointer;
@@ -175,12 +173,30 @@ onBeforeUnmount(() => {
 }
 
 .modal-close-btn:hover {
-  color: var(--text-primary, #eee);
+  color: #fff;
 }
 
 .modal-body {
   font-size: 14px;
   line-height: 1.5;
+  color: rgba(255, 255, 255, 0.9);
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* Scrollbar */
+.modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+.modal-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.modal-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+.modal-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .modal-footer {

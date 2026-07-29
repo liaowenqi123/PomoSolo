@@ -7,6 +7,8 @@
  * - set_always_on_top(on_top: bool)
  * - bring_to_front
  * - cancel_always_on_top
+ * - enter_mini_mode
+ * - exit_mini_mode
  */
 import { invoke } from "@tauri-apps/api/core";
 
@@ -48,4 +50,36 @@ export function bringToFront(): Promise<void> {
  */
 export function cancelAlwaysOnTop(): Promise<void> {
   return invoke<void>("cancel_always_on_top");
+}
+
+/**
+ * 显示菜园子窗口。
+ * 后端：`show_garden_window(app: AppHandle)`
+ */
+export function showGardenWindow(): Promise<void> {
+  return invoke<void>("show_garden_window");
+}
+
+/**
+ * 隐藏菜园子窗口。
+ * 后端：`hide_garden_window(app: AppHandle)`
+ */
+export function hideGardenWindow(): Promise<void> {
+  return invoke<void>("hide_garden_window");
+}
+
+/**
+ * 进入迷你模式：将主窗口尺寸缩小为 180x220 并置顶，禁止最小化，从任务栏隐藏。
+ * 后端：`enter_mini_mode(app: AppHandle)`
+ */
+export function enterMiniMode(): Promise<void> {
+  return invoke<void>("enter_mini_mode");
+}
+
+/**
+ * 退出迷你模式：恢复主窗口尺寸为 520x560，取消置顶，恢复最小化与任务栏显示。
+ * 后端：`exit_mini_mode(app: AppHandle)`
+ */
+export function exitMiniMode(): Promise<void> {
+  return invoke<void>("exit_mini_mode");
 }

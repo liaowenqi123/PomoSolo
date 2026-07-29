@@ -4,3 +4,5 @@ pub mod window;
 pub mod cloud_auth;
 pub mod garden;
 pub mod foreground;
+pub mod music;
+pub mod charts;

@@ -11,6 +11,7 @@ const dataApi = vi.hoisted(() => ({
 vi.mock("@/api/data", () => dataApi);
 
 import Presets from "../Presets.vue";
+import WheelPicker from "../WheelPicker.vue";
 import { useTimerStore } from "../../stores/timer";
 
 describe("Presets.vue", () => {
@@ -31,28 +32,13 @@ describe("Presets.vue", () => {
     return wrapper;
   };
 
-  // ===== 标题 =====
-
-  it("工作模式下标题应显示『工作预设』", async () => {
-    const wrapper = await mountComponent();
-    expect(wrapper.find(".presets__title").text()).toBe("工作预设");
-  });
-
-  it("休息模式下标题应显示『休息预设』", async () => {
-    const wrapper = await mountComponent();
-    const store = useTimerStore();
-    store.setMode("break");
-    await wrapper.vm.$nextTick();
-    expect(wrapper.find(".presets__title").text()).toBe("休息预设");
-  });
-
   // ===== 默认预设渲染 =====
 
   it("工作模式应渲染默认预设 15/25/45/60 分钟", async () => {
     const wrapper = await mountComponent();
     const items = wrapper.findAll(".preset-item");
     expect(items).toHaveLength(4);
-    const texts = items.map((i) => i.find(".preset-item__time").text());
+    const texts = items.map((i) => i.find(".preset-time").text());
     expect(texts).toEqual(["15分钟", "25分钟", "45分钟", "60分钟"]);
   });
 
@@ -63,7 +49,7 @@ describe("Presets.vue", () => {
     await wrapper.vm.$nextTick();
     const items = wrapper.findAll(".preset-item");
     expect(items).toHaveLength(3);
-    const texts = items.map((i) => i.find(".preset-item__time").text());
+    const texts = items.map((i) => i.find(".preset-time").text());
     expect(texts).toEqual(["5分钟", "10分钟", "15分钟"]);
   });
 
@@ -73,11 +59,11 @@ describe("Presets.vue", () => {
     const wrapper = await mountComponent();
     const items = wrapper.findAll(".preset-item");
     // 初始无 active
-    expect(items[0].classes()).not.toContain("preset-item--active");
+    expect(items[0].classes()).not.toContain("active");
 
     await items[0].trigger("click");
     expect(wrapper.findAll(".preset-item")[0].classes()).toContain(
-      "preset-item--active",
+      "active",
     );
   });
 
@@ -105,8 +91,8 @@ describe("Presets.vue", () => {
     await items[1].trigger("click");
 
     const updated = wrapper.findAll(".preset-item");
-    expect(updated[0].classes()).not.toContain("preset-item--active");
-    expect(updated[1].classes()).toContain("preset-item--active");
+    expect(updated[0].classes()).not.toContain("active");
+    expect(updated[1].classes()).toContain("active");
   });
 
   // ===== 删除预设 =====
@@ -115,22 +101,22 @@ describe("Presets.vue", () => {
     const wrapper = await mountComponent();
     expect(wrapper.findAll(".preset-item")).toHaveLength(4);
 
-    const deleteBtn = wrapper.findAll(".preset-item__delete")[0];
+    const deleteBtn = wrapper.findAll(".preset-delete")[0];
     await deleteBtn.trigger("click");
 
     expect(wrapper.findAll(".preset-item")).toHaveLength(3);
     // 第一个被删除，剩下 25/45/60
-    const texts = wrapper.findAll(".preset-item").map((i) => i.find(".preset-item__time").text());
+    const texts = wrapper.findAll(".preset-item").map((i) => i.find(".preset-time").text());
     expect(texts).toEqual(["25分钟", "45分钟", "60分钟"]);
   });
 
   it("删除按钮点击应 stopPropagation（不触发选中）", async () => {
     const wrapper = await mountComponent();
-    const deleteBtn = wrapper.findAll(".preset-item__delete")[0];
+    const deleteBtn = wrapper.findAll(".preset-delete")[0];
     await deleteBtn.trigger("click");
 
     // 删除后列表长度变化，但不应有 active 项（selectPreset 未被触发）
-    expect(wrapper.findAll(".preset-item--active")).toHaveLength(0);
+    expect(wrapper.findAll(".preset-item.active")).toHaveLength(0);
   });
 
   it("删除当前选中的预设应清除 active 状态", async () => {
@@ -139,18 +125,18 @@ describe("Presets.vue", () => {
 
     // 选中第一个（15分钟）
     await items[0].trigger("click");
-    expect(wrapper.findAll(".preset-item--active")).toHaveLength(1);
+    expect(wrapper.findAll(".preset-item.active")).toHaveLength(1);
 
     // 删除选中的预设
-    await wrapper.findAll(".preset-item__delete")[0].trigger("click");
-    expect(wrapper.findAll(".preset-item--active")).toHaveLength(0);
+    await wrapper.findAll(".preset-delete")[0].trigger("click");
+    expect(wrapper.findAll(".preset-item.active")).toHaveLength(0);
   });
 
   it("删除预设应调用 persist（writeData）", async () => {
     const wrapper = await mountComponent();
     dataApi.writeData.mockClear();
 
-    await wrapper.findAll(".preset-item__delete")[0].trigger("click");
+    await wrapper.findAll(".preset-delete")[0].trigger("click");
     await flushPromises();
 
     expect(dataApi.writeData).toHaveBeenCalledTimes(1);
@@ -160,40 +146,31 @@ describe("Presets.vue", () => {
 
   // ===== 添加预设 =====
 
-  it("应渲染添加输入框和添加按钮", async () => {
+  it("应渲染 WheelPicker 和添加按钮", async () => {
     const wrapper = await mountComponent();
-    expect(wrapper.find(".presets__input").exists()).toBe(true);
-    expect(wrapper.find(".presets__add-btn").exists()).toBe(true);
-    expect(wrapper.find(".presets__add-btn").text()).toBe("添加");
+    expect(wrapper.findComponent(WheelPicker).exists()).toBe(true);
+    expect(wrapper.find(".btn-add-preset").exists()).toBe(true);
+    expect(wrapper.find(".btn-add-preset").text()).toBe("+");
   });
 
-  it("输入有效分钟数并点击添加按钮应新增预设（按升序排序）", async () => {
+  it("设置有效分钟数并点击添加按钮应新增预设（按升序排序）", async () => {
     const wrapper = await mountComponent();
-    await wrapper.find(".presets__input").setValue(20);
-    await wrapper.find(".presets__add-btn").trigger("click");
+    await wrapper.findComponent(WheelPicker).setValue(20);
+    await wrapper.find(".btn-add-preset").trigger("click");
     await flushPromises();
 
     const items = wrapper.findAll(".preset-item");
     expect(items).toHaveLength(5);
-    const texts = items.map((i) => i.find(".preset-item__time").text());
+    const texts = items.map((i) => i.find(".preset-time").text());
     // 20 应插入到 15 和 25 之间
     expect(texts).toEqual(["15分钟", "20分钟", "25分钟", "45分钟", "60分钟"]);
-  });
-
-  it("按 Enter 键应触发添加", async () => {
-    const wrapper = await mountComponent();
-    await wrapper.find(".presets__input").setValue(30);
-    await wrapper.find(".presets__input").trigger("keydown", { key: "Enter" });
-    await flushPromises();
-
-    expect(wrapper.findAll(".preset-item")).toHaveLength(5);
   });
 
   it("添加重复分钟数应被忽略", async () => {
     const wrapper = await mountComponent();
     // 25 已存在
-    await wrapper.find(".presets__input").setValue(25);
-    await wrapper.find(".presets__add-btn").trigger("click");
+    await wrapper.findComponent(WheelPicker).setValue(25);
+    await wrapper.find(".btn-add-preset").trigger("click");
     await flushPromises();
 
     expect(wrapper.findAll(".preset-item")).toHaveLength(4);
@@ -201,8 +178,8 @@ describe("Presets.vue", () => {
 
   it("添加小于 1 分钟应被忽略", async () => {
     const wrapper = await mountComponent();
-    await wrapper.find(".presets__input").setValue(0);
-    await wrapper.find(".presets__add-btn").trigger("click");
+    await wrapper.findComponent(WheelPicker).setValue(0);
+    await wrapper.find(".btn-add-preset").trigger("click");
     await flushPromises();
 
     expect(wrapper.findAll(".preset-item")).toHaveLength(4);
@@ -210,8 +187,8 @@ describe("Presets.vue", () => {
 
   it("添加大于 120 分钟应被忽略", async () => {
     const wrapper = await mountComponent();
-    await wrapper.find(".presets__input").setValue(121);
-    await wrapper.find(".presets__add-btn").trigger("click");
+    await wrapper.findComponent(WheelPicker).setValue(121);
+    await wrapper.find(".btn-add-preset").trigger("click");
     await flushPromises();
 
     expect(wrapper.findAll(".preset-item")).toHaveLength(4);
@@ -221,8 +198,8 @@ describe("Presets.vue", () => {
     const wrapper = await mountComponent();
     dataApi.writeData.mockClear();
 
-    await wrapper.find(".presets__input").setValue(30);
-    await wrapper.find(".presets__add-btn").trigger("click");
+    await wrapper.findComponent(WheelPicker).setValue(30);
+    await wrapper.find(".btn-add-preset").trigger("click");
     await flushPromises();
 
     expect(dataApi.writeData).toHaveBeenCalledTimes(1);
@@ -230,8 +207,8 @@ describe("Presets.vue", () => {
 
   it("添加预设应同步写入 localStorage", async () => {
     const wrapper = await mountComponent();
-    await wrapper.find(".presets__input").setValue(30);
-    await wrapper.find(".presets__add-btn").trigger("click");
+    await wrapper.findComponent(WheelPicker).setValue(30);
+    await wrapper.find(".btn-add-preset").trigger("click");
     await flushPromises();
 
     const saved = localStorage.getItem("pomodoro-presets");
@@ -254,8 +231,8 @@ describe("Presets.vue", () => {
     const wrapper = await mountComponent();
     const items = wrapper.findAll(".preset-item");
     expect(items).toHaveLength(2);
-    expect(items[0].find(".preset-item__time").text()).toBe("10分钟");
-    expect(items[1].find(".preset-item__time").text()).toBe("50分钟");
+    expect(items[0].find(".preset-time").text()).toBe("10分钟");
+    expect(items[1].find(".preset-time").text()).toBe("50分钟");
   });
 
   it("load 应支持纯数字数组格式的预设", async () => {
@@ -269,8 +246,8 @@ describe("Presets.vue", () => {
     const wrapper = await mountComponent();
     const items = wrapper.findAll(".preset-item");
     expect(items).toHaveLength(2);
-    expect(items[0].find(".preset-item__time").text()).toBe("30分钟");
-    expect(items[1].find(".preset-item__time").text()).toBe("40分钟");
+    expect(items[0].find(".preset-time").text()).toBe("30分钟");
+    expect(items[1].find(".preset-time").text()).toBe("40分钟");
   });
 
   it("readData 返回无 presets 字段时应使用默认预设", async () => {
@@ -328,7 +305,7 @@ describe("Presets.vue", () => {
     const wrapper = await mountComponent();
     // 修复后：能正确读回 persist 写入的 1 个 35分钟 预设
     expect(wrapper.findAll(".preset-item")).toHaveLength(1);
-    expect(wrapper.findAll(".preset-item")[0].find(".preset-item__time").text()).toBe("35分钟");
+    expect(wrapper.findAll(".preset-item")[0].find(".preset-time").text()).toBe("35分钟");
   });
 
   it("readData 失败时若 localStorage 存储未包装格式（work/break 直接顶层）可正常读取", async () => {
@@ -344,7 +321,7 @@ describe("Presets.vue", () => {
 
     const wrapper = await mountComponent();
     expect(wrapper.findAll(".preset-item")).toHaveLength(1);
-    expect(wrapper.findAll(".preset-item")[0].find(".preset-item__time").text()).toBe(
+    expect(wrapper.findAll(".preset-item")[0].find(".preset-time").text()).toBe(
       "35分钟",
     );
   });
@@ -374,7 +351,7 @@ describe("Presets.vue", () => {
 
     const wrapper = await mountComponent();
     expect(wrapper.findAll(".preset-item")).toHaveLength(1);
-    expect(wrapper.findAll(".preset-item")[0].find(".preset-item__time").text()).toBe(
+    expect(wrapper.findAll(".preset-item")[0].find(".preset-time").text()).toBe(
       "0分钟",
     );
   });
@@ -402,8 +379,8 @@ describe("Presets.vue", () => {
     dataApi.writeData.mockClear();
 
     const wrapper = await mountComponent();
-    await wrapper.find(".presets__input").setValue(30);
-    await wrapper.find(".presets__add-btn").trigger("click");
+    await wrapper.findComponent(WheelPicker).setValue(30);
+    await wrapper.find(".btn-add-preset").trigger("click");
     await flushPromises();
 
     // 即使 persist 内 readData 失败，writeData 仍应被调用
@@ -415,8 +392,8 @@ describe("Presets.vue", () => {
 
     const wrapper = await mountComponent();
     // 添加预设触发 persist，不应抛错
-    await wrapper.find(".presets__input").setValue(30);
-    await wrapper.find(".presets__add-btn").trigger("click");
+    await wrapper.findComponent(WheelPicker).setValue(30);
+    await wrapper.find(".btn-add-preset").trigger("click");
     await flushPromises();
 
     // 列表应正常更新（内存中），只是后端持久化失败

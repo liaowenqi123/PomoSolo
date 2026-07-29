@@ -391,7 +391,7 @@ function onLocalKeyEnter(e: KeyboardEvent): void {
 
 .mode-label {
   font-size: 13px;
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
   cursor: pointer;
   user-select: none;
   transition: color 0.2s ease;
@@ -474,7 +474,7 @@ function onLocalKeyEnter(e: KeyboardEvent): void {
   border-radius: 8px;
   cursor: pointer;
   font-size: 13px;
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
   transition: all 0.2s ease;
 }
 
@@ -496,11 +496,12 @@ function onLocalKeyEnter(e: KeyboardEvent): void {
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary, #eee);
+  color: rgba(255, 255, 255, 0.9);
   font-size: 14px;
   box-sizing: border-box;
   outline: none;
   transition: border-color 0.2s ease;
+  min-height: 40px;
 }
 
 .form-input:focus {
@@ -512,7 +513,7 @@ function onLocalKeyEnter(e: KeyboardEvent): void {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
   cursor: pointer;
 }
 
@@ -546,7 +547,7 @@ function onLocalKeyEnter(e: KeyboardEvent): void {
 
 .btn-secondary {
   background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary, #eee);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .logged-in-panel {
@@ -558,11 +559,12 @@ function onLocalKeyEnter(e: KeyboardEvent): void {
   font-size: 16px;
   font-weight: 600;
   margin: 0 0 6px;
+  color: #fff;
 }
 
 .user-meta {
   font-size: 12px;
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
   margin: 0 0 16px;
 }
 
@@ -574,7 +576,7 @@ function onLocalKeyEnter(e: KeyboardEvent): void {
 
 .local-hint {
   font-size: 13px;
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
   margin: 0 0 4px;
 }
 
@@ -598,5 +600,21 @@ function onLocalKeyEnter(e: KeyboardEvent): void {
   margin: 0;
   line-height: 1.5;
   font-size: 14px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 </style>

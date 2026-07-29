@@ -238,9 +238,9 @@ function onContentClick(e: MouseEvent): void {
 
 <style scoped>
 .settings-overlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
   z-index: 100;
   display: flex;
@@ -252,7 +252,7 @@ function onContentClick(e: MouseEvent): void {
   width: 460px;
   max-width: 90vw;
   max-height: 80vh;
-  background: var(--bg-secondary, #16213e);
+  background: #1a1a1a;
   border-radius: 16px;
   display: flex;
   flex-direction: column;
@@ -271,7 +271,7 @@ function onContentClick(e: MouseEvent): void {
 .settings-panel__title {
   font-size: 18px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .settings-panel__close {
@@ -279,13 +279,13 @@ function onContentClick(e: MouseEvent): void {
   height: 32px;
   border-radius: 8px;
   font-size: 20px;
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.6);
   transition: all 0.15s ease;
 }
 
 .settings-panel__close:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .settings-panel__body {
@@ -306,7 +306,7 @@ function onContentClick(e: MouseEvent): void {
 .settings-section__title {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.85);
   text-transform: uppercase;
   letter-spacing: 1px;
   margin-bottom: 8px;
@@ -321,13 +321,13 @@ function onContentClick(e: MouseEvent): void {
 
 .settings-row__label {
   font-size: 14px;
-  color: var(--text-primary);
+  color: #fff;
 }
 
 .settings-select {
   background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 8px;
   padding: 6px 12px;
   font-size: 13px;
@@ -337,7 +337,7 @@ function onContentClick(e: MouseEvent): void {
 }
 
 .settings-select:focus {
-  border-color: var(--accent);
+  border-color: var(--accent, #e94560);
 }
 
 .settings-row__control {
@@ -352,12 +352,12 @@ function onContentClick(e: MouseEvent): void {
   padding: 6px 16px;
   border-radius: 6px;
   font-size: 13px;
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.6);
   transition: all 0.15s ease;
 }
 
 .theme-btn--active {
-  background: var(--accent);
+  background: var(--accent, #e94560);
   color: #fff;
 }
 
@@ -397,7 +397,7 @@ function onContentClick(e: MouseEvent): void {
 }
 
 .toggle input:checked + .toggle__slider {
-  background: var(--accent);
+  background: var(--accent, #e94560);
 }
 
 .toggle input:checked + .toggle__slider::before {
@@ -420,17 +420,17 @@ function onContentClick(e: MouseEvent): void {
 }
 
 .settings-btn--reset {
-  color: var(--text-secondary);
-  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .settings-btn--reset:hover {
-  color: var(--text-primary);
+  color: rgba(255, 255, 255, 0.9);
   background: rgba(255, 255, 255, 0.1);
 }
 
 .settings-btn--save {
-  background: var(--accent);
+  background: var(--accent, #e94560);
   color: #fff;
 }
 
@@ -438,14 +438,56 @@ function onContentClick(e: MouseEvent): void {
   opacity: 0.9;
 }
 
-/* Transition */
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+/* Range slider */
+input[type="range"] {
+  -webkit-appearance: none;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+/* Transition：遮罩层 opacity 0→1，内容 scale 0.92→1 */
 .panel-enter-active,
 .panel-leave-active {
-  transition: opacity 0.2s ease;
+  transition: opacity 0.25s ease;
+}
+
+.panel-enter-active .settings-panel,
+.panel-leave-active .settings-panel {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .panel-enter-from,
 .panel-leave-to {
   opacity: 0;
+}
+
+.panel-enter-from .settings-panel,
+.panel-leave-to .settings-panel {
+  transform: scale(0.92);
 }
 </style>

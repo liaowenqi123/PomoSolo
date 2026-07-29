@@ -2,13 +2,14 @@
 /**
  * 预设管理
  *
- * 参考 electron/src/scripts/modules/presets.js。
- * 工作 / 休息时间预设列表，支持添加 / 删除 / 选中。
- * 选中预设后直接更新计时器 store 的时长。
+ * 参照原 Electron 版 presets.js + .preset-list / .preset-item 样式：
+ *   工作 / 休息时间预设列表，支持添加 / 删除 / 选中。
+ *   添加预设使用滚轮选择器（WheelPicker），1-120 分钟。
  */
 import { ref, computed, onMounted } from "vue";
 import { useTimerStore } from "../stores/timer";
 import { readData, writeData, type JsonObject } from "../api/data";
+import WheelPicker from "./WheelPicker.vue";
 
 /** 单条预设 */
 interface Preset {
@@ -61,7 +62,6 @@ async function load(): Promise<void> {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       try {
-        // persist() 写入的格式为 { presets: { work, break } }，需先解包
         const parsed = JSON.parse(saved) as JsonObject;
         const rawPresets = (parsed.presets as JsonObject | undefined) ?? parsed;
         presets.value = normalizePresets(rawPresets);
@@ -122,9 +122,9 @@ async function persist(): Promise<void> {
 
 /** 选中预设，更新计时器时长 */
 function selectPreset(preset: Preset): void {
+  if (timer.phase === "running") return;
   activeMinutes.value = preset.minutes;
   const ms = preset.minutes * 60 * 1000;
-  // Pinia setup store 暴露的 ref 可直接写入
   timer.totalMs = ms;
   timer.remainingMs = ms;
   timer.phase = "ready";
@@ -161,148 +161,175 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="presets">
-    <div class="presets__header">
-      <span class="presets__title">
-        {{ currentMode === "work" ? "工作预设" : "休息预设" }}
-      </span>
-    </div>
-
-    <div class="presets__list">
+  <div class="preset-list scrollable">
+    <div
+      v-for="(preset, index) in currentList"
+      :key="preset.minutes"
+      class="preset-item"
+      :class="{
+        active: activeMinutes === preset.minutes,
+        disabled: timer.phase === 'running',
+      }"
+      @click="selectPreset(preset)"
+    >
+      <div class="preset-item-left">
+        <span class="preset-time">{{ preset.minutes }}分钟</span>
+      </div>
       <button
-        v-for="(preset, index) in currentList"
-        :key="preset.minutes"
-        class="preset-item"
-        :class="{ 'preset-item--active': activeMinutes === preset.minutes }"
-        @click="selectPreset(preset)"
+        class="preset-delete"
+        title="删除"
+        @click.stop="deletePreset(index)"
       >
-        <span class="preset-item__time">{{ preset.minutes }}分钟</span>
-        <span
-          class="preset-item__delete"
-          title="删除"
-          @click.stop="deletePreset(index)"
-        >
-          ×
-        </span>
+        ×
       </button>
     </div>
+  </div>
 
-    <div class="presets__add">
-      <input
-        v-model.number="newMinutes"
-        type="number"
-        min="1"
-        max="120"
-        class="presets__input"
-        placeholder="分钟"
-        @keydown.enter="addPreset"
-      />
-      <button class="presets__add-btn" @click="addPreset">添加</button>
+  <div class="add-preset-section">
+    <div class="wheel-picker-container">
+      <WheelPicker v-model="newMinutes" :min="1" :max="120" :disabled="timer.phase === 'running'" />
+      <span class="wheel-picker-label">分钟</span>
+      <button
+        class="btn-add-preset"
+        title="添加预设"
+        :disabled="timer.phase === 'running'"
+        @click="addPreset"
+      >
+        +
+      </button>
     </div>
   </div>
 </template>
 
 <style scoped>
-.presets {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-  max-width: 360px;
+.preset-list {
+  flex: 0 1 auto;
+  max-height: 320px;
+  margin-bottom: 10px;
+  overflow-y: auto;
 }
 
-.presets__header {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.preset-list::-webkit-scrollbar {
+  width: 5px;
 }
 
-.presets__title {
-  font-size: 12px;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 1px;
+.preset-list::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 3px;
 }
 
-.presets__list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
+.preset-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+}
+
+.preset-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .preset-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
+  justify-content: space-between;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  font-size: 13px;
-  color: var(--text-secondary);
-  transition: all 0.15s ease;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid rgba(255, 255, 255, 0.5);
 }
 
 .preset-item:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.18);
 }
 
-.preset-item--active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
+.preset-item.active {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.4);
 }
 
-.preset-item__time {
-  font-variant-numeric: tabular-nums;
-}
-
-.preset-item__delete {
-  font-size: 16px;
-  line-height: 1;
+.preset-item.disabled {
   opacity: 0.5;
-  cursor: pointer;
-  padding: 0 2px;
+  cursor: not-allowed;
 }
 
-.preset-item__delete:hover {
-  opacity: 1;
-}
-
-.presets__add {
+.preset-item-left {
   display: flex;
+  align-items: center;
   gap: 6px;
+}
+
+.preset-time {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.preset-delete {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.preset-item:hover .preset-delete {
+  display: flex;
+}
+
+.preset-delete:hover {
+  background: rgba(255, 100, 100, 0.5);
+  color: #fff;
+}
+
+.add-preset-section {
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  flex-shrink: 0;
+}
+
+.wheel-picker-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+}
+
+.wheel-picker-label {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+}
+
+.btn-add-preset {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
   justify-content: center;
 }
 
-.presets__input {
-  width: 80px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: inherit;
-  outline: none;
+.btn-add-preset:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
-.presets__input:focus {
-  border-color: var(--accent);
-}
-
-.presets__add-btn {
-  padding: 6px 16px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
-  font-size: 13px;
-  transition: all 0.15s ease;
-}
-
-.presets__add-btn:hover {
-  background: rgba(255, 255, 255, 0.15);
+.btn-add-preset:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

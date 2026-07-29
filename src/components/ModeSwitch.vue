@@ -1,4 +1,10 @@
 <script setup lang="ts">
+/**
+ * 工作/休息模式切换
+ *
+ * 参照原 Electron 版 .mode-switch / .mode-btn 样式：
+ *   胶囊按钮，半透明白色背景，带 emoji 图标。
+ */
 import { useTimerStore } from "../stores/timer";
 
 const timer = useTimerStore();
@@ -11,18 +17,20 @@ function onModeChange(mode: "work" | "break") {
 <template>
   <div class="mode-switch">
     <button
-      class="mode-switch__btn"
-      :class="{ 'mode-switch__btn--active': timer.mode === 'work' }"
+      class="mode-btn"
+      :class="{ active: timer.mode === 'work' }"
       @click="onModeChange('work')"
     >
-      专注
+      <span class="mode-icon">💼</span>
+      <span class="mode-text">专注</span>
     </button>
     <button
-      class="mode-switch__btn"
-      :class="{ 'mode-switch__btn--active': timer.mode === 'break' }"
+      class="mode-btn"
+      :class="{ active: timer.mode === 'break' }"
       @click="onModeChange('break')"
     >
-      休息
+      <span class="mode-icon">☕</span>
+      <span class="mode-text">休息</span>
     </button>
   </div>
 </template>
@@ -31,25 +39,37 @@ function onModeChange(mode: "work" | "break") {
 .mode-switch {
   display: flex;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 12px;
-  padding: 4px;
 }
 
-.mode-switch__btn {
-  padding: 8px 24px;
-  border-radius: 8px;
-  font-size: 14px;
-  color: var(--text-secondary);
-  transition: all 0.2s ease;
+.mode-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
 }
 
-.mode-switch__btn--active {
-  background: var(--accent);
-  color: #fff;
+.mode-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
-.mode-switch__btn:hover:not(.mode-switch__btn--active) {
-  color: var(--text-primary);
+.mode-btn.active {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.5);
+  color: white;
+}
+
+.mode-icon {
+  font-size: 13px;
+}
+
+.mode-text {
+  font-weight: 500;
 }
 </style>

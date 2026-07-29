@@ -8,6 +8,7 @@
  */
 import { ref, onMounted } from "vue";
 import { useGardenStore } from "@/stores/garden";
+import { hideGardenWindow } from "@/api/window";
 import GardenPlot from "./GardenPlot.vue";
 import GardenShop from "./GardenShop.vue";
 import GardenBag from "./GardenBag.vue";
@@ -77,10 +78,19 @@ async function handleHarvest(plotIndex: number) {
 async function handleUnlock(plotIndex: number) {
   await store.unlockPlot(plotIndex);
 }
+
+/** 关闭菜园子窗口 */
+function handleClose() {
+  void hideGardenWindow();
+}
 </script>
 
 <template>
   <div class="garden-frame" :class="{ 'wheel-mode': store.plantWheelMode }">
+    <!-- 顶部拖动区 -->
+    <div class="garden-draggable" data-tauri-drag-region></div>
+    <!-- 关闭按钮 -->
+    <button class="garden-close-btn" title="关闭" @click="handleClose">×</button>
     <div class="garden-header">
       <div class="garden-header__coins">
         💰 <span class="garden-header__coin-count">{{ store.coins }}</span>
@@ -138,14 +148,53 @@ async function handleUnlock(plotIndex: number) {
 </template>
 
 <style scoped>
+/* 菜园子框架 - 添加圆角，配合透明无边框窗口 */
 .garden-frame {
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #2d4a2b 0%, #1a3a1a 100%);
+  background: linear-gradient(135deg, #2d5a27 0%, #1a3a15 100%);
   color: #fff;
   position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+}
+
+/* 顶部拖动区 */
+.garden-draggable {
+  -webkit-app-region: drag;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 30px;
+  z-index: 1;
+}
+
+/* 关闭按钮 */
+.garden-close-btn {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-app-region: no-drag;
+  transition: background 0.2s ease;
+}
+
+.garden-close-btn:hover {
+  background: rgba(255, 100, 100, 0.6);
 }
 
 .garden-header {
@@ -153,6 +202,7 @@ async function handleUnlock(plotIndex: number) {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
+  padding-top: 34px;
   background: rgba(0, 0, 0, 0.25);
 }
 
@@ -202,8 +252,8 @@ async function handleUnlock(plotIndex: number) {
 
 .garden-bag-area {
   padding: 12px 16px;
-  flex: 1;
-  overflow-y: auto;
+  /* 保持自然高度，让 garden-grid 占据剩余空间并可滚动 */
+  flex-shrink: 0;
 }
 
 .garden-tip {

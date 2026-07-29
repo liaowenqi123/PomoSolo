@@ -45,12 +45,26 @@ struct UserRow {
     admin: Option<bool>,
 }
 
-/// 登录返回值
+/// 登录返回值（与前端 src/api/auth.ts 的 LoginResult 对齐）
 #[derive(Debug, Serialize)]
 pub struct LoginResult {
     pub success: bool,
-    pub session: Option<cloud_auth::Session>,
-    pub has_deepseek_key: bool,
+    pub user: Option<cloud_auth::Session>,
+    pub error: Option<String>,
+}
+
+/// 注册返回值（与前端 src/api/auth.ts 的 RegisterResult 对齐）
+#[derive(Debug, Serialize)]
+pub struct RegisterResult {
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+/// 连接测试返回值（与前端 src/api/auth.ts 的 ConnectionTestResult 对齐）
+#[derive(Debug, Serialize)]
+pub struct ConnectionTestResult {
+    pub ok: bool,
+    pub latency: Option<u64>,
     pub error: Option<String>,
 }
 
@@ -94,8 +108,7 @@ pub async fn cloud_login(
         let body = resp.text().await.unwrap_or_default();
         return Ok(LoginResult {
             success: false,
-            session: None,
-            has_deepseek_key: false,
+            user: None,
             error: Some(format!("登录失败 ({}): {}", status, body)),
         });
     }
@@ -106,8 +119,7 @@ pub async fn cloud_login(
         None => {
             return Ok(LoginResult {
                 success: false,
-                session: None,
-                has_deepseek_key: false,
+                user: None,
                 error: Some("用户名不存在".to_string()),
             });
         }
@@ -118,8 +130,7 @@ pub async fn cloud_login(
     if computed != user.password_hash {
         return Ok(LoginResult {
             success: false,
-            session: None,
-            has_deepseek_key: false,
+            user: None,
             error: Some("密码错误".to_string()),
         });
     }
@@ -138,8 +149,7 @@ pub async fn cloud_login(
 
     Ok(LoginResult {
         success: true,
-        session: Some(session),
-        has_deepseek_key: false,
+        user: Some(session),
         error: None,
     })
 }
@@ -149,12 +159,18 @@ pub async fn cloud_login(
 pub async fn cloud_register(
     username: String,
     password: String,
-) -> Result<Value, String> {
+) -> Result<RegisterResult, String> {
     if username.len() < 2 {
-        return Err("用户名至少需要2个字符".to_string());
+        return Ok(RegisterResult {
+            success: false,
+            error: Some("用户名至少需要2个字符".to_string()),
+        });
     }
     if password.len() < 6 {
-        return Err("密码至少需要6个字符".to_string());
+        return Ok(RegisterResult {
+            success: false,
+            error: Some("密码至少需要6个字符".to_string()),
+        });
     }
 
     let salt = cloud_auth::generate_salt();
@@ -183,13 +199,18 @@ pub async fn cloud_register(
     if !status.is_success() {
         // 23505 = unique_violation
         if body_text.contains("23505") {
-            return Err("用户名已存在".to_string());
+            return Ok(RegisterResult {
+                success: false,
+                error: Some("用户名已存在".to_string()),
+            });
         }
         return Err(format!("注册失败 ({}): {}", status, body_text));
     }
 
-    let parsed: Value = serde_json::from_str(&body_text).map_err(|e| e.to_string())?;
-    Ok(parsed)
+    Ok(RegisterResult {
+        success: true,
+        error: None,
+    })
 }
 
 /// 退出登录：清理会话
@@ -209,17 +230,30 @@ pub async fn cloud_get_session(state: State<'_, AppState>) -> Result<Option<clou
 
 /// 测试 Supabase 连接
 #[tauri::command]
-pub async fn cloud_test_connection() -> Result<bool, String> {
+pub async fn cloud_test_connection() -> Result<ConnectionTestResult, String> {
     let client = supabase_client();
     let url = format!("{}/rest/v1/users?select=id&limit=1", SUPABASE_URL);
 
+    let start = std::time::Instant::now();
     let resp = client
         .get(&url)
         .send()
         .await
         .map_err(|e| format!("连接失败: {}", e))?;
 
-    Ok(resp.status().is_success())
+    let latency = start.elapsed().as_millis() as u64;
+    let status = resp.status();
+    let ok = status.is_success();
+
+    Ok(ConnectionTestResult {
+        ok,
+        latency: Some(latency),
+        error: if ok {
+            None
+        } else {
+            Some(format!("HTTP {}", status))
+        },
+    })
 }
 
 // ============ API Key / API Mode commands ============
@@ -236,10 +270,11 @@ pub async fn get_api_key(app: AppHandle) -> Result<Option<String>, String> {
 
 /// 保存本地模式 API Key
 #[tauri::command]
-pub async fn save_api_key(app: AppHandle, key: String) -> Result<(), String> {
+pub async fn save_api_key(app: AppHandle, api_key: String) -> Result<bool, String> {
     let mut data = data_manager::read_data(&app)?;
-    data["apiKey"] = Value::String(key);
-    data_manager::write_data(&app, &data)
+    data["apiKey"] = Value::String(api_key);
+    data_manager::write_data(&app, &data)?;
+    Ok(true)
 }
 
 /// 读取 API 模式（"cloud" 或 "local"）
@@ -255,10 +290,11 @@ pub async fn get_api_mode(app: AppHandle) -> Result<String, String> {
 
 /// 设置 API 模式
 #[tauri::command]
-pub async fn set_api_mode(app: AppHandle, mode: String) -> Result<(), String> {
+pub async fn set_api_mode(app: AppHandle, mode: String) -> Result<bool, String> {
     let mut data = data_manager::read_data(&app)?;
     data["apiMode"] = Value::String(mode);
-    data_manager::write_data(&app, &data)
+    data_manager::write_data(&app, &data)?;
+    Ok(true)
 }
 
 // ============ 辅助函数 ============

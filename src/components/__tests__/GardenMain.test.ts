@@ -21,6 +21,12 @@ vi.mock("@/stores/garden", () => ({
   useGardenStore: () => storeMocks,
 }));
 
+// Mock window API 以避免加载 @tauri-apps/api/core
+vi.mock("@/api/window", () => ({
+  showGardenWindow: vi.fn(),
+  hideGardenWindow: vi.fn(),
+}));
+
 // Mock 子组件，仅暴露 props 和事件，避免级联渲染
 vi.mock("../garden/GardenPlot.vue", () => ({
   default: {

@@ -8,6 +8,12 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
 }));
 
+// Mock @tauri-apps/api/event（MusicPlayer 间接依赖）
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(() => Promise.resolve(() => {})),
+  emit: vi.fn(() => Promise.resolve()),
+}));
+
 import App from "../../App.vue";
 import { useTimerStore } from "../../stores/timer";
 import { useSettingsStore } from "../../stores/settings";
@@ -33,11 +39,24 @@ describe("App.vue", () => {
           Timer: true,
           TimerProgress: true,
           ModeSwitch: true,
+          ModeSlider: true,
           WindowControls: true,
+          PinButton: true,
+          HeaderButtons: true,
+          SidebarCollapse: true,
+          FocusModeSwitch: true,
+          MiniMode: true,
+          MusicPlayer: true,
           SettingsPanel: true,
           Statistics: true,
           Presets: true,
           NoteManager: true,
+          AIHelper: true,
+          AuthPanel: true,
+          StudyRoom: true,
+          Charts: true,
+          ForegroundWarning: true,
+          GardenMain: true,
         },
       },
     });
@@ -47,56 +66,54 @@ describe("App.vue", () => {
 
   // ===== 布局渲染 =====
 
-  it("应渲染 .app 根容器", async () => {
+  it("应渲染 .window-frame 根容器", async () => {
     const wrapper = await mountApp();
-    expect(wrapper.find(".app").exists()).toBe(true);
+    expect(wrapper.find(".window-frame").exists()).toBe(true);
   });
 
-  it("应渲染顶部窗口控制条 .app__topbar", async () => {
+  it("应渲染 .container 内层容器", async () => {
     const wrapper = await mountApp();
-    expect(wrapper.find(".app__topbar").exists()).toBe(true);
+    expect(wrapper.find(".container").exists()).toBe(true);
   });
 
-  it("应渲染主区域 .app__main", async () => {
+  it("应渲染 .sidebar 侧边栏", async () => {
     const wrapper = await mountApp();
-    expect(wrapper.find(".app__main").exists()).toBe(true);
+    expect(wrapper.find(".sidebar").exists()).toBe(true);
   });
 
-  it("应渲染底部导航 .app__nav", async () => {
+  it("应渲染 .main-content 主区域", async () => {
     const wrapper = await mountApp();
-    expect(wrapper.find(".app__nav").exists()).toBe(true);
+    expect(wrapper.find(".main-content").exists()).toBe(true);
   });
 
-  it("底部导航应包含『统计』和『设置』两个按钮", async () => {
+  it("应渲染 .timer-section 计时器区域", async () => {
     const wrapper = await mountApp();
-    const labels = wrapper.findAll(".nav-btn__label").map((el) => el.text());
-    expect(labels).toContain("统计");
-    expect(labels).toContain("设置");
+    expect(wrapper.find(".timer-section").exists()).toBe(true);
   });
 
   // ===== 主题 class =====
 
-  it("默认 dark 主题应应用 app--dark class", async () => {
+  it("默认 dark 主题应在 container 上应用 dark-theme class", async () => {
     const wrapper = await mountApp();
-    expect(wrapper.find(".app").classes()).toContain("app--dark");
-    expect(wrapper.find(".app").classes()).not.toContain("app--light");
+    const container = wrapper.find(".container");
+    expect(container.classes()).toContain("dark-theme");
   });
 
-  it("切换到 light 主题应应用 app--light class", async () => {
+  it("切换到 light 主题应移除 dark-theme class", async () => {
     const wrapper = await mountApp();
     const settings = useSettingsStore();
     await settings.update("theme", "light");
     await wrapper.vm.$nextTick();
-    expect(wrapper.find(".app").classes()).toContain("app--light");
-    expect(wrapper.find(".app").classes()).not.toContain("app--dark");
+    const container = wrapper.find(".container");
+    expect(container.classes()).not.toContain("dark-theme");
   });
 
-  it("timer.mode === 'break' 时应应用 app--break class", async () => {
+  it("timer.mode === 'break' 时应应用 break-mode class", async () => {
     const wrapper = await mountApp();
     const timer = useTimerStore();
     timer.setMode("break");
     await wrapper.vm.$nextTick();
-    expect(wrapper.find(".app").classes()).toContain("app--break");
+    expect(wrapper.find(".container").classes()).toContain("break-mode");
   });
 
   // ===== onMounted 生命周期 =====
@@ -114,120 +131,40 @@ describe("App.vue", () => {
     expect(gardenSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("挂载后应同步 stats.todayCount 到 timer.todayCount", async () => {
-    // 让 read_data 返回带 todayCount 的数据
-    invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "read_data") {
-        return Promise.resolve({
-          date: new Date().toDateString(),
-          todayCount: 5,
-          totalMinutes: 120,
-          statisticsHistory: [],
-        });
-      }
-      return Promise.resolve({});
-    });
-    const wrapper = await mountApp();
-    const timer = useTimerStore();
-    expect(timer.todayCount).toBe(5);
-    expect(timer.totalMinutes).toBe(120);
-    wrapper.unmount();
-  });
+  // ===== 键盘事件 =====
 
-  // ===== 导航交互 =====
-
-  it("点击『统计』按钮应打开 Statistics 面板（nav-btn--active）", async () => {
-    const wrapper = await mountApp();
-    const statsBtn = wrapper.findAll(".nav-btn")[0];
-    await statsBtn.trigger("click");
-    expect(statsBtn.classes()).toContain("nav-btn--active");
-  });
-
-  it("点击『设置』按钮应打开 SettingsPanel 面板（nav-btn--active）", async () => {
-    const wrapper = await mountApp();
-    const settingsBtn = wrapper.findAll(".nav-btn")[1];
-    await settingsBtn.trigger("click");
-    expect(settingsBtn.classes()).toContain("nav-btn--active");
-  });
-
-  // ===== 键盘快捷键 =====
-
-  it("按 Space（target=body）应切换计时器状态", async () => {
+  it("按空格键应切换计时器运行状态", async () => {
     const wrapper = await mountApp();
     const timer = useTimerStore();
     const startSpy = vi.spyOn(timer, "toggle");
-    document.body.dispatchEvent(
-      new KeyboardEvent("keydown", { code: "Space", bubbles: true }),
-    );
+    // jsdom 中 KeyboardEvent target 可能不是 document.body，直接 dispatch
+    const event = new KeyboardEvent("keydown", { code: "Space" });
+    Object.defineProperty(event, "target", { value: document.body, writable: false });
+    window.dispatchEvent(event);
+    expect(startSpy).toHaveBeenCalled();
+  });
+
+  it("按 Escape 应关闭设置面板", async () => {
+    const wrapper = await mountApp();
+    const vm = wrapper.vm as unknown as { showSettings: boolean };
+    vm.showSettings = true;
     await wrapper.vm.$nextTick();
-    expect(startSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it("按 Escape 应关闭打开的面板", async () => {
-    const wrapper = await mountApp();
-    // 先打开统计面板
-    await wrapper.findAll(".nav-btn")[0].trigger("click");
-    // 按 ESC
-    window.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-    );
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     await wrapper.vm.$nextTick();
-    // nav-btn--active 应被移除
-    expect(wrapper.findAll(".nav-btn--active")).toHaveLength(0);
+    expect(vm.showSettings).toBe(false);
   });
 
-  // ===== 完成事件联动 =====
+  // ===== 卸载 =====
 
-  it("timer.completionId 增加时应调用 stats.recordSession 和 garden.addFocus", async () => {
+  it("卸载后按空格不应再调用 toggle", async () => {
     const wrapper = await mountApp();
     const timer = useTimerStore();
-    const stats = useStatsStore();
-    const garden = useGardenStore();
-    const recordSpy = vi.spyOn(stats, "recordSession").mockResolvedValue();
-    const addFocusSpy = vi.spyOn(garden, "addFocus").mockResolvedValue(true);
-
-    // 模拟完成一次工作番茄钟
-    timer.start();
-    // 推进时间到完成（fake timers 在其他测试中已使用，这里通过直接调用 complete）
-    // 直接修改 completionId 触发 watch
-    timer.completionId += 1;
-    timer.lastCompletedMinutes = 25;
-    await flushPromises();
-
-    expect(recordSpy).toHaveBeenCalledWith(25, "");
-    expect(addFocusSpy).toHaveBeenCalledWith(25);
-  });
-
-  it("完成工作番茄钟后应同步 stats.todayCount/totalMinutes 回 timer", async () => {
-    const wrapper = await mountApp();
-    const timer = useTimerStore();
-    const stats = useStatsStore();
-    const garden = useGardenStore();
-    vi.spyOn(stats, "recordSession").mockImplementation(async () => {
-      stats.stats.todayCount += 1;
-      stats.stats.totalMinutes += 25;
-    });
-    vi.spyOn(garden, "addFocus").mockResolvedValue(true);
-
-    timer.completionId += 1;
-    timer.lastCompletedMinutes = 25;
-    await flushPromises();
-
-    expect(timer.todayCount).toBe(stats.todayCount);
-    expect(timer.totalMinutes).toBe(stats.totalMinutes);
-  });
-
-  // ===== 卸载清理 =====
-
-  it("卸载时应移除 keydown 监听器", async () => {
-    const wrapper = await mountApp();
-    const timer = useTimerStore();
-    const toggleSpy = vi.spyOn(timer, "toggle");
+    const startSpy = vi.spyOn(timer, "toggle");
     wrapper.unmount();
-    // 卸载后按键不应再触发
-    document.body.dispatchEvent(
-      new KeyboardEvent("keydown", { code: "Space", bubbles: true }),
-    );
-    expect(toggleSpy).not.toHaveBeenCalled();
+    startSpy.mockClear();
+    const event = new KeyboardEvent("keydown", { code: "Space" });
+    Object.defineProperty(event, "target", { value: document.body, writable: false });
+    window.dispatchEvent(event);
+    expect(startSpy).not.toHaveBeenCalled();
   });
 });

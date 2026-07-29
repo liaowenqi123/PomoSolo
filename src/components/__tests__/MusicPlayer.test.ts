@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { reactive } from "vue";
+import { setActivePinia, createPinia } from "pinia";
 
 // Mock @tauri-apps/api/event（useTauriEvent 依赖 listen）
 vi.mock("@tauri-apps/api/event", () => ({
@@ -67,6 +68,7 @@ function makeStore(overrides: Record<string, unknown> = {}) {
 
 describe("MusicPlayer.vue", () => {
   beforeEach(() => {
+    setActivePinia(createPinia());
     mockStore = makeStore();
   });
 

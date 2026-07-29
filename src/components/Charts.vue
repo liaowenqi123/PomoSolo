@@ -6,7 +6,14 @@
  * 弹窗形式，展示网易云/QQ 音乐热歌榜，支持下载（通过 Rust 后端调用 Python 子进程）。
  */
 import { ref, computed, watch } from "vue";
-import { chartsFetch, downloadSong, type ChartSource, type ChartSong } from "@/api/charts";
+import {
+  chartsFetch,
+  downloadSong,
+  type ChartSource,
+  type ChartSong,
+  type DownloadStatus,
+} from "@/api/charts";
+import DownloadDialog from "./DownloadDialog.vue";
 
 const props = defineProps<{
   visible: boolean;
@@ -23,6 +30,13 @@ const errorMsg = ref<string | null>(null);
 const downloadMode = ref(false);
 const downloadingSongs = ref<Set<string>>(new Set());
 const toast = ref<{ message: string; type: "success" | "error" | "info" } | null>(null);
+
+// 自定义免责声明弹窗（替代 window.confirm）
+const showDisclaimer = ref(false);
+// 自定义下载弹窗（替代 window.prompt，支持输入歌曲名）
+const showDownloadDialog = ref(false);
+const downloadDialogTitle = ref("");
+const downloadDialogArtist = ref("");
 
 const sourceLabel = computed(() => (currentSource.value === "netease" ? "网易云" : "QQ音乐"));
 
@@ -70,6 +84,7 @@ async function handleDownload(title: string, artist: string) {
   try {
     const result = await downloadSong(title, artist);
     if (result.success) {
+      // Rust 退出码 0 -> "downloaded"，2 -> "exists"
       if (result.status === "exists") {
         showToast(`ℹ️ "${title}" 已存在，无需下载`, "info");
       } else {
@@ -94,13 +109,52 @@ async function handleDownload(title: string, artist: string) {
 
 function handleToggleDownloadMode() {
   if (!downloadMode.value) {
-    // 开启前提示免责声明（这里简化为直接确认）
-    const confirmed = window.confirm(
-      "下载的音乐仅供个人学习使用，请遵守相关版权法律。是否继续开启下载模式？",
-    );
-    if (!confirmed) return;
+    // 开启前显示自定义免责声明弹窗（不再使用 window.confirm）
+    showDisclaimer.value = true;
+    return;
   }
-  downloadMode.value = !downloadMode.value;
+  downloadMode.value = false;
+}
+
+function confirmDisclaimer() {
+  showDisclaimer.value = false;
+  downloadMode.value = true;
+}
+
+function cancelDisclaimer() {
+  showDisclaimer.value = false;
+  // 不开启下载模式（checkbox 由 v-model 同步，这里手动复位）
+  downloadMode.value = false;
+}
+
+/** 打开手动下载弹窗（输入歌曲名） */
+function openManualDownload() {
+  downloadDialogTitle.value = "";
+  downloadDialogArtist.value = "";
+  showDownloadDialog.value = true;
+}
+
+/** 从榜单点击下载按钮，打开弹窗并预填歌曲信息 */
+function openSongDownload(title: string, artist: string) {
+  downloadDialogTitle.value = title;
+  downloadDialogArtist.value = artist;
+  showDownloadDialog.value = true;
+}
+
+/** 下载弹窗完成后的回调，显示 toast 反馈 */
+function handleDownloaded(payload: { title: string; artist: string; status: DownloadStatus }) {
+  const { title, status } = payload;
+  if (status === "downloaded") {
+    showToast(`✅ "${title}" 下载成功`, "success");
+  } else if (status === "exists") {
+    showToast(`ℹ️ "${title}" 已存在，无需下载`, "info");
+  } else if (status === "no_video") {
+    showToast(`❌ "${title}" 未找到相关视频`, "error");
+  } else if (status === "no_instrumental") {
+    showToast(`❌ "${title}" 未找到纯音乐版本`, "error");
+  } else {
+    showToast(`❌ 下载失败`, "error");
+  }
 }
 
 function medalClass(rank: number): string {
@@ -128,7 +182,8 @@ watch(
 </script>
 
 <template>
-  <div v-if="props.visible" class="charts-modal" @click="handleBackdropClick">
+  <Transition name="modal">
+    <div v-if="props.visible" class="charts-modal" @click="handleBackdropClick">
     <div class="charts-modal__panel">
       <div class="charts-modal__header">
         <h3 class="charts-modal__title">🎵 音乐榜单</h3>
@@ -169,6 +224,14 @@ watch(
           />
           <span>下载模式</span>
         </label>
+
+        <button
+          v-if="downloadMode"
+          class="charts-manual-download-btn"
+          @click="openManualDownload"
+        >
+          📥 手动下载
+        </button>
       </div>
 
       <div class="charts-table-container">
@@ -215,12 +278,54 @@ watch(
         {{ toast.message }}
       </div>
     </div>
-  </div>
+
+    <!-- 免责声明弹窗（替代 window.confirm） -->
+    <div
+      v-if="showDisclaimer"
+      class="app-modal-overlay charts-disclaimer-overlay"
+      @click="(e) => { if (e.target === e.currentTarget) cancelDisclaimer(); }"
+    >
+      <div class="charts-disclaimer" role="alertdialog" aria-modal="true">
+        <div class="charts-disclaimer__header">
+          <h3 class="charts-disclaimer__title">⚠️ 下载须知</h3>
+        </div>
+        <div class="charts-disclaimer__body">
+          下载的音乐仅供个人学习使用，请遵守相关版权法律。是否继续开启下载模式？
+        </div>
+        <div class="charts-disclaimer__footer">
+          <button
+            class="charts-disclaimer__btn charts-disclaimer__btn--cancel"
+            type="button"
+            @click="cancelDisclaimer"
+          >
+            取消
+          </button>
+          <button
+            class="charts-disclaimer__btn charts-disclaimer__btn--confirm"
+            type="button"
+            @click="confirmDisclaimer"
+          >
+            继续开启
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 自定义下载弹窗（替代 window.prompt，支持输入歌曲名） -->
+    <DownloadDialog
+      :visible="showDownloadDialog"
+      :initial-title="downloadDialogTitle"
+      :initial-artist="downloadDialogArtist"
+      @close="showDownloadDialog = false"
+      @downloaded="handleDownloaded"
+    />
+    </div>
+  </Transition>
 </template>
 
 <style scoped>
 .charts-modal {
-  position: fixed;
+  position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   display: flex;
@@ -233,7 +338,7 @@ watch(
   width: 640px;
   max-width: 90vw;
   max-height: 80vh;
-  background: #1f2233;
+  background: #1a1a1a;
   border-radius: 14px;
   display: flex;
   flex-direction: column;
@@ -259,7 +364,7 @@ watch(
 .charts-modal__close {
   background: none;
   border: none;
-  color: #aaa;
+  color: rgba(255, 255, 255, 0.6);
   font-size: 18px;
   cursor: pointer;
 }
@@ -284,7 +389,7 @@ watch(
   padding: 4px 12px;
   border: none;
   background: none;
-  color: #888;
+  color: rgba(255, 255, 255, 0.6);
   cursor: pointer;
   font-size: 12px;
   border-radius: 6px;
@@ -300,7 +405,7 @@ watch(
   border: none;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.1);
-  color: #ddd;
+  color: rgba(255, 255, 255, 0.9);
   cursor: pointer;
   font-size: 12px;
 }
@@ -316,7 +421,7 @@ watch(
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: #aaa;
+  color: rgba(255, 255, 255, 0.6);
   cursor: pointer;
 }
 
@@ -330,7 +435,7 @@ watch(
 .charts-error {
   text-align: center;
   padding: 40px;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .charts-error {
@@ -346,18 +451,18 @@ watch(
 .charts-table th {
   text-align: left;
   padding: 8px 6px;
-  color: #888;
+  color: rgba(255, 255, 255, 0.6);
   font-weight: 600;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   position: sticky;
   top: 0;
-  background: #1f2233;
+  background: #1a1a1a;
 }
 
 .charts-table td {
   padding: 8px 6px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-  color: #ddd;
+  color: rgba(255, 255, 255, 0.9);
   max-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -366,7 +471,7 @@ watch(
 
 .charts-empty {
   text-align: center;
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.6);
   padding: 24px;
 }
 
@@ -400,7 +505,7 @@ watch(
   background: none;
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 6px;
-  color: #ddd;
+  color: rgba(255, 255, 255, 0.9);
   cursor: pointer;
   padding: 2px 8px;
   font-size: 14px;
@@ -433,5 +538,124 @@ watch(
 
 .charts-toast.info {
   background: rgba(33, 150, 243, 0.9);
+}
+
+/* 手动下载按钮 */
+.charts-manual-download-btn {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 6px;
+  background: #e94560;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.2s;
+}
+
+.charts-manual-download-btn:hover {
+  background: #d63851;
+}
+
+/* 免责声明弹窗 */
+.charts-disclaimer-overlay {
+  z-index: 3100; /* 高于 Charts 弹窗 */
+}
+
+.charts-disclaimer {
+  background: #1a1a1a;
+  color: #fff;
+  border-radius: 14px;
+  padding: 20px;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.charts-disclaimer__header {
+  margin-bottom: 12px;
+}
+
+.charts-disclaimer__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.charts-disclaimer__body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.85);
+  margin-bottom: 18px;
+}
+
+.charts-disclaimer__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.charts-disclaimer__btn {
+  padding: 7px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.charts-disclaimer__btn--cancel {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.charts-disclaimer__btn--cancel:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.charts-disclaimer__btn--confirm {
+  background: #e94560;
+  color: #fff;
+}
+
+.charts-disclaimer__btn--confirm:hover {
+  background: #d63851;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+/* Transition：遮罩层 opacity 0→1，内容 scale 0.92→1 */
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.25s ease;
+}
+
+.modal-enter-active .charts-modal__panel,
+.modal-leave-active .charts-modal__panel {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-from .charts-modal__panel,
+.modal-leave-to .charts-modal__panel {
+  transform: scale(0.92);
 }
 </style>

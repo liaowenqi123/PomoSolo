@@ -28,7 +28,9 @@ export interface ChartsResult {
   error?: string;
 }
 
-export type DownloadStatus = "success" | "exists" | "no_video" | "no_instrumental" | "failed";
+// 注意：Rust 后端 charts.rs 在退出码 0 时返回 "downloaded"（而非 "success"），
+// 退出码 2 返回 "exists"，3 返回 "no_video"，4 返回 "no_instrumental"，其他返回 "failed"。
+export type DownloadStatus = "downloaded" | "exists" | "no_video" | "no_instrumental" | "failed";
 
 export interface DownloadResult {
   success: boolean;

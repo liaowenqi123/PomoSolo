@@ -222,11 +222,12 @@ watch(
   font-size: 15px;
   margin: 0 0 12px;
   line-height: 1.5;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .warning-window {
   font-size: 13px;
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
   margin: 0 0 8px;
   word-break: break-all;
 }
@@ -270,18 +271,34 @@ watch(
 
 .btn-secondary {
   background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary, #eee);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .api-key-error-message {
   margin: 0 0 8px;
   font-size: 14px;
   line-height: 1.5;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .api-key-error-hint {
   margin: 0;
   font-size: 12px;
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 </style>

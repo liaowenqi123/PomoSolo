@@ -63,35 +63,49 @@ function onClear(): void {
 </template>
 
 <style scoped>
+/* 备注框 - 绝对定位在 timer-container 内顶部，居中且不顶到时钟圆框 */
 .note-manager {
+  position: absolute;
+  top: 50px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 4px;
-  width: 100%;
-  max-width: 280px;
-  position: relative;
+  max-width: 100px;
+  width: 100px;
+  z-index: 10;
+  animation: fadeInDown 0.3s ease;
+}
+
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 .note-manager__input {
   flex: 1;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
-  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  font-size: 11px;
   font-family: inherit;
   outline: none;
   text-align: center;
   transition: border-color 0.15s ease;
+  height: 26px;
+  min-width: 0;
 }
 
 .note-manager__input:focus {
-  border-color: var(--accent);
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .note-manager__input::placeholder {
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .note-manager__input:disabled {
@@ -106,7 +120,7 @@ function onClear(): void {
   height: 20px;
   border-radius: 50%;
   font-size: 14px;
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -115,6 +129,6 @@ function onClear(): void {
 
 .note-manager__clear:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
+  color: #fff;
 }
 </style>

@@ -462,11 +462,12 @@ function shortId(id: string): string {
 .current-room-name {
   font-size: 15px;
   font-weight: 600;
+  color: #fff;
 }
 
 .current-room-id {
   font-size: 12px;
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
   margin-top: 4px;
 }
 
@@ -488,7 +489,7 @@ function shortId(id: string): string {
 
 .form-label {
   font-size: 13px;
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .required {
@@ -499,13 +500,14 @@ function shortId(id: string): string {
   width: 100%;
   padding: 10px 12px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary, #eee);
+  color: #fff;
   font-size: 14px;
   box-sizing: border-box;
   outline: none;
   transition: border-color 0.2s ease;
+  min-height: 44px;
 }
 
 .form-input:focus {
@@ -516,11 +518,11 @@ function shortId(id: string): string {
   width: 100%;
   padding: 10px 12px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   background: rgba(255, 255, 255, 0.05);
-  color: var(--text-primary, #eee);
+  color: #fff;
   font-size: 14px;
-  min-height: 70px;
+  min-height: 100px;
   resize: vertical;
   box-sizing: border-box;
   outline: none;
@@ -584,7 +586,7 @@ function shortId(id: string): string {
 
 .btn-secondary {
   background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary, #eee);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .btn-danger {
@@ -595,7 +597,7 @@ function shortId(id: string): string {
 
 .empty-hint {
   text-align: center;
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
   font-size: 13px;
   padding: 16px 0;
 }
@@ -621,17 +623,18 @@ function shortId(id: string): string {
 .room-list-name {
   font-size: 14px;
   font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .room-list-meta {
   font-size: 12px;
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
   margin-top: 4px;
 }
 
 .room-list-desc {
   font-size: 12px;
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
   margin-top: 4px;
 }
 
@@ -645,17 +648,18 @@ function shortId(id: string): string {
 .room-header-name {
   font-size: 16px;
   font-weight: 600;
+  color: #fff;
 }
 
 .room-header-id {
   font-size: 12px;
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
   margin-top: 4px;
 }
 
 .room-desc {
   font-size: 13px;
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
   margin-bottom: 12px;
   padding: 8px 12px;
   background: rgba(255, 255, 255, 0.04);
@@ -670,6 +674,7 @@ function shortId(id: string): string {
   margin: 0 0 8px;
   font-size: 14px;
   font-weight: 600;
+  color: #fff;
 }
 
 .ranking-list {
@@ -699,10 +704,11 @@ function shortId(id: string): string {
 
 .ranking-name {
   flex: 1;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .ranking-time {
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .member-list {
@@ -736,9 +742,25 @@ function shortId(id: string): string {
 
 .member-name {
   flex: 1;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .member-time {
-  color: var(--text-secondary, #888);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 </style>

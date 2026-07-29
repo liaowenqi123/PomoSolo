@@ -150,9 +150,35 @@ function canUnlock(index: number): boolean {
 <style scoped>
 .garden-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
   padding: 12px;
+  max-width: 400px;
+  margin: 0 auto;
+  /* 在 400x520 窗口内允许纵向滚动，避免菜地被切割 */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+
+.garden-grid::-webkit-scrollbar {
+  width: 5px;
+}
+
+.garden-grid::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.garden-grid::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+}
+
+.garden-grid::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .garden-plot {

@@ -4,7 +4,7 @@ import { setActivePinia, createPinia } from "pinia";
 import TimerProgress from "../TimerProgress.vue";
 import { useTimerStore } from "../../stores/timer";
 
-const CIRCUMFERENCE = 2 * Math.PI * 120; // ≈ 753.98
+const CIRCUMFERENCE = 2 * Math.PI * 116; // ≈ 728.85
 
 describe("TimerProgress.vue", () => {
   beforeEach(() => {
@@ -30,13 +30,13 @@ describe("TimerProgress.vue", () => {
     expect(circles).toHaveLength(2);
   });
 
-  it("circumference 常量 = 2 * Math.PI * 120 ≈ 753.98", () => {
+  it("circumference 常量 = 2 * Math.PI * 116 ≈ 728.85", () => {
     const wrapper = mountComponent();
     const progressCircle = wrapper.findAll("circle")[1];
     const dasharray = progressCircle.attributes("stroke-dasharray");
-    // 应解析为约 753.98
+    // 应解析为约 728.85
     expect(Number(dasharray)).toBeCloseTo(CIRCUMFERENCE, 2);
-    expect(Number(dasharray)).toBeCloseTo(753.98, 2);
+    expect(Number(dasharray)).toBeCloseTo(728.85, 2);
   });
 
   it("初始 progress=0 时 dashOffset 应等于 circumference（无进度显示）", () => {
@@ -50,7 +50,7 @@ describe("TimerProgress.vue", () => {
   it("进度圆环应具有 transform='rotate(-90 140 140)' 属性", () => {
     const wrapper = mountComponent();
     const progressCircle = wrapper.findAll("circle")[1];
-    expect(progressCircle.attributes("transform")).toBe("rotate(-90 140 140)");
+    expect(progressCircle.attributes("transform")).toBe("rotate(-90 120 120)");
   });
 
   it("背景圆环不应有 transform 属性", () => {
@@ -137,33 +137,33 @@ describe("TimerProgress.vue", () => {
     expect(store.progress).toBeGreaterThan(0);
   });
 
-  it("两个圆环的 cx/cy/r 应一致（cx=140, cy=140, r=120）", () => {
+  it("两个圆环的 cx/cy/r 应一致（cx=120, cy=120, r=116）", () => {
     const wrapper = mountComponent();
     const circles = wrapper.findAll("circle");
     for (const c of circles) {
-      expect(c.attributes("cx")).toBe("140");
-      expect(c.attributes("cy")).toBe("140");
-      expect(c.attributes("r")).toBe("120");
+      expect(c.attributes("cx")).toBe("120");
+      expect(c.attributes("cy")).toBe("120");
+      expect(c.attributes("r")).toBe("116");
     }
   });
 
-  it("SVG 应具有 width=280, height=280, viewBox='0 0 280 280'", () => {
+  it("SVG 应具有 width=200, height=200, viewBox='0 0 240 240'", () => {
     const wrapper = mountComponent();
     const svg = wrapper.find("svg");
-    expect(svg.attributes("width")).toBe("280");
-    expect(svg.attributes("height")).toBe("280");
-    expect(svg.attributes("viewBox")).toBe("0 0 280 280");
+    expect(svg.attributes("width")).toBe("200");
+    expect(svg.attributes("height")).toBe("200");
+    expect(svg.attributes("viewBox")).toBe("0 0 240 240");
   });
 
-  it("进度圆环 stroke 应为 var(--accent)", () => {
+  it("进度圆环 stroke 应为半透明白色", () => {
     const wrapper = mountComponent();
     const progressCircle = wrapper.findAll("circle")[1];
-    expect(progressCircle.attributes("stroke")).toBe("var(--accent)");
+    expect(progressCircle.attributes("stroke")).toBe("rgba(255, 255, 255, 0.85)");
   });
 
   it("背景圆环 stroke 应为半透明白色", () => {
     const wrapper = mountComponent();
     const bgCircle = wrapper.findAll("circle")[0];
-    expect(bgCircle.attributes("stroke")).toBe("rgba(255, 255, 255, 0.05)");
+    expect(bgCircle.attributes("stroke")).toBe("rgba(255, 255, 255, 0.12)");
   });
 });

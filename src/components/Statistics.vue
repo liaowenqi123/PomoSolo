@@ -45,17 +45,17 @@ function buildConfig(): ChartConfiguration {
       maintainAspectRatio: false,
       plugins: {
         legend: {
-          labels: { color: "#eee", font: { size: 12 } },
+          labels: { color: "#fff", font: { size: 12 } },
         },
       },
       scales: {
         x: {
-          ticks: { color: "#888" },
-          grid: { color: "rgba(255,255,255,0.05)" },
+          ticks: { color: "rgba(255,255,255,0.85)" },
+          grid: { color: "rgba(255,255,255,0.08)" },
         },
         y: {
-          ticks: { color: "#888" },
-          grid: { color: "rgba(255,255,255,0.05)" },
+          ticks: { color: "rgba(255,255,255,0.85)" },
+          grid: { color: "rgba(255,255,255,0.08)" },
           beginAtZero: true,
         },
       },
@@ -171,9 +171,9 @@ function onContentClick(e: MouseEvent): void {
 
 <style scoped>
 .stats-overlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
   z-index: 100;
   display: flex;
@@ -185,7 +185,7 @@ function onContentClick(e: MouseEvent): void {
   width: 520px;
   max-width: 90vw;
   max-height: 80vh;
-  background: var(--bg-secondary, #16213e);
+  background: #1a1a1a;
   border-radius: 16px;
   display: flex;
   flex-direction: column;
@@ -204,7 +204,7 @@ function onContentClick(e: MouseEvent): void {
 .stats-panel__title {
   font-size: 18px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .stats-panel__close {
@@ -212,13 +212,13 @@ function onContentClick(e: MouseEvent): void {
   height: 32px;
   border-radius: 8px;
   font-size: 20px;
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.6);
   transition: all 0.15s ease;
 }
 
 .stats-panel__close:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .stats-panel__body {
@@ -244,13 +244,13 @@ function onContentClick(e: MouseEvent): void {
 .stats-card__value {
   font-size: 28px;
   font-weight: 700;
-  color: var(--accent);
+  color: #fff;
   font-variant-numeric: tabular-nums;
 }
 
 .stats-card__label {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.85);
   margin-top: 4px;
 }
 
@@ -261,14 +261,39 @@ function onContentClick(e: MouseEvent): void {
   padding: 12px;
 }
 
-/* Transition */
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+/* Transition：遮罩层 opacity 0→1，内容 scale 0.92→1 */
 .panel-enter-active,
 .panel-leave-active {
-  transition: opacity 0.2s ease;
+  transition: opacity 0.25s ease;
+}
+
+.panel-enter-active .stats-panel,
+.panel-leave-active .stats-panel {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .panel-enter-from,
 .panel-leave-to {
   opacity: 0;
+}
+
+.panel-enter-from .stats-panel,
+.panel-leave-to .stats-panel {
+  transform: scale(0.92);
 }
 </style>

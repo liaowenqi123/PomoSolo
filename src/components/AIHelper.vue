@@ -84,8 +84,9 @@ function handleKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div v-if="props.visible" class="ai-modal" @click="handleBackdropClick">
-    <div class="ai-modal__panel">
+  <Transition name="modal">
+    <div v-if="props.visible" class="ai-modal" @click="handleBackdropClick">
+      <div class="ai-modal__panel">
       <div class="ai-modal__header">
         <h3 class="ai-modal__title">🤖 AI 规划助手</h3>
         <button class="ai-modal__close" :disabled="isProcessing" @click="emit('close')">✕</button>
@@ -153,13 +154,14 @@ function handleKeydown(e: KeyboardEvent) {
           输入您的需求，AI 将为您生成专属的番茄钟计划
         </div>
       </div>
+      </div>
     </div>
-  </div>
+  </Transition>
 </template>
 
 <style scoped>
 .ai-modal {
-  position: fixed;
+  position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   display: flex;
@@ -172,7 +174,7 @@ function handleKeydown(e: KeyboardEvent) {
   width: 480px;
   max-width: 90vw;
   max-height: 80vh;
-  background: #1f2233;
+  background: #1a1a1a;
   border-radius: 14px;
   display: flex;
   flex-direction: column;
@@ -197,7 +199,7 @@ function handleKeydown(e: KeyboardEvent) {
 .ai-modal__close {
   background: none;
   border: none;
-  color: #aaa;
+  color: rgba(255, 255, 255, 0.6);
   font-size: 18px;
   cursor: pointer;
 }
@@ -212,6 +214,7 @@ function handleKeydown(e: KeyboardEvent) {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 120px;
 }
 
 .ai-input {
@@ -220,12 +223,13 @@ function handleKeydown(e: KeyboardEvent) {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 8px;
   padding: 10px 12px;
-  color: #eee;
-  font-size: 13px;
+  color: #fff;
+  font-size: 14px;
   font-family: inherit;
   resize: none;
   outline: none;
   box-sizing: border-box;
+  min-height: 60px;
 }
 
 .ai-input:focus {
@@ -233,7 +237,7 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 .ai-input::placeholder {
-  color: #666;
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .ai-generate-btn {
@@ -266,7 +270,7 @@ function handleKeydown(e: KeyboardEvent) {
 .ai-placeholder {
   text-align: center;
   padding: 30px;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.6);
   font-size: 13px;
 }
 
@@ -285,7 +289,7 @@ function handleKeydown(e: KeyboardEvent) {
   background: rgba(233, 69, 96, 0.1);
   border-radius: 8px;
   font-size: 13px;
-  color: #eee;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .ai-plan-list {
@@ -323,7 +327,7 @@ function handleKeydown(e: KeyboardEvent) {
   justify-content: center;
   font-size: 11px;
   font-weight: 700;
-  color: #ddd;
+  color: rgba(255, 255, 255, 0.9);
   flex-shrink: 0;
 }
 
@@ -332,7 +336,7 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 .ai-plan-type {
-  color: #ddd;
+  color: rgba(255, 255, 255, 0.9);
   font-weight: 600;
   min-width: 32px;
 }
@@ -344,7 +348,7 @@ function handleKeydown(e: KeyboardEvent) {
 }
 
 .ai-plan-desc {
-  color: #aaa;
+  color: rgba(255, 255, 255, 0.6);
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
@@ -354,7 +358,7 @@ function handleKeydown(e: KeyboardEvent) {
 .ai-total-time {
   text-align: center;
   font-size: 13px;
-  color: #aaa;
+  color: rgba(255, 255, 255, 0.6);
   padding: 6px;
 }
 
@@ -372,5 +376,41 @@ function handleKeydown(e: KeyboardEvent) {
 
 .ai-apply-btn:hover {
   opacity: 0.9;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+/* Transition：遮罩层 opacity 0→1，内容 scale 0.92→1 */
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.25s ease;
+}
+
+.modal-enter-active .ai-modal__panel,
+.modal-leave-active .ai-modal__panel {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+
+.modal-enter-from .ai-modal__panel,
+.modal-leave-to .ai-modal__panel {
+  transform: scale(0.92);
 }
 </style>

@@ -3,6 +3,8 @@ import { ref, computed } from "vue";
 
 export type TimerPhase = "ready" | "running" | "finished";
 export type TimerMode = "work" | "break";
+/** 应用模式：单次 / 计划 / 正向计时 */
+export type AppMode = "single" | "plan" | "stopwatch";
 
 const DEFAULT_WORK_MINUTES = 25;
 const DEFAULT_BREAK_MINUTES = 5;
@@ -12,6 +14,7 @@ export const useTimerStore = defineStore("timer", () => {
   // ===== State =====
   const phase = ref<TimerPhase>("ready");
   const mode = ref<TimerMode>("work");
+  const appMode = ref<AppMode>("single");
   const remainingMs = ref(DEFAULT_WORK_MINUTES * 60 * 1000);
   const totalMs = ref(DEFAULT_WORK_MINUTES * 60 * 1000);
   const todayCount = ref(0);
@@ -65,6 +68,13 @@ export const useTimerStore = defineStore("timer", () => {
     const minutes = newMode === "work" ? DEFAULT_WORK_MINUTES : DEFAULT_BREAK_MINUTES;
     totalMs.value = minutes * 60 * 1000;
     remainingMs.value = totalMs.value;
+    phase.value = "ready";
+  }
+
+  /** 切换应用模式（单次/计划/正向） */
+  function setAppMode(newAppMode: AppMode) {
+    if (phase.value === "running") return;
+    appMode.value = newAppMode;
     phase.value = "ready";
   }
 
@@ -153,6 +163,7 @@ export const useTimerStore = defineStore("timer", () => {
   return {
     phase,
     mode,
+    appMode,
     remainingMs,
     totalMs,
     todayCount,
@@ -164,6 +175,7 @@ export const useTimerStore = defineStore("timer", () => {
     isRunning,
     init,
     setMode,
+    setAppMode,
     start,
     pause,
     toggle,

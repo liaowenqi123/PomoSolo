@@ -34,7 +34,8 @@ describe("api/charts", () => {
   });
 
   it("downloadSong 应调用 invoke('download_song', { title, artist })", async () => {
-    const ret = { success: true, status: "success" as const };
+    // Rust 后端退出码 0 时返回 "downloaded"（而非 "success"）
+    const ret = { success: true, status: "downloaded" as const };
     invokeMock.mockResolvedValue(ret);
     const result = await downloadSong("我的歌", "歌手");
     expect(invokeMock).toHaveBeenCalledWith("download_song", {

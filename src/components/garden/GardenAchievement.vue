@@ -174,7 +174,7 @@ function handleBackdropClick(e: MouseEvent) {
 .achievement-modal__close {
   background: none;
   border: none;
-  color: #aaa;
+  color: rgba(255, 255, 255, 0.7);
   font-size: 18px;
   cursor: pointer;
 }
@@ -182,7 +182,7 @@ function handleBackdropClick(e: MouseEvent) {
 .achievement-summary {
   padding: 8px 18px;
   font-size: 13px;
-  color: #bbb;
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .achievement-summary__num {
@@ -203,7 +203,7 @@ function handleBackdropClick(e: MouseEvent) {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid transparent;
   border-radius: 6px;
-  color: #aaa;
+  color: rgba(255, 255, 255, 0.7);
   cursor: pointer;
   font-size: 12px;
   transition: all 0.2s ease;
@@ -258,12 +258,12 @@ function handleBackdropClick(e: MouseEvent) {
 .achievement-item__name {
   font-size: 14px;
   font-weight: 600;
-  color: #eee;
+  color: rgba(255, 255, 255, 0.95);
 }
 
 .achievement-item__desc {
   font-size: 12px;
-  color: #999;
+  color: rgba(255, 255, 255, 0.65);
 }
 
 .achievement-item__progress {
@@ -292,7 +292,7 @@ function handleBackdropClick(e: MouseEvent) {
 
 .achievement-progress-text {
   font-size: 11px;
-  color: #aaa;
+  color: rgba(255, 255, 255, 0.7);
   white-space: nowrap;
 }
 
@@ -307,7 +307,7 @@ function handleBackdropClick(e: MouseEvent) {
   padding: 2px 6px;
   background: rgba(255, 255, 255, 0.06);
   border-radius: 4px;
-  color: #ccc;
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .achievement-item__badge {
@@ -324,5 +324,23 @@ function handleBackdropClick(e: MouseEvent) {
   justify-content: center;
   font-size: 12px;
   font-weight: 700;
+}
+
+/* ============ 统一滚动条样式 ============ */
+.achievement-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.achievement-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.achievement-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.achievement-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 </style>

@@ -5,7 +5,7 @@
  *
  * 显示连续签到天数、本周签到记录、今日奖励，执行签到操作。
  */
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   useGardenStore,
   CROP_CONFIG,
@@ -23,6 +23,21 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "close"): void;
 }>();
+
+// 签到进行中状态（防止重复点击）
+const signing = ref(false);
+// 签到反馈消息
+const feedbackMsg = ref("");
+
+// 弹窗打开时清空反馈
+watch(
+  () => props.visible,
+  (v) => {
+    if (v) {
+      feedbackMsg.value = "";
+    }
+  },
+);
 
 const signInData = computed(() => store.data.signIn);
 const continuousDays = computed(() => signInData.value?.continuousDays ?? 0);
@@ -104,7 +119,19 @@ const todayRewards = computed(() => {
 });
 
 async function handleSignIn() {
-  await store.signIn();
+  if (signing.value) return;
+  signing.value = true;
+  try {
+    const ok = await store.signIn();
+    feedbackMsg.value = ok
+      ? "✅ 签到成功！奖励已发放"
+      : "❌ 签到失败，请稍后重试";
+  } catch (e) {
+    feedbackMsg.value =
+      "❌ 签到失败：" + (e instanceof Error ? e.message : String(e));
+  } finally {
+    signing.value = false;
+  }
 }
 
 function handleBackdropClick(e: MouseEvent) {
@@ -160,11 +187,19 @@ function handleBackdropClick(e: MouseEvent) {
 
       <button
         class="signin-confirm-btn"
-        :disabled="!canSign"
+        :disabled="!canSign || signing"
         @click="handleSignIn"
       >
-        {{ canSign ? "✅ 立即签到" : "今日已签到" }}
+        {{ signing ? "签到中..." : canSign ? "✅ 立即签到" : "今日已签到" }}
       </button>
+
+      <div
+        v-if="feedbackMsg"
+        class="signin-feedback"
+        :class="{ 'signin-feedback--error': feedbackMsg.startsWith('❌') }"
+      >
+        {{ feedbackMsg }}
+      </div>
     </div>
   </div>
 </template>
@@ -326,5 +361,20 @@ function handleBackdropClick(e: MouseEvent) {
   background: #555;
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.signin-feedback {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(76, 175, 80, 0.18);
+  color: #66bb6a;
+  font-size: 13px;
+  text-align: center;
+}
+
+.signin-feedback--error {
+  background: rgba(233, 69, 96, 0.18);
+  color: #e94560;
 }
 </style>
