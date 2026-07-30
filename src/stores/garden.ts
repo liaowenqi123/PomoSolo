@@ -6,7 +6,7 @@
  *
  * 同时导出作物 / 成就 / 签到 / 土地解锁等静态配置，供 garden 子组件使用。
  */
-import { defineStore } from "pinia";
+import { defineStore, acceptHMRUpdate } from "pinia";
 import { ref, computed } from "vue";
 import {
   gardenRead,
@@ -553,3 +553,8 @@ export const useGardenStore = defineStore("garden", () => {
     getNextMilestone,
   };
 });
+
+// HMR: 支持 Vite 热更新，避免 HMR 后丢失 Pinia 上下文
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useGardenStore, import.meta.hot));
+}

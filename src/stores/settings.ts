@@ -4,7 +4,7 @@
  * 从 electron/src/scripts/modules/settings.js 提取核心设置项，
  * 通过 src/api/data.ts 的 readSettings/writeSettings 持久化。
  */
-import { defineStore } from "pinia";
+import { defineStore, acceptHMRUpdate } from "pinia";
 import { ref, computed } from "vue";
 import { readSettings, writeSettings, type JsonObject } from "../api/data";
 
@@ -175,3 +175,8 @@ export const useSettingsStore = defineStore("settings", () => {
     toggleTheme,
   };
 });
+
+// HMR: 支持 Vite 热更新，避免 HMR 后丢失 Pinia 上下文
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useSettingsStore, import.meta.hot));
+}

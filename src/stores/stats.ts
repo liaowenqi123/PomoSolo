@@ -4,7 +4,7 @@
  * 管理 todayCount（今日番茄数）与 totalMinutes（总专注分钟数），
  * 通过 src/api/data.ts 的 readData/writeData 持久化到 data.json。
  */
-import { defineStore } from "pinia";
+import { defineStore, acceptHMRUpdate } from "pinia";
 import { ref, computed } from "vue";
 import { readData, writeData, type JsonObject } from "../api/data";
 
@@ -215,3 +215,8 @@ export const useStatsStore = defineStore("stats", () => {
     resetToday,
   };
 });
+
+// HMR: 支持 Vite 热更新，避免 HMR 后丢失 Pinia 上下文
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useStatsStore, import.meta.hot));
+}

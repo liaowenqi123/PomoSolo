@@ -2,6 +2,22 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { setActivePinia, createPinia } from "pinia";
 
+// Mock @tauri-apps/api/core（update API 间接依赖 invoke）
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(() => Promise.resolve()),
+}));
+
+// Mock @tauri-apps/api/event（useTauriEvent 间接依赖 listen）
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(() => Promise.resolve(() => {})),
+  emit: vi.fn(() => Promise.resolve()),
+}));
+
+// Mock @tauri-apps/api/app（getVersion 调用 invoke）
+vi.mock("@tauri-apps/api/app", () => ({
+  getVersion: vi.fn(() => Promise.resolve("0.0.0")),
+}));
+
 // Mock @/api/data 模块（settings store 通过 readSettings/writeSettings 持久化）
 const dataApi = vi.hoisted(() => ({
   readSettings: vi.fn(),

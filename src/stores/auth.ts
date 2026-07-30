@@ -10,7 +10,7 @@
  *
  * 切换模式时会清理对方的凭据。
  */
-import { defineStore } from "pinia";
+import { defineStore, acceptHMRUpdate } from "pinia";
 import { ref, computed } from "vue";
 import {
   type ApiMode,
@@ -307,6 +307,11 @@ export const useAuthStore = defineStore("auth", () => {
     clearError,
   };
 });
+
+// HMR: 支持 Vite 热更新，避免 HMR 后丢失 Pinia 上下文
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useAuthStore, import.meta.hot));
+}
 
 // 重新导出类型，方便调用方按需使用
 export type { ApiMode, Session, Credentials };

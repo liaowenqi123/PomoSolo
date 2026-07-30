@@ -38,6 +38,7 @@ function makeStore(overrides: Record<string, unknown> = {}) {
         currentDeviceId: null as number | null,
         playlist: [] as string[],
         playlistTags: {} as Record<string, { name: string; color: string | null }>,
+        customTags: {} as Record<string, string>,
         isDragging: false,
         progress: 0,
         currentTimeText: "0:00",

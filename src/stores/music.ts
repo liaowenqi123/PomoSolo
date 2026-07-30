@@ -8,7 +8,7 @@
  * 事件监听由 MusicPlayer.vue 组件通过 useTauriEvent 注册，调用 store 的
  * handle* 方法更新状态，确保组件卸载时自动取消监听。
  */
-import { defineStore } from "pinia";
+import { defineStore, acceptHMRUpdate } from "pinia";
 import { ref, computed } from "vue";
 import {
   musicTogglePlay,
@@ -469,3 +469,8 @@ export const useMusicStore = defineStore("music", () => {
     handleSongMissing,
   };
 });
+
+// HMR: 支持 Vite 热更新，避免 HMR 后丢失 Pinia 上下文
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useMusicStore, import.meta.hot));
+}

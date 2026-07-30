@@ -1,4 +1,4 @@
-import { defineStore } from "pinia";
+import { defineStore, acceptHMRUpdate } from "pinia";
 import { ref, computed } from "vue";
 
 export type TimerPhase = "ready" | "running" | "paused" | "finished";
@@ -181,3 +181,8 @@ export const useTimerStore = defineStore("timer", () => {
     reset,
   };
 });
+
+// HMR: 支持 Vite 热更新，避免 HMR 后丢失 Pinia 上下文
+if (import.meta.hot) {
+  import.meta.hot.accept(acceptHMRUpdate(useTimerStore, import.meta.hot));
+}
