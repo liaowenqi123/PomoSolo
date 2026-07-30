@@ -106,6 +106,7 @@ jobs:
         shell: bash
         env:
           TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           EXE=$(ls installer/*.exe | head -1)
@@ -114,16 +115,24 @@ jobs:
           VERSION="${TAG#v}"
           SIGNATURE=$(cat "$SIG")
           PUB_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          # notes 取 tag message（annotation），fallback 用 tag 名
-          NOTES=$(git for-each-ref --format='%(contents:subject)%0A%0A%(contents:body)' "refs/tags/$TAG" | head -c 2000 | tr '\n' ' ' | sed 's/"/\\"/g')
+          # 用 GitHub API 取 tag annotation message（比 git for-each-ref 在 shallow clone 下可靠）
+          TAG_SHA=$(gh api repos/${{ github.repository }}/git/refs/tags/$TAG --jq '.object.sha')
+          TAG_TYPE=$(gh api repos/${{ github.repository }}/git/refs/tags/$TAG --jq '.object.type')
+          if [ "$TAG_TYPE" = "tag" ]; then
+            # annotated tag，取 tag object 的 message
+            NOTES=$(gh api repos/${{ github.repository }}/git/tags/$TAG_SHA --jq '.message')
+          else
+            # lightweight tag，fallback 用 commit message
+            NOTES=$(gh api repos/${{ github.repository }}/git/commits/$TAG_SHA --jq '.commit.message')
+          fi
           [ -z "$NOTES" ] && NOTES="PomoSolo $VERSION"
-          # latest.json（给 updater endpoint 用）
-          cat > latest.json <<JSON
-          {"version":"$VERSION","notes":"$NOTES","pub_date":"$PUB_DATE","platforms":{"windows-x86_64":{"url":"https://github.com/liaowenqi123/PomoSolo/releases/download/$TAG/$BASENAME","signature":"$SIGNATURE"}}}
-          JSON
           # release.md（给 GitHub Release body 用，保持原始换行）
-          git for-each-ref --format='%(contents:subject)%0A%0A%(contents:body)' "refs/tags/$TAG" > release.md
-          [ -s release.md ] || echo "PomoSolo $VERSION" > release.md
+          printf '%s' "$NOTES" > release.md
+          # latest.json 的 notes 需要转义为单行 JSON 字符串
+          NOTES_JSON=$(printf '%s' "$NOTES" | jq -Rs .)
+          cat > latest.json <<JSON
+          {"version":"$VERSION","notes":$NOTES_JSON,"pub_date":"$PUB_DATE","platforms":{"windows-x86_64":{"url":"https://github.com/liaowenqi123/PomoSolo/releases/download/$TAG/$BASENAME","signature":"$SIGNATURE"}}}
+          JSON
           echo "--- latest.json ---"
           cat latest.json
           echo "--- release.md ---"
