@@ -64,7 +64,7 @@ describe("Timer.vue", () => {
     expect(wrapper.find(".time-display").text()).toBe(store.displayTime);
   });
 
-  it("完成后应增加 todayCount 并切换到 break 模式显示 05:00", async () => {
+  it("完成后应切换到 break 模式并保留当前预设时长", async () => {
     const wrapper = mountComponent();
     const store = useTimerStore();
     // 通过推进时间触发完成
@@ -72,10 +72,11 @@ describe("Timer.vue", () => {
     vi.advanceTimersByTime(25 * 60 * 1000 + 1000);
     await wrapper.vm.$nextTick();
 
-    // complete 后会自动 setMode('break') 并把 phase 设为 ready
-    expect(store.todayCount).toBe(1);
+    // complete 后自动切换到 break 模式（setModeKeepTime 保留 totalMs）
     expect(store.mode).toBe("break");
-    // 时间应显示 break 模式的初始时间
-    expect(wrapper.find(".time-display").text()).toBe("05:00");
+    expect(store.phase).toBe("ready");
+    // todayCount 不再由 timer store 维护（由 stats store 通过 completionId 监听负责）
+    // setModeKeepTime 保留当前 totalMs，时间仍显示原工作时长
+    expect(wrapper.find(".time-display").text()).toBe("25:00");
   });
 });

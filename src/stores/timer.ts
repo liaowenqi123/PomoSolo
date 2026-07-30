@@ -1,7 +1,7 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 
-export type TimerPhase = "ready" | "running" | "finished";
+export type TimerPhase = "ready" | "running" | "paused" | "finished";
 export type TimerMode = "work" | "break";
 /** 应用模式：单次 / 计划 / 正向计时 */
 export type AppMode = "single" | "plan" | "stopwatch";
@@ -40,26 +40,14 @@ export const useTimerStore = defineStore("timer", () => {
     return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   });
 
+  // Bug 2: isRunning 仅在 running 时为 true，paused/ready/finished 均为 false
   const isRunning = computed(() => phase.value === "running");
 
   // ===== Actions =====
-  function init() {
-    // 从本地存储加载设置
-    loadSettings();
-  }
 
-  function loadSettings() {
-    // TODO: 从 Tauri 后端加载
-    const saved = localStorage.getItem("pomodoro-settings");
-    if (saved) {
-      try {
-        const data = JSON.parse(saved);
-        if (data.workMinutes) {
-          totalMs.value = data.workMinutes * 60 * 1000;
-          remainingMs.value = totalMs.value;
-        }
-      } catch {}
-    }
+  // Bug 5: 不再加载 settings（由 App.vue 调用 Presets.load() 应用预设）
+  function init() {
+    // no-op：保留函数以维持 API 兼容
   }
 
   function setMode(newMode: TimerMode) {
@@ -71,23 +59,42 @@ export const useTimerStore = defineStore("timer", () => {
     phase.value = "ready";
   }
 
+  // Bug 4: 切换模式但保留当前 totalMs，避免 complete() 覆盖用户预设时长
+  function setModeKeepTime(newMode: TimerMode) {
+    mode.value = newMode;
+    remainingMs.value = totalMs.value;
+    phase.value = "ready";
+  }
+
   /** 切换应用模式（单次/计划/正向） */
   function setAppMode(newAppMode: AppMode) {
     if (phase.value === "running") return;
     appMode.value = newAppMode;
     phase.value = "ready";
+    // Bug 7: 切换 appMode 时重置计时器状态
+    if (newAppMode === "stopwatch") {
+      remainingMs.value = 0;
+    } else {
+      remainingMs.value = totalMs.value;
+    }
   }
 
   function start() {
     if (phase.value === "running") return;
+    // Bug 3: phase="finished" 时 remainingMs=0，需重置为 totalMs 避免立即再次完成
+    if (remainingMs.value <= 0) {
+      remainingMs.value = totalMs.value;
+    }
+    // Bug 2: 从 paused 恢复到 running
     phase.value = "running";
     lastTickTime = Date.now();
     tickTimer = setInterval(tick, TICK_INTERVAL_MS);
   }
 
+  // Bug 2: 使用 "paused" 状态区分"从未开始"和"暂停中"
   function pause() {
     if (phase.value !== "running") return;
-    phase.value = "ready";
+    phase.value = "paused";
     if (tickTimer) {
       clearInterval(tickTimer);
       tickTimer = null;
@@ -116,6 +123,12 @@ export const useTimerStore = defineStore("timer", () => {
     const elapsed = now - lastTickTime;
     lastTickTime = now;
 
+    // Bug 6: 正向计时（Stopwatch）模式累加而非递减，不触发 complete()
+    if (appMode.value === "stopwatch") {
+      remainingMs.value += elapsed;
+      return;
+    }
+
     remainingMs.value -= elapsed;
 
     if (remainingMs.value <= 0) {
@@ -133,31 +146,16 @@ export const useTimerStore = defineStore("timer", () => {
 
     if (mode.value === "work") {
       const minutes = Math.round(totalMs.value / 60000);
-      todayCount.value++;
-      totalMinutes.value += minutes;
+      // Bug 1: 移除 todayCount/totalMinutes 累加，统计由 stats store 负责
       lastCompletedMinutes.value = minutes;
       completionId.value++;
-      // 自动切换到休息
-      setMode("break");
+      // Bug 4: 使用 setModeKeepTime 避免覆盖用户预设时长
+      setModeKeepTime("break");
     } else {
-      // 休息结束，切换回工作
-      setMode("work");
+      setModeKeepTime("work");
     }
 
-    // 通知后端
-    saveStats();
-  }
-
-  function saveStats() {
-    // TODO: 通过 Tauri command 保存到后端
-    localStorage.setItem(
-      "pomodoro-stats",
-      JSON.stringify({
-        todayCount: todayCount.value,
-        totalMinutes: totalMinutes.value,
-        date: new Date().toDateString(),
-      })
-    );
+    // Bug 8: 移除 saveStats 调用，统计持久化由 stats store 负责
   }
 
   return {
@@ -175,6 +173,7 @@ export const useTimerStore = defineStore("timer", () => {
     isRunning,
     init,
     setMode,
+    setModeKeepTime,
     setAppMode,
     start,
     pause,

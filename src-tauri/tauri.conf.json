@@ -54,7 +54,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [],
+    "resources": ["../music-player/music.exe", "../music-player/manual_downloader.exe"],
     "externalBin": [],
     "copyright": "",
     "category": "Productivity",

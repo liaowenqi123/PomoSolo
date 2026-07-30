@@ -151,12 +151,22 @@ async function deletePreset(index: number): Promise<void> {
   list.splice(index, 1);
   if (activeMinutes.value === removed?.minutes) {
     activeMinutes.value = null;
+    // 删除正在使用的预设时重置 timer，避免计时器停留在已不存在的时长
+    timer.reset();
   }
   await persist();
 }
 
-onMounted(() => {
-  void load();
+onMounted(async () => {
+  await load();
+  // 加载完成后自动选中匹配 timer.totalMs 的预设
+  const currentMinutes = Math.round(timer.totalMs / 60000);
+  const matched = presets.value[currentMode.value].find(
+    (p) => p.minutes === currentMinutes,
+  );
+  if (matched) {
+    activeMinutes.value = matched.minutes;
+  }
 });
 </script>
 

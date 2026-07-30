@@ -40,12 +40,12 @@ describe("useTimerStore", () => {
     expect(timer.phase).toBe("running");
   });
 
-  it("pause 后 phase 应为 ready", () => {
+  it("pause 后 phase 应为 paused", () => {
     const timer = useTimerStore();
     timer.start();
     expect(timer.phase).toBe("running");
     timer.pause();
-    expect(timer.phase).toBe("ready");
+    expect(timer.phase).toBe("paused");
     expect(timer.isRunning).toBe(false);
   });
 
@@ -55,13 +55,15 @@ describe("useTimerStore", () => {
     expect(timer.phase).toBe("ready");
   });
 
-  it("toggle 应在 running/ready 之间切换", () => {
+  it("toggle 应在 running/paused 之间切换", () => {
     const timer = useTimerStore();
     expect(timer.phase).toBe("ready");
     timer.toggle();
     expect(timer.phase).toBe("running");
     timer.toggle();
-    expect(timer.phase).toBe("ready");
+    expect(timer.phase).toBe("paused");
+    timer.toggle();
+    expect(timer.phase).toBe("running");
   });
 
   it("reset 后 remainingMs 应恢复到 totalMs", () => {
@@ -106,7 +108,7 @@ describe("useTimerStore", () => {
     expect(timer.displayTime).not.toBe("05:00");
   });
 
-  it("complete 后 todayCount 应增加（work 模式）", () => {
+  it("complete 后应切换到 break 模式且不累加 todayCount（统计由 stats store 负责）", () => {
     const timer = useTimerStore();
     expect(timer.todayCount).toBe(0);
     // complete 是 store 内部方法，未直接暴露；
@@ -114,10 +116,12 @@ describe("useTimerStore", () => {
     timer.start();
     // 推进 25 分钟 + 1 秒，确保 tick 时发现 remainingMs <= 0
     vi.advanceTimersByTime(25 * 60 * 1000 + 1000);
-    expect(timer.todayCount).toBe(1);
-    expect(timer.totalMinutes).toBe(25);
+    // Bug 1: timer 不再累加 todayCount/totalMinutes，由 stats store 负责
+    expect(timer.todayCount).toBe(0);
+    expect(timer.totalMinutes).toBe(0);
     // complete 后自动切到 break
     expect(timer.mode).toBe("break");
+    expect(timer.phase).toBe("ready");
   });
 
   it("complete 后 completionId 应自增", () => {
@@ -150,13 +154,15 @@ describe("useTimerStore", () => {
 
   it("reset 不影响 todayCount", () => {
     const timer = useTimerStore();
+    // Bug 1: todayCount 不再由 complete 累加，手动设置以验证 reset 不影响计数
+    timer.todayCount = 5;
     timer.start();
     vi.advanceTimersByTime(25 * 60 * 1000 + 1000);
-    const countAfterComplete = timer.todayCount;
-    expect(countAfterComplete).toBe(1);
+    // complete 不再累加 todayCount
+    expect(timer.todayCount).toBe(5);
 
     timer.reset();
     // reset 只重置时间和 phase，不影响计数
-    expect(timer.todayCount).toBe(1);
+    expect(timer.todayCount).toBe(5);
   });
 });

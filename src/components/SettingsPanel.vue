@@ -48,9 +48,16 @@ async function onToggle(
     | "showGardenBtn"
     | "showStatsBtn"
     | "showAiBtn"
+    | "showStudyRoomBtn"
+    | "showSidebarCollapseBtn"
+    | "showHeaderExpandBtn"
+    | "showShuffleBtn"
+    | "showVolumeBtn"
+    | "showDeviceBtn"
+    | "showChartsBtn"
+    | "advancedColorCustomization"
     | "autoStart"
-    | "plantWheelMode"
-    | "showHeaderExpandBtn",
+    | "plantWheelMode",
   value: boolean,
 ): Promise<void> {
   await settings.update(key, value);
@@ -148,6 +155,19 @@ function onContentClick(e: MouseEvent): void {
           <section class="settings-section">
             <h3 class="settings-section__title">界面显示</h3>
             <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">显示深色模式按钮</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="local.showDarkModeBtn"
+                  @change="
+                    onToggle('showDarkModeBtn', ($event.target as HTMLInputElement).checked)
+                  "
+                />
+                <span class="toggle__slider"></span>
+              </label>
+            </div>
+            <div class="settings-row settings-row--toggle">
               <label class="settings-row__label">显示菜园子按钮</label>
               <label class="toggle">
                 <input
@@ -187,6 +207,58 @@ function onContentClick(e: MouseEvent): void {
               </label>
             </div>
             <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">显示自习室按钮</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="local.showStudyRoomBtn"
+                  @change="
+                    onToggle('showStudyRoomBtn', ($event.target as HTMLInputElement).checked)
+                  "
+                />
+                <span class="toggle__slider"></span>
+              </label>
+            </div>
+            <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">显示侧边栏收起按钮</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="local.showSidebarCollapseBtn"
+                  @change="
+                    onToggle('showSidebarCollapseBtn', ($event.target as HTMLInputElement).checked)
+                  "
+                />
+                <span class="toggle__slider"></span>
+              </label>
+            </div>
+            <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">显示展开按钮</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="local.showHeaderExpandBtn"
+                  @change="
+                    onToggle('showHeaderExpandBtn', ($event.target as HTMLInputElement).checked)
+                  "
+                />
+                <span class="toggle__slider"></span>
+              </label>
+            </div>
+            <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">显示图表按钮</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="local.showChartsBtn"
+                  @change="
+                    onToggle('showChartsBtn', ($event.target as HTMLInputElement).checked)
+                  "
+                />
+                <span class="toggle__slider"></span>
+              </label>
+            </div>
+            <div class="settings-row settings-row--toggle">
               <label class="settings-row__label">种植轮盘模式</label>
               <label class="toggle">
                 <input
@@ -194,6 +266,63 @@ function onContentClick(e: MouseEvent): void {
                   :checked="local.plantWheelMode"
                   @change="
                     onToggle('plantWheelMode', ($event.target as HTMLInputElement).checked)
+                  "
+                />
+                <span class="toggle__slider"></span>
+              </label>
+            </div>
+            <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">高级颜色自定义</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="local.advancedColorCustomization"
+                  @change="
+                    onToggle('advancedColorCustomization', ($event.target as HTMLInputElement).checked)
+                  "
+                />
+                <span class="toggle__slider"></span>
+              </label>
+            </div>
+          </section>
+
+          <!-- 音乐播放器 -->
+          <section class="settings-section">
+            <h3 class="settings-section__title">音乐播放器</h3>
+            <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">显示随机按钮</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="local.showShuffleBtn"
+                  @change="
+                    onToggle('showShuffleBtn', ($event.target as HTMLInputElement).checked)
+                  "
+                />
+                <span class="toggle__slider"></span>
+              </label>
+            </div>
+            <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">显示音量按钮</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="local.showVolumeBtn"
+                  @change="
+                    onToggle('showVolumeBtn', ($event.target as HTMLInputElement).checked)
+                  "
+                />
+                <span class="toggle__slider"></span>
+              </label>
+            </div>
+            <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">显示设备按钮</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="local.showDeviceBtn"
+                  @change="
+                    onToggle('showDeviceBtn', ($event.target as HTMLInputElement).checked)
                   "
                 />
                 <span class="toggle__slider"></span>

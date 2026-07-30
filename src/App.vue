@@ -46,11 +46,15 @@ import { useTimerStore } from "./stores/timer";
 import { useSettingsStore } from "./stores/settings";
 import { useStatsStore } from "./stores/stats";
 import { useGardenStore } from "./stores/garden";
+import type { AiPlanItem } from "./api/ai";
 
 const timer = useTimerStore();
 const settings = useSettingsStore();
 const stats = useStatsStore();
 const garden = useGardenStore();
+
+// ===== ForegroundWarning ref（用于重置警告次数）=====
+const fgWarningRef = ref<{ resetWarningCount: () => void } | null>(null);
 
 // ===== 加载状态 =====
 const loading = ref(true);
@@ -166,6 +170,7 @@ function handleKeydown(e: KeyboardEvent) {
     showAi.value = false;
     showAuth.value = false;
     showStudyRoom.value = false;
+    showCharts.value = false;
   }
 }
 
@@ -224,8 +229,46 @@ async function onMinimize() {
 
 // ===== 菜园子窗口 =====
 function onGardenClick() {
+  // 正向计时模式下菜园子不可用
+  if (timer.appMode === "stopwatch") {
+    alert("正向计时模式下菜园子不可用");
+    return;
+  }
   void showGardenWindow();
 }
+
+// ===== AI 计划应用 =====
+function onApplyAiPlan(plan: AiPlanItem[]): void {
+  // 将 AI 返回的计划写入 planList
+  planList.value = plan.map((item) => ({
+    id: planIdCounter++,
+    minutes: item.minutes,
+    type: item.type,
+    note: item.description,
+  }));
+  // 切换到计划模式
+  timer.setAppMode("plan");
+}
+
+// ===== 前台娱乐检测惩罚 =====
+async function onPunishment(): Promise<void> {
+  // 调用 garden store 的惩罚方法（损失量参考原版 10 金币）
+  await garden.punish(10);
+}
+
+// ===== 新专注周期开始时重置前台警告次数 =====
+watch(
+  () => timer.phase,
+  (phase) => {
+    if (phase === "running") {
+      // 使用 typeof 守卫，避免 ForegroundWarning 被 stub 时 ref 无此方法
+      const ref = fgWarningRef.value as { resetWarningCount?: () => void } | null;
+      if (typeof ref?.resetWarningCount === "function") {
+        ref.resetWarningCount();
+      }
+    }
+  },
+);
 </script>
 
 <template>
@@ -382,11 +425,16 @@ function onGardenClick() {
       <!-- 浮层面板 -->
       <Statistics :visible="showStats" @close="showStats = false" />
       <SettingsPanel :visible="showSettings" @close="showSettings = false" />
-      <AIHelper :visible="showAi" @close="showAi = false" />
+      <AIHelper :visible="showAi" @close="showAi = false" @apply="onApplyAiPlan" />
       <AuthPanel :visible="showAuth" @update:visible="showAuth = $event" />
       <StudyRoom :visible="showStudyRoom" @update:visible="showStudyRoom = $event" />
       <Charts :visible="showCharts" @close="showCharts = false" />
-      <ForegroundWarning :visible="showForegroundWarning" @update:visible="showForegroundWarning = $event" />
+      <ForegroundWarning
+        ref="fgWarningRef"
+        :visible="showForegroundWarning"
+        @update:visible="showForegroundWarning = $event"
+        @punishment="onPunishment"
+      />
       <TutorialModal :visible="showTutorial" @close="showTutorial = false" />
     </div>
   </div>

@@ -55,6 +55,9 @@ const registerForm = ref({
 const localApiKeyInput = ref("");
 const showApiKey = ref(false);
 
+// 表单错误信息（注册密码不匹配/空值等本地校验）
+const errorMsg = ref<string | null>(null);
+
 // 待确认的模式切换（用于确认弹窗）
 const pendingMode = ref<"cloud" | "local" | null>(null);
 
@@ -122,8 +125,10 @@ function cancelSwitchMode(): void {
 async function handleLogin(): Promise<void> {
   const { username, password, rememberPassword, autoLogin } = loginForm.value;
   if (!username.trim() || !password) {
+    errorMsg.value = "请输入用户名和密码";
     return;
   }
+  errorMsg.value = null;
   const ok = await auth.login(
     username.trim(),
     password,
@@ -140,11 +145,14 @@ async function handleLogin(): Promise<void> {
 async function handleRegister(): Promise<void> {
   const { username, password, confirmPassword } = registerForm.value;
   if (!username.trim() || !password) {
+    errorMsg.value = "请输入用户名和密码";
     return;
   }
   if (password !== confirmPassword) {
+    errorMsg.value = "两次输入的密码不一致";
     return;
   }
+  errorMsg.value = null;
   await auth.register(username.trim(), password);
 }
 
@@ -355,6 +363,7 @@ function onLocalKeyEnter(e: KeyboardEvent): void {
 
     <!-- 错误信息 -->
     <p v-if="auth.lastError" class="auth-message error">{{ auth.lastError }}</p>
+    <p v-else-if="errorMsg" class="auth-message error">{{ errorMsg }}</p>
 
     <!-- 模式切换确认弹窗 -->
     <Modal

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TimerState {
     pub is_running: bool,
     pub mode: String,
@@ -41,9 +42,9 @@ mod tests {
     fn test_timer_state_serialization() {
         let state = default_timer_state();
         let json = serde_json::to_string(&state).expect("序列化应成功");
-        // 字段名应为 snake_case（与 Tauri/JS 端约定一致）
-        assert!(json.contains("\"is_running\""), "JSON 应包含 is_running 字段");
-        assert!(json.contains("\"remaining_ms\""), "JSON 应包含 remaining_ms 字段");
+        // 字段名应为 camelCase（与前端 src/api/timer.ts 的 TimerState 接口约定一致）
+        assert!(json.contains("\"isRunning\""), "JSON 应包含 isRunning 字段");
+        assert!(json.contains("\"remainingMs\""), "JSON 应包含 remainingMs 字段");
         assert!(json.contains("\"mode\""));
         assert!(json.contains("\"work\""));
 

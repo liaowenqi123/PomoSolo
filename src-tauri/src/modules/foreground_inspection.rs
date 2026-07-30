@@ -29,6 +29,7 @@ impl Default for DetectionState {
 
 /// 检测结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DetectionResult {
     pub window_title: String,
     pub is_entertainment: bool,

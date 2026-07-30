@@ -183,17 +183,18 @@ describe("SettingsPanel.vue", () => {
 
   // ===== 界面显示开关 =====
 
-  it("应渲染 4 个界面显示开关（菜园子/统计/AI/种植轮盘）", () => {
+  it("应渲染所有界面显示/音乐播放器/系统开关", () => {
     const wrapper = mountComponent();
     const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
-    expect(toggles).toHaveLength(5); // 4 个界面显示 + 1 个系统（开机自启）
+    // 界面显示 10 个 + 音乐播放器 3 个 + 系统 1 个 = 14 个
+    expect(toggles).toHaveLength(14);
   });
 
   it("显示菜园子按钮开关默认应为 checked", () => {
     const wrapper = mountComponent();
     const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
-    // 第一个开关：显示菜园子按钮
-    expect((toggles[0].element as HTMLInputElement).checked).toBe(
+    // 界面显示区第 2 个开关（索引 1）：显示菜园子按钮
+    expect((toggles[1].element as HTMLInputElement).checked).toBe(
       DEFAULT_SETTINGS.showGardenBtn,
     );
   });
@@ -204,8 +205,8 @@ describe("SettingsPanel.vue", () => {
     const updateSpy = vi.spyOn(store, "update");
 
     const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
-    // 第一个开关：显示菜园子按钮
-    await toggles[0].setValue(false);
+    // 界面显示区第 2 个开关（索引 1）：显示菜园子按钮
+    await toggles[1].setValue(false);
 
     expect(updateSpy).toHaveBeenCalledWith("showGardenBtn", false);
     expect(store.settings.showGardenBtn).toBe(false);
@@ -217,8 +218,8 @@ describe("SettingsPanel.vue", () => {
     const updateSpy = vi.spyOn(store, "update");
 
     const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
-    // 第二个开关：显示统计按钮
-    await toggles[1].setValue(false);
+    // 界面显示区第 3 个开关（索引 2）：显示统计按钮
+    await toggles[2].setValue(false);
 
     expect(updateSpy).toHaveBeenCalledWith("showStatsBtn", false);
     expect(store.settings.showStatsBtn).toBe(false);
@@ -230,8 +231,8 @@ describe("SettingsPanel.vue", () => {
     const updateSpy = vi.spyOn(store, "update");
 
     const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
-    // 第三个开关：显示 AI 助手按钮
-    await toggles[2].setValue(false);
+    // 界面显示区第 4 个开关（索引 3）：显示 AI 助手按钮
+    await toggles[3].setValue(false);
 
     expect(updateSpy).toHaveBeenCalledWith("showAiBtn", false);
     expect(store.settings.showAiBtn).toBe(false);
@@ -243,8 +244,8 @@ describe("SettingsPanel.vue", () => {
     const updateSpy = vi.spyOn(store, "update");
 
     const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
-    // 第四个开关：种植轮盘模式
-    await toggles[3].setValue(false);
+    // 界面显示区第 9 个开关（索引 8）：种植轮盘模式
+    await toggles[8].setValue(false);
 
     expect(updateSpy).toHaveBeenCalledWith("plantWheelMode", false);
     expect(store.settings.plantWheelMode).toBe(false);

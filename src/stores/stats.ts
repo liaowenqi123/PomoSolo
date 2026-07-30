@@ -22,7 +22,7 @@ export interface StatsData {
 
 /** 单条历史记录 */
 export interface StatsHistoryEntry {
-  /** 日期 YYYY-MM-DD */
+  /** 日期（toDateString 格式，如 "Wed Jul 30 2026"） */
   date: string;
   /** 完成时间戳 ISO 字符串 */
   timestamp: string;
@@ -87,7 +87,8 @@ export const useStatsStore = defineStore("stats", () => {
 
   /** 今日专注时长（分钟） */
   const todayMinutes = computed(() => {
-    const todayStr = new Date().toISOString().split("T")[0];
+    // Bug 10: 统一用 toDateString()，与 todayCount 的日期标记一致
+    const todayStr = new Date().toDateString();
     return stats.value.statisticsHistory
       .filter((h) => h.date === todayStr)
       .reduce((sum, h) => sum + (h.minutes || 0), 0);
@@ -100,7 +101,8 @@ export const useStatsStore = defineStore("stats", () => {
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
-      const dateStr = d.toISOString().split("T")[0];
+      // Bug 10: 统一用 toDateString() 进行日期匹配
+      const dateStr = d.toDateString();
       const dayRecords = stats.value.statisticsHistory.filter(
         (h) => h.date === dateStr,
       );
@@ -173,10 +175,17 @@ export const useStatsStore = defineStore("stats", () => {
   /** 记录一次完成的番茄钟 */
   async function recordSession(minutes: number, note?: string): Promise<void> {
     const now = new Date();
+    // Bug 9: 跨天时先重置 todayCount，避免沿用昨日计数
+    const today = now.toDateString();
+    if (stats.value.date !== today) {
+      stats.value.date = today;
+      stats.value.todayCount = 0;
+    }
     stats.value.todayCount += 1;
     stats.value.totalMinutes += minutes;
     stats.value.statisticsHistory.push({
-      date: now.toISOString().split("T")[0],
+      // Bug 10: 统一用 toDateString()，与 todayMinutes/last7Days 的过滤逻辑一致
+      date: today,
       timestamp: now.toISOString(),
       minutes,
       note: note || "",

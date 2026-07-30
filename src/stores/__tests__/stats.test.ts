@@ -109,7 +109,8 @@ describe("useStatsStore", () => {
     expect(s.history[0].minutes).toBe(25);
     expect(s.history[0].note).toBe("note");
     expect(s.history[0].partial).toBe(false);
-    expect(s.history[0].date).toBe(todayIso());
+    // Bug 10: history.date 统一用 toDateString()
+    expect(s.history[0].date).toBe(todayStr());
     expect(dataApi.writeData).toHaveBeenCalled();
   });
 
@@ -135,9 +136,10 @@ describe("useStatsStore", () => {
   it("todayMinutes 汇总今日历史分钟数", async () => {
     const s = useStatsStore();
     s.stats.statisticsHistory = [
-      { date: todayIso(), timestamp: "", minutes: 25 },
-      { date: todayIso(), timestamp: "", minutes: 10 },
-      { date: "2024-01-01", timestamp: "", minutes: 100 },
+      // Bug 10: history.date 统一用 toDateString()
+      { date: todayStr(), timestamp: "", minutes: 25 },
+      { date: todayStr(), timestamp: "", minutes: 10 },
+      { date: "Mon Jan 01 2024", timestamp: "", minutes: 100 },
     ];
     expect(s.todayMinutes).toBe(35);
   });
@@ -145,7 +147,7 @@ describe("useStatsStore", () => {
   it("todayMinutes 无今日记录时为 0", () => {
     const s = useStatsStore();
     s.stats.statisticsHistory = [
-      { date: "2024-01-01", timestamp: "", minutes: 100 },
+      { date: "Mon Jan 01 2024", timestamp: "", minutes: 100 },
     ];
     expect(s.todayMinutes).toBe(0);
   });
@@ -161,13 +163,15 @@ describe("useStatsStore", () => {
       expect(d).toHaveProperty("count");
     });
     // 第一条应是 6 天前，最后一条是今天
-    const today = todayIso();
+    // Bug 10: last7Days.date 统一用 toDateString()
+    const today = todayStr();
     expect(result[6].date).toBe(today);
   });
 
   it("last7Days count 仅统计非 partial 条目", () => {
     const s = useStatsStore();
-    const today = todayIso();
+    // Bug 10: history.date 统一用 toDateString()
+    const today = todayStr();
     s.stats.statisticsHistory = [
       { date: today, timestamp: "", minutes: 25, partial: false },
       { date: today, timestamp: "", minutes: 10, partial: true },

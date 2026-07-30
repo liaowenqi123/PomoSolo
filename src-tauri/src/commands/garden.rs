@@ -289,3 +289,73 @@ pub async fn garden_signin(app: AppHandle) -> Result<Value, String> {
         "unlockedAchievements": []
     }))
 }
+
+/// 累加专注时间，触发对应成就
+///
+/// 在 garden data 中维护 `focusMinutes` 字段（累计专注分钟数），
+/// 当达到阈值时返回新解锁的成就（stub：仅累加，不触发复杂成就逻辑）。
+/// 返回 GardenOperationResult 形状，与前端 applyResult 期望一致。
+#[tauri::command]
+pub async fn garden_update_focus(app: AppHandle, minutes: u32) -> Result<Value, String> {
+    let mut data = data_manager::read_garden_data(&app)?;
+    let obj = data
+        .as_object_mut()
+        .ok_or("garden data 不是对象")?;
+
+    // 累加 focusMinutes
+    let prev = obj
+        .get("focusMinutes")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    obj.insert(
+        "focusMinutes".to_string(),
+        Value::from(prev + minutes as u64),
+    );
+
+    data_manager::write_garden_data(&app, &data)?;
+
+    Ok(serde_json::json!({
+        "success": true,
+        "gardenData": data,
+        "unlockedAchievements": []
+    }))
+}
+
+/// 执行惩罚并返回损失结果（由前台检测调用）
+///
+/// stub：根据 loss_amount 返回一个简单的损失明细，并扣减 garden data 中的 focusMinutes。
+/// 返回 PunishmentResult 形状（与前端 src/api/garden.ts 的 PunishmentResult 对齐）：
+/// { hasLoss: bool, losses: [{ type, amount }], totalMinutes: number }
+#[tauri::command]
+pub async fn garden_punishment(app: AppHandle, loss_amount: u32) -> Result<Value, String> {
+    let mut data = data_manager::read_garden_data(&app)?;
+    let total_minutes = if loss_amount == 0 {
+        0
+    } else {
+        // 从 garden data 中扣减 focusMinutes（下限 0）
+        let obj = data
+            .as_object_mut()
+            .ok_or("garden data 不是对象")?;
+        let prev = obj
+            .get("focusMinutes")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let deducted = prev.saturating_sub(loss_amount as u64);
+        obj.insert("focusMinutes".to_string(), Value::from(deducted));
+        data_manager::write_garden_data(&app, &data)?;
+        loss_amount as u64
+    };
+
+    let has_loss = total_minutes > 0;
+    let losses = if has_loss {
+        vec![serde_json::json!({ "type": "focusMinutes", "amount": total_minutes })]
+    } else {
+        Vec::new()
+    };
+
+    Ok(serde_json::json!({
+        "hasLoss": has_loss,
+        "losses": losses,
+        "totalMinutes": total_minutes
+    }))
+}

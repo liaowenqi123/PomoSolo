@@ -8,7 +8,6 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .manage(AppState::new())
         .manage(MusicState::new())
         .manage(ChartsState::new())
@@ -52,6 +51,17 @@ pub fn run() {
             commands::garden::garden_sell,
             commands::garden::garden_unlock,
             commands::garden::garden_signin,
+            commands::garden::garden_update_focus,
+            commands::garden::garden_punishment,
+            // AI 规划助手
+            commands::ai::ai_generate_plan,
+            // 自习室
+            commands::study_room::study_room_get_active,
+            commands::study_room::study_room_create,
+            commands::study_room::study_room_join,
+            commands::study_room::study_room_leave,
+            commands::study_room::study_room_get_ranking,
+            commands::study_room::study_room_get_members,
             // 前台检测
             commands::foreground::foreground_start,
             commands::foreground::foreground_stop,

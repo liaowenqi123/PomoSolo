@@ -12,6 +12,7 @@ use crate::modules::foreground_inspection::{self, DetectionResult};
 use crate::state::AppState;
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ForegroundStatus {
     pub running: bool,
     pub has_api_key: bool,
@@ -34,10 +35,12 @@ pub async fn foreground_start(
     foreground_inspection::start_detection(det_state, tx);
 
     // 转发检测结果到 webview
+    // 事件名与前端 src/api/foreground.ts 中 FOREGROUND_EVENTS.entertainmentDetected 对齐：
+    // 前端监听 'foreground-entertainment-detected'，payload 为 DetectionResult
     let app_clone = app.clone();
     tokio::spawn(async move {
         while let Some(result) = rx.recv().await {
-            let _ = app_clone.emit("foreground-detection", result);
+            let _ = app_clone.emit("foreground-entertainment-detected", result);
         }
     });
 

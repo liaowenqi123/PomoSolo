@@ -13,7 +13,7 @@
  *
  * 通过 v-model:visible 控制显示。
  */
-import { ref, onUnmounted } from "vue";
+import { ref, watch, onUnmounted } from "vue";
 import Modal from "./Modal.vue";
 import {
   studyRoomGetActive,
@@ -34,7 +34,7 @@ interface Props {
   closeOnBackground?: boolean;
 }
 
-withDefaults(defineProps<Props>(), {
+const props = withDefaults(defineProps<Props>(), {
   closeOnBackground: true,
 });
 
@@ -75,6 +75,16 @@ onUnmounted(() => {
   stopRefresh();
   if (toastTimer) clearTimeout(toastTimer);
 });
+
+// 关闭弹窗时停止心跳刷新，避免后台定时器持续请求
+watch(
+  () => props.visible,
+  (v) => {
+    if (!v) {
+      stopRefresh();
+    }
+  },
+);
 
 function showToast(message: string): void {
   toast.value = message;

@@ -112,11 +112,15 @@ describe("Presets.vue", () => {
 
   it("删除按钮点击应 stopPropagation（不触发选中）", async () => {
     const wrapper = await mountComponent();
+    // onMounted 后 25 分钟预设会被自动选中（匹配 timer.totalMs 默认值）
+    const activeBefore = wrapper.findAll(".preset-item.active").length;
+
     const deleteBtn = wrapper.findAll(".preset-delete")[0];
     await deleteBtn.trigger("click");
 
-    // 删除后列表长度变化，但不应有 active 项（selectPreset 未被触发）
-    expect(wrapper.findAll(".preset-item.active")).toHaveLength(0);
+    // 删除后列表长度变化，active 数量不应增加（selectPreset 未被触发）
+    const activeAfter = wrapper.findAll(".preset-item.active").length;
+    expect(activeAfter).toBe(activeBefore);
   });
 
   it("删除当前选中的预设应清除 active 状态", async () => {

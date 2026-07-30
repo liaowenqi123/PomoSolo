@@ -54,12 +54,13 @@ describe("Statistics.vue", () => {
 
   it("卡片显示 stats.todayCount / stats.todayMinutes / stats.totalMinutes", async () => {
     const stats = useStatsStore();
-    const todayIso = new Date().toISOString().split("T")[0];
+    // stats store 使用 toDateString() 格式标记日期
+    const todayStr = new Date().toDateString();
     stats.stats.todayCount = 3;
     stats.stats.totalMinutes = 100;
     stats.stats.statisticsHistory = [
-      { date: todayIso, timestamp: "", minutes: 40 },
-      { date: todayIso, timestamp: "", minutes: 20 },
+      { date: todayStr, timestamp: "", minutes: 40 },
+      { date: todayStr, timestamp: "", minutes: 20 },
     ];
     const wrapper = mountComponent(true);
     await wrapper.vm.$nextTick();

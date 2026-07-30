@@ -32,6 +32,7 @@ pub struct Session {
 
 /// 凭据文件结构
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Credentials {
     pub username: String,
     pub password_encrypted: Option<String>, // AES-GCM 加密

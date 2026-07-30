@@ -77,6 +77,14 @@ function toggleExpand() {
       >
         🌱
       </button>
+      <button
+        v-if="settings.settings.showChartsBtn"
+        class="btn-header"
+        title="图表"
+        @click="emit('charts')"
+      >
+        📊
+      </button>
       <button class="btn-header" title="云端登录" @click="emit('auth')">☁️</button>
     </div>
 
