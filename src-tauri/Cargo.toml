@@ -36,6 +36,9 @@ whoami = "1.5"
 base64 = "0.22"
 # SHA-512 哈希
 sha2 = "0.10"
+# 音频播放（替代 Python sounddevice + soundfile）
+rodio = { version = "0.20", features = ["mp3", "wav", "flac", "vorbis"] }
+cpal = "0.15"
 # Supabase 客户端（用 reqwest 直接调 REST API）
 # Windows API（前台检测）
 [target.'cfg(windows)'.dependencies]

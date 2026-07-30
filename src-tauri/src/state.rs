@@ -1,30 +1,22 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use crate::modules::audio_player::AudioPlayer;
 use crate::modules::cloud_auth::Session;
 use crate::modules::foreground_inspection::DetectionState;
-use tokio::process::{Child, ChildStdin};
-use tokio::sync::oneshot;
-use serde_json::Value;
 
-/// 音乐子进程句柄
-pub struct MusicProcess {
-    pub child: Option<Child>,
-    pub stdin: ChildStdin,
-}
-
-/// 音乐播放器状态（pending 请求映射）
+/// 音乐播放器状态
 pub struct MusicState {
-    pub process: tokio::sync::Mutex<Option<MusicProcess>>,
-    pub pending: Arc<tokio::sync::Mutex<HashMap<String, oneshot::Sender<Value>>>>,
+    pub player: tokio::sync::Mutex<AudioPlayer>,
+    pub initialized: std::sync::atomic::AtomicBool,
 }
 
 impl MusicState {
     pub fn new() -> Self {
         Self {
-            process: tokio::sync::Mutex::new(None),
-            pending: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            player: tokio::sync::Mutex::new(AudioPlayer::new()),
+            initialized: std::sync::atomic::AtomicBool::new(false),
         }
     }
 }

@@ -1,12 +1,10 @@
 /**
  * 构建前资源准备脚本
  *
- * Tauri 打包 resources 时不支持 `..` 路径（会被替换为 `_up_/` 子目录），
- * 导致安装后 music.exe 位于 resource_dir/_up_/music-player/music.exe，
- * 而代码期望 resource_dir/music.exe。
- *
- * 本脚本在 vite build 前把所需资源复制到 src-tauri/resources/ 下，
+ * 复制内置歌曲（三首番茄钟歌曲 + tags.json）到 src-tauri/resources/music/，
  * 让 tauri.conf.json 用不带 `..` 的路径引用，确保打包后目录结构正确。
+ *
+ * 注意：音乐播放器已用 Rust（rodio + symphonia）重写，不再需要 music.exe。
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -24,18 +22,7 @@ if (existsSync(DEST_RESOURCES)) {
 }
 mkdirSync(DEST_RESOURCES, { recursive: true });
 
-// 1. 复制 music.exe（Python 子进程，PyInstaller 产物）
-const musicExeSrc = join(SRC_MUSIC_PLAYER, "music.exe");
-const musicExeDest = join(DEST_RESOURCES, "music.exe");
-if (!existsSync(musicExeSrc)) {
-  console.error(`[copy-resources] 错误: 未找到 ${musicExeSrc}`);
-  console.error(`[copy-resources] 请先在 music-player/ 目录下运行: pyinstaller --onefile music.py`);
-  process.exit(1);
-}
-copyFileSync(musicExeSrc, musicExeDest);
-console.log(`[copy-resources] ✓ music.exe -> ${musicExeDest}`);
-
-// 2. 复制内置三首歌（* - 番茄钟.mp3）+ tags.json 到 resources/music/
+// 复制内置三首歌（* - 番茄钟.mp3）+ tags.json 到 resources/music/
 const musicDirSrc = join(SRC_MUSIC_PLAYER, "music");
 const musicDirDest = join(DEST_RESOURCES, "music");
 mkdirSync(musicDirDest, { recursive: true });

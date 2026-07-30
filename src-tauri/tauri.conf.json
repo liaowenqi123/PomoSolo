@@ -56,7 +56,6 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "resources/music.exe",
       "resources/music/"
     ],
     "externalBin": [],
