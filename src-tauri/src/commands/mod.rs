@@ -8,3 +8,4 @@ pub mod music;
 pub mod charts;
 pub mod ai;
 pub mod study_room;
+pub mod update;

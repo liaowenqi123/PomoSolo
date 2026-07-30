@@ -7,13 +7,16 @@
  *
  * 包含：主题切换、最小化行为、迷你退出方式、开机自启、界面显示开关。
  */
-import { computed } from "vue";
+import { computed, ref } from "vue";
+import { getVersion } from "@tauri-apps/api/app";
 import {
   useSettingsStore,
   type MinimizeBehavior,
   type MiniExitMode,
   type Theme,
 } from "../stores/settings";
+import { checkUpdate, downloadAndInstall, type UpdateStatusPayload } from "@/api/update";
+import { useTauriEvent } from "@/api/events";
 
 const props = defineProps<{
   visible: boolean;
@@ -27,6 +30,90 @@ const settings = useSettingsStore();
 
 // 本地编辑副本——只在面板可见时同步，避免直接修改 store 导致中途自动保存
 const local = computed(() => settings.settings);
+
+// ===== 自动更新状态 =====
+const appVersion = ref("...");
+const updateBtnText = ref("检查更新");
+const updateBtnAction = ref<"check" | "download">("check");
+const updateBtnDisabled = ref(false);
+const updateStatusText = ref("");
+const updateStatusType = ref<"info" | "success" | "error">("info");
+const updateProgressVisible = ref(false);
+const updateProgressPercent = ref(0);
+const updateProgressText = ref("");
+let statusTimer: ReturnType<typeof setTimeout> | null = null;
+
+// 监听后端 update-status 事件
+useTauriEvent<UpdateStatusPayload>("update-status", (e) => {
+  const payload = e.payload;
+  switch (payload.status) {
+    case "checking":
+      updateBtnText.value = "检查中...";
+      updateBtnDisabled.value = true;
+      updateStatusText.value = "";
+      updateProgressVisible.value = false;
+      break;
+    case "available":
+      updateStatusText.value = `发现新版本 v${payload.version}，点击下载`;
+      updateStatusType.value = "info";
+      updateBtnText.value = "下载更新";
+      updateBtnAction.value = "download";
+      updateBtnDisabled.value = false;
+      updateProgressVisible.value = false;
+      break;
+    case "not-available":
+      updateStatusText.value = "已是最新版本";
+      updateStatusType.value = "success";
+      updateBtnText.value = "检查更新";
+      updateBtnAction.value = "check";
+      updateBtnDisabled.value = false;
+      updateProgressVisible.value = false;
+      if (statusTimer) clearTimeout(statusTimer);
+      statusTimer = setTimeout(() => {
+        updateStatusText.value = "";
+      }, 3000);
+      break;
+    case "downloading":
+      updateProgressVisible.value = true;
+      updateProgressPercent.value = payload.percent ?? 0;
+      const total = payload.total ?? 0;
+      const totalMB = total > 0 ? ` / ${(total / 1048576).toFixed(1)}MB` : "";
+      updateProgressText.value = `下载中 ${payload.percent ?? 0}%${totalMB}`;
+      updateBtnText.value = "下载中...";
+      updateBtnDisabled.value = true;
+      break;
+    case "downloaded":
+      updateStatusText.value = "更新已下载，即将安装重启";
+      updateStatusType.value = "success";
+      updateProgressVisible.value = false;
+      updateBtnText.value = "安装中...";
+      updateBtnDisabled.value = true;
+      break;
+    case "error":
+      updateStatusText.value = `更新失败: ${payload.message ?? "未知错误"}`;
+      updateStatusType.value = "error";
+      updateBtnText.value = "检查更新";
+      updateBtnAction.value = "check";
+      updateBtnDisabled.value = false;
+      updateProgressVisible.value = false;
+      break;
+  }
+});
+
+// 加载版本号
+void getVersion().then((v) => {
+  appVersion.value = v;
+});
+
+async function handleUpdateBtnClick(): Promise<void> {
+  if (updateBtnAction.value === "check") {
+    await checkUpdate();
+  } else {
+    updateBtnDisabled.value = true;
+    updateBtnText.value = "准备下载...";
+    await downloadAndInstall();
+  }
+}
 
 async function onThemeChange(value: Theme): Promise<void> {
   await settings.update("theme", value);
@@ -347,6 +434,41 @@ function onContentClick(e: MouseEvent): void {
               </label>
             </div>
           </section>
+
+          <!-- 关于 / 更新 -->
+          <section class="settings-section">
+            <h3 class="settings-section__title">关于</h3>
+            <div class="settings-row">
+              <label class="settings-row__label">检查更新</label>
+              <button
+                class="update-btn"
+                :disabled="updateBtnDisabled"
+                @click="handleUpdateBtnClick"
+              >
+                {{ updateBtnText }}
+              </button>
+            </div>
+            <div v-if="updateProgressVisible" class="update-progress">
+              <div class="update-progress-bar">
+                <div
+                  class="update-progress-fill"
+                  :style="{ width: updateProgressPercent + '%' }"
+                ></div>
+              </div>
+              <span class="update-progress-text">{{ updateProgressText }}</span>
+            </div>
+            <div
+              v-if="updateStatusText"
+              class="update-status"
+              :class="`update-status--${updateStatusType}`"
+            >
+              {{ updateStatusText }}
+            </div>
+            <div class="settings-row">
+              <label class="settings-row__label">版本</label>
+              <span class="version-text">v{{ appVersion }}</span>
+            </div>
+          </section>
         </div>
 
         <div class="settings-panel__footer">
@@ -565,6 +687,73 @@ function onContentClick(e: MouseEvent): void {
 
 .settings-btn--save:hover {
   opacity: 0.9;
+}
+
+/* ===== 自动更新 ===== */
+.update-btn {
+  padding: 6px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
+  transition: all 0.15s ease;
+}
+
+.update-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.update-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.update-progress {
+  margin-top: 8px;
+}
+
+.update-progress-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.update-progress-fill {
+  height: 100%;
+  background: var(--accent, #e94560);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.update-progress-text {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.update-status {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.update-status--info {
+  color: #64b5f6;
+}
+
+.update-status--success {
+  color: #66bb6a;
+}
+
+.update-status--error {
+  color: #ef5350;
+}
+
+.version-text {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 /* Scrollbar */

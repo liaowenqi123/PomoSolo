@@ -8,6 +8,7 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::new())
         .manage(MusicState::new())
         .manage(ChartsState::new())
@@ -90,6 +91,9 @@ pub fn run() {
             commands::charts::download_song,
             commands::charts::get_download_status,
             commands::charts::charts_set_api_key,
+            // 自动更新
+            commands::update::check_update,
+            commands::update::download_and_install,
         ])
         .setup(|_app| {
             // Windows 11：禁用 DWM 系统级窗口圆角，避免与 CSS 圆角形成双层圆角。
@@ -104,6 +108,12 @@ pub fn run() {
                     commands::window::disable_window_rounding(&garden_window);
                 }
             }
+
+            // 还原上次更新前备份的用户音乐（如果有）
+            if let Err(e) = commands::update::restore_music_dir(&_app.handle()) {
+                eprintln!("[setup] 还原音乐备份失败: {}", e);
+            }
+
             #[cfg(debug_assertions)]
             {
                 // 开发模式下打开 DevTools
