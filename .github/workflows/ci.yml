@@ -80,7 +80,7 @@ jobs:
           name: PomoSolo-installer
           path: |
             src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/nsis/*.json
+            src-tauri/target/release/bundle/nsis/*.sig
           retention-days: 30
 
   release:
@@ -96,12 +96,39 @@ jobs:
           name: PomoSolo-installer
           path: installer
 
+      - name: Generate latest.json and release notes
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -e
+          EXE=$(ls installer/*.exe | head -1)
+          SIG=$(ls installer/*.sig | head -1)
+          BASENAME=$(basename "$EXE")
+          VERSION="${TAG#v}"
+          SIGNATURE=$(cat "$SIG")
+          PUB_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          # notes 取 tag message（annotation），fallback 用 tag 名
+          NOTES=$(git for-each-ref --format='%(contents:subject)%0A%0A%(contents:body)' "refs/tags/$TAG" | head -c 2000 | tr '\n' ' ' | sed 's/"/\\"/g')
+          [ -z "$NOTES" ] && NOTES="PomoSolo $VERSION"
+          # latest.json（给 updater endpoint 用）
+          cat > latest.json <<JSON
+          {"version":"$VERSION","notes":"$NOTES","pub_date":"$PUB_DATE","platforms":{"windows-x86_64":{"url":"https://github.com/liaowenqi123/PomoSolo/releases/download/$TAG/$BASENAME","signature":"$SIGNATURE"}}}
+          JSON
+          # release.md（给 GitHub Release body 用，保持原始换行）
+          git for-each-ref --format='%(contents:subject)%0A%0A%(contents:body)' "refs/tags/$TAG" > release.md
+          [ -s release.md ] || echo "PomoSolo $VERSION" > release.md
+          echo "--- latest.json ---"
+          cat latest.json
+          echo "--- release.md ---"
+          cat release.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             installer/*.exe
-            installer/*.json
-          generate_release_notes: true
+            latest.json
+          body_path: release.md
           draft: false
           prerelease: false
