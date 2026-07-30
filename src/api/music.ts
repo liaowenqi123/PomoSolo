@@ -63,6 +63,7 @@ export interface MusicPlayStatePayload {
 }
 
 export interface MusicProgressPayload {
+  name?: string;
   current: number;
   duration: number;
 }

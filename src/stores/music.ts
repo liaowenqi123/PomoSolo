@@ -345,10 +345,14 @@ export const useMusicStore = defineStore("music", () => {
   }
 
   function handleProgress(payload: MusicProgressPayload) {
-    if (!isDragging.value) {
-      currentTime.value = payload.current;
-      duration.value = payload.duration;
+    if (isDragging.value) return;
+    // 过滤切歌前的过期 progress 事件：若 payload 带了 name 且与当前曲目不符，跳过
+    // （切歌时旧歌的 progress 可能比 track-change 晚到，会把进度条弹回旧位置）
+    if (payload.name && trackName.value && payload.name !== trackName.value) {
+      return;
     }
+    currentTime.value = payload.current;
+    duration.value = payload.duration;
   }
 
   function handleDevices(payload: MusicDevicesPayload) {

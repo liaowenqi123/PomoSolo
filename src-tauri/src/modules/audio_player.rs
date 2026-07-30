@@ -105,6 +105,10 @@ pub struct AudioPlayer {
     // 当前设备索引
     current_device_id: Option<usize>,
     initialized: bool,
+
+    // seek 偏移：用 skip_duration 跳过前 N 秒后，rodio 的 Sink::get_pos() 从 0
+    // 重新计时（基于挂钟），因此真实播放位置 = position_offset + get_pos()。
+    position_offset: u64,
 }
 
 // Safety: AudioPlayer 通过 tokio::sync::Mutex 保护，同一时间只有一个线程访问。
@@ -130,6 +134,7 @@ impl AudioPlayer {
             current_song_index: -1,
             current_device_id: None,
             initialized: false,
+            position_offset: 0,
         }
     }
 
@@ -241,13 +246,15 @@ impl AudioPlayer {
     }
 
     /// 获取歌曲时长（秒）
+    ///
+    /// 用 rodio::Decoder 解码后取 total_duration（与原 Python 实现一致）。
     fn get_song_duration(&self, name: &str) -> u64 {
         let path = self.music_dir.join(name);
         match fs::File::open(&path) {
             Ok(file) => {
                 let source = Decoder::new(BufReader::new(file));
                 match source {
-                    Ok(s) => s
+                    Ok(decoder) => decoder
                         .total_duration()
                         .map(|d| d.as_secs())
                         .unwrap_or(0),
@@ -259,6 +266,10 @@ impl AudioPlayer {
     }
 
     /// 播放指定歌曲
+    ///
+    /// 使用 rodio 原生 Decoder + skip_duration 实现：
+    /// - Decoder 流式解码（不一次性加载到内存）
+    /// - seek 通过 skip_duration 跳过前 N 秒样本（解码丢弃，稳定无电流声）
     pub fn play_song(&mut self, name: &str, start_position: f64) -> Result<(), String> {
         let path = self.music_dir.join(name);
         if !path.exists() {
@@ -266,24 +277,30 @@ impl AudioPlayer {
         }
 
         let file = fs::File::open(&path).map_err(|e| format!("打开文件失败: {}", e))?;
+
+        // 用 rodio 原生 Decoder 解码（流式，不解码整首）
         let source = Decoder::new(BufReader::new(file))
             .map_err(|e| format!("解码失败: {}, 文件: {}", e, name))?;
 
+        // 获取总时长
         let duration = source
             .total_duration()
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        // 跳转到指定位置（统一类型，避免 if/else 类型不匹配）
-        let source = source.skip_duration(Duration::from_secs_f64(start_position));
+        // seek：用 skip_duration 跳过前 N 秒样本（始终调用以保持类型一致）
+        let source = source.skip_duration(Duration::from_secs_f64(start_position.max(0.0)));
 
-        // 应用音量
         let source = source.amplify(self.volume);
 
         // 停止当前播放
         self.stop_sink();
 
-        // 创建新的 Sink
+        // 记录 seek 偏移：get_pos() 从 sink 创建后从 0 计时，
+        // 真实播放位置 = position_offset + get_pos()
+        self.position_offset = start_position.max(0.0) as u64;
+
+        // 创建新的 Sink 并流式播放
         let handle = self
             .stream_handle
             .as_ref()
@@ -313,13 +330,15 @@ impl AudioPlayer {
     /// 暂停/恢复切换
     ///
     /// 首次调用时（init 后 sink 为 None），自动加载并播放当前歌曲。
-    pub fn toggle_play(&mut self) -> Result<(), String> {
+    /// 返回 true 表示首次播放（刚加载歌曲），false 表示暂停/恢复。
+    pub fn toggle_play(&mut self) -> Result<bool, String> {
         if self.sink.is_none() {
             // 首次播放：加载当前歌曲
             if self.track_name.is_empty() {
                 return Err("没有可播放的歌曲".to_string());
             }
-            return self.play_song(&self.track_name.clone(), 0.0);
+            self.play_song(&self.track_name.clone(), 0.0)?;
+            return Ok(true);
         }
 
         if let Some(ref sink) = self.sink {
@@ -331,14 +350,27 @@ impl AudioPlayer {
                 self.paused = true;
             }
         }
-        Ok(())
+        Ok(false)
     }
 
     /// 跳转到指定位置
+    ///
+    /// 优先用 rodio 原生 `Sink::try_seek`：不重建 sink，无音频重叠、get_pos 连续。
+    /// try_seek 不支持时 fallback 到重建 sink + skip_duration。
     pub fn seek(&mut self, seconds: f64) -> Result<(), String> {
         if self.track_name.is_empty() {
             return Err("没有正在播放的歌曲".to_string());
         }
+        // 优先用 rodio 原生 try_seek（不重建 sink，无音频重叠、无 get_pos 断裂）
+        if let Some(ref sink) = self.sink {
+            let pos = Duration::from_secs_f64(seconds.max(0.0));
+            if sink.try_seek(pos).is_ok() {
+                // try_seek 成功后 get_pos 反映 seek 后的真实位置，清除 offset
+                self.position_offset = 0;
+                return Ok(());
+            }
+        }
+        // fallback：没有 sink 或 try_seek 不支持，重建 sink + skip_duration
         let name = self.track_name.clone();
         self.play_song(&name, seconds)
     }
@@ -517,12 +549,15 @@ impl AudioPlayer {
         }
     }
 
-    /// 获取当前播放位置
+    /// 获取当前播放位置（秒）
+    ///
+    /// 真实位置 = position_offset + sink.get_pos()。
+    /// skip_duration 跳过的秒数记在 offset 里，sink 创建后 get_pos 从 0 计时。
     pub fn get_position(&self) -> u64 {
         if let Some(ref sink) = self.sink {
-            sink.get_pos().as_secs()
+            self.position_offset + sink.get_pos().as_secs()
         } else {
-            0
+            self.position_offset
         }
     }
 

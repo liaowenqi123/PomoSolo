@@ -8,7 +8,7 @@
  *
  * 事件监听通过 useTauriEvent 注册，组件卸载时自动取消监听。
  */
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import { useMusicStore } from "@/stores/music";
 import { useSettingsStore } from "@/stores/settings";
 import { useTauriEvent } from "@/api/events";
@@ -42,6 +42,7 @@ const isDeviceOpen = ref(false);
 const progressBarRef = ref<HTMLDivElement | null>(null);
 const isDraggingProgress = ref(false);
 const dragProgress = ref(0); // 拖拽期间的临时进度（0-100）
+const seekTarget = ref<number | null>(null); // seek 后等待后端确认的目标位置（秒）
 
 function calcProgress(clientX: number): number {
   if (!progressBarRef.value) return 0;
@@ -53,6 +54,7 @@ function calcProgress(clientX: number): number {
 function handleProgressMouseDown(e: MouseEvent) {
   if (!progressBarRef.value || store.duration <= 0) return;
   isDraggingProgress.value = true;
+  store.isDragging = true;
   dragProgress.value = calcProgress(e.clientX) * 100;
   // 拖拽期间阻止文本选中
   e.preventDefault();
@@ -68,6 +70,9 @@ function handleProgressMouseUp(e: MouseEvent) {
   const progress = calcProgress(e.clientX);
   const newTime = Math.floor(progress * store.duration);
   isDraggingProgress.value = false;
+  store.isDragging = false;
+  // 设置 seekTarget，在 music-progress 确认到达前持续显示目标位置
+  seekTarget.value = newTime;
   void store.seek(newTime);
 }
 
@@ -77,16 +82,56 @@ function handleProgressClick(e: MouseEvent) {
   if (!progressBarRef.value || store.duration <= 0) return;
   const progress = calcProgress(e.clientX);
   const newTime = Math.floor(progress * store.duration);
+  seekTarget.value = newTime;
   void store.seek(newTime);
 }
 
-// 拖拽期间的临时时间显示
-const dragTimeText = computed(() => {
-  const seconds = Math.floor((dragProgress.value / 100) * store.duration);
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+// 实际显示的进度（拖拽 > seek等待 > 实时）
+const displayProgress = computed(() => {
+  if (isDraggingProgress.value) return dragProgress.value;
+  if (seekTarget.value !== null) {
+    return store.duration > 0 ? (seekTarget.value / store.duration) * 100 : 0;
+  }
+  return store.progress;
 });
+
+// 实际显示的时间文本
+const displayTimeText = computed(() => {
+  if (isDraggingProgress.value) {
+    const seconds = Math.floor((dragProgress.value / 100) * store.duration);
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+  if (seekTarget.value !== null) {
+    const seconds = seekTarget.value;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+  return store.currentTimeText;
+});
+
+// 监听后端进度更新，到达 seekTarget 附近时清除（让进度条恢复实时跟随）
+watch(
+  () => store.currentTime,
+  (current) => {
+    if (seekTarget.value === null) return;
+    // 后端进度到达目标 ±2 秒内，或者超过目标（说明已跳过），清除 seekTarget
+    if (Math.abs(current - seekTarget.value) <= 2 || current >= seekTarget.value) {
+      seekTarget.value = null;
+    }
+  },
+);
+
+// 切歌时清除 seekTarget
+watch(
+  () => store.trackName,
+  () => {
+    seekTarget.value = null;
+    isDraggingProgress.value = false;
+  },
+);
 
 // ===== 播放列表 =====
 function togglePlaylist() {
@@ -398,18 +443,18 @@ if (typeof document !== "undefined") {
         <!-- 中间进度条行：当前时间 + 进度条 + 总时长 -->
         <div
           class="music-progress"
-          :class="{ 'music-progress--dragging': isDraggingProgress }"
+          :class="{ 'music-progress--dragging': isDraggingProgress || seekTarget !== null }"
           @click="handleProgressClick"
         >
-          <span class="music-progress__time">{{ isDraggingProgress ? dragTimeText : store.currentTimeText }}</span>
+          <span class="music-progress__time">{{ displayTimeText }}</span>
           <div ref="progressBarRef" class="music-progress__bar" @mousedown="handleProgressMouseDown">
             <div
               class="music-progress__fill"
-              :style="{ width: (isDraggingProgress ? dragProgress : store.progress) + '%' }"
+              :style="{ width: displayProgress + '%' }"
             ></div>
             <div
               class="music-progress__handle"
-              :style="{ left: (isDraggingProgress ? dragProgress : store.progress) + '%' }"
+              :style="{ left: displayProgress + '%' }"
             ></div>
           </div>
           <span class="music-progress__time">{{ store.durationText }}</span>
@@ -1060,6 +1105,8 @@ if (typeof document !== "undefined") {
   padding: 6px 10px;
   cursor: pointer;
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  min-height: 28px;
+  box-sizing: border-box;
 }
 
 .music-playlist__item:hover {
@@ -1111,13 +1158,24 @@ if (typeof document !== "undefined") {
   text-overflow: ellipsis;
 }
 
+.music-playlist__delete,
+.music-playlist__playing {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+}
+
 .music-playlist__delete {
   background: none;
   border: none;
   color: #666;
   cursor: pointer;
   font-size: 12px;
-  padding: 2px;
+  padding: 0;
 }
 
 .music-playlist__delete:hover {
@@ -1126,7 +1184,7 @@ if (typeof document !== "undefined") {
 
 .music-playlist__playing {
   color: #e94560;
-  font-size: 9px;
+  font-size: 10px;
 }
 
 /* ============ Toast 提示 ============ */

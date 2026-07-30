@@ -87,7 +87,9 @@ async fn ensure_init(app: &AppHandle) -> Result<(), String> {
 fn spawn_progress_task(app: AppHandle) {
     tokio::spawn(async move {
         let music_state = app.state::<MusicState>();
-        let mut tick = interval(Duration::from_millis(500));
+        // 200ms 上报间隔，保证 seek 后前端能在 ~200ms 内收到新进度
+        // （之前 500ms 太慢，seek 后 seekTarget 要等 500ms 才清除，体感卡顿）
+        let mut tick = interval(Duration::from_millis(200));
 
         loop {
             tick.tick().await;
@@ -139,13 +141,17 @@ fn spawn_progress_task(app: AppHandle) {
                 continue;
             }
 
-            // 发送进度
+            // 发送进度（带歌曲名，前端按名过滤过期事件，避免切歌时旧 progress 把进度条弹回）
             let position = player.get_position();
             let duration = player.current_duration();
             if duration > 0 {
                 let _ = app.emit(
                     "music-progress",
-                    json!({ "current": position, "duration": duration }),
+                    json!({
+                        "name": player.current_track(),
+                        "current": position,
+                        "duration": duration
+                    }),
                 );
             }
         }
@@ -160,27 +166,30 @@ pub async fn music_toggle_play(app: AppHandle) -> Result<(), String> {
     let music_state = app.state::<MusicState>();
     let mut player = music_state.player.lock().await;
 
-    // toggle_play 首次调用会自动加载歌曲并播放
-    if let Err(e) = player.toggle_play() {
-        if e == "song_missing" {
-            let track = player.current_track().to_string();
+    // toggle_play 返回 true 表示首次播放（刚加载歌曲），false 表示暂停/恢复
+    let first_play = match player.toggle_play() {
+        Ok(first) => first,
+        Err(e) => {
+            if e == "song_missing" {
+                let track = player.current_track().to_string();
+                let _ = app.emit(
+                    "music-song-missing",
+                    json!({ "name": track, "message": "原歌曲已消失" }),
+                );
+                return Ok(());
+            }
             let _ = app.emit(
-                "music-song-missing",
-                json!({ "name": track, "message": "原歌曲已消失" }),
+                "music-play-error",
+                json!({ "message": format!("播放失败: {}", e) }),
             );
             return Ok(());
         }
-        let _ = app.emit(
-            "music-play-error",
-            json!({ "message": format!("播放失败: {}", e) }),
-        );
-        return Ok(());
-    }
+    };
 
     let playing = player.is_playing();
 
-    // 首次播放时 toggle_play 加载了歌曲，需要发送 track-change 事件
-    if playing && !player.current_track().is_empty() {
+    // 仅首次播放发送 track-change（恢复播放不发，避免前端把 currentTime 重置为 0）
+    if first_play && playing && !player.current_track().is_empty() {
         let _ = app.emit(
             "music-track-change",
             json!({
@@ -192,6 +201,18 @@ pub async fn music_toggle_play(app: AppHandle) -> Result<(), String> {
     }
 
     let _ = app.emit("music-play-state", json!({ "playing": playing }));
+
+    // 恢复播放时立即推送当前进度，避免 200ms tick 真空期导致进度条闪烁
+    if playing {
+        let _ = app.emit(
+            "music-progress",
+            json!({
+                "name": player.current_track(),
+                "current": player.get_position(),
+                "duration": player.current_duration()
+            }),
+        );
+    }
 
     Ok(())
 }
@@ -281,6 +302,16 @@ pub async fn music_seek(app: AppHandle, seconds: f64) -> Result<(), String> {
     let mut player = music_state.player.lock().await;
 
     player.seek(seconds)?;
+
+    // seek 完成后立即推送进度，前端无需等 200ms 进度任务
+    let _ = app.emit(
+        "music-progress",
+        json!({
+            "name": player.current_track(),
+            "current": seconds as u64,
+            "duration": player.current_duration()
+        }),
+    );
 
     Ok(())
 }
