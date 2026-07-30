@@ -17,6 +17,11 @@ const authApiMock = {
   setApiMode: vi.fn(),
 };
 
+// Mock @/api/charts 模块（saveLocalApiKey 会调用 chartsSetApiKey 同步内存状态）
+const chartsApiMock = {
+  setApiKey: vi.fn(),
+};
+
 vi.mock("@/api/auth", () => ({
   cloudLogin: (...args: unknown[]) => authApiMock.cloudLogin(...args),
   cloudRegister: (...args: unknown[]) => authApiMock.cloudRegister(...args),
@@ -34,6 +39,10 @@ vi.mock("@/api/auth", () => ({
   setApiMode: (...args: unknown[]) => authApiMock.setApiMode(...args),
 }));
 
+vi.mock("@/api/charts", () => ({
+  setApiKey: (...args: unknown[]) => chartsApiMock.setApiKey(...args),
+}));
+
 import { useAuthStore } from "../auth";
 
 describe("useAuthStore", () => {
@@ -41,6 +50,7 @@ describe("useAuthStore", () => {
     setActivePinia(createPinia());
     // 重置所有 mock
     Object.values(authApiMock).forEach((m) => m.mockReset());
+    Object.values(chartsApiMock).forEach((m) => m.mockReset());
     // 默认 mock 返回值
     authApiMock.cloudTestConnection.mockResolvedValue({ ok: true });
     authApiMock.cloudLogout.mockResolvedValue(undefined);
@@ -52,6 +62,7 @@ describe("useAuthStore", () => {
     authApiMock.cloudGetSession.mockResolvedValue(null);
     authApiMock.loadCredentials.mockResolvedValue(null);
     authApiMock.getApiKey.mockResolvedValue(null);
+    chartsApiMock.setApiKey.mockResolvedValue(undefined);
   });
 
   // ===== 初始状态 =====
@@ -408,6 +419,8 @@ describe("useAuthStore", () => {
     expect(ok).toBe(true);
     expect(store.localApiKey).toBe("sk-valid-key");
     expect(authApiMock.saveApiKey).toHaveBeenCalledWith("sk-valid-key");
+    // 应同步调用 chartsSetApiKey 修复 4.6 Bug
+    expect(chartsApiMock.setApiKey).toHaveBeenCalledWith("sk-valid-key");
   });
 
   it("saveLocalApiKey 空串时应设置 lastError 并返回 false", async () => {

@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::modules::cloud_auth;
 use crate::modules::cloud_auth::{hash_password, SUPABASE_ANON_KEY, SUPABASE_URL};
@@ -269,11 +269,24 @@ pub async fn get_api_key(app: AppHandle) -> Result<Option<String>, String> {
 }
 
 /// 保存本地模式 API Key
+///
+/// 同时同步到 `ChartsState.inner.api_key`，修复 docs/modules/cloud-and-charts.md 4.6 节 Bug：
+/// 原实现只写 `data.json`，导致 `download_song` 始终返回"请先登录或配置 DeepSeek API Key"。
 #[tauri::command]
 pub async fn save_api_key(app: AppHandle, api_key: String) -> Result<bool, String> {
     let mut data = data_manager::read_data(&app)?;
-    data["apiKey"] = Value::String(api_key);
+    data["apiKey"] = Value::String(api_key.clone());
     data_manager::write_data(&app, &data)?;
+
+    // 同步到 ChartsState 内存（方案 B：作为 charts_set_api_key 的额外保障）
+    let charts_state = app.state::<crate::state::ChartsState>();
+    let mut guard = charts_state.inner.lock().await;
+    guard.api_key = if api_key.is_empty() {
+        None
+    } else {
+        Some(api_key)
+    };
+
     Ok(true)
 }
 

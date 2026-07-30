@@ -35,7 +35,7 @@ describe("api/garden", () => {
     expect(result).toEqual(fakeData);
   });
 
-  it("gardenWrite 应调用 invoke('garden_write', { gardenData }) ", async () => {
+  it("gardenWrite 应调用 invoke('garden_write', { data }) ", async () => {
     invokeMock.mockResolvedValue(true);
     const payload = { coins: 5, plots: [{ id: 0 }] };
 
@@ -43,12 +43,12 @@ describe("api/garden", () => {
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
     expect(invokeMock).toHaveBeenCalledWith("garden_write", {
-      gardenData: payload,
+      data: payload,
     });
     expect(result).toBe(true);
   });
 
-  it("gardenPlant 应调用 invoke('garden_plant', { plotIndex, seedId })", async () => {
+  it("gardenPlant 应调用 invoke('garden_plant', { plotId, crop })", async () => {
     const fakeResult = { success: true, gardenData: { coins: 1 } };
     invokeMock.mockResolvedValue(fakeResult);
 
@@ -56,13 +56,13 @@ describe("api/garden", () => {
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
     expect(invokeMock).toHaveBeenCalledWith("garden_plant", {
-      plotIndex: 2,
-      seedId: "carrot",
+      plotId: 2,
+      crop: "carrot",
     });
     expect(result).toEqual(fakeResult);
   });
 
-  it("gardenHarvest 应调用 invoke('garden_harvest', { plotIndex })", async () => {
+  it("gardenHarvest 应调用 invoke('garden_harvest', { plotId })", async () => {
     const fakeResult = { success: true };
     invokeMock.mockResolvedValue(fakeResult);
 
@@ -70,48 +70,48 @@ describe("api/garden", () => {
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
     expect(invokeMock).toHaveBeenCalledWith("garden_harvest", {
-      plotIndex: 3,
+      plotId: 3,
     });
     expect(result).toEqual(fakeResult);
   });
 
-  it("gardenBuySeed 应调用 invoke('garden_buy_seed', { seedId, quantity })", async () => {
+  it("gardenBuySeed 应调用 invoke('garden_buy', { item, price })", async () => {
     const fakeResult = { success: true };
     invokeMock.mockResolvedValue(fakeResult);
 
     const result = await gardenBuySeed("tomato", 5);
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
-    expect(invokeMock).toHaveBeenCalledWith("garden_buy_seed", {
-      seedId: "tomato",
-      quantity: 5,
+    expect(invokeMock).toHaveBeenCalledWith("garden_buy", {
+      item: "tomato",
+      price: 16,
     });
     expect(result).toEqual(fakeResult);
   });
 
-  it("gardenSellCrop 应调用 invoke('garden_sell_crop', { cropId, quantity })", async () => {
+  it("gardenSellCrop 应调用 invoke('garden_sell', { item, price })", async () => {
     const fakeResult = { success: true };
     invokeMock.mockResolvedValue(fakeResult);
 
     const result = await gardenSellCrop("rose", 2);
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
-    expect(invokeMock).toHaveBeenCalledWith("garden_sell_crop", {
-      cropId: "rose",
-      quantity: 2,
+    expect(invokeMock).toHaveBeenCalledWith("garden_sell", {
+      item: "rose",
+      price: 80,
     });
     expect(result).toEqual(fakeResult);
   });
 
-  it("gardenUnlockPlot 应调用 invoke('garden_unlock_plot', { plotIndex })", async () => {
+  it("gardenUnlockPlot 应调用 invoke('garden_unlock', { plotId })", async () => {
     const fakeResult = { success: true };
     invokeMock.mockResolvedValue(fakeResult);
 
     const result = await gardenUnlockPlot(7);
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
-    expect(invokeMock).toHaveBeenCalledWith("garden_unlock_plot", {
-      plotIndex: 7,
+    expect(invokeMock).toHaveBeenCalledWith("garden_unlock", {
+      plotId: 7,
     });
     expect(result).toEqual(fakeResult);
   });
@@ -192,9 +192,9 @@ describe("api/garden", () => {
       "garden_write",
       "garden_plant",
       "garden_harvest",
-      "garden_buy_seed",
-      "garden_sell_crop",
-      "garden_unlock_plot",
+      "garden_buy",
+      "garden_sell",
+      "garden_unlock",
       "garden_signin",
       "garden_update_focus",
       "garden_punishment",
@@ -205,27 +205,27 @@ describe("api/garden", () => {
     }
   });
 
-  it("gardenWrite 参数名应为 gardenData（不是 data/garden_data）", async () => {
+  it("gardenWrite 参数名应为 data（不是 gardenData/garden_data）", async () => {
     invokeMock.mockResolvedValue(undefined);
     await gardenWrite({ a: 1 });
 
     const args = invokeMock.mock.calls[0][1] as Record<string, unknown>;
-    expect(args.gardenData).toEqual({ a: 1 });
-    expect(args.data).toBeUndefined();
+    expect(args.data).toEqual({ a: 1 });
+    expect(args.gardenData).toBeUndefined();
     expect(args.garden_data).toBeUndefined();
   });
 
-  it("gardenPlant/gardenHarvest 参数名应为 plotIndex", async () => {
+  it("gardenPlant/gardenHarvest 参数名应为 plotId（对应 Rust plot_id）", async () => {
     invokeMock.mockResolvedValue(undefined);
     await gardenPlant(5, "x");
     await gardenHarvest(5);
 
     const plantArgs = invokeMock.mock.calls[0][1] as Record<string, unknown>;
-    expect(plantArgs.plotIndex).toBe(5);
-    expect(plantArgs.plot_index).toBeUndefined();
+    expect(plantArgs.plotId).toBe(5);
+    expect(plantArgs.plotIndex).toBeUndefined();
 
     const harvestArgs = invokeMock.mock.calls[1][1] as Record<string, unknown>;
-    expect(harvestArgs.plotIndex).toBe(5);
-    expect(harvestArgs.plot_index).toBeUndefined();
+    expect(harvestArgs.plotId).toBe(5);
+    expect(harvestArgs.plotIndex).toBeUndefined();
   });
 });

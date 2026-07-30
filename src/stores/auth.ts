@@ -29,6 +29,7 @@ import {
   getApiMode,
   setApiMode,
 } from "@/api/auth";
+import { setApiKey as chartsSetApiKey } from "@/api/charts";
 
 export const useAuthStore = defineStore("auth", () => {
   // ===== State =====
@@ -279,6 +280,10 @@ export const useAuthStore = defineStore("auth", () => {
     try {
       const ok = await saveApiKey(key);
       if (ok) {
+        // 同步到 ChartsState 内存（修复 4.6 Bug：确保 download_song 能拿到 Key）
+        await chartsSetApiKey(key).catch((e) =>
+          console.warn("[auth] chartsSetApiKey failed:", e),
+        );
         localApiKey.value = key;
         return true;
       }

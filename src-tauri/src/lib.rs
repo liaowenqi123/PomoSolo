@@ -79,6 +79,7 @@ pub fn run() {
             commands::charts::charts_fetch,
             commands::charts::download_song,
             commands::charts::get_download_status,
+            commands::charts::charts_set_api_key,
         ])
         .setup(|_app| {
             // Windows 11：禁用 DWM 系统级窗口圆角，避免与 CSS 圆角形成双层圆角。

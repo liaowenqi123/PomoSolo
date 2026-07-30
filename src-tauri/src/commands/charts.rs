@@ -445,6 +445,25 @@ pub async fn get_download_status(app: AppHandle) -> Result<Value, String> {
     }))
 }
 
+/// 注入 API Key 到 ChartsState 内存
+///
+/// 修复 docs/modules/cloud-and-charts.md 4.6 节 Bug：`save_api_key` 只写 `data.json`，
+/// 不同步 `ChartsState.inner.api_key`，导致 `download_song` 始终返回"请先登录或配置 DeepSeek API Key"。
+///
+/// 由前端在 `save_api_key` / `cloud_login` 成功后主动调用，把 API Key 注入内存。
+/// 传空串则清空内存中的 Key。
+#[tauri::command]
+pub async fn charts_set_api_key(app: AppHandle, api_key: String) -> Result<(), String> {
+    let charts_state = app.state::<ChartsState>();
+    let mut guard = charts_state.inner.lock().await;
+    guard.api_key = if api_key.is_empty() {
+        None
+    } else {
+        Some(api_key)
+    };
+    Ok(())
+}
+
 // ===== 下载器辅助 =====
 
 #[derive(Clone)]

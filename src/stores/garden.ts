@@ -242,6 +242,48 @@ export const DEFAULT_GARDEN: GardenState = {
   },
 };
 
+/**
+ * 将后端返回的单块土地数据收敛为前端 Plot 结构。
+ *
+ * Rust 端写入 `state` 字段（"locked"/"empty"/"growing"/"ready"），
+ * 前端期望 `locked`/`progress`/`plantedAt` 字段。
+ * 此函数做字段映射，保证两种来源的数据都能正确转换为 Plot。
+ */
+function normalizePlot(raw: unknown, index: number): Plot {
+  const p = (raw ?? {}) as Record<string, unknown>;
+  const state = typeof p.state === "string" ? p.state : undefined;
+
+  // 无 state 字段：说明是前端格式（已有 locked/progress/plantedAt），直接取值
+  if (state === undefined) {
+    return {
+      id: typeof p.id === "number" ? p.id : index,
+      crop: (p.crop as string | null) ?? null,
+      progress: typeof p.progress === "number" ? p.progress : 0,
+      plantedAt: (p.plantedAt as string | null) ?? null,
+      locked: typeof p.locked === "boolean" ? p.locked : index >= 6,
+    };
+  }
+
+  // 有 state 字段：从 Rust 格式映射
+  const crop = (p.crop as string | null) ?? null;
+  const progress = typeof p.progress === "number" ? p.progress : 0;
+  const plantedAt =
+    (p.plantedAt as string | null) ?? (p.planted_at as string | null) ?? null;
+
+  switch (state) {
+    case "locked":
+      return { id: index, crop: null, progress: 0, plantedAt: null, locked: true };
+    case "empty":
+      return { id: index, crop: null, progress: 0, plantedAt: null, locked: false };
+    case "growing":
+      return { id: index, crop, progress, plantedAt, locked: false };
+    case "ready":
+      return { id: index, crop, progress: 100, plantedAt, locked: false };
+    default:
+      return { id: index, crop: null, progress: 0, plantedAt: null, locked: index >= 6 };
+  }
+}
+
 /** 将后端返回的 GardenData 收敛为结构化 GardenState */
 function toGardenState(raw: GardenData): GardenState {
   const g = raw as Partial<GardenState> & Record<string, unknown>;
@@ -256,7 +298,7 @@ function toGardenState(raw: GardenData): GardenState {
         ? (g.crops as CropBag)
         : { ...DEFAULT_GARDEN.crops },
     plots: Array.isArray(g.plots)
-      ? (g.plots as Plot[])
+      ? (g.plots as unknown[]).map((p, i) => normalizePlot(p, i))
       : DEFAULT_GARDEN.plots.map((p) => ({ ...p })),
     warehouse: Array.isArray(g.warehouse) ? g.warehouse : [],
     signIn:

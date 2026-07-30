@@ -8,6 +8,7 @@
  * - charts_fetch(source) -> 热歌榜
  * - download_song(title, artist) -> 下载歌曲
  * - get_download_status -> 下载状态
+ * - charts_set_api_key(apiKey) -> 注入 API Key 到 ChartsState 内存（修复 4.6 Bug）
  */
 import { invoke } from "@tauri-apps/api/core";
 
@@ -59,4 +60,17 @@ export function downloadSong(title: string, artist: string): Promise<DownloadRes
 /** 获取下载状态 */
 export function getDownloadStatus(): Promise<DownloadStatusInfo> {
   return invoke<DownloadStatusInfo>("get_download_status");
+}
+
+/**
+ * 注入 API Key 到 ChartsState 内存。
+ *
+ * 修复 docs/modules/cloud-and-charts.md 4.6 节 Bug：`save_api_key` 原本只写 `data.json`，
+ * 不同步 `ChartsState.inner.api_key`，导致 `download_song` 始终返回"请先登录或配置 DeepSeek API Key"。
+ *
+ * 应在 `saveApiKey` / `cloud_login` 成功后调用。传空串则清空内存中的 Key。
+ * 后端：`charts_set_api_key(api_key: String) -> Result<(), String>`
+ */
+export function setApiKey(apiKey: string): Promise<void> {
+  return invoke<void>("charts_set_api_key", { apiKey });
 }
