@@ -38,8 +38,8 @@ nul
 # AI Agent context
 AGENTS.md
 
-# Admin tools (private)
-admin/feedback.html
+# 临时调试文件（统一存放，不纳入版本控制）
+temp-debug/
 
 # Test coverage
 coverage/

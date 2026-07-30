@@ -161,6 +161,12 @@ electron_pomodoro/
 │
 ├── docs/                         # 项目文档
 │
+├── temp-debug/                   # 临时调试脚本/工具（不纳入版本控制，见下方说明）
+│   ├── feedback.mjs              # 反馈管理 CLI
+│   ├── test_download.rs          # B站下载流程测试（需拷回 src-tauri/examples/ 运行）
+│   ├── analyze-coverage*.cjs     # 覆盖率分析脚本（旧 Electron 代码用）
+│   └── run-vitest*.cjs           # vitest 运行包装脚本
+│
 ├── .github/workflows/ci.yml      # CI：测试 + 构建 + 自动发布 Release
 │
 ├── electron/                     # [废弃] 旧 Electron 源码（保留参考）
@@ -171,6 +177,17 @@ electron_pomodoro/
 ├── vite.config.ts                # Vite 配置
 └── tsconfig.json                 # TypeScript 配置
 ```
+
+---
+
+## 临时调试文件规范
+
+**所有用于 debug / 临时测试的脚本、HTML 页面、一次性工具，统一放到项目根目录的 `temp-debug/` 文件夹下。**
+
+- `temp-debug/` 已在 `.gitignore` 中忽略，**不会纳入版本控制**，可放心放入含密钥或本地路径的调试脚本。
+- 不要把临时调试文件散落在项目根目录、`src/`、`src-tauri/` 等正式代码目录中。
+- 临时文件如需调用 Rust example（`cargo run --example xxx`），需先拷贝回 `src-tauri/examples/` 再运行，用完移回 `temp-debug/`。
+- 不再需要的临时文件应及时删除，避免堆积。
 
 ---
 
