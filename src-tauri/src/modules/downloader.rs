@@ -108,38 +108,49 @@ fn load_cookie_file(cookie_file: &Path) -> String {
     cookies.join("; ")
 }
 
-/// 获取 ffmpeg.exe 路径
-/// debug 模式从 CARGO_MANIFEST_DIR/../music-player/ffmpeg.exe
-/// release 从 resource_dir()/ffmpeg.exe
-fn get_ffmpeg_path(app: &AppHandle) -> Result<PathBuf, String> {
-    if cfg!(debug_assertions) {
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let path = PathBuf::from(manifest_dir)
-            .parent()
-            .ok_or("无法定位项目根目录")?
-            .join("music-player")
-            .join("ffmpeg.exe");
-        if path.exists() {
-            Ok(path)
-        } else {
-            Err(format!("未找到 ffmpeg.exe: {:?}", path))
-        }
-    } else {
-        let resource_dir = app
-            .path()
-            .resource_dir()
-            .map_err(|e| format!("无法获取资源目录: {}", e))?;
-        let path = resource_dir.join("ffmpeg.exe");
-        if path.exists() {
-            Ok(path)
-        } else {
-            Err(format!("未找到 ffmpeg.exe: {:?}", path))
+/// 查找 ffmpeg：优先系统 PATH，其次打包的 resource
+///
+/// 返回 None 表示未找到 ffmpeg（调用方应回退到直接保存 m4a）
+fn find_ffmpeg(app: &AppHandle) -> Option<PathBuf> {
+    // 1. 尝试系统 PATH
+    let cmd = if cfg!(windows) { "where" } else { "which" };
+    if let Ok(output) = std::process::Command::new(cmd)
+        .arg("ffmpeg")
+        .output()
+    {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout);
+            if let Some(first_line) = path_str.lines().next() {
+                let path = PathBuf::from(first_line.trim());
+                if path.exists() {
+                    return Some(path);
+                }
+            }
         }
     }
+
+    // 2. 尝试打包的 resource（debug 从 music-player/，release 从 resource_dir/）
+    let resource_path = if cfg!(debug_assertions) {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(|p| p.join("music-player").join("ffmpeg.exe"))
+            .unwrap_or_default()
+    } else {
+        app.path()
+            .resource_dir()
+            .ok()
+            .map(|d| d.join("ffmpeg.exe"))
+            .unwrap_or_default()
+    };
+    if resource_path.exists() {
+        return Some(resource_path);
+    }
+
+    None
 }
 
-/// 检查 music 目录是否已存在同名 mp3（文件名包含歌名即视为已存在，忽略大小写）
-fn find_existing_mp3(music_dir: &Path, song_name: &str) -> bool {
+/// 检查 music 目录是否已存在同名歌曲（.mp3 或 .m4a，文件名包含歌名即视为已存在）
+fn find_existing_song(music_dir: &Path, song_name: &str) -> bool {
     let entries = match fs::read_dir(music_dir) {
         Ok(e) => e,
         Err(_) => return false,
@@ -147,7 +158,8 @@ fn find_existing_mp3(music_dir: &Path, song_name: &str) -> bool {
     let target = song_name.to_lowercase();
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("mp3") {
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if ext != "mp3" && ext != "m4a" {
             continue;
         }
         let stem = path
@@ -554,7 +566,7 @@ pub async fn download_song(
     let clean_name = clean_filename(song_name);
 
     // 1. 检查是否已存在
-    if find_existing_mp3(music_dir, &clean_name) {
+    if find_existing_song(music_dir, &clean_name) {
         return Ok(DownloadResult::ok("exists"));
     }
 
@@ -614,23 +626,42 @@ pub async fn download_song(
         return Ok(DownloadResult::fail("failed", &e));
     }
 
-    // 7. 转码为 mp3
-    let ffmpeg_path = match get_ffmpeg_path(app) {
-        Ok(p) => p,
-        Err(e) => {
-            let _ = fs::remove_file(&temp_m4a);
-            return Ok(DownloadResult::fail("failed", &e));
+    // 7. 转码：有 ffmpeg 转 mp3，无 ffmpeg 或转码失败则保存 m4a
+    let ffmpeg_path = find_ffmpeg(app);
+
+    if let Some(ffmpeg) = ffmpeg_path {
+        // 有 ffmpeg：尝试转码为 mp3
+        let output_mp3 = music_dir.join(format!("{}.mp3", clean_name));
+        match convert_to_mp3(&temp_m4a, &output_mp3, &ffmpeg).await {
+            Ok(()) => {
+                let _ = fs::remove_file(&temp_m4a);
+                eprintln!("[Downloader] 已保存为 mp3: {:?}", output_mp3);
+            }
+            Err(e) => {
+                // ffmpeg 转码失败（如精简版不支持 libmp3lame），回退到 m4a
+                eprintln!(
+                    "[Downloader] ffmpeg 转码失败，回退到 m4a: {}",
+                    e
+                );
+                let output_m4a = music_dir.join(format!("{}.m4a", clean_name));
+                fs::rename(&temp_m4a, &output_m4a)
+                    .map_err(|e| format!("重命名 m4a 失败: {}", e))?;
+                eprintln!(
+                    "[Downloader] 已保存为 m4a: {:?}",
+                    output_m4a
+                );
+            }
         }
-    };
-
-    let output_mp3 = music_dir.join(format!("{}.mp3", clean_name));
-    if let Err(e) = convert_to_mp3(&temp_m4a, &output_mp3, &ffmpeg_path).await {
-        let _ = fs::remove_file(&temp_m4a);
-        return Ok(DownloadResult::fail("failed", &e));
+    } else {
+        // 无 ffmpeg：直接重命名为 m4a
+        let output_m4a = music_dir.join(format!("{}.m4a", clean_name));
+        fs::rename(&temp_m4a, &output_m4a)
+            .map_err(|e| format!("重命名 m4a 失败: {}", e))?;
+        eprintln!(
+            "[Downloader] 未找到 ffmpeg，已保存为 m4a: {:?}",
+            output_m4a
+        );
     }
-
-    // 8. 删除临时文件
-    let _ = fs::remove_file(&temp_m4a);
 
     Ok(DownloadResult::ok("downloaded"))
 }
