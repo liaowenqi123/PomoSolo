@@ -5,13 +5,12 @@
 //!
 //! 前端通过 src/api/charts.ts 调用：
 //! - charts_fetch(source) -> 热歌榜（网易云 / QQ音乐）
-//! - download_song(title, artist) -> 调用外部 manual_downloader.exe 下载
+//! - download_song(title, artist) -> 调用纯 Rust 下载器（B站搜索 + DeepSeek + DASH + ffmpeg）
 //! - get_download_status -> 下载队列状态
 
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
-use tokio::process::Command;
 
 use crate::state::{ChartsState, MusicState};
 
@@ -362,7 +361,8 @@ pub async fn charts_fetch(app: AppHandle, source: String) -> Result<Value, Strin
 /// 下载歌曲
 ///
 /// 对应 Electron `download-song` IPC handler。
-/// 调用外部 manual_downloader.exe 进行下载，串行执行（用 Mutex 保证一次只下载一首）。
+/// 调用纯 Rust 下载器（B站搜索 + DeepSeek 选片 + DASH 音频流下载 + ffmpeg 转码），
+/// 串行执行（用 Mutex 保证一次只下载一首）。
 #[tauri::command]
 pub async fn download_song(
     app: AppHandle,
@@ -370,23 +370,6 @@ pub async fn download_song(
     artist: String,
 ) -> Result<Value, String> {
     let charts_state = app.state::<ChartsState>();
-
-    // 获取下载器路径（不持有锁，避免与 get_download_status 互相阻塞过久）
-    let downloader_path = {
-        let mut guard = charts_state.inner.lock().await;
-        if guard.downloader_path.is_none() {
-            match get_downloader_path(&app) {
-                Ok(p) => guard.downloader_path = Some(p),
-                Err(e) => {
-                    return Ok(json!({
-                        "success": false,
-                        "error": e
-                    }));
-                }
-            }
-        }
-        guard.downloader_path.clone().unwrap()
-    };
 
     // 检查 API Key
     let api_key = {
@@ -412,8 +395,42 @@ pub async fn download_song(
         });
     }
 
-    // 执行下载
-    let result = execute_download(&downloader_path, &api_key, &title, &artist).await;
+    // 计算 music 目录路径与完整歌曲名
+    let song_name = if artist.is_empty() {
+        title.clone()
+    } else {
+        format!("{} - {}", title, artist)
+    };
+    let music_dir = match get_music_dir(&app) {
+        Ok(p) => p,
+        Err(e) => {
+            let mut guard = charts_state.inner.lock().await;
+            guard.is_downloading = false;
+            guard.current_song = None;
+            return Ok(json!({
+                "success": false,
+                "status": "failed",
+                "error": e
+            }));
+        }
+    };
+
+    // 执行下载（纯 Rust 实现，替代 manual_downloader.exe + you-get）
+    let dl_result = match crate::modules::downloader::download_song(
+        &app,
+        &song_name,
+        &api_key,
+        &music_dir,
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => crate::modules::downloader::DownloadResult {
+            success: false,
+            status: "failed".to_string(),
+            error: Some(e),
+        },
+    };
 
     // 清除下载状态
     {
@@ -422,7 +439,14 @@ pub async fn download_song(
         guard.current_song = None;
     }
 
-    result
+    // 转换为前端期望的 JSON
+    Ok(serde_json::to_value(&dl_result).unwrap_or_else(|_| {
+        json!({
+            "success": false,
+            "status": "failed",
+            "error": "序列化下载结果失败"
+        })
+    }))
 }
 
 /// 获取下载状态
@@ -473,79 +497,24 @@ pub struct DownloadTask {
     pub song_name: String,
 }
 
-/// 实际执行单次下载，返回前端期望的结果 JSON
-async fn execute_download(
-    downloader_path: &PathBuf,
-    api_key: &str,
-    title: &str,
-    artist: &str,
-) -> Result<Value, String> {
-    let song_name = if artist.is_empty() {
-        title.to_string()
-    } else {
-        format!("{} - {}", title, artist)
-    };
-
-    let cwd = downloader_path
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."));
-
-    let output = Command::new(downloader_path)
-        .current_dir(&cwd)
-        .arg("-s")
-        .arg(&song_name)
-        .arg("-k")
-        .arg(api_key)
-        .env("PYTHONIOENCODING", "utf-8")
-        .output()
-        .await;
-
-    let code = match output {
-        Ok(o) => o.status.code().unwrap_or(1),
-        Err(e) => {
-            return Ok(json!({
-                "success": false,
-                "error": format!("启动下载器失败: {}", e)
-            }));
-        }
-    };
-
-    // 退出码：0=成功 2=已存在 3=无视频 4=无纯音乐 1=失败
-    let result = match code {
-        0 => json!({ "success": true, "status": "downloaded" }),
-        2 => json!({ "success": true, "status": "exists" }),
-        3 => json!({ "success": false, "status": "no_video", "error": "未找到相关视频" }),
-        4 => json!({ "success": false, "status": "no_instrumental", "error": "未找到符合条件的纯音乐视频" }),
-        _ => json!({ "success": false, "status": "failed", "error": "下载失败" }),
-    };
-    Ok(result)
-}
-
-/// 获取 manual_downloader.exe 路径
-fn get_downloader_path(app: &AppHandle) -> Result<PathBuf, String> {
+/// 获取 music 目录路径（music-player/music/）
+///
+/// debug 模式：CARGO_MANIFEST_DIR/../music-player/music/
+/// release 模式：resource_dir()/music/
+fn get_music_dir(app: &AppHandle) -> Result<PathBuf, String> {
     if cfg!(debug_assertions) {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         let path = PathBuf::from(manifest_dir)
             .parent()
             .ok_or("无法定位项目根目录")?
             .join("music-player")
-            .join("manual_downloader.exe");
-        if path.exists() {
-            Ok(path)
-        } else {
-            Err(format!("未找到 manual_downloader.exe: {:?}", path))
-        }
+            .join("music");
+        Ok(path)
     } else {
         let resource_dir = app
             .path()
             .resource_dir()
             .map_err(|e| format!("无法获取资源目录: {}", e))?;
-        let path = resource_dir.join("manual_downloader.exe");
-        if path.exists() {
-            Ok(path)
-        } else {
-            Err(format!("未找到 manual_downloader.exe: {:?}", path))
-        }
+        Ok(resource_dir.join("music"))
     }
 }

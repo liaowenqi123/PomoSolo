@@ -55,10 +55,7 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "../music-player/music.exe",
-      "../music-player/manual_downloader.exe",
-      "../music-player/ffmpeg.exe",
-      "../music-player/you-get.exe"
+      "../music-player/music.exe"
     ],
     "externalBin": [],
     "copyright": "",

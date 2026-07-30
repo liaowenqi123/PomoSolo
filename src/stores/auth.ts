@@ -22,7 +22,6 @@ import {
   cloudGetSession,
   cloudTestConnection,
   saveCredentials,
-  loadCredentials,
   clearCredentials,
   getApiKey,
   saveApiKey,
@@ -124,41 +123,20 @@ export const useAuthStore = defineStore("auth", () => {
   }
 
   /**
-   * 通过本地保存的凭据尝试自动登录。
+   * 恢复云端会话。
    *
-   * 注意：当前 Credentials 接口只暴露加密后的密码（passwordEncrypted），
-   * 前端无法直接拿明文密码调用 cloudLogin。
-   * 自动登录的具体实现应由后端在 cloud_get_session 中处理：
-   * 若 autoLogin=true 且凭据有效，后端直接返回当前会话。
-   * 这里仅检查凭据是否存在并启用了自动登录。
+   * 后端 cloud_get_session 已实现自动登录：
+   * - 内存会话存在 → 直接返回
+   * - 内存会话为空 + 本地凭据 autoLogin=true → 用凭据自动登录并返回会话
+   * - 否则 → 返回 null
+   * 前端只需调用一次即可。
    */
-  async function tryAutoLogin(): Promise<boolean> {
-    try {
-      const cred = await loadCredentials();
-      if (!cred || !cred.username || !cred.autoLogin) return false;
-      const s = await cloudGetSession();
-      if (s) {
-        session.value = s;
-        return true;
-      }
-      // 自动登录失败，清除无效凭据
-      await clearCredentials();
-      return false;
-    } catch (err) {
-      console.warn("[auth] tryAutoLogin failed:", err);
-      return false;
-    }
-  }
-
-  /** 恢复云端会话（先查 session，再尝试自动登录） */
   async function restoreSession(): Promise<void> {
     try {
       const s = await cloudGetSession();
       if (s) {
         session.value = s;
-        return;
       }
-      await tryAutoLogin();
     } catch (err) {
       console.warn("[auth] restoreSession failed:", err);
     }
@@ -320,7 +298,6 @@ export const useAuthStore = defineStore("auth", () => {
     loadMode,
     testConnection,
     tryLoadLocalApiKey,
-    tryAutoLogin,
     restoreSession,
     switchMode,
     login,

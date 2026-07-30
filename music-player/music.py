@@ -1,6 +1,6 @@
 """
 音乐播放器 - 带通讯功能
-支持stdin/stdout与Electron通信，同时保留快捷键控制
+支持stdin/stdout与Electron通信
 
 状态模型：
 - playing: 用户是否在播放会话中（True = 正在播放或暂停，False = 未开始）
@@ -27,11 +27,6 @@
   - {"event": "progress", "data": {"current": 30, "duration": 180}}
   - {"event": "devices", "data": {"devices": [...], "current": 5}}
   - {"event": "song_missing", "data": {"name": "song.mp3", "message": "原歌曲已消失"}}
-
-快捷键:
-- 右Ctrl + 右Shift: 暂停/继续
-- 右Ctrl + 左/右方向键: 上一首/下一首
-- 右Ctrl + 上/下方向键: 音量增/减
 """
 
 import os
@@ -41,7 +36,6 @@ import random
 import threading
 import time
 import json
-from pynput import keyboard
 import sys
 
 # 设置UTF-8编码
@@ -559,180 +553,6 @@ class PlaylistManager:
 
 
 # ============================================================================
-# 快捷键管理模块
-# ============================================================================
-
-class HotkeyManager:
-    """全局快捷键管理 - 支持动态配置快捷键"""
-    
-    # 默认快捷键配置 (字符串格式，可序列化)
-    DEFAULT_HOTKEYS = {
-        "pause": ["Key.ctrl_r", "Key.shift_r"],
-        "next": ["Key.ctrl_r", "Key.right"],
-        "prev": ["Key.ctrl_r", "Key.left"],
-        "volUp": ["Key.ctrl_r", "Key.up"],
-        "volDown": ["Key.ctrl_r", "Key.down"]
-    }
-    
-    # 当前快捷键配置 (pynput key 对象集合)
-    hotkeys = {}
-    current_keys = set()
-    listener = None
-    
-    # 录制模式
-    recording_mode = False
-    recording_keys = set()
-    
-    @staticmethod
-    def key_to_str(key):
-        """将 pynput key 对象转换为可序列化的字符串"""
-        if isinstance(key, keyboard.Key):
-            return f"Key.{key.name}"
-        elif isinstance(key, keyboard.KeyCode):
-            if key.char:
-                return f"char.{key.char}"
-            return f"vk.{key.vk}"
-        return str(key)
-    
-    @staticmethod
-    def str_to_key(key_str):
-        """将字符串转换回 pynput key 对象"""
-        if key_str.startswith("Key."):
-            key_name = key_str[4:]
-            try:
-                return getattr(keyboard.Key, key_name)
-            except AttributeError:
-                return None
-        elif key_str.startswith("char."):
-            return keyboard.KeyCode.from_char(key_str[5:])
-        elif key_str.startswith("vk."):
-            return keyboard.KeyCode.from_vk(int(key_str[3:]))
-        return None
-    
-    @staticmethod
-    def load_hotkeys_from_config(config):
-        """从配置字典加载快捷键"""
-        HotkeyManager.hotkeys = {}
-        for action, key_strs in config.items():
-            key_set = set()
-            for key_str in key_strs:
-                key = HotkeyManager.str_to_key(key_str)
-                if key:
-                    key_set.add(key)
-            if key_set:
-                HotkeyManager.hotkeys[action] = key_set
-        print(f"快捷键配置已加载: {list(HotkeyManager.hotkeys.keys())}", file=sys.stderr)
-    
-    @staticmethod
-    def get_current_hotkeys():
-        """获取当前快捷键配置 (字符串格式)"""
-        result = {}
-        for action, key_set in HotkeyManager.hotkeys.items():
-            result[action] = [HotkeyManager.key_to_str(k) for k in key_set]
-        return result
-    
-    @staticmethod
-    def keys_pressed(required_keys):
-        for k in required_keys:
-            if not any(HotkeyManager.key_to_str(k) == HotkeyManager.key_to_str(ck) 
-                      for ck in HotkeyManager.current_keys):
-                return False
-        return True
-    
-    @staticmethod
-    def on_press(key):
-        HotkeyManager.current_keys.add(key)
-        
-        # 录制模式：记录按下的键
-        if HotkeyManager.recording_mode:
-            HotkeyManager.recording_keys.add(key)
-            # 发送按键事件给 Electron
-            key_str = HotkeyManager.key_to_str(key)
-            state.send_event("hotkey_key_pressed", {"key": key_str, "all_keys": [HotkeyManager.key_to_str(k) for k in HotkeyManager.recording_keys]})
-            return
-        
-        # 正常模式：检测快捷键
-        if "pause" in HotkeyManager.hotkeys and HotkeyManager.keys_pressed(HotkeyManager.hotkeys["pause"]):
-            with state.lock:
-                state.pause_program = not state.pause_program
-                print("暂停" if state.pause_program else "继续", file=sys.stderr)
-        
-        if "next" in HotkeyManager.hotkeys and HotkeyManager.keys_pressed(HotkeyManager.hotkeys["next"]):
-            print("下一曲（快捷键）", file=sys.stderr)
-            with state.lock:
-                state.next_one = True
-        
-        if "prev" in HotkeyManager.hotkeys and HotkeyManager.keys_pressed(HotkeyManager.hotkeys["prev"]):
-            print("上一曲（快捷键）", file=sys.stderr)
-            with state.lock:
-                state.prev_one = True
-        
-        if "volUp" in HotkeyManager.hotkeys and HotkeyManager.keys_pressed(HotkeyManager.hotkeys["volUp"]):
-            with state.lock:
-                state.volume = min(1.0, round(state.volume + 0.1, 2))
-                print(f"音量: {state.volume:.2f}", file=sys.stderr)
-                state.send_event("volume_change", {"volume": state.volume})
-        
-        if "volDown" in HotkeyManager.hotkeys and HotkeyManager.keys_pressed(HotkeyManager.hotkeys["volDown"]):
-            with state.lock:
-                state.volume = max(0, round(state.volume - 0.1, 2))
-                print(f"音量: {state.volume:.2f}", file=sys.stderr)
-                state.send_event("volume_change", {"volume": state.volume})
-    
-    @staticmethod
-    def on_release(key):
-        HotkeyManager.current_keys.discard(key)
-        
-        # 录制模式：按键释放时结束录制
-        if HotkeyManager.recording_mode:
-            pass  # 不在这里结束录制，等待 stop_recording 命令
-    
-    @staticmethod
-    def start():
-        """启动快捷键监听"""
-        # 加载默认快捷键
-        if not HotkeyManager.hotkeys:
-            HotkeyManager.load_hotkeys_from_config(HotkeyManager.DEFAULT_HOTKEYS)
-        
-        HotkeyManager.listener = keyboard.Listener(
-            on_press=HotkeyManager.on_press,
-            on_release=HotkeyManager.on_release
-        )
-        HotkeyManager.listener.start()
-        print("快捷键监听已启动", file=sys.stderr)
-    
-    @staticmethod
-    def stop():
-        """停止快捷键监听"""
-        if HotkeyManager.listener:
-            HotkeyManager.listener.stop()
-            HotkeyManager.listener = None
-            print("快捷键监听已停止", file=sys.stderr)
-    
-    @staticmethod
-    def start_recording():
-        """开始录制快捷键"""
-        HotkeyManager.recording_mode = True
-        HotkeyManager.recording_keys = set()
-        print("开始录制快捷键", file=sys.stderr)
-    
-    @staticmethod
-    def stop_recording():
-        """停止录制并返回录制的按键"""
-        HotkeyManager.recording_mode = False
-        keys_str = [HotkeyManager.key_to_str(k) for k in HotkeyManager.recording_keys]
-        recorded = list(HotkeyManager.recording_keys)
-        HotkeyManager.recording_keys = set()
-        print(f"录制完成: {keys_str}", file=sys.stderr)
-        return recorded
-    
-    @staticmethod
-    def get_recording_keys():
-        """获取当前录制的按键 (字符串格式)"""
-        return [HotkeyManager.key_to_str(k) for k in HotkeyManager.recording_keys]
-
-
-# ============================================================================
 # 播放器核心
 # ============================================================================
 
@@ -990,6 +810,8 @@ def process_command(cmd_obj):
         print(f"set_volume命令: {volume}", file=sys.stderr)
         with state.lock:
             state.volume = max(0, min(volume, 1))
+        # 通知前端音量变化（原由快捷键触发，现由命令直接发送）
+        state.send_event("volume_change", {"volume": state.volume})
     
     elif command == "get_status":
         state.send_status()
@@ -1128,39 +950,6 @@ def process_command(cmd_obj):
                 "error": error,
                 "name": tag_name
             })
-    
-    # ===================== 快捷键设置相关命令 =====================
-    elif command == "get_hotkeys":
-        """获取当前快捷键配置"""
-        hotkeys = HotkeyManager.get_current_hotkeys()
-        state.send_event("hotkeys", {"hotkeys": hotkeys})
-    
-    elif command == "set_hotkeys":
-        """设置快捷键配置"""
-        hotkeys_config = cmd_obj.get("hotkeys")
-        if hotkeys_config:
-            print(f"set_hotkeys命令: {hotkeys_config}", file=sys.stderr)
-            HotkeyManager.load_hotkeys_from_config(hotkeys_config)
-            # 返回更新后的配置
-            state.send_event("hotkeys_updated", {"hotkeys": HotkeyManager.get_current_hotkeys()})
-    
-    elif command == "start_hotkey_recording":
-        """开始录制快捷键"""
-        print("start_hotkey_recording命令", file=sys.stderr)
-        HotkeyManager.start_recording()
-        state.send_event("hotkey_recording_started", {})
-    
-    elif command == "stop_hotkey_recording":
-        """停止录制快捷键"""
-        print("stop_hotkey_recording命令", file=sys.stderr)
-        keys = HotkeyManager.stop_recording()
-        keys_str = [HotkeyManager.key_to_str(k) for k in keys]
-        state.send_event("hotkey_recording_stopped", {"keys": keys_str})
-    
-    elif command == "get_recording_keys":
-        """获取当前录制的按键"""
-        keys_str = HotkeyManager.get_recording_keys()
-        state.send_event("recording_keys", {"keys": keys_str})
 
 
 def stdin_reader():
@@ -1209,9 +998,6 @@ def main():
     # 初始化设备
     DeviceManager.select_initial_device(initial_device_id)
     
-    # 启动快捷键监听
-    HotkeyManager.start()
-    
     # 启动命令读取线程
     stdin_thread = threading.Thread(target=stdin_reader, daemon=True)
     stdin_thread.start()
@@ -1227,7 +1013,6 @@ def main():
                 if state.exit_program:
                     break
             time.sleep(0.1)
-        HotkeyManager.stop()
         print("程序已退出", file=sys.stderr)
         sys.exit(0)
     
@@ -1348,8 +1133,7 @@ def main():
                 "duration": state.duration,
                 "has_prev": True  # 始终可用
             })
-    
-    HotkeyManager.stop()
+
     print("程序已退出", file=sys.stderr)
 
 

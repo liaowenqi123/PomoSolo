@@ -72,4 +72,4 @@ analyze-coverage*.cjs
 analyze-coverage*.js
 run-vitest*.cjs
 presentation_showcase.html
-test_study_room.html
+test_study_room.htmlsrc-tauri/test_downloads/

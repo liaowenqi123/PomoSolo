@@ -93,11 +93,21 @@ pub async fn cloud_login(
     username: String,
     password: String,
 ) -> Result<LoginResult, String> {
+    perform_login(&app, &state, &username, &password).await
+}
+
+/// 登录核心逻辑（供 cloud_login 和自动登录复用）
+async fn perform_login(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    username: &str,
+    password: &str,
+) -> Result<LoginResult, String> {
     let client = supabase_client();
     let url = format!(
         "{}/rest/v1/users?select=id,username,password_hash,salt,admin&username=eq.{}",
         SUPABASE_URL,
-        urlencoding(&username)
+        urlencoding(username)
     );
 
     let resp = client
@@ -129,7 +139,7 @@ pub async fn cloud_login(
     };
 
     // 验证密码
-    let computed = hash_password(&password, &user.salt);
+    let computed = hash_password(password, &user.salt);
     if computed != user.password_hash {
         return Ok(LoginResult {
             success: false,
@@ -246,10 +256,63 @@ pub async fn cloud_logout(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 /// 获取当前会话（不暴露 API Key）
+///
+/// 若内存会话为空，尝试加载本地凭据并自动登录：
+/// - 凭据存在且 autoLogin=true → 用保存的明文密码执行登录流程，恢复会话
+/// - 凭据不存在或 autoLogin=false → 返回 None
+/// 这样进程重启后无需用户重新输入账号密码。
 #[tauri::command]
-pub async fn cloud_get_session(state: State<'_, AppState>) -> Result<Option<cloud_auth::Session>, String> {
-    let guard = state.cloud_session.lock().map_err(|e| e.to_string())?;
-    Ok(guard.clone())
+pub async fn cloud_get_session(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Option<cloud_auth::Session>, String> {
+    // 1. 内存会话存在则直接返回
+    {
+        let guard = state.cloud_session.lock().map_err(|e| e.to_string())?;
+        if let Some(s) = guard.as_ref() {
+            return Ok(Some(s.clone()));
+        }
+    }
+
+    // 2. 内存会话为空：尝试用本地凭据自动登录
+    let creds = match cloud_auth::load_credentials(&app) {
+        Ok(Some(c)) => c,
+        _ => return Ok(None),
+    };
+
+    // autoLogin 未启用，不自动登录
+    if !creds.auto_login.unwrap_or(false) {
+        return Ok(None);
+    }
+
+    let (username, password) = match (creds.username, creds.password) {
+        (u, Some(p)) if !u.is_empty() && !p.is_empty() => (u, p),
+        _ => return Ok(None),
+    };
+
+    eprintln!("[cloud_auth] 内存会话为空，尝试用本地凭据自动登录: {}", username);
+
+    // 复用登录核心逻辑
+    match perform_login(&app, &state, &username, &password).await {
+        Ok(result) if result.success => {
+            eprintln!("[cloud_auth] 自动登录成功");
+            Ok(result.user)
+        }
+        Ok(result) => {
+            // 自动登录失败（密码改了、账号删了等）——清除无效凭据，避免反复尝试
+            eprintln!(
+                "[cloud_auth] 自动登录失败: {}，清除本地凭据",
+                result.error.unwrap_or_else(|| "未知错误".to_string())
+            );
+            let _ = cloud_auth::clear_credentials(&app);
+            Ok(None)
+        }
+        Err(e) => {
+            // 网络错误等非业务异常——保留凭据，下次启动再试
+            eprintln!("[cloud_auth] 自动登录网络异常: {}，保留凭据", e);
+            Ok(None)
+        }
+    }
 }
 
 /// 测试 Supabase 连接
