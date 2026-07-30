@@ -72,12 +72,15 @@ watch(
   },
 );
 
-// 当弹窗打开时，确保模式已加载
+// 当弹窗打开时，确保模式已加载并测试连接
 watch(
   () => props.visible,
   (v) => {
-    if (v && !auth.mode) {
-      void auth.loadMode();
+    if (v) {
+      if (!auth.mode) void auth.loadMode();
+      if (auth.connectionOk !== true) {
+        void auth.testConnection();
+      }
     }
   },
 );
@@ -227,9 +230,16 @@ function onLocalKeyEnter(e: KeyboardEvent): void {
       :class="{
         connected: auth.connectionOk === true,
         disconnected: auth.connectionOk === false,
+        checking: auth.connectionOk === null,
       }"
     >
-      {{ auth.connectionOk === true ? "● 已连接" : "● 连接失败" }}
+      {{
+        auth.connectionOk === true
+          ? "● 已连接"
+          : auth.connectionOk === false
+            ? "● 连接失败"
+            : "● 检测中..."
+      }}
     </div>
 
     <!-- 云端模式 -->
@@ -466,6 +476,10 @@ function onLocalKeyEnter(e: KeyboardEvent): void {
 
 .connection-status.disconnected {
   color: #e94560;
+}
+
+.connection-status.checking {
+  color: rgba(255, 255, 255, 0.5);
 }
 
 .login-tabs {

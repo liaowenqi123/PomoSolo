@@ -220,6 +220,8 @@ export const useAuthStore = defineStore("auth", () => {
             console.warn("[auth] saveCredentials failed:", e),
           );
         }
+        // 登录成功后重新测试连接，避免冷启动期误判为"连接失败"
+        void testConnection();
         return true;
       }
       lastError.value = result.error ?? "登录失败";

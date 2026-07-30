@@ -79,6 +79,8 @@ fn supabase_client() -> reqwest::Client {
     }
     reqwest::Client::builder()
         .default_headers(headers)
+        .timeout(std::time::Duration::from_secs(15))
+        .connect_timeout(std::time::Duration::from_secs(10))
         .build()
         .expect("failed to build supabase client")
 }
@@ -87,6 +89,7 @@ fn supabase_client() -> reqwest::Client {
 #[tauri::command]
 pub async fn cloud_login(
     state: State<'_, AppState>,
+    app: AppHandle,
     username: String,
     password: String,
 ) -> Result<LoginResult, String> {
@@ -145,6 +148,27 @@ pub async fn cloud_login(
     {
         let mut guard = state.cloud_session.lock().map_err(|e| e.to_string())?;
         *guard = Some(session.clone());
+    }
+
+    // 若是 admin，从 Supabase 获取 DeepSeek API Key 并注入 ChartsState
+    // 修复：登录成功后未获取 API Key，导致音乐下载提示"无 DeepSeek API Key"
+    if user.admin.unwrap_or(false) {
+        let key_url = format!(
+            "{}/rest/v1/api_keys?select=api_key&name=eq.deepseek&limit=1",
+            SUPABASE_URL
+        );
+        if let Ok(key_resp) = client.get(&key_url).send().await {
+            if let Ok(key_rows) = key_resp.json::<Vec<serde_json::Value>>().await {
+                if let Some(first) = key_rows.into_iter().next() {
+                    if let Some(key) = first.get("api_key").and_then(|v| v.as_str()) {
+                        let key = key.to_string();
+                        let charts_state = app.state::<crate::state::ChartsState>();
+                        let mut guard = charts_state.inner.lock().await;
+                        guard.api_key = Some(key);
+                    }
+                }
+            }
+        }
     }
 
     Ok(LoginResult {
@@ -229,30 +253,45 @@ pub async fn cloud_get_session(state: State<'_, AppState>) -> Result<Option<clou
 }
 
 /// 测试 Supabase 连接
+///
+/// 最多重试 3 次，每次间隔 500ms，以应对 Supabase 冷启动慢导致的误判。
 #[tauri::command]
 pub async fn cloud_test_connection() -> Result<ConnectionTestResult, String> {
     let client = supabase_client();
     let url = format!("{}/rest/v1/users?select=id&limit=1", SUPABASE_URL);
 
     let start = std::time::Instant::now();
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("连接失败: {}", e))?;
+    let mut last_err: Option<String> = None;
 
-    let latency = start.elapsed().as_millis() as u64;
-    let status = resp.status();
-    let ok = status.is_success();
+    for attempt in 0..3u32 {
+        match client.get(&url).send().await {
+            Ok(resp) => {
+                let latency = start.elapsed().as_millis() as u64;
+                let status = resp.status();
+                let ok = status.is_success();
+                return Ok(ConnectionTestResult {
+                    ok,
+                    latency: Some(latency),
+                    error: if ok {
+                        None
+                    } else {
+                        Some(format!("HTTP {}", status))
+                    },
+                });
+            }
+            Err(e) => {
+                last_err = Some(format!("连接失败: {}", e));
+                if attempt < 2 {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+            }
+        }
+    }
 
     Ok(ConnectionTestResult {
-        ok,
-        latency: Some(latency),
-        error: if ok {
-            None
-        } else {
-            Some(format!("HTTP {}", status))
-        },
+        ok: false,
+        latency: Some(start.elapsed().as_millis() as u64),
+        error: last_err,
     })
 }
 

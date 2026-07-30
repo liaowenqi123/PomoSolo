@@ -46,12 +46,14 @@ import { useTimerStore } from "./stores/timer";
 import { useSettingsStore } from "./stores/settings";
 import { useStatsStore } from "./stores/stats";
 import { useGardenStore } from "./stores/garden";
+import { useAuthStore } from "./stores/auth";
 import type { AiPlanItem } from "./api/ai";
 
 const timer = useTimerStore();
 const settings = useSettingsStore();
 const stats = useStatsStore();
 const garden = useGardenStore();
+const auth = useAuthStore();
 
 // ===== ForegroundWarning ref（用于重置警告次数）=====
 const fgWarningRef = ref<{ resetWarningCount: () => void } | null>(null);
@@ -130,6 +132,8 @@ onMounted(async () => {
   timer.todayCount = stats.todayCount;
   timer.totalMinutes = stats.totalMinutes;
   timer.init();
+  // 初始化认证 store（加载模式 + 测试连接 + 恢复会话）
+  void auth.init();
   // 应用初始深色模式
   document.documentElement.classList.toggle("dark-theme", settings.isDark);
   document.body.classList.toggle("dark-theme", settings.isDark);
