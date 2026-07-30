@@ -58,6 +58,7 @@ pub fn run() {
             commands::garden::garden_signin,
             commands::garden::garden_update_focus,
             commands::garden::garden_punishment,
+            commands::garden::garden_grow,
             // AI 规划助手
             commands::ai::ai_generate_plan,
             // 自习室

@@ -47,6 +47,7 @@ import { useSettingsStore } from "./stores/settings";
 import { useStatsStore } from "./stores/stats";
 import { useGardenStore } from "./stores/garden";
 import { useAuthStore } from "./stores/auth";
+import { foregroundStart, foregroundStop } from "./api/foreground";
 import type { AiPlanItem } from "./api/ai";
 
 const timer = useTimerStore();
@@ -188,7 +189,36 @@ const focusModeEnabled = ref(false);
 
 function onFocusModeToggle(active: boolean) {
   focusModeEnabled.value = active;
+  // 联动前台检测：专注模式开启 + 计时器运行中 + 工作模式 → 启动检测
+  if (active && timer.isRunning && timer.mode === "work") {
+    void foregroundStart().catch((e) => console.warn("[foreground] start failed:", e));
+  } else {
+    void foregroundStop().catch((e) => console.warn("[foreground] stop failed:", e));
+  }
 }
+
+// 联动：计时器 start/pause/complete 时启停前台检测
+watch(
+  () => timer.phase,
+  (phase) => {
+    if (!focusModeEnabled.value) return;
+    if (phase === "running" && timer.mode === "work") {
+      void foregroundStart().catch((e) => console.warn("[foreground] start failed:", e));
+    } else {
+      void foregroundStop().catch((e) => console.warn("[foreground] stop failed:", e));
+    }
+  },
+);
+
+// 联动：计时器完成时作物成长（仅工作模式）
+watch(
+  () => timer.completionId,
+  (id) => {
+    if (id > 0 && timer.lastCompletedMinutes > 0) {
+      void garden.grow(timer.lastCompletedMinutes);
+    }
+  },
+);
 
 // ===== 模式切换动画 =====
 // 拨杆切换 appMode 时，给 .main-content 临时加 mode-animating class，
@@ -256,8 +286,14 @@ function onApplyAiPlan(plan: AiPlanItem[]): void {
 
 // ===== 前台娱乐检测惩罚 =====
 async function onPunishment(): Promise<void> {
-  // 调用 garden store 的惩罚方法（损失量参考原版 10 金币）
+  // 1. 停止前台检测
+  void foregroundStop().catch(() => {});
+  // 2. 调用菜园子惩罚（清空未成熟作物）
   await garden.punish(10);
+  // 3. 重置计时器
+  timer.reset();
+  // 4. 关闭专注模式
+  focusModeEnabled.value = false;
 }
 
 // ===== 新专注周期开始时重置前台警告次数 =====

@@ -13,7 +13,8 @@
  * - garden_unlock(plot_id)
  * - garden_signin()
  * - garden_update_focus(minutes)  [Rust 端暂未实现]
- * - garden_punishment(loss_amount) [Rust 端暂未实现]
+ * - garden_punishment(loss_amount)
+ * - garden_grow(minutes)
  *
  * 返回值说明：Rust 的 garden_plant/harvest/buy/sell/unlock 返回裸 garden data
  * （serde_json::Value），前端用 wrapResult 统一包装为 GardenOperationResult 形状，
@@ -201,4 +202,13 @@ export function gardenPunishment(
   lossAmount: number,
 ): Promise<PunishmentResult> {
   return invoke<PunishmentResult>("garden_punishment", { lossAmount });
+}
+
+/**
+ * 作物成长（计时器 tick 时调用，让所有种植中的作物 progress += minutes）。
+ * 后端：`garden_grow(minutes: u32) -> Result<Value, String>`
+ * 返回更新后的 garden data（裸 Value，需 wrapResult 包装）。
+ */
+export function gardenGrow(minutes: number): Promise<GardenOperationResult> {
+  return invoke<unknown>("garden_grow", { minutes }).then(wrapResult);
 }

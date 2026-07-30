@@ -61,7 +61,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showChartsBtn: true,
   advancedColorCustomization: false,
   autoStart: false,
-  theme: "dark",
+  theme: "light",
 };
 
 const STORAGE_KEY = "pomodoro-settings";

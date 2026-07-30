@@ -722,7 +722,7 @@ function statusLabel(status: number): string {
 .settings-panel {
   width: 460px;
   max-width: 90vw;
-  max-height: 80vh;
+  max-height: 88vh;
   background: #1a1a1a;
   border-radius: 16px;
   display: flex;
@@ -762,7 +762,7 @@ function statusLabel(status: number): string {
 .settings-panel__body {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 20px;
+  padding: 8px 20px 16px;
 }
 
 .settings-section {

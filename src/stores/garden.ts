@@ -18,6 +18,7 @@ import {
   gardenSignin,
   gardenUpdateFocus,
   gardenPunishment,
+  gardenGrow,
   type GardenData,
   type GardenOperationResult,
   type PunishmentResult,
@@ -475,10 +476,26 @@ export const useGardenStore = defineStore("garden", () => {
     lossAmount: number,
   ): Promise<PunishmentResult | null> {
     try {
-      return await gardenPunishment(lossAmount);
+      const result = await gardenPunishment(lossAmount);
+      // 惩罚后重新加载菜园子数据（作物被清空了）
+      await load();
+      return result;
     } catch (e) {
       lastError.value = e instanceof Error ? e.message : String(e);
       return null;
+    }
+  }
+
+  /** 作物成长（计时器每分钟调用一次，让所有种植中的作物 progress += minutes） */
+  async function grow(minutes: number): Promise<void> {
+    try {
+      const result = await gardenGrow(minutes);
+      if (result.success) {
+        applyResult(result);
+      }
+    } catch (e) {
+      // 静默失败，不打断计时器
+      console.warn("[garden] grow failed:", e);
     }
   }
 
@@ -548,6 +565,7 @@ export const useGardenStore = defineStore("garden", () => {
     signIn,
     addFocus,
     punish,
+    grow,
     selectSeed,
     getAchievementProgress,
     getNextMilestone,

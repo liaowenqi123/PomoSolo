@@ -65,11 +65,93 @@ pub fn write_settings(app: &AppHandle, settings: &Value) -> Result<(), String> {
     write_json_file(&path, settings)
 }
 
+/// 创建默认菜园子数据结构（参照旧版 electron/src/modules/dataManager.js 的 createDefaultGardenData）
+fn create_default_garden_data() -> Value {
+    let plots: Vec<Value> = (0..12)
+        .map(|i| {
+            let mut plot = serde_json::json!({
+                "id": i,
+                "crop": null,
+                "progress": 0,
+                "plantedAt": null
+            });
+            if i >= 6 {
+                plot["locked"] = Value::Bool(true);
+            }
+            plot
+        })
+        .collect();
+
+    serde_json::json!({
+        "coins": 100,
+        "focusMinutes": 0,
+        "seeds": { "carrot": 3, "tomato": 3, "sunflower": 1, "rose": 0, "osmanthus": 0 },
+        "crops": { "carrot": 0, "tomato": 0, "sunflower": 0, "rose": 0, "osmanthus": 0 },
+        "plots": plots,
+        "achievements": {},
+        "totalLosses": 0,
+        "checkInData": { "lastCheckIn": null, "streak": 0, "totalDays": 0 }
+    })
+}
+
+/// 确保 plots 数组有 12 个元素且结构完整（缺失则补齐，超出则截断）
+fn ensure_plots_complete(data: &mut Value) {
+    let obj = match data.as_object_mut() {
+        Some(o) => o,
+        None => return,
+    };
+
+    let plots = obj
+        .entry("plots".to_string())
+        .or_insert(Value::Array(vec![]));
+
+    if !plots.is_array() {
+        *plots = Value::Array(vec![]);
+    }
+
+    let arr = plots.as_array_mut().unwrap();
+
+    while arr.len() < 12 {
+        let idx = arr.len() as u32;
+        let mut plot = serde_json::json!({
+            "id": idx,
+            "crop": null,
+            "progress": 0,
+            "plantedAt": null
+        });
+        if idx >= 6 {
+            plot["locked"] = Value::Bool(true);
+        }
+        arr.push(plot);
+    }
+
+    arr.truncate(12);
+}
+
 /// 读取菜园子数据（带锁）
+///
+/// 文件不存在或为空时返回默认数据结构（含 12 块 plots），
+/// 文件存在但 plots 缺失或不足 12 个时自动补齐。
 pub fn read_garden_data(app: &AppHandle) -> Result<Value, String> {
     let _lock = GARDEN_LOCK.lock().map_err(|e| e.to_string())?;
     let path = get_data_dir(app).join("garden_data.json");
-    read_json_file(&path)
+
+    let mut data = if !path.exists() {
+        create_default_garden_data()
+    } else {
+        match fs::read_to_string(&path) {
+            Ok(content) if content.trim().is_empty() => create_default_garden_data(),
+            Ok(content) => match serde_json::from_str::<Value>(&content) {
+                Ok(v) if v.is_object() => v,
+                _ => create_default_garden_data(),
+            },
+            Err(_) => create_default_garden_data(),
+        }
+    };
+
+    ensure_plots_complete(&mut data);
+
+    Ok(data)
 }
 
 /// 写入菜园子数据（带锁）

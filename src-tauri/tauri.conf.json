@@ -62,7 +62,14 @@
     "copyright": "",
     "category": "Productivity",
     "shortDescription": "番茄钟专注应用",
-    "longDescription": "PomoSolo - 一款功能丰富的番茄钟专注应用，支持前台检测、音乐播放、菜园子游戏、自习室等"
+    "longDescription": "PomoSolo - 一款功能丰富的番茄钟专注应用，支持前台检测、音乐播放、菜园子游戏、自习室等",
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installMode": "perMachine",
+        "displayLanguageSelector": false
+      }
+    }
   },
   "plugins": {
     "updater": {
