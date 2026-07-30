@@ -160,9 +160,37 @@ pub async fn music_toggle_play(app: AppHandle) -> Result<(), String> {
     let music_state = app.state::<MusicState>();
     let mut player = music_state.player.lock().await;
 
-    player.toggle_play();
+    // toggle_play 首次调用会自动加载歌曲并播放
+    if let Err(e) = player.toggle_play() {
+        if e == "song_missing" {
+            let track = player.current_track().to_string();
+            let _ = app.emit(
+                "music-song-missing",
+                json!({ "name": track, "message": "原歌曲已消失" }),
+            );
+            return Ok(());
+        }
+        let _ = app.emit(
+            "music-play-error",
+            json!({ "message": format!("播放失败: {}", e) }),
+        );
+        return Ok(());
+    }
 
     let playing = player.is_playing();
+
+    // 首次播放时 toggle_play 加载了歌曲，需要发送 track-change 事件
+    if playing && !player.current_track().is_empty() {
+        let _ = app.emit(
+            "music-track-change",
+            json!({
+                "name": player.current_track(),
+                "duration": player.current_duration(),
+                "has_prev": true
+            }),
+        );
+    }
+
     let _ = app.emit("music-play-state", json!({ "playing": playing }));
 
     Ok(())

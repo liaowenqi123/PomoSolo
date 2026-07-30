@@ -311,7 +311,17 @@ impl AudioPlayer {
     }
 
     /// 暂停/恢复切换
-    pub fn toggle_play(&mut self) {
+    ///
+    /// 首次调用时（init 后 sink 为 None），自动加载并播放当前歌曲。
+    pub fn toggle_play(&mut self) -> Result<(), String> {
+        if self.sink.is_none() {
+            // 首次播放：加载当前歌曲
+            if self.track_name.is_empty() {
+                return Err("没有可播放的歌曲".to_string());
+            }
+            return self.play_song(&self.track_name.clone(), 0.0);
+        }
+
         if let Some(ref sink) = self.sink {
             if self.paused {
                 sink.play();
@@ -321,6 +331,7 @@ impl AudioPlayer {
                 self.paused = true;
             }
         }
+        Ok(())
     }
 
     /// 跳转到指定位置

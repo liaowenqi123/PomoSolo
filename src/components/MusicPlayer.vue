@@ -8,7 +8,7 @@
  *
  * 事件监听通过 useTauriEvent 注册，组件卸载时自动取消监听。
  */
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useMusicStore } from "@/stores/music";
 import { useSettingsStore } from "@/stores/settings";
 import { useTauriEvent } from "@/api/events";
@@ -40,14 +40,53 @@ const isDeviceOpen = ref(false);
 
 // ===== 进度条拖拽 =====
 const progressBarRef = ref<HTMLDivElement | null>(null);
+const isDraggingProgress = ref(false);
+const dragProgress = ref(0); // 拖拽期间的临时进度（0-100）
 
-function handleProgressClick(e: MouseEvent) {
-  if (!progressBarRef.value || store.duration <= 0) return;
+function calcProgress(clientX: number): number {
+  if (!progressBarRef.value) return 0;
   const rect = progressBarRef.value.getBoundingClientRect();
-  const progress = (e.clientX - rect.left) / rect.width;
+  const progress = (clientX - rect.left) / rect.width;
+  return Math.max(0, Math.min(1, progress));
+}
+
+function handleProgressMouseDown(e: MouseEvent) {
+  if (!progressBarRef.value || store.duration <= 0) return;
+  isDraggingProgress.value = true;
+  dragProgress.value = calcProgress(e.clientX) * 100;
+  // 拖拽期间阻止文本选中
+  e.preventDefault();
+}
+
+function handleProgressMouseMove(e: MouseEvent) {
+  if (!isDraggingProgress.value) return;
+  dragProgress.value = calcProgress(e.clientX) * 100;
+}
+
+function handleProgressMouseUp(e: MouseEvent) {
+  if (!isDraggingProgress.value) return;
+  const progress = calcProgress(e.clientX);
+  const newTime = Math.floor(progress * store.duration);
+  isDraggingProgress.value = false;
+  void store.seek(newTime);
+}
+
+// 点击（非拖拽）也跳转
+function handleProgressClick(e: MouseEvent) {
+  if (isDraggingProgress.value) return;
+  if (!progressBarRef.value || store.duration <= 0) return;
+  const progress = calcProgress(e.clientX);
   const newTime = Math.floor(progress * store.duration);
   void store.seek(newTime);
 }
+
+// 拖拽期间的临时时间显示
+const dragTimeText = computed(() => {
+  const seconds = Math.floor((dragProgress.value / 100) * store.duration);
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+});
 
 // ===== 播放列表 =====
 function togglePlaylist() {
@@ -243,6 +282,19 @@ onMounted(async () => {
   await store.loadCustomTags();
   void store.requestStatus();
   void store.requestDevices();
+  // 注册全局拖拽事件（mouseup/mousemove 需在 document 上监听，避免拖出进度条后失效）
+  if (typeof document !== "undefined") {
+    document.addEventListener("mousemove", handleProgressMouseMove);
+    document.addEventListener("mouseup", handleProgressMouseUp);
+  }
+});
+
+onUnmounted(() => {
+  if (typeof document !== "undefined") {
+    document.removeEventListener("click", handleGlobalClick);
+    document.removeEventListener("mousemove", handleProgressMouseMove);
+    document.removeEventListener("mouseup", handleProgressMouseUp);
+  }
 });
 
 // 关闭弹层（点击外部）
@@ -344,11 +396,21 @@ if (typeof document !== "undefined") {
         </div>
 
         <!-- 中间进度条行：当前时间 + 进度条 + 总时长 -->
-        <div class="music-progress" @click="handleProgressClick">
-          <span class="music-progress__time">{{ store.currentTimeText }}</span>
-          <div ref="progressBarRef" class="music-progress__bar">
-            <div class="music-progress__fill" :style="{ width: store.progress + '%' }"></div>
-            <div class="music-progress__handle" :style="{ left: store.progress + '%' }"></div>
+        <div
+          class="music-progress"
+          :class="{ 'music-progress--dragging': isDraggingProgress }"
+          @click="handleProgressClick"
+        >
+          <span class="music-progress__time">{{ isDraggingProgress ? dragTimeText : store.currentTimeText }}</span>
+          <div ref="progressBarRef" class="music-progress__bar" @mousedown="handleProgressMouseDown">
+            <div
+              class="music-progress__fill"
+              :style="{ width: (isDraggingProgress ? dragProgress : store.progress) + '%' }"
+            ></div>
+            <div
+              class="music-progress__handle"
+              :style="{ left: (isDraggingProgress ? dragProgress : store.progress) + '%' }"
+            ></div>
           </div>
           <span class="music-progress__time">{{ store.durationText }}</span>
         </div>
@@ -747,6 +809,11 @@ if (typeof document !== "undefined") {
   border-radius: 2px;
   cursor: pointer;
   position: relative;
+  user-select: none;
+}
+
+.music-progress--dragging .music-progress__bar {
+  cursor: grabbing;
 }
 
 .music-progress__fill {
@@ -754,6 +821,10 @@ if (typeof document !== "undefined") {
   background: #e94560;
   border-radius: 2px;
   transition: width 0.2s ease;
+}
+
+.music-progress--dragging .music-progress__fill {
+  transition: none;
 }
 
 .music-progress__handle {
@@ -765,6 +836,13 @@ if (typeof document !== "undefined") {
   border-radius: 50%;
   transform: translate(-50%, -50%);
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
+  transition: left 0.2s ease;
+}
+
+.music-progress--dragging .music-progress__handle {
+  transition: none;
+  width: 14px;
+  height: 14px;
 }
 
 /* ============ 音量控制 ============ */

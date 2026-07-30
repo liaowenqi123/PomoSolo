@@ -19,6 +19,9 @@ pub async fn read_data(app: AppHandle) -> Result<Value, String> {
     let path = get_data_dir(&app).join("data.json");
     if path.exists() {
         let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        if content.trim().is_empty() {
+            return Ok(serde_json::json!({}));
+        }
         serde_json::from_str(&content).map_err(|e| e.to_string())
     } else {
         Ok(serde_json::json!({}))
@@ -37,6 +40,9 @@ pub async fn read_settings(app: AppHandle) -> Result<Value, String> {
     let path = get_data_dir(&app).join("settings.json");
     if path.exists() {
         let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        if content.trim().is_empty() {
+            return Ok(serde_json::json!({}));
+        }
         serde_json::from_str(&content).map_err(|e| e.to_string())
     } else {
         Ok(serde_json::json!({}))
