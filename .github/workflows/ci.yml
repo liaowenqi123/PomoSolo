@@ -71,6 +71,7 @@ jobs:
         run: npm run build:installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
       - name: Upload installer artifacts
         if: always()
@@ -79,6 +80,7 @@ jobs:
           name: PomoSolo-installer
           path: |
             src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*.json
           retention-days: 30
 
   release:
