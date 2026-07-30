@@ -12,6 +12,7 @@ import { ref, computed, onMounted } from "vue";
 import { useMusicStore } from "@/stores/music";
 import { useSettingsStore } from "@/stores/settings";
 import { useTauriEvent } from "@/api/events";
+import MusicTagModal from "./MusicTagModal.vue";
 import type {
   MusicReadyPayload,
   MusicStatus,
@@ -66,6 +67,116 @@ async function handleDeleteSong(songName: string, e: MouseEvent) {
   e.stopPropagation();
   if (songName === store.trackName) return;
   await store.deleteSong(songName);
+}
+
+// ===== 标签编辑 =====
+const tagModalVisible = ref(false);
+const tagEditSong = ref<string>("");
+const tagEditCurrent = ref<{ name: string; color: string | null } | null>(null);
+
+// ===== Toast 提示 =====
+const toastMessage = ref("");
+const toastVisible = ref(false);
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+function showToast(message: string) {
+  toastMessage.value = message;
+  toastVisible.value = true;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toastVisible.value = false;
+  }, 2000);
+}
+
+// 颜色工具：hex 转 rgba
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// 颜色工具：hex 变亮
+function lightenColor(hex: string, amount: number): string {
+  const r = Math.min(255, parseInt(hex.slice(1, 3), 16) + Math.round(255 * amount));
+  const g = Math.min(255, parseInt(hex.slice(3, 5), 16) + Math.round(255 * amount));
+  const b = Math.min(255, parseInt(hex.slice(5, 7), 16) + Math.round(255 * amount));
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+// 计算标签 span 的内联样式：优先用 playlistTags 的 color，其次用 customTags 的颜色
+function tagStyle(songName: string): Record<string, string> {
+  const tagData = store.playlistTags[songName];
+  if (!tagData) return {};
+  const tagName = tagData.name || "自定义";
+  const tagColor = tagData.color;
+  if (tagColor) {
+    return {
+      background: hexToRgba(tagColor, 0.3),
+      color: lightenColor(tagColor, 0.3),
+    };
+  }
+  // 自定义标签使用定义的颜色
+  const customColor = store.customTags[tagName];
+  if (customColor) {
+    return {
+      background: hexToRgba(customColor, 0.3),
+      color: lightenColor(customColor, 0.3),
+    };
+  }
+  return {};
+}
+
+// 点击标签：检查内置歌曲，弹出标签选择弹窗
+function handleTagClick(songName: string, e: MouseEvent) {
+  e.stopPropagation();
+  const name = displayName(songName);
+  if (name.endsWith(" - 番茄钟")) {
+    showToast("内置歌曲标签不可更改");
+    return;
+  }
+  tagEditSong.value = songName;
+  const tagData = store.playlistTags[songName];
+  tagEditCurrent.value = tagData
+    ? { name: tagData.name || "自定义", color: tagData.color ?? null }
+    : null;
+  tagModalVisible.value = true;
+}
+
+// 选择预设/已有标签
+async function onTagSelect(tag: string, color: string | null) {
+  const ok = await store.updateSongTag(tagEditSong.value, tag, color);
+  if (ok) {
+    showToast("标签已更新");
+  } else {
+    showToast("更新失败");
+  }
+}
+
+// 添加自定义标签
+async function onTagAdd(name: string, color: string) {
+  const ok = await store.addCustomTag(name, color);
+  if (ok) {
+    // 选中新添加的标签
+    const ok2 = await store.updateSongTag(tagEditSong.value, name, color);
+    if (ok2) {
+      showToast("标签已添加");
+    } else {
+      showToast("标签已添加，但应用失败");
+    }
+  } else {
+    showToast("添加失败");
+  }
+}
+
+// 删除自定义标签
+async function onTagDelete(name: string) {
+  const ok = await store.deleteCustomTag(name);
+  if (ok) {
+    showToast("标签已删除");
+  } else {
+    showToast("删除失败");
+  }
 }
 
 // 去掉扩展名的显示名
@@ -297,9 +408,9 @@ if (typeof document !== "undefined") {
             >
               <span
                 class="music-playlist__tag"
-                :style="{
-                  background: store.playlistTags[song]?.color || undefined,
-                }"
+                :data-tag="store.playlistTags[song]?.name || '自定义'"
+                :style="tagStyle(song)"
+                @click.stop="handleTagClick(song, $event)"
               >
                 {{ store.playlistTags[song]?.name || "自定义" }}
               </span>
@@ -318,6 +429,21 @@ if (typeof document !== "undefined") {
         </div>
       </div>
     </div>
+
+    <!-- 标签选择弹窗 -->
+    <MusicTagModal
+      v-model:visible="tagModalVisible"
+      :song-name="displayName(tagEditSong)"
+      :current-tag="tagEditCurrent"
+      :custom-tags="store.customTags"
+      :advanced-color-enabled="settings.settings.advancedColorCustomization"
+      @select-tag="onTagSelect"
+      @add-tag="onTagAdd"
+      @delete-tag="onTagDelete"
+    />
+
+    <!-- Toast 提示 -->
+    <div v-if="toastVisible" class="music-toast">{{ toastMessage }}</div>
   </div>
 </template>
 
@@ -873,6 +999,29 @@ if (typeof document !== "undefined") {
   background: rgba(255, 255, 255, 0.1);
   color: #ccc;
   flex-shrink: 0;
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.15s ease;
+}
+
+.music-playlist__tag:hover {
+  filter: brightness(1.2);
+  transform: scale(1.05);
+}
+
+/* 预设标签默认配色（与弹窗 .tag-option[data-tag] 一致） */
+.music-playlist__tag[data-tag="学习"] {
+  background: rgba(100, 180, 255, 0.3);
+  color: rgba(200, 230, 255, 1);
+}
+
+.music-playlist__tag[data-tag="运动"] {
+  background: rgba(255, 150, 100, 0.3);
+  color: rgba(255, 210, 180, 1);
+}
+
+.music-playlist__tag[data-tag="休息"] {
+  background: rgba(100, 230, 100, 0.3);
+  color: rgba(200, 255, 200, 1);
 }
 
 .music-playlist__name {
@@ -900,5 +1049,24 @@ if (typeof document !== "undefined") {
 .music-playlist__playing {
   color: #e94560;
   font-size: 9px;
+}
+
+/* ============ Toast 提示 ============ */
+.music-toast {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 12px;
+  background: rgba(40, 40, 50, 0.96);
+  color: #fff;
+  font-size: 12px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+  z-index: 9999;
+  pointer-events: none;
 }
 </style>
