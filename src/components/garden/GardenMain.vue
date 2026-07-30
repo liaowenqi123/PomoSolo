@@ -169,7 +169,7 @@ function handleClose() {
   left: 0;
   width: 100%;
   height: 30px;
-  z-index: 1;
+  z-index: var(--z-base);
 }
 
 /* 关闭按钮 */
@@ -185,7 +185,7 @@ function handleClose() {
   color: #fff;
   font-size: 18px;
   cursor: pointer;
-  z-index: 10;
+  z-index: var(--z-sidebar-btn);
   display: flex;
   align-items: center;
   justify-content: center;

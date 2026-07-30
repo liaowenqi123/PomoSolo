@@ -509,7 +509,7 @@ watch(
   left: 0;
   width: 100%;
   height: 35px;
-  z-index: 1;
+  z-index: var(--z-base);
 }
 
 /* ============ 左侧边栏 ============ */
@@ -752,8 +752,11 @@ watch(
 /* 注意：不要设置 overflow:hidden，否则音乐播放器的设备弹框/播放列表/音量滑块
    会被物理裁剪，视觉上表现为"被左侧侧边栏遮挡"。
    圆角裁剪由 .container 的 overflow:hidden 统一负责。 */
-/* z-index:1 创建独立层叠上下文，将内部 MusicPlayer(z-index:200) 等元素
-   约束在 main-content 内，不会越过外层 Modal(.app-modal-overlay z-index:3000) */
+/* 不要设置 z-index（如 z-index:1）：那会创建独立层叠上下文，导致内部
+   MusicPlayer(z-index:200)/设备列表(z-index:9999) 被困在 main-content 上下文里，
+   对外只表现为 z-index:1，被 SidebarCollapse(z-index:10) 覆盖。
+   不设 z-index 时，内部元素直接在 .container 上下文中比较：
+   MusicPlayer(200) > SidebarCollapse(10)，Modal(3000) > MusicPlayer(200)。 */
 .main-content {
   flex: 1;
   display: flex;
@@ -762,7 +765,6 @@ watch(
   padding: 20px;
   padding-bottom: 10px;
   position: relative;
-  z-index: 1;
   min-width: 0;
 }
 

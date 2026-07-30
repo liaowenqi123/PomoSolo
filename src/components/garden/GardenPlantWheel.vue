@@ -279,7 +279,7 @@ onUnmounted(() => {
   position: fixed;
   width: 200px;
   height: 200px;
-  z-index: 1100;
+  z-index: var(--z-modal-upper);
 }
 
 .plant-wheel__canvas {

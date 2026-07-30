@@ -331,7 +331,7 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal);
 }
 
 .charts-modal__panel {
@@ -525,7 +525,7 @@ watch(
   border-radius: 8px;
   font-size: 12px;
   color: #fff;
-  z-index: 10;
+  z-index: var(--z-sidebar-btn);
 }
 
 .charts-toast.success {
@@ -558,7 +558,7 @@ watch(
 
 /* 免责声明弹窗 */
 .charts-disclaimer-overlay {
-  z-index: 3100; /* 高于 Charts 弹窗 */
+  z-index: var(--z-modal-upper); /* 高于 Charts 弹窗 */
 }
 
 .charts-disclaimer {

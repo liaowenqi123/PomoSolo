@@ -46,7 +46,7 @@ const emit = defineEmits<{
               width 0.2s ease,
               height 0.2s ease,
               border-color 0.2s ease;
-  z-index: 10;
+  z-index: var(--z-sidebar-btn);
 }
 
 .sidebar-collapse-btn:hover {

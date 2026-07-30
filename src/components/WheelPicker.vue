@@ -244,7 +244,7 @@ watch(() => props.modelValue, syncFromProps);
   right: 0;
   height: 6px;
   pointer-events: none;
-  z-index: 2;
+  z-index: var(--z-content);
 }
 
 .wheel-picker::before {

@@ -74,7 +74,7 @@ function onClear(): void {
   gap: 4px;
   max-width: 100px;
   width: 100px;
-  z-index: 10;
+  z-index: var(--z-sidebar-btn);
   animation: fadeInDown 0.3s ease;
 }
 

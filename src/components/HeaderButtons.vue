@@ -106,7 +106,7 @@ function toggleExpand() {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  z-index: 100;
+  z-index: var(--z-header-btn);
 }
 
 .btn-header {

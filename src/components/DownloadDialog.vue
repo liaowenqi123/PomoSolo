@@ -210,7 +210,7 @@ function handleKeydown(e: KeyboardEvent) {
 
 <style scoped>
 .download-dialog-overlay {
-  z-index: 3100; /* 高于 Charts 弹窗（z-index: 1000） */
+  z-index: var(--z-modal-upper); /* 高于 Charts 弹窗 */
 }
 
 .download-dialog {

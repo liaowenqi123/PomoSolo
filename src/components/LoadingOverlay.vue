@@ -50,7 +50,7 @@ onMounted(() => {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  z-index: 9999;
+  z-index: var(--z-popup);
   border-radius: 20px;
   font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
 }

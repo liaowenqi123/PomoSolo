@@ -70,7 +70,7 @@ function onBackdropClick(e: MouseEvent): void {
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(4px);
-  z-index: 200;
+  z-index: var(--z-overlay-ui);
   display: flex;
   align-items: center;
   justify-content: center;

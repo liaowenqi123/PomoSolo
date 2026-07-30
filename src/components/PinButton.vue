@@ -53,7 +53,7 @@ async function toggle() {
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 100;
+  z-index: var(--z-header-btn);
   transform: rotate(45deg);
 }
 

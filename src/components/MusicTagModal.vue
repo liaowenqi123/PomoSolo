@@ -312,7 +312,7 @@ watch(
 
 <style scoped>
 .music-tag-modal-overlay {
-  z-index: 3200; /* 高于 Charts / DownloadDialog 等弹窗 */
+  z-index: var(--z-modal-top); /* 高于 Charts / DownloadDialog 等弹窗 */
 }
 
 .music-tag-modal {

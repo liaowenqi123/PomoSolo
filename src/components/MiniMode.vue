@@ -97,9 +97,12 @@ const dashOffset = computed(() => circumference * (1 - progress.value));
   justify-content: flex-start;
   padding-top: 5px;
   background: transparent;
-  z-index: 1000;
+  z-index: var(--z-popup);
   overflow: visible;
 }
+
+/* MiniMode 在独立窗口中运行，以下内部 z-index 为番茄视觉元素的精细堆叠
+   （叶子/果实/高光的层叠效果），不参与主窗口层级体系，保持原数值。 */
 
 .mini-draggable {
   position: absolute;

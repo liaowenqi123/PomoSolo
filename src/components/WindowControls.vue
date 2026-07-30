@@ -70,7 +70,7 @@ async function onClose() {
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 100;
+  z-index: var(--z-header-btn);
 }
 
 .window-controls__btn:hover {

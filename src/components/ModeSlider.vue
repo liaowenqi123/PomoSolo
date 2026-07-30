@@ -63,7 +63,7 @@ function onSliderCycle() {
   display: flex;
   align-items: center;
   gap: 5px;
-  z-index: 50;
+  z-index: var(--z-mode-slider);
 }
 
 .mode-slider {

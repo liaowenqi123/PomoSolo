@@ -449,7 +449,7 @@ if (typeof document !== "undefined") {
 
 <style scoped>
 /* 音乐播放器 - 绝对定位在 main-content 底部居中（匹配原版） */
-/* z-index 提升至 200，高于 HeaderButtons(100)/ModeSlider(50)/sidebar-collapse-btn(10)，
+/* z-index 使用 --z-overlay-ui(200)，高于 header-btn(100)/mode-slider(50)/sidebar-btn(10)，
    确保输出设备弹框与播放列表浮层不被侧边栏区域遮挡 */
 .music-player {
   background: rgba(255, 255, 255, 0.1);
@@ -458,7 +458,7 @@ if (typeof document !== "undefined") {
   width: 100%;
   max-width: 300px;
   overflow: visible;
-  z-index: 200;
+  z-index: var(--z-overlay-ui);
   color: #fff;
   font-size: 13px;
   position: absolute;
@@ -484,7 +484,7 @@ if (typeof document !== "undefined") {
   align-items: center;
   justify-content: center;
   transition: all 0.2s ease;
-  z-index: 10;
+  z-index: var(--z-sidebar-btn);
 }
 
 .music-collapse-btn:hover {
@@ -774,7 +774,7 @@ if (typeof document !== "undefined") {
   position: relative;
 }
 
-/* 音量拨动条：z-index 高于收起按钮（10），可暂时遮住展开/收起按钮 */
+/* 音量拨动条：z-index 使用 --z-popup，可暂时遮住展开/收起按钮 */
 .music-volume__slider {
   position: absolute;
   bottom: 100%;
@@ -785,7 +785,7 @@ if (typeof document !== "undefined") {
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   padding: 10px 6px;
-  z-index: 1000;
+  z-index: var(--z-popup);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
   backdrop-filter: blur(4px);
 }
@@ -836,8 +836,8 @@ if (typeof document !== "undefined") {
 }
 
 /* ============ 输出设备列表 ============ */
-/* z-index 提升至 9999，确保在 .music-player 层叠上下文内高于其他浮层；
-   .music-player 自身 z-index 已提升至 200，高于侧边栏与 HeaderButtons */
+/* z-index 使用 --z-popup，在 .music-player 层叠上下文内高于其他浮层；
+   .music-player 自身 z-index 为 --z-overlay-ui(200)，高于侧边栏与 HeaderButtons */
 .music-device__list {
   position: absolute;
   bottom: 100%;
@@ -850,7 +850,7 @@ if (typeof document !== "undefined") {
   min-width: 220px;
   max-height: 200px;
   overflow-y: auto;
-  z-index: 9999;
+  z-index: var(--z-popup);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
@@ -911,7 +911,7 @@ if (typeof document !== "undefined") {
 }
 
 /* ============ 播放列表面板 ============ */
-/* z-index 与设备列表一致(9999)；宽度由 200px 扩展至 240px，完整显示歌曲信息 */
+/* z-index 使用 --z-popup，与设备列表一致；宽度由 200px 扩展至 240px，完整显示歌曲信息 */
 .music-playlist {
   position: absolute;
   bottom: 100%;
@@ -924,7 +924,7 @@ if (typeof document !== "undefined") {
   max-height: 280px;
   display: flex;
   flex-direction: column;
-  z-index: 9999;
+  z-index: var(--z-popup);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
@@ -1066,7 +1066,7 @@ if (typeof document !== "undefined") {
   border: 1px solid rgba(255, 255, 255, 0.15);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   white-space: nowrap;
-  z-index: 9999;
+  z-index: var(--z-popup);
   pointer-events: none;
 }
 </style>

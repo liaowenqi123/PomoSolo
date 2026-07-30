@@ -23,6 +23,35 @@
   --plan-sidebar-break-bg: rgba(100, 180, 130, 0.75);
   --plan-item-work-bg: rgba(200, 80, 80, 0.85);
   --plan-item-break-bg: rgba(80, 140, 100, 0.75);
+
+  /* ============ 统一层级（z-index）体系 ============
+     所有 z-index 必须使用以下变量，禁止使用 magic number。
+     层级关系（从低到高）：
+       1  base           基础内容层（拖动区、garden 背景层）
+       2  content        内容细节（WheelPicker 选项、MiniMode 内部元素）
+      10  sidebar-btn    侧边栏按钮（收起按钮、备注、toast、播放器收起条）
+      50  mode-slider    模式切换滑块
+     100  header-btn     顶部功能按钮列（HeaderButtons、PinButton 等）
+     200  overlay-ui     覆盖型 UI（MusicPlayer 主体、TutorialModal）
+    1000  popup          弹出浮层（音量条、设备列表、播放列表、Loading、Garden 弹窗）
+    3000  modal          全局 Modal 遮罩（.app-modal-overlay）
+    3100  modal-upper    次级 Modal（Charts 免责声明、DownloadDialog）
+    3200  modal-top      顶层 Modal（MusicTagModal，最高级弹窗）
+     使用规则：
+     - 新增 z-index 时必须在此处声明变量并在注释中说明用途
+     - 不同层级的元素不得使用相同数值
+     - 同一层级内的元素若需细分，使用 +1 递增（如 modal+1）而非新增变量
+  */
+  --z-base: 1;
+  --z-content: 2;
+  --z-sidebar-btn: 10;
+  --z-mode-slider: 50;
+  --z-header-btn: 100;
+  --z-overlay-ui: 200;
+  --z-popup: 1000;
+  --z-modal: 3000;
+  --z-modal-upper: 3100;
+  --z-modal-top: 3200;
 }
 
 /* 深色模式变量 */
@@ -120,7 +149,7 @@ button {
 .app-modal-overlay {
   position: absolute;  /* 相对 .container 定位，被 .container 的 overflow:hidden 裁剪在圆角内 */
   inset: 0;
-  z-index: 3000;
+  z-index: var(--z-modal);
   background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
