@@ -428,7 +428,11 @@ watch(
 
       <!-- 浮层面板 -->
       <Statistics :visible="showStats" @close="showStats = false" />
-      <SettingsPanel :visible="showSettings" @close="showSettings = false" />
+      <SettingsPanel
+        :visible="showSettings"
+        @close="showSettings = false"
+        @open-auth="showSettings = false; showAuth = true"
+      />
       <AIHelper :visible="showAi" @close="showAi = false" @apply="onApplyAiPlan" />
       <AuthPanel :visible="showAuth" @update:visible="showAuth = $event" />
       <StudyRoom :visible="showStudyRoom" @update:visible="showStudyRoom = $event" />

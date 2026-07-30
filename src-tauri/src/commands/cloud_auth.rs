@@ -427,3 +427,213 @@ fn urlencoding(s: &str) -> String {
     }
     out
 }
+
+/// 生成当前 UTC 时间的 RFC3339 字符串（YYYY-MM-DDTHH:MM:SSZ）
+///
+/// 不引入 chrono 依赖，复用 garden.rs 中 epoch_secs_to_ymd 的算法。
+/// 旧版 cloudAuth.js 用 `new Date().toISOString()` 生成同样格式。
+fn now_iso_utc() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    let day_secs = secs.rem_euclid(86400);
+    let hour = day_secs / 3600;
+    let min = (day_secs % 3600) / 60;
+    let sec = day_secs % 60;
+
+    let mut days = secs.div_euclid(86400);
+    let mut year = 1970i64;
+    loop {
+        let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+        let diy = if is_leap { 366 } else { 365 };
+        if days < diy {
+            break;
+        }
+        days -= diy;
+        year += 1;
+    }
+    let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    let dim: [i64; 12] = if is_leap {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+    let mut month = 1i64;
+    for (i, &m) in dim.iter().enumerate() {
+        if days < m {
+            month = (i + 1) as i64;
+            break;
+        }
+        days -= m;
+    }
+    let day = days + 1;
+
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year, month, day, hour, min, sec
+    )
+}
+
+// ============ 用户反馈 commands ============
+//
+// 对接 Supabase `feedback` 表（与旧 Electron 版 cloudAuth.js 的 submitFeedback /
+// getUserFeedbacks / deleteFeedback 对齐）。表结构：
+//   id (int8 pk) / user_id (int8) / feedback_content (text)
+//   feedback_status (int2: 0=已收到 / 1=已采纳待更新 / 2=已采纳已更新 / 3=已拒绝)
+//   create_time (timestamptz) / remark (text, 可空)
+//
+// 用户身份取自 AppState.cloud_session（与 cloud_get_session 同源），未登录直接返回错误。
+
+/// 反馈记录（与前端 src/api/feedback.ts 的 FeedbackItem 对齐）
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeedbackItem {
+    pub id: i64,
+    pub feedback_content: String,
+    pub feedback_status: i64,
+    pub create_time: Option<String>,
+    pub remark: Option<String>,
+}
+
+/// 提交反馈
+///
+/// 后端从 AppState 取当前登录用户 id 作为 user_id；未登录返回错误。
+/// 与旧版 cloudAuth.submitFeedback 一致：feedback_status 默认 0，create_time 由后端写。
+#[tauri::command]
+pub async fn submit_feedback(
+    state: State<'_, AppState>,
+    content: String,
+) -> Result<bool, String> {
+    let content = content.trim();
+    if content.is_empty() {
+        return Err("反馈内容不能为空".to_string());
+    }
+    if content.len() > 500 {
+        return Err("反馈内容不能超过 500 字".to_string());
+    }
+
+    // 取当前登录用户 id
+    let user_id = {
+        let guard = state.cloud_session.lock().map_err(|e| e.to_string())?;
+        guard
+            .as_ref()
+            .ok_or_else(|| "请先登录后再提交反馈".to_string())?
+            .id
+    };
+
+    // create_time 由后端写入（与旧版 cloudAuth.js 一致），避免依赖数据库 DEFAULT
+    let body = serde_json::json!({
+        "user_id": user_id,
+        "feedback_content": content,
+        "feedback_status": 0,
+        "create_time": now_iso_utc()
+    });
+
+    let client = supabase_client();
+    let url = format!("{}/rest/v1/feedback", SUPABASE_URL);
+
+    let resp = client
+        .post(&url)
+        .header("Prefer", "return=minimal")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("提交反馈失败: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("提交反馈失败 ({}): {}", status, body));
+    }
+
+    Ok(true)
+}
+
+/// 获取当前用户的反馈列表（按创建时间降序，最多 50 条）
+#[tauri::command]
+pub async fn get_user_feedbacks(state: State<'_, AppState>) -> Result<Vec<FeedbackItem>, String> {
+    let user_id = {
+        let guard = state.cloud_session.lock().map_err(|e| e.to_string())?;
+        match guard.as_ref() {
+            Some(s) => s.id,
+            None => return Ok(Vec::new()), // 未登录返回空列表，前端据此显示"去登录"提示
+        }
+    };
+
+    let client = supabase_client();
+    let url = format!(
+        "{}/rest/v1/feedback?select=id,feedback_content,feedback_status,create_time,remark&user_id=eq.{}&order=create_time.desc&limit=50",
+        SUPABASE_URL, user_id
+    );
+
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("查询反馈失败: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("查询反馈失败 ({}): {}", status, body));
+    }
+
+    // Supabase 返回 snake_case，这里手动映射到 camelCase
+    #[derive(Debug, Deserialize)]
+    struct RawFeedback {
+        id: i64,
+        feedback_content: String,
+        feedback_status: i64,
+        create_time: Option<String>,
+        remark: Option<String>,
+    }
+
+    let rows: Vec<RawFeedback> = resp.json().await.map_err(|e| e.to_string())?;
+    let items = rows
+        .into_iter()
+        .map(|r| FeedbackItem {
+            id: r.id,
+            feedback_content: r.feedback_content,
+            feedback_status: r.feedback_status,
+            create_time: r.create_time,
+            remark: r.remark,
+        })
+        .collect();
+
+    Ok(items)
+}
+
+/// 删除指定反馈（校验归属，仅可删除自己的反馈）
+#[tauri::command]
+pub async fn delete_feedback(state: State<'_, AppState>, feedback_id: i64) -> Result<bool, String> {
+    let user_id = {
+        let guard = state.cloud_session.lock().map_err(|e| e.to_string())?;
+        match guard.as_ref() {
+            Some(s) => s.id,
+            None => return Err("请先登录后再操作".to_string()),
+        }
+    };
+
+    let client = supabase_client();
+    // 用 user_id 过滤确保只能删除自己的反馈
+    let url = format!(
+        "{}/rest/v1/feedback?id=eq.{}&user_id=eq.{}",
+        SUPABASE_URL, feedback_id, user_id
+    );
+
+    let resp = client
+        .delete(&url)
+        .send()
+        .await
+        .map_err(|e| format!("删除反馈失败: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("删除反馈失败 ({}): {}", status, body));
+    }
+
+    Ok(true)
+}

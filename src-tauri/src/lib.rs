@@ -43,6 +43,10 @@ pub fn run() {
             commands::cloud_auth::save_api_key,
             commands::cloud_auth::get_api_mode,
             commands::cloud_auth::set_api_mode,
+            // 用户反馈
+            commands::cloud_auth::submit_feedback,
+            commands::cloud_auth::get_user_feedbacks,
+            commands::cloud_auth::delete_feedback,
             // 菜园子
             commands::garden::garden_read,
             commands::garden::garden_write,

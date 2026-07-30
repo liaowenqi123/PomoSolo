@@ -17,6 +17,14 @@ import {
 } from "../stores/settings";
 import { checkUpdate, downloadAndInstall, type UpdateStatusPayload } from "@/api/update";
 import { useTauriEvent } from "@/api/events";
+import { cloudGetSession, type Session } from "@/api/auth";
+import {
+  submitFeedback,
+  getUserFeedbacks,
+  deleteFeedback,
+  FEEDBACK_STATUS_LABELS,
+  type FeedbackItem,
+} from "@/api/feedback";
 
 const props = defineProps<{
   visible: boolean;
@@ -24,6 +32,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "close"): void;
+  (e: "open-auth"): void;
 }>();
 
 const settings = useSettingsStore();
@@ -160,6 +169,106 @@ function onBackdropClick(): void {
 
 function onContentClick(e: MouseEvent): void {
   e.stopPropagation();
+}
+
+// ===== 意见反馈 =====
+const feedbackVisible = ref(false);
+const feedbackLoggedIn = ref(false);
+const feedbackList = ref<FeedbackItem[]>([]);
+const feedbackInput = ref("");
+const feedbackSubmitting = ref(false);
+const feedbackLoading = ref(false);
+const feedbackError = ref("");
+
+function openFeedbackModal(): void {
+  feedbackVisible.value = true;
+  void refreshFeedback();
+}
+
+function closeFeedbackModal(): void {
+  feedbackVisible.value = false;
+  feedbackInput.value = "";
+  feedbackError.value = "";
+}
+
+async function refreshFeedback(): Promise<void> {
+  feedbackLoading.value = true;
+  feedbackError.value = "";
+  try {
+    const session = await cloudGetSession();
+    feedbackLoggedIn.value = !!session;
+    if (session) {
+      feedbackList.value = await getUserFeedbacks();
+    } else {
+      feedbackList.value = [];
+    }
+  } catch (e) {
+    feedbackError.value = String(e);
+  } finally {
+    feedbackLoading.value = false;
+  }
+}
+
+async function handleSubmitFeedback(): Promise<void> {
+  const content = feedbackInput.value.trim();
+  if (!content) {
+    feedbackError.value = "请输入反馈内容";
+    return;
+  }
+  if (content.length > 500) {
+    feedbackError.value = "反馈内容不能超过 500 字";
+    return;
+  }
+
+  feedbackSubmitting.value = true;
+  feedbackError.value = "";
+  try {
+    await submitFeedback(content);
+    feedbackInput.value = "";
+    await refreshFeedback();
+  } catch (e) {
+    feedbackError.value = String(e);
+  } finally {
+    feedbackSubmitting.value = false;
+  }
+}
+
+async function handleDeleteFeedback(id: number): Promise<void> {
+  if (!confirm("确定要删除这条反馈吗？")) return;
+  try {
+    await deleteFeedback(id);
+    await refreshFeedback();
+  } catch (e) {
+    feedbackError.value = String(e);
+  }
+}
+
+function goLogin(): void {
+  closeFeedbackModal();
+  emit("close");
+  emit("open-auth");
+}
+
+function formatFeedbackTime(time: string | null): string {
+  if (!time) return "?";
+  try {
+    return new Date(time).toLocaleString("zh-CN", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return time;
+  }
+}
+
+function statusClass(status: number): string {
+  return `feedback-status--${status}`;
+}
+
+function statusLabel(status: number): string {
+  return FEEDBACK_STATUS_LABELS[status] ?? "已收到";
 }
 </script>
 
@@ -439,6 +548,12 @@ function onContentClick(e: MouseEvent): void {
           <section class="settings-section">
             <h3 class="settings-section__title">关于</h3>
             <div class="settings-row">
+              <label class="settings-row__label">意见反馈</label>
+              <button class="update-btn" @click="openFeedbackModal">
+                提交反馈
+              </button>
+            </div>
+            <div class="settings-row">
               <label class="settings-row__label">检查更新</label>
               <button
                 class="update-btn"
@@ -482,6 +597,111 @@ function onContentClick(e: MouseEvent): void {
             完成
           </button>
         </div>
+
+        <!-- 意见反馈模态框（覆盖在设置面板上方） -->
+        <Transition name="panel">
+          <div
+            v-if="feedbackVisible"
+            class="feedback-overlay"
+            @click="closeFeedbackModal"
+          >
+            <div class="feedback-modal" @click.stop>
+              <div class="feedback-modal__header">
+                <h3 class="feedback-modal__title">意见反馈</h3>
+                <button class="feedback-modal__close" @click="closeFeedbackModal">
+                  ×
+                </button>
+              </div>
+
+              <div class="feedback-modal__body">
+                <!-- 未登录 -->
+                <div v-if="!feedbackLoggedIn" class="feedback-login-prompt">
+                  <p>请先登录后再提交反馈</p>
+                  <button class="feedback-login-btn" @click="goLogin">
+                    去登录
+                  </button>
+                </div>
+
+                <!-- 已登录 -->
+                <template v-else>
+                  <div class="feedback-submit-area">
+                    <textarea
+                      v-model="feedbackInput"
+                      class="feedback-input"
+                      placeholder="请输入你的反馈意见（最多 500 字）"
+                      maxlength="500"
+                      rows="4"
+                    ></textarea>
+                    <div class="feedback-submit-footer">
+                      <span class="feedback-count">{{ feedbackInput.length }}/500</span>
+                      <button
+                        class="feedback-submit-btn"
+                        :disabled="feedbackSubmitting || !feedbackInput.trim()"
+                        @click="handleSubmitFeedback"
+                      >
+                        {{ feedbackSubmitting ? "提交中..." : "提交反馈" }}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div v-if="feedbackError" class="feedback-error">
+                    {{ feedbackError }}
+                  </div>
+
+                  <div class="feedback-list-section">
+                    <div class="feedback-list-header">
+                      <span>我的反馈</span>
+                      <button class="feedback-refresh-btn" @click="refreshFeedback">
+                        刷新
+                      </button>
+                    </div>
+                    <div class="feedback-list-container">
+                      <div v-if="feedbackLoading" class="feedback-empty">
+                        加载中...
+                      </div>
+                      <div v-else-if="feedbackList.length === 0" class="feedback-empty">
+                        暂无反馈
+                      </div>
+                      <div
+                        v-for="item in feedbackList"
+                        :key="item.id"
+                        class="feedback-item"
+                      >
+                        <div class="feedback-item__header">
+                          <span class="feedback-item__time">
+                            {{ formatFeedbackTime(item.createTime) }}
+                          </span>
+                          <div class="feedback-item__actions">
+                            <span
+                              class="feedback-status-badge"
+                              :class="statusClass(item.feedbackStatus)"
+                            >
+                              {{ statusLabel(item.feedbackStatus) }}
+                            </span>
+                            <button
+                              class="feedback-delete-btn"
+                              title="删除"
+                              @click="handleDeleteFeedback(item.id)"
+                            >
+                              删除
+                            </button>
+                          </div>
+                        </div>
+                        <div class="feedback-item__content">{{ item.feedbackContent }}</div>
+                        <div
+                          v-if="item.feedbackStatus === 3 && item.remark"
+                          class="feedback-item__remark"
+                        >
+                          拒绝理由：{{ item.remark }}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </Transition>
       </div>
     </div>
   </Transition>
@@ -807,5 +1027,273 @@ input[type="range"]::-webkit-slider-thumb {
 .panel-enter-from .settings-panel,
 .panel-leave-to .settings-panel {
   transform: scale(0.92);
+}
+
+/* ===== 意见反馈模态框 ===== */
+.feedback-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: var(--z-modal-upper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+}
+
+.feedback-modal {
+  width: 380px;
+  max-width: 90%;
+  max-height: 80%;
+  background: #1a1a1a;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.feedback-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.feedback-modal__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.feedback-modal__close {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.6);
+  transition: all 0.15s ease;
+}
+
+.feedback-modal__close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.feedback-modal__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 18px;
+}
+
+/* 未登录提示 */
+.feedback-login-prompt {
+  text-align: center;
+  padding: 30px 0;
+}
+
+.feedback-login-prompt p {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.feedback-login-btn {
+  padding: 8px 24px;
+  border-radius: 8px;
+  font-size: 13px;
+  background: var(--accent, #e94560);
+  color: #fff;
+  transition: opacity 0.15s ease;
+}
+
+.feedback-login-btn:hover {
+  opacity: 0.9;
+}
+
+/* 提交区 */
+.feedback-input {
+  width: 100%;
+  min-height: 80px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.feedback-input:focus {
+  border-color: var(--accent, #e94560);
+}
+
+.feedback-input::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.feedback-submit-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.feedback-count {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.feedback-submit-btn {
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: var(--accent, #e94560);
+  color: #fff;
+  transition: opacity 0.15s ease;
+}
+
+.feedback-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.feedback-submit-btn:not(:disabled):hover {
+  opacity: 0.9;
+}
+
+.feedback-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #ef5350;
+}
+
+/* 反馈列表 */
+.feedback-list-section {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.feedback-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.feedback-refresh-btn {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.feedback-refresh-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.feedback-list-container {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.feedback-empty {
+  text-align: center;
+  padding: 20px 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.feedback-item {
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.feedback-item:last-child {
+  border-bottom: none;
+}
+
+.feedback-item__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.feedback-item__time {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.feedback-item__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.feedback-status-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.feedback-status--0 {
+  background: rgba(100, 181, 246, 0.15);
+  color: #64b5f6;
+}
+
+.feedback-status--1 {
+  background: rgba(255, 193, 7, 0.15);
+  color: #ffc107;
+}
+
+.feedback-status--2 {
+  background: rgba(102, 187, 106, 0.15);
+  color: #66bb6a;
+}
+
+.feedback-status--3 {
+  background: rgba(239, 83, 80, 0.15);
+  color: #ef5350;
+}
+
+.feedback-delete-btn {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.feedback-delete-btn:hover {
+  background: rgba(239, 83, 80, 0.15);
+  color: #ef5350;
+}
+
+.feedback-item__content {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.feedback-item__remark {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #ef5350;
+  background: rgba(239, 83, 80, 0.08);
+  padding: 4px 8px;
+  border-radius: 4px;
 }
 </style>
