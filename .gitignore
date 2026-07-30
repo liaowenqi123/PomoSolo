@@ -79,3 +79,6 @@ test_study_room.html
 
 # Test downloads (Rust downloader test artifacts)
 src-tauri/test_downloads/
+
+# 旧安装包不纳入版本控制（保留在本地）
+deprecated/old-builds/

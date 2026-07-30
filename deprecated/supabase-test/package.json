@@ -1,0 +1,18 @@
+{
+  "name": "supabase-test",
+  "version": "1.0.0",
+  "description": "Supabase 用户注册测试",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "keywords": ["supabase", "test", "electron"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^34.0.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0"
+  }
+}
