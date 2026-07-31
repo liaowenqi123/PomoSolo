@@ -151,10 +151,10 @@ onMounted(async () => {
     loading.value = false;
   }, 800);
 
-  // 监听迷你模式下任务栏关闭事件 → 退出迷你模式
+  // 监听迷你模式下任务栏关闭事件 → 退出迷你模式（仅在 Tauri 环境生效）
   void listen("exit-mini-mode-from-close", () => {
     exitMiniMode();
-  });
+  }).catch(() => {});
 });
 
 onUnmounted(() => {
