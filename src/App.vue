@@ -42,6 +42,7 @@ import ForegroundWarning from "./components/ForegroundWarning.vue";
 import TutorialModal from "./components/TutorialModal.vue";
 import LoadingOverlay from "./components/LoadingOverlay.vue";
 import { showGardenWindow, enterMiniMode as enterMiniModeApi, exitMiniMode as exitMiniModeApi } from "./api/window";
+import { listen } from "@tauri-apps/api/event";
 import { useTimerStore } from "./stores/timer";
 import { useSettingsStore } from "./stores/settings";
 import { useStatsStore } from "./stores/stats";
@@ -149,6 +150,11 @@ onMounted(async () => {
   setTimeout(() => {
     loading.value = false;
   }, 800);
+
+  // 监听迷你模式下任务栏关闭事件 → 退出迷你模式
+  void listen("exit-mini-mode-from-close", () => {
+    exitMiniMode();
+  });
 });
 
 onUnmounted(() => {

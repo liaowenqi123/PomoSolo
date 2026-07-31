@@ -81,6 +81,8 @@ pub struct AppState {
     pub detection_state: Arc<DetectionState>,
     /// 单点登录心跳状态
     pub heartbeat: HeartbeatState,
+    /// 迷你模式是否激活（用于拦截窗口关闭事件）
+    pub mini_mode_active: Mutex<bool>,
 }
 
 impl AppState {
@@ -94,6 +96,7 @@ impl AppState {
             heartbeat: HeartbeatState {
                 cancel: tokio::sync::Mutex::new(None),
             },
+            mini_mode_active: Mutex::new(false),
         }
     }
 }

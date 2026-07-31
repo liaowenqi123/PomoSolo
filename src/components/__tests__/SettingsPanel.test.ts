@@ -179,10 +179,10 @@ describe("SettingsPanel.vue", () => {
 
   // ===== 计时器行为：迷你模式退出 =====
 
-  it("应渲染迷你模式退出 select，默认值为 double-click", () => {
+  it("应渲染迷你模式退出 select，默认值为 button", () => {
     const wrapper = mountComponent();
     const selects = wrapper.findAll(".settings-select");
-    expect(selects[1].attributes("value")).toBe("double-click");
+    expect(selects[1].attributes("value")).toBe("button");
   });
 
   it("迷你模式退出 select 应包含『双击退出』和『按钮退出』选项", () => {

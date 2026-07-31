@@ -820,6 +820,12 @@ function statusLabel(status: number): string {
   cursor: pointer;
 }
 
+/* 下拉选项背景色（WebView2/Chromium 支持 option 样式） */
+.settings-select option {
+  background: #1a1a1a;
+  color: #fff;
+}
+
 .settings-select:focus {
   border-color: var(--accent, #e94560);
 }

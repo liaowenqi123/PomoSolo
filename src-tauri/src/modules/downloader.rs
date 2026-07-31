@@ -520,8 +520,13 @@ pub async fn convert_to_mp3(
     output: &Path,
     ffmpeg_path: &Path,
 ) -> Result<(), String> {
-    let result = tokio::process::Command::new(ffmpeg_path)
-        .arg("-y")
+    let mut cmd = std::process::Command::new(ffmpeg_path);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW，禁止弹出 cmd 黑框
+    }
+    cmd.arg("-y")
         .arg("-i")
         .arg(input)
         .arg("-vn")
@@ -529,7 +534,8 @@ pub async fn convert_to_mp3(
         .arg("libmp3lame")
         .arg("-q:a")
         .arg("2")
-        .arg(output)
+        .arg(output);
+    let result = tokio::process::Command::from(cmd)
         .output()
         .await
         .map_err(|e| format!("启动 ffmpeg 失败: {}", e))?;

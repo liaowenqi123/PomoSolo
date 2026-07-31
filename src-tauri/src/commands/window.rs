@@ -61,6 +61,8 @@ pub async fn hide_garden_window(app: AppHandle) {
 
 /// 退出迷你模式的内部辅助函数（用于托盘事件中恢复窗口）
 fn do_exit_mini_mode(app: &AppHandle) {
+    // 清除迷你模式标志
+    *app.state::<crate::state::AppState>().mini_mode_active.lock().unwrap() = false;
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_size(LogicalSize::new(NORMAL_WIDTH, NORMAL_HEIGHT));
         let _ = w.set_always_on_top(false);
@@ -90,6 +92,8 @@ fn do_exit_mini_mode(app: &AppHandle) {
 /// 对应前端 `src/api/window.ts` 中的 `enterMiniMode()`。
 #[tauri::command]
 pub async fn enter_mini_mode(app: AppHandle) {
+    // 设置迷你模式标志（用于拦截窗口关闭事件）
+    *app.state::<crate::state::AppState>().mini_mode_active.lock().unwrap() = true;
     if let Some(window) = app.get_webview_window("main") {
         // 1. 保存普通模式位置
         if let Ok(pos) = window.outer_position() {
@@ -166,6 +170,8 @@ pub async fn enter_mini_mode(app: AppHandle) {
 /// 对应前端 `src/api/window.ts` 中的 `exitMiniMode()`。
 #[tauri::command]
 pub async fn exit_mini_mode(app: AppHandle) {
+    // 清除迷你模式标志
+    *app.state::<crate::state::AppState>().mini_mode_active.lock().unwrap() = false;
     if let Some(window) = app.get_webview_window("main") {
         // 1. 保存当前迷你模式位置
         if let Ok(pos) = window.outer_position() {

@@ -3,7 +3,7 @@ mod modules;
 mod state;
 
 use state::{AppState, ChartsState, MusicState};
-use tauri::Manager;
+use tauri::{Manager, Emitter};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -160,6 +160,24 @@ pub fn run() {
 
             // 注册媒体键全局快捷键（播放/暂停、上一首、下一首）
             commands::system::register_media_shortcuts(&_app.handle());
+
+            // 迷你模式激活时拦截窗口关闭事件 → 退出迷你模式而非退出应用
+            let handle = _app.handle().clone();
+            let main_window = _app.get_webview_window("main").unwrap();
+            main_window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { .. } = event {
+                    let state = handle.state::<crate::state::AppState>();
+                    if *state.mini_mode_active.lock().unwrap() {
+                        // 在迷你模式下：退出迷你模式 + 前端同步关闭页面
+                        let h = handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            commands::window::exit_mini_mode(h).await;
+                        });
+                        // 通过事件通知前端退出迷你模式
+                        handle.emit("exit-mini-mode-from-close", ()).ok();
+                    }
+                }
+            });
 
             #[cfg(debug_assertions)]
             {
