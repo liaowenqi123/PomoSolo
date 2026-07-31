@@ -301,9 +301,9 @@ function statusLabel(status: number): string {
         </div>
 
         <div class="settings-panel__body">
-          <!-- 主题 -->
+          <!-- 外观 -->
           <section class="settings-section">
-            <h3 class="settings-section__title">主题</h3>
+            <h3 class="settings-section__title">外观</h3>
             <div class="settings-row">
               <label class="settings-row__label">外观模式</label>
               <div class="settings-row__control">
@@ -323,9 +323,35 @@ function statusLabel(status: number): string {
                 </button>
               </div>
             </div>
+            <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">显示深色模式按钮</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="local.showDarkModeBtn"
+                  @change="
+                    onToggle('showDarkModeBtn', ($event.target as HTMLInputElement).checked)
+                  "
+                />
+                <span class="toggle__slider"></span>
+              </label>
+            </div>
+            <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">高级颜色自定义</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="local.advancedColorCustomization"
+                  @change="
+                    onToggle('advancedColorCustomization', ($event.target as HTMLInputElement).checked)
+                  "
+                />
+                <span class="toggle__slider"></span>
+              </label>
+            </div>
           </section>
 
-          <!-- 计时器行为 -->
+          <!-- 计时器 -->
           <section class="settings-section">
             <h3 class="settings-section__title">计时器</h3>
             <div class="settings-row">
@@ -360,22 +386,9 @@ function statusLabel(status: number): string {
             </div>
           </section>
 
-          <!-- 界面显示 -->
+          <!-- 功能按钮 -->
           <section class="settings-section">
-            <h3 class="settings-section__title">界面显示</h3>
-            <div class="settings-row settings-row--toggle">
-              <label class="settings-row__label">显示深色模式按钮</label>
-              <label class="toggle">
-                <input
-                  type="checkbox"
-                  :checked="local.showDarkModeBtn"
-                  @change="
-                    onToggle('showDarkModeBtn', ($event.target as HTMLInputElement).checked)
-                  "
-                />
-                <span class="toggle__slider"></span>
-              </label>
-            </div>
+            <h3 class="settings-section__title">功能按钮</h3>
             <div class="settings-row settings-row--toggle">
               <label class="settings-row__label">显示菜园子按钮</label>
               <label class="toggle">
@@ -429,6 +442,24 @@ function statusLabel(status: number): string {
               </label>
             </div>
             <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">显示图表按钮</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="local.showChartsBtn"
+                  @change="
+                    onToggle('showChartsBtn', ($event.target as HTMLInputElement).checked)
+                  "
+                />
+                <span class="toggle__slider"></span>
+              </label>
+            </div>
+          </section>
+
+          <!-- 导航 -->
+          <section class="settings-section">
+            <h3 class="settings-section__title">导航</h3>
+            <div class="settings-row settings-row--toggle">
               <label class="settings-row__label">显示侧边栏收起按钮</label>
               <label class="toggle">
                 <input
@@ -442,7 +473,7 @@ function statusLabel(status: number): string {
               </label>
             </div>
             <div class="settings-row settings-row--toggle">
-              <label class="settings-row__label">显示展开按钮</label>
+              <label class="settings-row__label">显示功能区展开按钮</label>
               <label class="toggle">
                 <input
                   type="checkbox"
@@ -454,50 +485,11 @@ function statusLabel(status: number): string {
                 <span class="toggle__slider"></span>
               </label>
             </div>
-            <div class="settings-row settings-row--toggle">
-              <label class="settings-row__label">显示图表按钮</label>
-              <label class="toggle">
-                <input
-                  type="checkbox"
-                  :checked="local.showChartsBtn"
-                  @change="
-                    onToggle('showChartsBtn', ($event.target as HTMLInputElement).checked)
-                  "
-                />
-                <span class="toggle__slider"></span>
-              </label>
-            </div>
-            <div class="settings-row settings-row--toggle">
-              <label class="settings-row__label">种植轮盘模式</label>
-              <label class="toggle">
-                <input
-                  type="checkbox"
-                  :checked="local.plantWheelMode"
-                  @change="
-                    onToggle('plantWheelMode', ($event.target as HTMLInputElement).checked)
-                  "
-                />
-                <span class="toggle__slider"></span>
-              </label>
-            </div>
-            <div class="settings-row settings-row--toggle">
-              <label class="settings-row__label">高级颜色自定义</label>
-              <label class="toggle">
-                <input
-                  type="checkbox"
-                  :checked="local.advancedColorCustomization"
-                  @change="
-                    onToggle('advancedColorCustomization', ($event.target as HTMLInputElement).checked)
-                  "
-                />
-                <span class="toggle__slider"></span>
-              </label>
-            </div>
           </section>
 
-          <!-- 音乐播放器 -->
+          <!-- 音乐 -->
           <section class="settings-section">
-            <h3 class="settings-section__title">音乐播放器</h3>
+            <h3 class="settings-section__title">音乐</h3>
             <div class="settings-row settings-row--toggle">
               <label class="settings-row__label">显示随机按钮</label>
               <label class="toggle">
@@ -532,6 +524,24 @@ function statusLabel(status: number): string {
                   :checked="local.showDeviceBtn"
                   @change="
                     onToggle('showDeviceBtn', ($event.target as HTMLInputElement).checked)
+                  "
+                />
+                <span class="toggle__slider"></span>
+              </label>
+            </div>
+          </section>
+
+          <!-- 种植 -->
+          <section class="settings-section">
+            <h3 class="settings-section__title">种植</h3>
+            <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">种植轮盘模式</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="local.plantWheelMode"
+                  @change="
+                    onToggle('plantWheelMode', ($event.target as HTMLInputElement).checked)
                   "
                 />
                 <span class="toggle__slider"></span>
