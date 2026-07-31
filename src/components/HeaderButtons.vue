@@ -140,7 +140,8 @@ function toggleExpand() {
 }
 
 .header-buttons-hidden.expanded {
-  max-height: 200px;
+  /* 容纳全部 7 个按钮：7×26 + 6×4 gap = 206px，留余量到 240px */
+  max-height: 240px;
   clip-path: circle(200% at center);
   margin-top: 0;
 }
