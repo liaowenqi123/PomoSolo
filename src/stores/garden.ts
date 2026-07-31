@@ -14,6 +14,7 @@ import {
   gardenHarvest,
   gardenBuySeed,
   gardenSellCrop,
+  gardenSellAll,
   gardenUnlockPlot,
   gardenSignin,
   gardenUpdateFocus,
@@ -435,6 +436,24 @@ export const useGardenStore = defineStore("garden", () => {
     }
   }
 
+  /** 一键出售所有作物，返回 {totalCoins, totalItems} 或 null */
+  async function sellAll(): Promise<{ totalCoins: number; totalItems: number } | null> {
+    try {
+      const result = await gardenSellAll();
+      applyResult(result);
+      if (result.success) {
+        return {
+          totalCoins: result.totalCoins ?? 0,
+          totalItems: result.totalItems ?? 0,
+        };
+      }
+      return null;
+    } catch (e) {
+      lastError.value = e instanceof Error ? e.message : String(e);
+      return null;
+    }
+  }
+
   /** 解锁土地 */
   async function unlockPlot(plotIndex: number): Promise<boolean> {
     try {
@@ -561,6 +580,7 @@ export const useGardenStore = defineStore("garden", () => {
     harvest,
     buySeed,
     sellCrop,
+    sellAll,
     unlockPlot,
     signIn,
     addFocus,

@@ -19,6 +19,8 @@ const emit = defineEmits<{
 }>();
 
 const activeTab = ref<"buy" | "sell">("buy");
+/** 一键出售反馈消息 */
+const sellAllMsg = ref("");
 
 const cropList = computed(() =>
   CROP_ORDER.map((key) => ({ key, ...CROP_CONFIG[key] })),
@@ -37,6 +39,23 @@ async function handleBuy(seedKey: string) {
 
 async function handleSell(cropKey: string) {
   await store.sellCrop(cropKey, 1);
+}
+
+/** 一键出售所有作物 */
+async function handleSellAll() {
+  sellAllMsg.value = "";
+  const result = await store.sellAll();
+  if (result) {
+    sellAllMsg.value = `出售 ${result.totalItems} 个作物，获得 💰${result.totalCoins}`;
+  } else if (store.lastError) {
+    sellAllMsg.value = store.lastError;
+  } else {
+    sellAllMsg.value = "没有作物可出售";
+  }
+  // 3 秒后清空消息
+  setTimeout(() => {
+    sellAllMsg.value = "";
+  }, 3000);
 }
 
 function handleBackdropClick(e: MouseEvent) {
@@ -95,18 +114,26 @@ function handleBackdropClick(e: MouseEvent) {
       <!-- 出售面板 -->
       <div v-show="activeTab === 'sell'" class="shop-panel">
         <div v-if="!hasCropsToSell" class="shop-empty">暂无可出售的作物</div>
-        <div v-else class="shop-grid">
-          <template v-for="crop in cropList" :key="crop.key">
-            <div v-if="(crops[crop.key] || 0) > 0" class="shop-item">
-              <div class="shop-item__icon">{{ crop.icon }}</div>
-              <div class="shop-item__name">{{ crop.name }}</div>
-              <div class="shop-item__info">拥有: x{{ crops[crop.key] || 0 }}</div>
-              <div class="shop-item__price">💰 {{ crop.sellPrice }}</div>
-              <button class="shop-item__btn sell" @click="handleSell(crop.key)">
-                出售
-              </button>
-            </div>
-          </template>
+        <div v-else>
+          <div class="shop-sellall-bar">
+            <button class="shop-sellall-btn" @click="handleSellAll">
+              💰 一键出售全部
+            </button>
+            <span v-if="sellAllMsg" class="shop-sellall-msg">{{ sellAllMsg }}</span>
+          </div>
+          <div class="shop-grid">
+            <template v-for="crop in cropList" :key="crop.key">
+              <div v-if="(crops[crop.key] || 0) > 0" class="shop-item">
+                <div class="shop-item__icon">{{ crop.icon }}</div>
+                <div class="shop-item__name">{{ crop.name }}</div>
+                <div class="shop-item__info">拥有: x{{ crops[crop.key] || 0 }}</div>
+                <div class="shop-item__price">💰 {{ crop.sellPrice }}</div>
+                <button class="shop-item__btn sell" @click="handleSell(crop.key)">
+                  出售
+                </button>
+              </div>
+            </template>
+          </div>
         </div>
       </div>
     </div>
@@ -262,6 +289,34 @@ function handleBackdropClick(e: MouseEvent) {
   text-align: center;
   color: rgba(255, 255, 255, 0.5);
   padding: 40px 0;
+}
+
+.shop-sellall-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.shop-sellall-btn {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  background: #ff9800;
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: opacity 0.2s ease;
+}
+
+.shop-sellall-btn:hover {
+  opacity: 0.85;
+}
+
+.shop-sellall-msg {
+  font-size: 12px;
+  color: #ffd54f;
 }
 
 /* ============ 统一滚动条样式 ============ */

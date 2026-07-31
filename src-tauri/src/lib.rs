@@ -54,6 +54,7 @@ pub fn run() {
             commands::garden::garden_harvest,
             commands::garden::garden_buy,
             commands::garden::garden_sell,
+            commands::garden::garden_sell_all,
             commands::garden::garden_unlock,
             commands::garden::garden_signin,
             commands::garden::garden_update_focus,

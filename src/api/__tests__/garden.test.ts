@@ -13,6 +13,7 @@ import {
   gardenHarvest,
   gardenBuySeed,
   gardenSellCrop,
+  gardenSellAll,
   gardenUnlockPlot,
   gardenSignin,
   gardenUpdateFocus,
@@ -75,7 +76,7 @@ describe("api/garden", () => {
     expect(result).toEqual(fakeResult);
   });
 
-  it("gardenBuySeed 应调用 invoke('garden_buy', { item, price })", async () => {
+  it("gardenBuySeed 应调用 invoke('garden_buy', { item, price, quantity })", async () => {
     const fakeResult = { success: true };
     invokeMock.mockResolvedValue(fakeResult);
 
@@ -85,11 +86,12 @@ describe("api/garden", () => {
     expect(invokeMock).toHaveBeenCalledWith("garden_buy", {
       item: "tomato",
       price: 16,
+      quantity: 5,
     });
     expect(result).toEqual(fakeResult);
   });
 
-  it("gardenSellCrop 应调用 invoke('garden_sell', { item, price })", async () => {
+  it("gardenSellCrop 应调用 invoke('garden_sell', { item, price, quantity })", async () => {
     const fakeResult = { success: true };
     invokeMock.mockResolvedValue(fakeResult);
 
@@ -99,6 +101,7 @@ describe("api/garden", () => {
     expect(invokeMock).toHaveBeenCalledWith("garden_sell", {
       item: "rose",
       price: 80,
+      quantity: 2,
     });
     expect(result).toEqual(fakeResult);
   });
@@ -113,6 +116,23 @@ describe("api/garden", () => {
     expect(invokeMock).toHaveBeenCalledWith("garden_unlock", {
       plotId: 7,
     });
+    expect(result).toEqual(fakeResult);
+  });
+
+  it("gardenSellAll 应调用 invoke('garden_sell_all') 且无参数", async () => {
+    const fakeResult = {
+      success: true,
+      gardenData: {},
+      totalCoins: 120,
+      totalItems: 3,
+      unlockedAchievements: [],
+    };
+    invokeMock.mockResolvedValue(fakeResult);
+
+    const result = await gardenSellAll();
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith("garden_sell_all");
     expect(result).toEqual(fakeResult);
   });
 
@@ -166,6 +186,7 @@ describe("api/garden", () => {
     await expect(gardenHarvest(0)).rejects.toThrow("backend error");
     await expect(gardenBuySeed("x", 1)).rejects.toThrow("backend error");
     await expect(gardenSellCrop("x", 1)).rejects.toThrow("backend error");
+    await expect(gardenSellAll()).rejects.toThrow("backend error");
     await expect(gardenUnlockPlot(0)).rejects.toThrow("backend error");
     await expect(gardenSignin()).rejects.toThrow("backend error");
     await expect(gardenUpdateFocus(1)).rejects.toThrow("backend error");
@@ -181,6 +202,7 @@ describe("api/garden", () => {
     await gardenHarvest(0);
     await gardenBuySeed("carrot", 1);
     await gardenSellCrop("carrot", 1);
+    await gardenSellAll();
     await gardenUnlockPlot(0);
     await gardenSignin();
     await gardenUpdateFocus(1);
@@ -194,6 +216,7 @@ describe("api/garden", () => {
       "garden_harvest",
       "garden_buy",
       "garden_sell",
+      "garden_sell_all",
       "garden_unlock",
       "garden_signin",
       "garden_update_focus",

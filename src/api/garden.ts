@@ -130,32 +130,45 @@ export function gardenHarvest(
 
 /**
  * 购买种子。
- * 后端：`garden_buy(item: String, price: u32) -> Result<Value, String>`
+ * 后端：`garden_buy(item: String, price: u32, quantity: Option<u32>) -> Result<Value, String>`
  * 参数映射：seedId → item（→ Tauri 转 item → Rust item ✓）
- *           price 从 CROP_CONFIG[seedId].seedPrice 查询（→ Rust price ✓）
- * 注意：Rust garden_buy 每次只购买 1 个，quantity 暂未传递给后端。
+ *           quantity → quantity（→ Tauri 转 quantity → Rust quantity ✓）
+ * 注意：price 参数虽传递但后端忽略，统一从 CropCfg.seed_price 读取（防止前端篡改价格）。
  */
 export function gardenBuySeed(
   seedId: string,
   quantity: number,
 ): Promise<GardenOperationResult> {
   const price = CROP_CONFIG[seedId]?.seedPrice ?? 0;
-  return invoke<unknown>("garden_buy", { item: seedId, price }).then(wrapResult);
+  return invoke<unknown>("garden_buy", { item: seedId, price, quantity }).then(wrapResult);
 }
 
 /**
  * 出售作物。
- * 后端：`garden_sell(item: String, price: u32) -> Result<Value, String>`
+ * 后端：`garden_sell(item: String, price: u32, quantity: Option<u32>) -> Result<Value, String>`
  * 参数映射：cropId → item（→ Tauri 转 item → Rust item ✓）
- *           price 从 CROP_CONFIG[cropId].sellPrice 查询（→ Rust price ✓）
- * 注意：Rust garden_sell 每次只出售 1 个，quantity 暂未传递给后端。
+ *           quantity → quantity（→ Tauri 转 quantity → Rust quantity ✓）
+ * 注意：price 参数虽传递但后端忽略，统一从 CropCfg.sell_price 读取。
  */
 export function gardenSellCrop(
   cropId: string,
   quantity: number,
 ): Promise<GardenOperationResult> {
   const price = CROP_CONFIG[cropId]?.sellPrice ?? 0;
-  return invoke<unknown>("garden_sell", { item: cropId, price }).then(wrapResult);
+  return invoke<unknown>("garden_sell", { item: cropId, price, quantity }).then(wrapResult);
+}
+
+/**
+ * 一键出售所有作物。
+ * 后端：`garden_sell_all() -> Result<Value, String>`
+ * 返回 { success, gardenData, totalCoins, totalItems, unlockedAchievements }。
+ */
+export interface SellAllResult extends GardenOperationResult {
+  totalCoins?: number;
+  totalItems?: number;
+}
+export function gardenSellAll(): Promise<SellAllResult> {
+  return invoke<SellAllResult>("garden_sell_all");
 }
 
 // ===== 土地 =====
