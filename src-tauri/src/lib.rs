@@ -30,6 +30,8 @@ pub fn run() {
             commands::window::hide_garden_window,
             commands::window::enter_mini_mode,
             commands::window::exit_mini_mode,
+            commands::window::update_mini_position,
+            commands::window::open_external,
             // 云端认证
             commands::cloud_auth::save_credentials,
             commands::cloud_auth::load_credentials,
@@ -69,6 +71,8 @@ pub fn run() {
             commands::study_room::study_room_leave,
             commands::study_room::study_room_get_ranking,
             commands::study_room::study_room_get_members,
+            commands::study_room::study_room_upload_stats,
+            commands::study_room::study_room_update_status,
             // 前台检测
             commands::foreground::foreground_start,
             commands::foreground::foreground_stop,

@@ -12,6 +12,8 @@ import {
   studyRoomLeave,
   studyRoomGetRanking,
   studyRoomGetMembers,
+  studyRoomUploadStats,
+  studyRoomUpdateStatus,
 } from "../studyRoom";
 
 describe("api/studyRoom", () => {
@@ -92,6 +94,28 @@ describe("api/studyRoom", () => {
     await expect(studyRoomLeave("id")).rejects.toThrow("backend error");
     await expect(studyRoomGetRanking("id")).rejects.toThrow("backend error");
     await expect(studyRoomGetMembers("id")).rejects.toThrow("backend error");
+    await expect(studyRoomUploadStats("id", 1, 1)).rejects.toThrow("backend error");
+    await expect(studyRoomUpdateStatus("id")).rejects.toThrow("backend error");
+  });
+
+  it("studyRoomUploadStats 应调用 invoke('study_room_upload_stats', { roomId, todayMinutes, todayCount })", async () => {
+    invokeMock.mockResolvedValue(true);
+    const result = await studyRoomUploadStats("room-1", 25, 1);
+    expect(invokeMock).toHaveBeenCalledWith("study_room_upload_stats", {
+      roomId: "room-1",
+      todayMinutes: 25,
+      todayCount: 1,
+    });
+    expect(result).toBe(true);
+  });
+
+  it("studyRoomUpdateStatus 应调用 invoke('study_room_update_status', { roomId })", async () => {
+    invokeMock.mockResolvedValue(true);
+    const result = await studyRoomUpdateStatus("room-1");
+    expect(invokeMock).toHaveBeenCalledWith("study_room_update_status", {
+      roomId: "room-1",
+    });
+    expect(result).toBe(true);
   });
 
   it("各命令使用不同的 command 名", async () => {
@@ -104,6 +128,9 @@ describe("api/studyRoom", () => {
     invokeMock.mockResolvedValue([]);
     await studyRoomGetRanking("id");
     await studyRoomGetMembers("id");
+    invokeMock.mockResolvedValue(true);
+    await studyRoomUploadStats("id", 1, 1);
+    await studyRoomUpdateStatus("id");
     const names = invokeMock.mock.calls.map((c) => c[0]);
     expect(names).toEqual([
       "study_room_get_active",
@@ -112,6 +139,8 @@ describe("api/studyRoom", () => {
       "study_room_leave",
       "study_room_get_ranking",
       "study_room_get_members",
+      "study_room_upload_stats",
+      "study_room_update_status",
     ]);
   });
 });

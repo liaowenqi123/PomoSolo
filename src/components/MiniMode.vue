@@ -5,11 +5,20 @@
  * 参照原 Electron 版 .mini-mode 样式：
  *   小番茄造型，叶子装饰 + 红色主体 + 进度环 + 时间显示。
  *   计时运行时最小化可进入迷你模式。
+ *
+ * 退出迷你模式有两种方式（由 settings.miniExitMode 控制）：
+ *   - "button"：点击右下角箭头按钮退出
+ *   - "double-click"：双击番茄主体退出
+ *
+ * 拖动后通过 mouseleave 调用 updateMiniPosition 保存位置到 data.json。
  */
 import { computed } from "vue";
 import { useTimerStore } from "../stores/timer";
+import { useSettingsStore } from "../stores/settings";
+import { updateMiniPosition } from "../api/window";
 
 const timer = useTimerStore();
+const settings = useSettingsStore();
 
 const props = defineProps<{
   visible: boolean;
@@ -22,13 +31,38 @@ const emit = defineEmits<{
 const displayTime = computed(() => timer.displayTime);
 const progress = computed(() => timer.progress);
 
+/** 是否为双击退出模式 */
+const isDoubleClickExit = computed(
+  () => settings.settings.miniExitMode === "double-click",
+);
+
 const circumference = 2 * Math.PI * 62;
 const dashOffset = computed(() => circumference * (1 - progress.value));
+
+/** 双击番茄主体退出迷你模式 */
+function handleTomatoDblClick() {
+  if (isDoubleClickExit.value) {
+    emit("expand");
+  }
+}
+
+/** 拖动结束后保存窗口位置（mouseleave 触发） */
+async function handleDragEnd() {
+  try {
+    await updateMiniPosition();
+  } catch {
+    // 保存失败静默忽略
+  }
+}
 </script>
 
 <template>
   <div v-if="props.visible" class="mini-mode">
-    <div class="mini-draggable" data-tauri-drag-region></div>
+    <div
+      class="mini-draggable"
+      data-tauri-drag-region
+      @mouseleave="handleDragEnd"
+    ></div>
 
     <!-- 番茄叶子装饰 -->
     <div class="mini-leaves">
@@ -37,8 +71,12 @@ const dashOffset = computed(() => circumference * (1 - progress.value));
       <div class="mini-leaf mini-leaf-right"></div>
     </div>
 
-    <!-- 番茄主体 -->
-    <div class="mini-tomato">
+    <!-- 番茄主体（双击退出模式时响应 dblclick） -->
+    <div
+      class="mini-tomato"
+      :class="{ 'mini-tomato--clickable': isDoubleClickExit }"
+      @dblclick="handleTomatoDblClick"
+    >
       <div class="mini-timer-container">
         <svg class="mini-progress-ring" viewBox="0 0 130 130">
           <circle
@@ -80,7 +118,12 @@ const dashOffset = computed(() => circumference * (1 - progress.value));
       </div>
     </div>
 
-    <button class="btn-expand-mini" title="展开" @click="emit('expand')">⬆</button>
+    <button
+      v-if="!isDoubleClickExit"
+      class="btn-expand-mini"
+      title="展开"
+      @click="emit('expand')"
+    >⬆</button>
   </div>
 </template>
 
@@ -188,6 +231,15 @@ const dashOffset = computed(() => circumference * (1 - progress.value));
   justify-content: center;
   box-shadow: 0 6px 20px rgba(213, 47, 47, 0.5), inset 0 -10px 30px rgba(0, 0, 0, 0.2), inset 0 10px 20px rgba(255, 255, 255, 0.1);
   z-index: 2;
+}
+
+.mini-tomato--clickable {
+  cursor: pointer;
+}
+
+.mini-tomato--clickable:active {
+  transform: scale(0.96);
+  transition: transform 0.1s ease;
 }
 
 .mini-timer-container {

@@ -9,6 +9,8 @@
  * - cancel_always_on_top
  * - enter_mini_mode
  * - exit_mini_mode
+ * - update_mini_position
+ * - open_external
  */
 import { invoke } from "@tauri-apps/api/core";
 
@@ -82,4 +84,49 @@ export function enterMiniMode(): Promise<void> {
  */
 export function exitMiniMode(): Promise<void> {
   return invoke<void>("exit_mini_mode");
+}
+
+/**
+ * 保存迷你模式当前位置到 data.json（拖动结束后调用）。
+ * 后端：`update_mini_position(app: AppHandle)`
+ */
+export function updateMiniPosition(): Promise<void> {
+  return invoke<void>("update_mini_position");
+}
+
+/**
+ * 在系统默认浏览器中打开外部链接。
+ * 后端：`open_external(url: String) -> Result<(), String>`
+ *
+ * 仅支持 http/https 协议。
+ */
+export function openExternal(url: string): Promise<void> {
+  return invoke<void>("open_external", { url });
+}
+
+/**
+ * 显示系统通知（使用 Web Notification API）。
+ *
+ * 与旧版 Electron 的 show-notification IPC 等价，但直接在 webview 中调用
+ * 浏览器原生 Notification API，无需经过 Rust 后端。
+ *
+ * @param title 通知标题（缺省"番茄钟"）
+ * @param body 通知正文（缺省空）
+ */
+export function showNotification(title = "番茄钟", body = ""): void {
+  try {
+    if ("Notification" in window) {
+      if (Notification.permission === "granted") {
+        new Notification(title, { body, silent: false });
+      } else if (Notification.permission !== "denied") {
+        Notification.requestPermission().then((perm) => {
+          if (perm === "granted") {
+            new Notification(title, { body, silent: false });
+          }
+        });
+      }
+    }
+  } catch {
+    // 通知 API 不可用时静默降级
+  }
 }

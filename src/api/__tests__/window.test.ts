@@ -12,6 +12,11 @@ import {
   setAlwaysOnTop,
   bringToFront,
   cancelAlwaysOnTop,
+  enterMiniMode,
+  exitMiniMode,
+  updateMiniPosition,
+  openExternal,
+  showNotification,
 } from "../window";
 
 describe("api/window", () => {
@@ -146,5 +151,48 @@ describe("api/window", () => {
     const callArgs = invokeMock.mock.calls[0];
     expect(callArgs).toHaveLength(1);
     expect(callArgs[0]).toBe("minimize_window");
+  });
+
+  // ===== 新增窗口功能测试 =====
+
+  it("enterMiniMode 应调用 invoke('enter_mini_mode') 且无参数", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await enterMiniMode();
+    expect(invokeMock).toHaveBeenCalledWith("enter_mini_mode");
+  });
+
+  it("exitMiniMode 应调用 invoke('exit_mini_mode') 且无参数", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await exitMiniMode();
+    expect(invokeMock).toHaveBeenCalledWith("exit_mini_mode");
+  });
+
+  it("updateMiniPosition 应调用 invoke('update_mini_position') 且无参数", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await updateMiniPosition();
+    expect(invokeMock).toHaveBeenCalledWith("update_mini_position");
+  });
+
+  it("openExternal 应调用 invoke('open_external', { url })", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await openExternal("https://example.com");
+    expect(invokeMock).toHaveBeenCalledWith("open_external", {
+      url: "https://example.com",
+    });
+  });
+
+  it("openExternal invoke 抛错时应向上传播", async () => {
+    invokeMock.mockRejectedValue(new Error("open error"));
+    await expect(openExternal("https://x.com")).rejects.toThrow("open error");
+  });
+
+  it("showNotification 不应调用 invoke（纯前端 Web API）", () => {
+    showNotification("标题", "内容");
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it("showNotification 无参数时不抛错（使用默认值）", () => {
+    expect(() => showNotification()).not.toThrow();
+    expect(() => showNotification("标题")).not.toThrow();
   });
 });

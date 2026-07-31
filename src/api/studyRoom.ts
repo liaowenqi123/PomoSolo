@@ -10,9 +10,8 @@
  * - study_room_leave
  * - study_room_get_ranking
  * - study_room_get_members
- *
- * 注意：当前 src-tauri/src/lib.rs 暂未注册这些命令，调用会失败。
- * 等后端 commands 注册后即可直接使用。
+ * - study_room_upload_stats   （上传今日专注统计，番茄钟完成时调用）
+ * - study_room_update_status  （心跳：更新在线状态 + 清理超时成员）
  */
 import { invoke } from "@tauri-apps/api/core";
 
@@ -115,4 +114,32 @@ export function studyRoomGetMembers(
   roomId: string,
 ): Promise<StudyRoomMember[]> {
   return invoke<StudyRoomMember[]>("study_room_get_members", { roomId });
+}
+
+/**
+ * 上传今日专注统计（番茄钟完成时调用）。
+ * 后端：`study_room_upload_stats(room_id, today_minutes, today_count) -> Result<bool, String>`
+ *
+ * 每用户每天一条记录，已有则覆盖（非累加）。
+ */
+export function studyRoomUploadStats(
+  roomId: string,
+  todayMinutes: number,
+  todayCount: number,
+): Promise<boolean> {
+  return invoke<boolean>("study_room_upload_stats", {
+    roomId,
+    todayMinutes,
+    todayCount,
+  });
+}
+
+/**
+ * 心跳：更新在线状态 + 清理超时成员 + 下线空房间。
+ * 后端：`study_room_update_status(room_id: String) -> Result<bool, String>`
+ *
+ * 超时阈值 11 分钟（与旧版一致）。
+ */
+export function studyRoomUpdateStatus(roomId: string): Promise<boolean> {
+  return invoke<boolean>("study_room_update_status", { roomId });
 }

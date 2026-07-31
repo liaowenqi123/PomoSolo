@@ -1,4 +1,11 @@
-use tauri::{AppHandle, LogicalSize, Manager};
+use serde_json::Value;
+use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition};
+
+/// 常量：正常模式与迷你模式窗口尺寸（CSS 像素，与旧版一致）
+const NORMAL_WIDTH: f64 = 520.0;
+const NORMAL_HEIGHT: f64 = 560.0;
+const MINI_WIDTH: f64 = 180.0;
+const MINI_HEIGHT: f64 = 220.0;
 
 #[tauri::command]
 pub async fn close_window(app: AppHandle) {
@@ -55,28 +62,108 @@ pub async fn hide_garden_window(app: AppHandle) {
 
 /// 进入迷你模式：
 /// 将主窗口尺寸缩小为 180x220（CSS 像素），置顶，禁止最小化，并从任务栏隐藏。
+/// 若 data.json 中保存了上次的迷你模式位置（miniModePosition），则恢复该位置。
 /// 对应前端 `src/api/window.ts` 中的 `enterMiniMode()`。
 #[tauri::command]
 pub async fn enter_mini_mode(app: AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.set_size(LogicalSize::new(180.0, 220.0));
+        let _ = window.set_size(LogicalSize::new(MINI_WIDTH, MINI_HEIGHT));
         let _ = window.set_always_on_top(true);
         let _ = window.set_minimizable(false);
         let _ = window.set_skip_taskbar(true);
+
+        // 恢复上次迷你模式位置
+        if let Ok(data) = crate::modules::data_manager::read_data(&app) {
+            if let Some(pos) = data.get("miniModePosition").and_then(|v| v.as_array()) {
+                if pos.len() == 2 {
+                    let x = pos[0].as_i64().unwrap_or(0) as i32;
+                    let y = pos[1].as_i64().unwrap_or(0) as i32;
+                    let _ = window.set_position(PhysicalPosition::new(x, y));
+                }
+            }
+        }
     }
 }
 
 /// 退出迷你模式：
-/// 恢复主窗口尺寸为 520x560（CSS 像素），取消置顶，恢复最小化与任务栏显示。
+/// 先保存当前迷你模式位置到 data.json，然后恢复主窗口尺寸为 520x560，
+/// 取消置顶，恢复最小化与任务栏显示。
 /// 对应前端 `src/api/window.ts` 中的 `exitMiniMode()`。
 #[tauri::command]
 pub async fn exit_mini_mode(app: AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.set_size(LogicalSize::new(520.0, 560.0));
+        // 保存当前迷你模式位置
+        if let Ok(pos) = window.outer_position() {
+            let mut data = match crate::modules::data_manager::read_data(&app) {
+                Ok(d) => d,
+                Err(_) => Value::Object(serde_json::Map::new()),
+            };
+            data["miniModePosition"] = Value::Array(vec![
+                Value::from(pos.x),
+                Value::from(pos.y),
+            ]);
+            let _ = crate::modules::data_manager::write_data(&app, &data);
+        }
+
+        let _ = window.set_size(LogicalSize::new(NORMAL_WIDTH, NORMAL_HEIGHT));
         let _ = window.set_always_on_top(false);
         let _ = window.set_minimizable(true);
         let _ = window.set_skip_taskbar(false);
     }
+}
+
+/// 保存迷你模式当前位置到 data.json（拖动结束后由前端调用）
+#[tauri::command]
+pub async fn update_mini_position(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        if let Ok(pos) = window.outer_position() {
+            let mut data = match crate::modules::data_manager::read_data(&app) {
+                Ok(d) => d,
+                Err(_) => Value::Object(serde_json::Map::new()),
+            };
+            data["miniModePosition"] = Value::Array(vec![
+                Value::from(pos.x),
+                Value::from(pos.y),
+            ]);
+            let _ = crate::modules::data_manager::write_data(&app, &data);
+        }
+    }
+}
+
+/// 在系统默认浏览器中打开外部链接
+#[tauri::command]
+pub async fn open_external(url: String) -> Result<(), String> {
+    let url = url.trim();
+    if url.is_empty() {
+        return Err("URL 不能为空".to_string());
+    }
+    // 仅允许 http/https 协议，防止 file:// 等危险协议
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("仅支持 http/https 链接".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .spawn()
+            .map_err(|e| format!("打开链接失败: {}", e))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(url)
+            .spawn()
+            .map_err(|e| format!("打开链接失败: {}", e))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .map_err(|e| format!("打开链接失败: {}", e))?;
+    }
+    Ok(())
 }
 
 /// Windows 11：禁用 DWM 系统级窗口圆角。
