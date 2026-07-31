@@ -852,3 +852,150 @@ pub struct PlaylistSong {
     pub tag: String,
     pub tag_color: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ===== PlayMode 转换 =====
+
+    #[test]
+    fn test_play_mode_from_str_order() {
+        assert_eq!(PlayMode::from_str("order"), PlayMode::Order);
+    }
+
+    #[test]
+    fn test_play_mode_from_str_loop() {
+        assert_eq!(PlayMode::from_str("loop"), PlayMode::Loop);
+    }
+
+    #[test]
+    fn test_play_mode_from_str_shuffle() {
+        assert_eq!(PlayMode::from_str("shuffle"), PlayMode::Shuffle);
+    }
+
+    #[test]
+    fn test_play_mode_from_str_unknown_falls_back_to_shuffle() {
+        // 任意无法识别的字符串都应回退到 Shuffle（与旧版默认行为一致）
+        assert_eq!(PlayMode::from_str("unknown"), PlayMode::Shuffle);
+        assert_eq!(PlayMode::from_str(""), PlayMode::Shuffle);
+        assert_eq!(PlayMode::from_str("ORDER"), PlayMode::Shuffle); // 大小写敏感
+    }
+
+    #[test]
+    fn test_play_mode_as_str() {
+        assert_eq!(PlayMode::Shuffle.as_str(), "shuffle");
+        assert_eq!(PlayMode::Order.as_str(), "order");
+        assert_eq!(PlayMode::Loop.as_str(), "loop");
+    }
+
+    #[test]
+    fn test_play_mode_roundtrip() {
+        for mode in [PlayMode::Shuffle, PlayMode::Order, PlayMode::Loop] {
+            let s = mode.as_str();
+            assert_eq!(PlayMode::from_str(s), mode, "roundtrip 应保持一致");
+        }
+    }
+
+    // ===== preset_colors =====
+
+    #[test]
+    fn test_preset_colors_contains_three_tags() {
+        let colors = preset_colors();
+        assert_eq!(colors.len(), 3, "应有 3 个预设标签");
+        assert!(colors.contains_key("学习"));
+        assert!(colors.contains_key("运动"));
+        assert!(colors.contains_key("休息"));
+    }
+
+    #[test]
+    fn test_preset_colors_values_are_hex_colors() {
+        let colors = preset_colors();
+        for (_, v) in colors.iter() {
+            assert!(
+                v.starts_with('#'),
+                "颜色值应以 # 开头，实际: {}",
+                v
+            );
+            assert_eq!(
+                v.len(),
+                7,
+                "颜色值应为 #xxxxxx 7 字符，实际: {}",
+                v
+            );
+        }
+    }
+
+    // ===== AudioPlayer 基础状态 =====
+
+    #[test]
+    fn test_audio_player_new_default_state() {
+        let player = AudioPlayer::new();
+        assert!(!player.is_initialized(), "新建 player 应未初始化");
+        assert!(!player.is_playing(), "新建 player 应不在播放");
+        assert_eq!(player.current_track(), "", "新建 player 曲目应为空");
+        assert_eq!(player.current_duration(), 0, "新建 player 时长应为 0");
+        assert_eq!(player.volume(), 1.0, "新建 player 默认音量应为 1.0");
+        assert_eq!(player.play_mode(), PlayMode::Shuffle, "默认播放模式应为 Shuffle");
+        assert!(player.playlist().is_empty(), "新建 player 播放列表应为空");
+        assert!(player.current_device().is_none(), "新建 player 不应有设备 ID");
+    }
+
+    #[test]
+    fn test_set_volume_clamps_to_range() {
+        let mut player = AudioPlayer::new();
+        // 超出上限应截断到 1.0
+        player.set_volume(2.0);
+        assert_eq!(player.volume(), 1.0);
+        // 负值应截断到 0.0
+        player.set_volume(-0.5);
+        assert_eq!(player.volume(), 0.0);
+        // 边界值
+        player.set_volume(0.0);
+        assert_eq!(player.volume(), 0.0);
+        player.set_volume(1.0);
+        assert_eq!(player.volume(), 1.0);
+        // 中间值
+        player.set_volume(0.5);
+        assert_eq!(player.volume(), 0.5);
+    }
+
+    #[test]
+    fn test_set_play_mode_updates_mode() {
+        let mut player = AudioPlayer::new();
+        player.set_play_mode(PlayMode::Order);
+        assert_eq!(player.play_mode(), PlayMode::Order);
+        player.set_play_mode(PlayMode::Loop);
+        assert_eq!(player.play_mode(), PlayMode::Loop);
+        player.set_play_mode(PlayMode::Shuffle);
+        assert_eq!(player.play_mode(), PlayMode::Shuffle);
+    }
+
+    #[test]
+    fn test_set_play_mode_shuffle_clears_history() {
+        let mut player = AudioPlayer::new();
+        // 设置为 Order 模式不报错
+        player.set_play_mode(PlayMode::Order);
+        // 切换到 Shuffle 应清理历史
+        player.set_play_mode(PlayMode::Shuffle);
+        assert_eq!(player.play_mode(), PlayMode::Shuffle);
+    }
+
+    #[test]
+    fn test_get_position_without_sink_returns_offset() {
+        // 没有 sink 时，position 应等于 position_offset（默认 0）
+        let player = AudioPlayer::new();
+        assert_eq!(player.get_position(), 0);
+    }
+
+    #[test]
+    fn test_snapshot_reflects_state() {
+        let player = AudioPlayer::new();
+        let snap = player.snapshot();
+        assert!(!snap.playing, "新建 player 快照 playing=false");
+        assert_eq!(snap.name, "");
+        assert_eq!(snap.duration, 0);
+        assert_eq!(snap.play_mode, "shuffle");
+        assert!(snap.has_prev, "has_prev 应始终为 true（与前端兼容）");
+    }
+}

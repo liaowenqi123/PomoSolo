@@ -665,3 +665,205 @@ pub async fn download_song(
 
     Ok(DownloadResult::ok("downloaded"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ===== clean_title =====
+
+    #[test]
+    fn test_clean_title_removes_html_tags() {
+        let raw = r#"<em class="keyword">周杰伦</em> - 稻草人"#;
+        assert_eq!(clean_title(raw), "周杰伦 - 稻草人");
+    }
+
+    #[test]
+    fn test_clean_title_collapses_whitespace() {
+        let raw = "  周杰伦   稻草人  \n  主题曲  ";
+        assert_eq!(clean_title(raw), "周杰伦 稻草人 主题曲");
+    }
+
+    #[test]
+    fn test_clean_title_handles_plain_text() {
+        // 无 HTML 标签、无多余空白时，应原样返回
+        let raw = "周杰伦 - 稻草人";
+        assert_eq!(clean_title(raw), "周杰伦 - 稻草人");
+    }
+
+    #[test]
+    fn test_clean_title_strips_nested_tags() {
+        let raw = r#"<span><em>foo</em></span> bar"#;
+        assert_eq!(clean_title(raw), "foo bar");
+    }
+
+    #[test]
+    fn test_clean_title_empty_string() {
+        assert_eq!(clean_title(""), "");
+        assert_eq!(clean_title("   "), "");
+    }
+
+    // ===== clean_filename =====
+
+    #[test]
+    fn test_clean_filename_removes_illegal_chars() {
+        let raw = r#"song<name>:"/\\|?*"#;
+        // 所有 Windows 非法字符都应被移除
+        assert_eq!(clean_filename(raw), "songname");
+    }
+
+    #[test]
+    fn test_clean_filename_keeps_legal_chars() {
+        let raw = "周杰伦 - 稻草人 (Live).mp3";
+        assert_eq!(clean_filename(raw), "周杰伦 - 稻草人 (Live).mp3");
+    }
+
+    #[test]
+    fn test_clean_filename_empty_string() {
+        assert_eq!(clean_filename(""), "");
+    }
+
+    #[test]
+    fn test_clean_filename_chinese_filename() {
+        // 中文文件名应保留，仅移除非法字符
+        assert_eq!(clean_filename("稻/草?人"), "稻草人");
+    }
+
+    // ===== load_cookie_file =====
+
+    #[test]
+    fn test_load_cookie_file_nonexistent_returns_empty() {
+        let path = Path::new("/this/path/does/not/exist/cookies.txt");
+        assert_eq!(load_cookie_file(path), "");
+    }
+
+    #[test]
+    fn test_load_cookie_file_parses_netscape_format() {
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        let cookie_path = dir.path().join("cookies.txt");
+        // Netscape cookie 格式：domain	tail	path	secure	expires	name	value
+        std::fs::write(
+            &cookie_path,
+            "# Netscape HTTP Cookie File\n\
+             .bilibili.com\tTRUE\t/\tFALSE\t0\tSESSDATA\tabc123\n\
+             .bilibili.com\tTRUE\t/\tFALSE\t0\tbili_jct\tdef456\n",
+        )
+        .expect("写入 cookie 文件失败");
+
+        let cookies = load_cookie_file(&cookie_path);
+        assert!(cookies.contains("SESSDATA=abc123"), "应包含 SESSDATA cookie");
+        assert!(cookies.contains("bili_jct=def456"), "应包含 bili_jct cookie");
+        assert_eq!(
+            cookies, "SESSDATA=abc123; bili_jct=def456",
+            "多个 cookie 应用 '; ' 分隔"
+        );
+    }
+
+    #[test]
+    fn test_load_cookie_file_skips_comments_and_empty_lines() {
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        let cookie_path = dir.path().join("cookies.txt");
+        std::fs::write(
+            &cookie_path,
+            "# 这是注释\n\
+             \n\
+             .example.com\tTRUE\t/\tFALSE\t0\tkey\tvalue\n",
+        )
+        .expect("写入 cookie 文件失败");
+
+        let cookies = load_cookie_file(&cookie_path);
+        assert_eq!(cookies, "key=value");
+    }
+
+    #[test]
+    fn test_load_cookie_file_skips_malformed_lines() {
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        let cookie_path = dir.path().join("cookies.txt");
+        // 字段数不足 7 的行应被跳过
+        std::fs::write(
+            &cookie_path,
+            "incomplete\tline\tonly\tthree\tfields\n\
+             .example.com\tTRUE\t/\tFALSE\t0\tkey\tvalue\n",
+        )
+        .expect("写入 cookie 文件失败");
+
+        let cookies = load_cookie_file(&cookie_path);
+        assert_eq!(cookies, "key=value");
+    }
+
+    #[test]
+    fn test_load_cookie_file_empty_file_returns_empty() {
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        let cookie_path = dir.path().join("cookies.txt");
+        std::fs::write(&cookie_path, "").expect("写入空 cookie 文件失败");
+        assert_eq!(load_cookie_file(&cookie_path), "");
+    }
+
+    // ===== find_existing_song =====
+
+    #[test]
+    fn test_find_existing_song_returns_true_when_mp3_matches() {
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        std::fs::write(dir.path().join("周杰伦 - 稻草人.mp3"), b"fake mp3")
+            .expect("写入失败");
+        assert!(find_existing_song(dir.path(), "周杰伦 - 稻草人"));
+        // 子串匹配也算
+        assert!(find_existing_song(dir.path(), "稻草人"));
+    }
+
+    #[test]
+    fn test_find_existing_song_returns_true_when_m4a_matches() {
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        std::fs::write(dir.path().join("周杰伦 - 稻草人.m4a"), b"fake m4a")
+            .expect("写入失败");
+        assert!(find_existing_song(dir.path(), "稻草人"));
+    }
+
+    #[test]
+    fn test_find_existing_song_returns_false_when_no_match() {
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        std::fs::write(dir.path().join("其他歌曲.mp3"), b"fake mp3").expect("写入失败");
+        assert!(!find_existing_song(dir.path(), "稻草人"));
+    }
+
+    #[test]
+    fn test_find_existing_song_ignores_other_extensions() {
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        // txt / flac 等不应被识别为已存在歌曲（flac 不在白名单）
+        std::fs::write(dir.path().join("稻草人.txt"), b"text").expect("写入失败");
+        assert!(!find_existing_song(dir.path(), "稻草人"));
+    }
+
+    #[test]
+    fn test_find_existing_song_case_insensitive() {
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        std::fs::write(dir.path().join("SongName.mp3"), b"fake mp3").expect("写入失败");
+        // 大小写不敏感
+        assert!(find_existing_song(dir.path(), "songname"));
+        assert!(find_existing_song(dir.path(), "SONGNAME"));
+    }
+
+    #[test]
+    fn test_find_existing_song_nonexistent_dir_returns_false() {
+        let path = Path::new("/this/path/does/not/exist");
+        assert!(!find_existing_song(path, "anything"));
+    }
+
+    // ===== DownloadResult 构造器 =====
+
+    #[test]
+    fn test_download_result_ok_constructor() {
+        let r = DownloadResult::ok("downloaded");
+        assert!(r.success);
+        assert_eq!(r.status, "downloaded");
+        assert!(r.error.is_none());
+    }
+
+    #[test]
+    fn test_download_result_fail_constructor() {
+        let r = DownloadResult::fail("no_video", "未找到视频");
+        assert!(!r.success);
+        assert_eq!(r.status, "no_video");
+        assert_eq!(r.error.as_deref(), Some("未找到视频"));
+    }
+}

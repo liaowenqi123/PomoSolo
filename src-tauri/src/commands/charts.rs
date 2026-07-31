@@ -396,11 +396,7 @@ pub async fn download_song(
     }
 
     // 计算 music 目录路径与完整歌曲名
-    let song_name = if artist.is_empty() {
-        title.clone()
-    } else {
-        format!("{} - {}", title, artist)
-    };
+    let song_name = build_song_name(&title, &artist);
     let music_dir = match get_music_dir(&app) {
         Ok(p) => p,
         Err(e) => {
@@ -516,5 +512,90 @@ fn get_music_dir(app: &AppHandle) -> Result<PathBuf, String> {
             .resource_dir()
             .map_err(|e| format!("无法获取资源目录: {}", e))?;
         Ok(resource_dir.join("music"))
+    }
+}
+
+/// 拼接歌曲文件名：title 不为空且 artist 不为空 → "title - artist"，否则返回 title
+fn build_song_name(title: &str, artist: &str) -> String {
+    if artist.is_empty() {
+        title.to_string()
+    } else {
+        format!("{} - {}", title, artist)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ===== urldecode =====
+
+    #[test]
+    fn test_urldecode_plain_ascii_unchanged() {
+        // 纯 ASCII 文本应原样返回
+        assert_eq!(urldecode("hello world"), "hello world");
+        assert_eq!(urldecode("ABC123"), "ABC123");
+    }
+
+    #[test]
+    fn test_urldecode_percent_encoded_ascii() {
+        // %20 = 空格
+        assert_eq!(urldecode("hello%20world"), "hello world");
+        // %41 = 'A'
+        assert_eq!(urldecode("%41%42%43"), "ABC");
+    }
+
+    #[test]
+    fn test_urldecode_plus_to_space() {
+        assert_eq!(urldecode("hello+world"), "hello world");
+        // 混合 + 与 %20
+        assert_eq!(urldecode("a+b%20c"), "a b c");
+    }
+
+    #[test]
+    fn test_urldecode_handles_incomplete_percent() {
+        // % 后不足 2 字符时应保留原字符
+        assert_eq!(urldecode("100%"), "100%");
+        assert_eq!(urldecode("50%2"), "50%2");
+    }
+
+    #[test]
+    fn test_urldecode_handles_invalid_hex() {
+        // %GG 不是合法十六进制，应保留 %
+        assert_eq!(urldecode("foo%GGbar"), "foo%GGbar");
+    }
+
+    #[test]
+    fn test_urldecode_empty_string() {
+        assert_eq!(urldecode(""), "");
+    }
+
+    #[test]
+    fn test_urldecode_mixed_encoding() {
+        // 实际网易云 API 返回的 song-list-pre-data 包含 %2C 等编码
+        assert_eq!(urldecode("a%2Cb%2Cc"), "a,b,c");
+    }
+
+    // ===== build_song_name =====
+
+    #[test]
+    fn test_build_song_name_with_artist() {
+        assert_eq!(build_song_name("稻香", "周杰伦"), "稻香 - 周杰伦");
+    }
+
+    #[test]
+    fn test_build_song_name_without_artist() {
+        assert_eq!(build_song_name("纯音乐", ""), "纯音乐");
+    }
+
+    #[test]
+    fn test_build_song_name_empty_both() {
+        assert_eq!(build_song_name("", ""), "");
+    }
+
+    #[test]
+    fn test_build_song_name_empty_title_with_artist() {
+        // artist 非空但 title 空 → " - artist"（保持原逻辑，不做特殊处理）
+        assert_eq!(build_song_name("", "周杰伦"), " - 周杰伦");
     }
 }

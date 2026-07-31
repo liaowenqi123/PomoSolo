@@ -130,10 +130,11 @@ pub async fn update_mini_position(app: AppHandle) {
     }
 }
 
-/// 在系统默认浏览器中打开外部链接
-#[tauri::command]
-pub async fn open_external(url: String) -> Result<(), String> {
-    let url = url.trim();
+/// 校验外部链接 URL：非空且仅允许 http/https 协议
+///
+/// 返回 Ok(规范化 URL) 表示通过，Err(原因) 表示拒绝。
+fn validate_external_url(raw: &str) -> Result<String, String> {
+    let url = raw.trim();
     if url.is_empty() {
         return Err("URL 不能为空".to_string());
     }
@@ -141,29 +142,102 @@ pub async fn open_external(url: String) -> Result<(), String> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err("仅支持 http/https 链接".to_string());
     }
+    Ok(url.to_string())
+}
+
+/// 在系统默认浏览器中打开外部链接
+#[tauri::command]
+pub async fn open_external(url: String) -> Result<(), String> {
+    let url = validate_external_url(&url)?;
 
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("cmd")
-            .args(["/C", "start", "", url])
+            .args(["/C", "start", "", &url])
             .spawn()
             .map_err(|e| format!("打开链接失败: {}", e))?;
     }
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(url)
+            .arg(&url)
             .spawn()
             .map_err(|e| format!("打开链接失败: {}", e))?;
     }
     #[cfg(target_os = "linux")]
     {
         std::process::Command::new("xdg-open")
-            .arg(url)
+            .arg(&url)
             .spawn()
             .map_err(|e| format!("打开链接失败: {}", e))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_external_url_https() {
+        assert_eq!(
+            validate_external_url("https://example.com").unwrap(),
+            "https://example.com"
+        );
+    }
+
+    #[test]
+    fn test_validate_external_url_http() {
+        assert_eq!(
+            validate_external_url("http://example.com/path?q=1").unwrap(),
+            "http://example.com/path?q=1"
+        );
+    }
+
+    #[test]
+    fn test_validate_external_url_trims_whitespace() {
+        assert_eq!(
+            validate_external_url("  https://example.com  ").unwrap(),
+            "https://example.com"
+        );
+    }
+
+    #[test]
+    fn test_validate_external_url_rejects_empty() {
+        assert!(validate_external_url("").is_err());
+        assert!(validate_external_url("   ").is_err());
+    }
+
+    #[test]
+    fn test_validate_external_url_rejects_file_protocol() {
+        let r = validate_external_url("file:///etc/passwd");
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("http/https"));
+    }
+
+    #[test]
+    fn test_validate_external_url_rejects_javascript_protocol() {
+        let r = validate_external_url("javascript:alert(1)");
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn test_validate_external_url_rejects_ftp_protocol() {
+        let r = validate_external_url("ftp://example.com/file");
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn test_validate_external_url_rejects_data_protocol() {
+        let r = validate_external_url("data:text/html,<script>alert(1)</script>");
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn test_validate_external_url_rejects_no_protocol() {
+        let r = validate_external_url("example.com");
+        assert!(r.is_err());
+    }
 }
 
 /// Windows 11：禁用 DWM 系统级窗口圆角。

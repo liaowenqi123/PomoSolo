@@ -250,4 +250,151 @@ mod tests {
         let parsed: Value = serde_json::from_str(&content).expect("pretty JSON 应可解析");
         assert_eq!(parsed, data);
     }
+
+    // ===== create_default_garden_data =====
+
+    #[test]
+    fn test_create_default_garden_data_structure() {
+        let data = create_default_garden_data();
+        assert!(data.is_object(), "默认数据应为对象");
+
+        // 必填字段
+        assert_eq!(data["coins"], 100, "默认金币应为 100");
+        assert_eq!(data["focusMinutes"], 0, "默认专注分钟应为 0");
+        assert_eq!(data["totalLosses"], 0, "默认 totalLosses 应为 0");
+        assert!(data["achievements"].is_object(), "achievements 应为对象");
+    }
+
+    #[test]
+    fn test_create_default_garden_data_seeds_structure() {
+        let data = create_default_garden_data();
+        let seeds = &data["seeds"];
+        assert!(seeds.is_object(), "seeds 应为对象");
+        assert_eq!(seeds["carrot"], 3, "默认胡萝卜种子应为 3");
+        assert_eq!(seeds["tomato"], 3, "默认番茄种子应为 3");
+        assert_eq!(seeds["sunflower"], 1, "默认向日葵种子应为 1");
+        assert_eq!(seeds["rose"], 0, "默认玫瑰种子应为 0");
+        assert_eq!(seeds["osmanthus"], 0, "默认桂花种子应为 0");
+    }
+
+    #[test]
+    fn test_create_default_garden_data_crops_zero() {
+        let data = create_default_garden_data();
+        let crops = &data["crops"];
+        assert!(crops.is_object());
+        // 所有作物初始库存应为 0
+        for key in ["carrot", "tomato", "sunflower", "rose", "osmanthus"] {
+            assert_eq!(crops[key], 0, "默认 {} 库存应为 0", key);
+        }
+    }
+
+    #[test]
+    fn test_create_default_garden_data_plots_count() {
+        let data = create_default_garden_data();
+        let plots = data["plots"].as_array().expect("plots 应为数组");
+        assert_eq!(plots.len(), 12, "应有 12 块地");
+    }
+
+    #[test]
+    fn test_create_default_garden_data_plots_lock_state() {
+        let data = create_default_garden_data();
+        let plots = data["plots"].as_array().unwrap();
+        // 前 6 块地应未锁定
+        for i in 0..6 {
+            assert!(
+                plots[i].get("locked").is_none() || plots[i]["locked"] == false,
+                "第 {} 块地应未锁定",
+                i
+            );
+        }
+        // 后 6 块地应锁定
+        for i in 6..12 {
+            assert_eq!(plots[i]["locked"], true, "第 {} 块地应锁定", i);
+        }
+    }
+
+    #[test]
+    fn test_create_default_garden_data_plots_initial_state() {
+        let data = create_default_garden_data();
+        let plots = data["plots"].as_array().unwrap();
+        for (i, plot) in plots.iter().enumerate() {
+            assert_eq!(plot["id"], i as u64, "plot id 应为索引");
+            assert!(plot["crop"].is_null(), "plot crop 应为 null");
+            assert_eq!(plot["progress"], 0, "plot progress 应为 0");
+            assert!(plot["plantedAt"].is_null(), "plot plantedAt 应为 null");
+        }
+    }
+
+    #[test]
+    fn test_create_default_garden_data_check_in_data() {
+        let data = create_default_garden_data();
+        let check_in = &data["checkInData"];
+        assert!(check_in.is_object());
+        assert!(check_in["lastCheckIn"].is_null(), "lastCheckIn 应为 null");
+        assert_eq!(check_in["streak"], 0, "streak 应为 0");
+        assert_eq!(check_in["totalDays"], 0, "totalDays 应为 0");
+    }
+
+    // ===== ensure_plots_complete =====
+
+    #[test]
+    fn test_ensure_plots_complete_adds_missing_plots() {
+        let mut data = json!({
+            "coins": 100,
+            "plots": []
+        });
+        ensure_plots_complete(&mut data);
+        let plots = data["plots"].as_array().unwrap();
+        assert_eq!(plots.len(), 12, "应补齐到 12 块");
+        // 后 6 块应锁定
+        for i in 6..12 {
+            assert_eq!(plots[i]["locked"], true);
+        }
+    }
+
+    #[test]
+    fn test_ensure_plots_complete_truncates_extra_plots() {
+        let mut plots_vec: Vec<Value> = (0..15)
+            .map(|i| json!({ "id": i, "crop": null, "progress": 0, "plantedAt": null }))
+            .collect();
+        let mut data = json!({ "plots": plots_vec });
+        ensure_plots_complete(&mut data);
+        let plots = data["plots"].as_array().unwrap();
+        assert_eq!(plots.len(), 12, "超出 12 块的部分应被截断");
+    }
+
+    #[test]
+    fn test_ensure_plots_complete_creates_plots_if_missing() {
+        let mut data = json!({ "coins": 100 });
+        ensure_plots_complete(&mut data);
+        assert!(data["plots"].is_array(), "缺失 plots 字段应创建");
+        assert_eq!(data["plots"].as_array().unwrap().len(), 12);
+    }
+
+    #[test]
+    fn test_ensure_plots_complete_replaces_non_array_plots() {
+        // plots 字段存在但不是数组，应重置为 12 块默认地
+        let mut data = json!({ "plots": "invalid" });
+        ensure_plots_complete(&mut data);
+        assert!(data["plots"].is_array());
+        assert_eq!(data["plots"].as_array().unwrap().len(), 12);
+    }
+
+    #[test]
+    fn test_ensure_plots_complete_handles_non_object_data() {
+        // data 本身不是对象时，应直接返回（不 panic）
+        let mut data = json!("just a string");
+        ensure_plots_complete(&mut data);
+        // data 不应被修改
+        assert_eq!(data, json!("just a string"));
+    }
+
+    #[test]
+    fn test_ensure_plots_complete_preserves_existing_plots() {
+        // 已有 12 块完整 plot 的数据应保持不变
+        let mut data = create_default_garden_data();
+        let original = data.clone();
+        ensure_plots_complete(&mut data);
+        assert_eq!(data, original, "已完整的 plots 不应被修改");
+    }
 }

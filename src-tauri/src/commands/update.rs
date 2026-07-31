@@ -198,7 +198,7 @@ fn backup_music_dir(app: &AppHandle) -> Result<(), String> {
         let name = filename.to_string_lossy();
 
         // 跳过内置歌曲（避免备份 14MB 的固定文件）
-        if name.ends_with(" - 番茄钟.mp3") {
+        if is_builtin_song(&name) {
             continue;
         }
 
@@ -209,6 +209,55 @@ fn backup_music_dir(app: &AppHandle) -> Result<(), String> {
 
     eprintln!("[updater] 已备份 {} 个用户文件到 {:?}", backed_up, backup_dir);
     Ok(())
+}
+
+/// 判断文件名是否为内置番茄钟歌曲（应跳过备份）
+///
+/// 内置歌曲命名格式："艺术家 - 番茄钟.mp3"（共 3 首），跳过避免重复备份 14MB。
+fn is_builtin_song(filename: &str) -> bool {
+    filename.ends_with(" - 番茄钟.mp3")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_builtin_song_matches_pattern() {
+        assert!(is_builtin_song("钢琴曲 - 番茄钟.mp3"));
+        assert!(is_builtin_song("吉他曲 - 番茄钟.mp3"));
+        assert!(is_builtin_song("环境音 - 番茄钟.mp3"));
+    }
+
+    #[test]
+    fn test_is_builtin_song_rejects_user_mp3() {
+        assert!(!is_builtin_song("周杰伦 - 稻香.mp3"));
+        assert!(!is_builtin_song("纯音乐.mp3"));
+    }
+
+    #[test]
+    fn test_is_builtin_song_rejects_m4a() {
+        // 内置歌曲均为 mp3，m4a 应不视为内置
+        assert!(!is_builtin_song("钢琴曲 - 番茄钟.m4a"));
+    }
+
+    #[test]
+    fn test_is_builtin_song_rejects_empty() {
+        assert!(!is_builtin_song(""));
+    }
+
+    #[test]
+    fn test_is_builtin_song_minimal_match() {
+        // 仅 " - 番茄钟.mp3" 也满足 ends_with 判断（视为内置，保守跳过）
+        assert!(is_builtin_song(" - 番茄钟.mp3"));
+    }
+
+    #[test]
+    fn test_is_builtin_song_case_sensitive() {
+        // 文件名检查大小写敏感（与旧版行为一致）
+        assert!(!is_builtin_song("钢琴曲 - 番茄钟.MP3"));
+        assert!(!is_builtin_song("钢琴曲 - 番茄钟.Mp3"));
+    }
 }
 
 /// 还原 app_config_dir/backup/music/ 到 resource_dir/music/
