@@ -6,6 +6,12 @@ use crate::modules::audio_player::AudioPlayer;
 use crate::modules::cloud_auth::Session;
 use crate::modules::foreground_inspection::DetectionState;
 
+/// 单点登录心跳任务的取消令牌
+pub struct HeartbeatState {
+    /// 心跳任务的取消信号（Some = 心跳运行中，None = 已停止）
+    pub cancel: tokio::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+}
+
 /// 音乐播放器状态
 pub struct MusicState {
     pub player: tokio::sync::Mutex<AudioPlayer>,
@@ -73,6 +79,8 @@ pub struct AppState {
     pub cloud_session: Mutex<Option<Session>>,
     /// 前台检测状态
     pub detection_state: Arc<DetectionState>,
+    /// 单点登录心跳状态
+    pub heartbeat: HeartbeatState,
 }
 
 impl AppState {
@@ -83,6 +91,9 @@ impl AppState {
             foreground_ready: Mutex::new(false),
             cloud_session: Mutex::new(None),
             detection_state: Arc::new(DetectionState::default()),
+            heartbeat: HeartbeatState {
+                cancel: tokio::sync::Mutex::new(None),
+            },
         }
     }
 }
