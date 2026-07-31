@@ -5,9 +5,10 @@
 //!
 //! 检测优先级：自身窗口过滤 → 白名单 → 黑名单 → 历史记录 → AI 判断
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -71,12 +72,71 @@ const DEFAULT_BLACKLIST: &[&str] = &[
 /// 自身窗口关键词（命中 → 跳过，视为非娱乐）
 const SELF_WINDOW_KEYWORDS: &[&str] = &["PomoSolo", "番茄钟", "菜园子"];
 
+/// 名单配置（对应旧版 list_config.json）
+///
+/// 与默认名单的关系：用户自定义名单与默认名单合并匹配，用户名单优先。
+/// 历史记录持久化在文件里，重启后 AI 判断结果不丢失（旧版 Rust 迁移前是内存缓存）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ListConfig {
+    /// 用户自定义白名单（子串匹配，命中 → 非娱乐，优先级最高）
+    #[serde(default)]
+    pub whitelist: Vec<String>,
+    /// 用户自定义黑名单（子串匹配，命中 → 娱乐）
+    #[serde(default)]
+    pub blacklist: Vec<String>,
+    /// AI 判断历史：窗口标题 → 是否娱乐
+    #[serde(default, deserialize_with = "deserialize_history")]
+    pub history: HashMap<String, bool>,
+}
+
+/// 兼容旧版 Electron/Python 格式：history 值可能是 bool 或 "是"/"不是" 字符串
+fn deserialize_history<'de, D>(deserializer: D) -> Result<HashMap<String, bool>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let map: HashMap<String, serde_json::Value> = HashMap::deserialize(deserializer)?;
+    Ok(map
+        .into_iter()
+        .map(|(k, v)| {
+            let b = match &v {
+                serde_json::Value::Bool(b) => *b,
+                serde_json::Value::String(s) => s.trim() == "是",
+                _ => false,
+            };
+            (k, b)
+        })
+        .collect())
+}
+
+/// 从文件加载名单配置（文件不存在或损坏时返回默认空配置）
+pub fn load_list_config(path: &Path) -> Result<ListConfig, String> {
+    if !path.exists() {
+        return Ok(ListConfig::default());
+    }
+    let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+    if content.trim().is_empty() {
+        return Ok(ListConfig::default());
+    }
+    serde_json::from_str(&content).map_err(|e| e.to_string())
+}
+
+/// 保存名单配置到文件
+pub fn save_list_config(path: &Path, config: &ListConfig) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let content = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
+    std::fs::write(path, content).map_err(|e| e.to_string())
+}
+
 /// 检测状态
 pub struct DetectionState {
     pub running: AtomicBool,
     pub api_key: tokio::sync::RwLock<Option<String>>,
-    /// 历史记录缓存：窗口标题 → 是否娱乐（进程生命周期内有效）
-    pub history: Mutex<HashMap<String, bool>>,
+    /// 名单配置（白/黑名单 + 历史记录），检测循环与名单管理命令共用
+    pub list_config: Mutex<ListConfig>,
+    /// list_config.json 路径（由命令层首次解析后写入；None 时跳过持久化）
+    pub config_path: std::sync::Mutex<Option<PathBuf>>,
 }
 
 impl Default for DetectionState {
@@ -84,7 +144,8 @@ impl Default for DetectionState {
         Self {
             running: AtomicBool::new(false),
             api_key: tokio::sync::RwLock::new(None),
-            history: Mutex::new(HashMap::new()),
+            list_config: Mutex::new(ListConfig::default()),
+            config_path: std::sync::Mutex::new(None),
         }
     }
 }
@@ -150,14 +211,135 @@ fn is_self_window(title: &str) -> bool {
     SELF_WINDOW_KEYWORDS.iter().any(|k| title.contains(*k))
 }
 
-/// 白名单子串匹配
-fn match_whitelist(title: &str) -> Option<&'static str> {
-    DEFAULT_WHITELIST.iter().copied().find(|k| title.contains(*k))
+/// 白名单子串匹配：用户名单优先，然后默认名单。返回命中的关键词。
+fn match_whitelist(title: &str, config: &ListConfig) -> Option<String> {
+    config
+        .whitelist
+        .iter()
+        .find(|k| !k.is_empty() && title.contains(k.as_str()))
+        .cloned()
+        .or_else(|| {
+            DEFAULT_WHITELIST
+                .iter()
+                .copied()
+                .find(|k| title.contains(*k))
+                .map(String::from)
+        })
 }
 
-/// 黑名单子串匹配
-fn match_blacklist(title: &str) -> Option<&'static str> {
-    DEFAULT_BLACKLIST.iter().copied().find(|k| title.contains(*k))
+/// 黑名单子串匹配：用户名单优先，然后默认名单。返回命中的关键词。
+fn match_blacklist(title: &str, config: &ListConfig) -> Option<String> {
+    config
+        .blacklist
+        .iter()
+        .find(|k| !k.is_empty() && title.contains(k.as_str()))
+        .cloned()
+        .or_else(|| {
+            DEFAULT_BLACKLIST
+                .iter()
+                .copied()
+                .find(|k| title.contains(*k))
+                .map(String::from)
+        })
+}
+
+/// 读取 config_path（防 poison）
+fn read_config_path(state: &DetectionState) -> Option<PathBuf> {
+    state
+        .config_path
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+/// 保存名单配置到文件（路径已知时）；失败仅打日志，不阻塞检测
+pub async fn save_list_config_if_possible(state: &DetectionState) {
+    let path = match read_config_path(state) {
+        Some(p) => p,
+        None => return,
+    };
+    let cfg = state.list_config.lock().await.clone();
+    if let Err(e) = save_list_config(&path, &cfg) {
+        eprintln!("[ForegroundDetection] 保存名单配置失败: {}", e);
+    }
+}
+
+// ===== 名单管理操作（供 commands 层调用） =====
+
+/// 添加关键词到白名单（去重）。返回是否真正新增。
+pub async fn add_to_whitelist(state: &DetectionState, keyword: &str) -> bool {
+    let keyword = keyword.trim();
+    if keyword.is_empty() {
+        return false;
+    }
+    let added = {
+        let mut cfg = state.list_config.lock().await;
+        if cfg.whitelist.iter().any(|k| k == keyword) {
+            false
+        } else {
+            cfg.whitelist.push(keyword.to_string());
+            true
+        }
+    };
+    if added {
+        save_list_config_if_possible(state).await;
+    }
+    added
+}
+
+/// 添加关键词到黑名单（去重）。返回是否真正新增。
+pub async fn add_to_blacklist(state: &DetectionState, keyword: &str) -> bool {
+    let keyword = keyword.trim();
+    if keyword.is_empty() {
+        return false;
+    }
+    let added = {
+        let mut cfg = state.list_config.lock().await;
+        if cfg.blacklist.iter().any(|k| k == keyword) {
+            false
+        } else {
+            cfg.blacklist.push(keyword.to_string());
+            true
+        }
+    };
+    if added {
+        save_list_config_if_possible(state).await;
+    }
+    added
+}
+
+/// 将历史记录中的窗口标题标记为"不是娱乐"（用户在警告弹窗点"不是娱乐"时调用）
+pub async fn mark_history_not(state: &DetectionState, window_title: &str) -> bool {
+    let window_title = window_title.trim();
+    if window_title.is_empty() {
+        return false;
+    }
+    {
+        let mut cfg = state.list_config.lock().await;
+        cfg.history.insert(window_title.to_string(), false);
+    }
+    save_list_config_if_possible(state).await;
+    true
+}
+
+/// 把黑名单关键词移到白名单（误判纠正）。
+///
+/// 即使关键词只在默认黑名单中（用户黑名单里没有），加入用户白名单后
+/// 也会因白名单优先而生效，因此只要加白成功即返回 true。
+pub async fn move_blacklist_to_whitelist(state: &DetectionState, keyword: &str) -> bool {
+    let keyword = keyword.trim();
+    if keyword.is_empty() {
+        return false;
+    }
+    {
+        let mut cfg = state.list_config.lock().await;
+        cfg.blacklist.retain(|k| k != keyword);
+        if !cfg.whitelist.iter().any(|k| k == keyword) {
+            cfg.whitelist.push(keyword.to_string());
+        }
+    }
+    save_list_config_if_possible(state).await;
+    true
 }
 
 /// DeepSeek API 娱乐性判断
@@ -257,32 +439,32 @@ pub fn start_detection(
                 continue;
             }
 
+            // 读取一次名单配置快照（本 tick 内白/黑/历史匹配共用）
+            let cfg_snapshot = state.list_config.lock().await.clone();
+
             // 1. 白名单匹配（优先级最高）
-            if match_whitelist(&title).is_some() {
+            if match_whitelist(&title, &cfg_snapshot).is_some() {
                 last_title = Some(title);
                 continue;
             }
 
             // 2. 黑名单匹配
-            if let Some(keyword) = match_blacklist(&title) {
+            if let Some(keyword) = match_blacklist(&title, &cfg_snapshot) {
                 // 仅在标题变化时 emit，避免重复刷屏
                 if last_title.as_deref() != Some(title.as_str()) {
                     let _ = event_tx.send(DetectionEvent::Entertainment(DetectionResult {
                         window_title: title.clone(),
                         is_entertainment: true,
                         source: "blacklist".to_string(),
-                        keyword: keyword.to_string(),
+                        keyword,
                     }));
                 }
                 last_title = Some(title);
                 continue;
             }
 
-            // 3. 历史记录缓存
-            let cached = {
-                let history = state.history.lock().await;
-                history.get(&title).copied()
-            };
+            // 3. 历史记录缓存（持久化于 list_config.json，重启不丢）
+            let cached = cfg_snapshot.history.get(&title).copied();
             if let Some(is_ent) = cached {
                 if is_ent && last_title.as_deref() != Some(title.as_str()) {
                     let _ = event_tx.send(DetectionEvent::Entertainment(DetectionResult {
@@ -316,7 +498,11 @@ pub fn start_detection(
             // 6. 调用 AI 判断
             match check_is_entertainment(&api_key, &title).await {
                 AiOutcome::Answer(true) => {
-                    state.history.lock().await.insert(title.clone(), true);
+                    {
+                        let mut cfg = state.list_config.lock().await;
+                        cfg.history.insert(title.clone(), true);
+                    }
+                    save_list_config_if_possible(&state).await;
                     let _ = event_tx.send(DetectionEvent::Entertainment(DetectionResult {
                         window_title: title.clone(),
                         is_entertainment: true,
@@ -325,7 +511,11 @@ pub fn start_detection(
                     }));
                 }
                 AiOutcome::Answer(false) => {
-                    state.history.lock().await.insert(title.clone(), false);
+                    {
+                        let mut cfg = state.list_config.lock().await;
+                        cfg.history.insert(title.clone(), false);
+                    }
+                    save_list_config_if_possible(&state).await;
                 }
                 AiOutcome::ApiKeyInvalid => {
                     let _ = event_tx.send(DetectionEvent::ApiKeyInvalid);
@@ -430,38 +620,65 @@ mod tests {
 
     #[test]
     fn test_whitelist_match() {
-        assert!(match_whitelist("文件资源管理器").is_some());
-        assert!(match_whitelist("Visual Studio Code - main.rs").is_some());
-        assert!(match_whitelist("PowerShell - 7").is_some());
-        assert!(match_whitelist("PomoSolo 番茄钟").is_some());
-        assert!(match_whitelist("cmd.exe").is_some());
-        assert!(match_whitelist("任务管理器").is_some());
-        assert!(match_whitelist("设置").is_some());
-        assert!(match_whitelist("Explorer").is_some());
-        assert!(match_whitelist("SystemSettings").is_some());
-        assert!(match_whitelist("Windows Input Experience").is_some());
-        assert!(match_whitelist("random window").is_none());
+        let cfg = ListConfig::default();
+        assert!(match_whitelist("文件资源管理器", &cfg).is_some());
+        assert!(match_whitelist("Visual Studio Code - main.rs", &cfg).is_some());
+        assert!(match_whitelist("PowerShell - 7", &cfg).is_some());
+        assert!(match_whitelist("PomoSolo 番茄钟", &cfg).is_some());
+        assert!(match_whitelist("cmd.exe", &cfg).is_some());
+        assert!(match_whitelist("任务管理器", &cfg).is_some());
+        assert!(match_whitelist("设置", &cfg).is_some());
+        assert!(match_whitelist("Explorer", &cfg).is_some());
+        assert!(match_whitelist("SystemSettings", &cfg).is_some());
+        assert!(match_whitelist("Windows Input Experience", &cfg).is_some());
+        assert!(match_whitelist("random window", &cfg).is_none());
         // 黑名单项不应被白名单命中
-        assert!(match_whitelist("原神").is_none());
-        assert!(match_whitelist("bilibili").is_none());
+        assert!(match_whitelist("原神", &cfg).is_none());
+        assert!(match_whitelist("bilibili", &cfg).is_none());
     }
 
     #[test]
     fn test_blacklist_match() {
-        assert!(match_blacklist("原神 - 游戏").is_some());
-        assert!(match_blacklist("bilibili - 首页").is_some());
-        assert!(match_blacklist("哔哩哔哩").is_some());
-        assert!(match_blacklist("英雄联盟").is_some());
-        assert!(match_blacklist("League of Legends").is_some());
-        assert!(match_blacklist("网易云音乐").is_some());
-        assert!(match_blacklist("YouTube - Chrome").is_some());
-        assert!(match_blacklist("抖音").is_some());
-        assert!(match_blacklist("小红书").is_some());
-        assert!(match_blacklist("微博").is_some());
-        assert!(match_blacklist("Weibo").is_some());
+        let cfg = ListConfig::default();
+        assert!(match_blacklist("原神 - 游戏", &cfg).is_some());
+        assert!(match_blacklist("bilibili - 首页", &cfg).is_some());
+        assert!(match_blacklist("哔哩哔哩", &cfg).is_some());
+        assert!(match_blacklist("英雄联盟", &cfg).is_some());
+        assert!(match_blacklist("League of Legends", &cfg).is_some());
+        assert!(match_blacklist("网易云音乐", &cfg).is_some());
+        assert!(match_blacklist("YouTube - Chrome", &cfg).is_some());
+        assert!(match_blacklist("抖音", &cfg).is_some());
+        assert!(match_blacklist("小红书", &cfg).is_some());
+        assert!(match_blacklist("微博", &cfg).is_some());
+        assert!(match_blacklist("Weibo", &cfg).is_some());
         // 白名单项不应被黑名单命中
-        assert!(match_blacklist("Visual Studio Code").is_none());
-        assert!(match_blacklist("文件资源管理器").is_none());
+        assert!(match_blacklist("Visual Studio Code", &cfg).is_none());
+        assert!(match_blacklist("文件资源管理器", &cfg).is_none());
+    }
+
+    #[test]
+    fn test_user_whitelist_takes_priority_over_default_blacklist() {
+        // 用户把默认黑名单关键词加入白名单后，白名单应先生效（误判纠正路径）
+        let mut cfg = ListConfig::default();
+        cfg.whitelist.push("网易云音乐".to_string());
+        assert!(match_whitelist("网易云音乐 - 私人FM", &cfg).is_some());
+    }
+
+    #[test]
+    fn test_user_blacklist_extends_default() {
+        let mut cfg = ListConfig::default();
+        cfg.blacklist.push("我的自定义游戏".to_string());
+        assert!(match_blacklist("我的自定义游戏 - 启动器", &cfg).is_some());
+        // 默认黑名单依然有效
+        assert!(match_blacklist("抖音", &cfg).is_some());
+    }
+
+    #[test]
+    fn test_empty_keyword_never_matches() {
+        let mut cfg = ListConfig::default();
+        cfg.whitelist.push(String::new());
+        // 空关键词不应导致所有标题都命中
+        assert!(match_whitelist("任意窗口", &cfg).is_none());
     }
 
     #[test]
@@ -479,14 +696,150 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().expect("创建 tokio 运行时失败");
         rt.block_on(async {
             {
-                let mut history = state.history.lock().await;
-                history.insert("原神".to_string(), true);
-                history.insert("记事本".to_string(), false);
+                let mut cfg = state.list_config.lock().await;
+                cfg.history.insert("原神".to_string(), true);
+                cfg.history.insert("记事本".to_string(), false);
             }
-            let history = state.history.lock().await;
-            assert_eq!(history.get("原神"), Some(&true));
-            assert_eq!(history.get("记事本"), Some(&false));
-            assert_eq!(history.get("未知窗口"), None);
+            let cfg = state.list_config.lock().await;
+            assert_eq!(cfg.history.get("原神"), Some(&true));
+            assert_eq!(cfg.history.get("记事本"), Some(&false));
+            assert_eq!(cfg.history.get("未知窗口"), None);
         });
+    }
+
+    // ===== 名单配置持久化 =====
+
+    #[test]
+    fn test_list_config_save_load_roundtrip() {
+        let dir = tempfile::tempdir().expect("创建临时目录失败");
+        let path = dir.path().join("list_config.json");
+
+        let mut cfg = ListConfig::default();
+        cfg.whitelist.push("Visual Studio Code".to_string());
+        cfg.blacklist.push("抖音".to_string());
+        cfg.history.insert("原神".to_string(), true);
+        cfg.history.insert("记事本".to_string(), false);
+
+        save_list_config(&path, &cfg).expect("保存应成功");
+        let loaded = load_list_config(&path).expect("加载应成功");
+        assert_eq!(loaded.whitelist, vec!["Visual Studio Code"]);
+        assert_eq!(loaded.blacklist, vec!["抖音"]);
+        assert_eq!(loaded.history.get("原神"), Some(&true));
+        assert_eq!(loaded.history.get("记事本"), Some(&false));
+    }
+
+    #[test]
+    fn test_load_list_config_missing_file_returns_default() {
+        let path = std::path::PathBuf::from("/nonexistent/list_config.json");
+        let cfg = load_list_config(&path).expect("缺失文件应返回默认配置");
+        assert!(cfg.whitelist.is_empty());
+        assert!(cfg.blacklist.is_empty());
+        assert!(cfg.history.is_empty());
+    }
+
+    #[test]
+    fn test_load_list_config_legacy_string_history() {
+        // 旧版 Electron/Python 格式：history 值为 "是"/"不是" 字符串
+        let dir = tempfile::tempdir().expect("创建临时目录失败");
+        let path = dir.path().join("list_config.json");
+        std::fs::write(
+            &path,
+            r#"{
+                "whitelist": ["文件资源管理器"],
+                "blacklist": ["抖音"],
+                "history": {"原神": "是", "记事本": "不是"}
+            }"#,
+        )
+        .expect("写入测试文件失败");
+
+        let cfg = load_list_config(&path).expect("旧格式应能加载");
+        assert_eq!(cfg.history.get("原神"), Some(&true));
+        assert_eq!(cfg.history.get("记事本"), Some(&false));
+    }
+
+    // ===== 名单管理操作 =====
+
+    #[test]
+    fn test_add_to_whitelist_dedup_and_empty() {
+        let state = DetectionState::default();
+        let rt = tokio::runtime::Runtime::new().expect("创建 tokio 运行时失败");
+        rt.block_on(async {
+            assert!(add_to_whitelist(&state, "工作应用").await);
+            // 重复添加返回 false
+            assert!(!add_to_whitelist(&state, "工作应用").await);
+            // 空关键词拒绝
+            assert!(!add_to_whitelist(&state, "  ").await);
+            let cfg = state.list_config.lock().await;
+            assert_eq!(cfg.whitelist.len(), 1);
+        });
+    }
+
+    #[test]
+    fn test_add_to_blacklist_dedup_and_empty() {
+        let state = DetectionState::default();
+        let rt = tokio::runtime::Runtime::new().expect("创建 tokio 运行时失败");
+        rt.block_on(async {
+            assert!(add_to_blacklist(&state, "新游戏").await);
+            assert!(!add_to_blacklist(&state, "新游戏").await);
+            assert!(!add_to_blacklist(&state, "").await);
+            let cfg = state.list_config.lock().await;
+            assert_eq!(cfg.blacklist.len(), 1);
+        });
+    }
+
+    #[test]
+    fn test_mark_history_not() {
+        let state = DetectionState::default();
+        let rt = tokio::runtime::Runtime::new().expect("创建 tokio 运行时失败");
+        rt.block_on(async {
+            {
+                let mut cfg = state.list_config.lock().await;
+                cfg.history.insert("某窗口".to_string(), true);
+            }
+            assert!(mark_history_not(&state, "某窗口").await);
+            let cfg = state.list_config.lock().await;
+            assert_eq!(cfg.history.get("某窗口"), Some(&false));
+            drop(cfg);
+            assert!(!mark_history_not(&state, "  ").await);
+        });
+    }
+
+    #[test]
+    fn test_move_blacklist_to_whitelist() {
+        let state = DetectionState::default();
+        let rt = tokio::runtime::Runtime::new().expect("创建 tokio 运行时失败");
+        rt.block_on(async {
+            add_to_blacklist(&state, "误伤应用").await;
+            assert!(move_blacklist_to_whitelist(&state, "误伤应用").await);
+            let cfg = state.list_config.lock().await;
+            assert!(!cfg.blacklist.iter().any(|k| k == "误伤应用"));
+            assert!(cfg.whitelist.iter().any(|k| k == "误伤应用"));
+            drop(cfg);
+            // 默认黑名单中的词也能移（用户黑名单没有，但会加入白名单）
+            assert!(move_blacklist_to_whitelist(&state, "抖音").await);
+            let cfg = state.list_config.lock().await;
+            assert!(cfg.whitelist.iter().any(|k| k == "抖音"));
+            drop(cfg);
+            assert!(!move_blacklist_to_whitelist(&state, "").await);
+        });
+    }
+
+    #[test]
+    fn test_list_operations_persist_to_file() {
+        let dir = tempfile::tempdir().expect("创建临时目录失败");
+        let path = dir.path().join("list_config.json");
+        let state = DetectionState::default();
+        *state.config_path.lock().unwrap() = Some(path.clone());
+
+        let rt = tokio::runtime::Runtime::new().expect("创建 tokio 运行时失败");
+        rt.block_on(async {
+            add_to_whitelist(&state, "工作应用").await;
+            mark_history_not(&state, "某窗口").await;
+        });
+
+        // 从文件重新加载，验证已持久化
+        let loaded = load_list_config(&path).expect("加载应成功");
+        assert!(loaded.whitelist.iter().any(|k| k == "工作应用"));
+        assert_eq!(loaded.history.get("某窗口"), Some(&false));
     }
 }

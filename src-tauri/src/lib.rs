@@ -74,6 +74,11 @@ pub fn run() {
             commands::foreground::foreground_get_status,
             commands::foreground::foreground_set_api_key,
             commands::foreground::foreground_is_ready,
+            commands::foreground::foreground_add_whitelist,
+            commands::foreground::foreground_add_blacklist,
+            commands::foreground::foreground_mark_history_not,
+            commands::foreground::foreground_move_blacklist_to_whitelist,
+            commands::foreground::foreground_get_config,
             // 音乐播放器
             commands::music::music_toggle_play,
             commands::music::music_next,

@@ -93,19 +93,19 @@ describe("App.vue", () => {
 
   // ===== 主题 class =====
 
-  it("默认 dark 主题应在 container 上应用 dark-theme class", async () => {
+  it("默认 light 主题不应在 container 上应用 dark-theme class", async () => {
     const wrapper = await mountApp();
-    const container = wrapper.find(".container");
-    expect(container.classes()).toContain("dark-theme");
-  });
-
-  it("切换到 light 主题应移除 dark-theme class", async () => {
-    const wrapper = await mountApp();
-    const settings = useSettingsStore();
-    await settings.update("theme", "light");
-    await wrapper.vm.$nextTick();
     const container = wrapper.find(".container");
     expect(container.classes()).not.toContain("dark-theme");
+  });
+
+  it("切换到 dark 主题应在 container 上应用 dark-theme class", async () => {
+    const wrapper = await mountApp();
+    const settings = useSettingsStore();
+    await settings.update("theme", "dark");
+    await wrapper.vm.$nextTick();
+    const container = wrapper.find(".container");
+    expect(container.classes()).toContain("dark-theme");
   });
 
   it("timer.mode === 'break' 时应应用 break-mode class", async () => {

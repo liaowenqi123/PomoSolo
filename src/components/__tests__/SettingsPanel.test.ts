@@ -97,11 +97,11 @@ describe("SettingsPanel.vue", () => {
     expect(themeBtns[1].text()).toBe("浅色");
   });
 
-  it("默认 dark 主题下『深色』按钮应有 active 类", () => {
+  it("默认 light 主题下『浅色』按钮应有 active 类", () => {
     const wrapper = mountComponent();
     const themeBtns = wrapper.findAll(".theme-btn");
-    expect(themeBtns[0].classes()).toContain("theme-btn--active");
-    expect(themeBtns[1].classes()).not.toContain("theme-btn--active");
+    expect(themeBtns[1].classes()).toContain("theme-btn--active");
+    expect(themeBtns[0].classes()).not.toContain("theme-btn--active");
   });
 
   it("点击『浅色』应调用 settings.update('theme', 'light') 并切换 active", async () => {
@@ -304,14 +304,14 @@ describe("SettingsPanel.vue", () => {
     const wrapper = mountComponent();
     const store = useSettingsStore();
     // 先修改一个值
-    await store.update("theme", "light");
-    expect(store.theme).toBe("light");
+    await store.update("theme", "dark");
+    expect(store.theme).toBe("dark");
 
     const resetSpy = vi.spyOn(store, "reset");
     await wrapper.find(".settings-btn--reset").trigger("click");
 
     expect(resetSpy).toHaveBeenCalledTimes(1);
-    expect(store.theme).toBe("dark");
+    expect(store.theme).toBe("light");
     expect(store.settings).toEqual(DEFAULT_SETTINGS);
   });
 

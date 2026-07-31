@@ -47,7 +47,13 @@ import { useSettingsStore } from "./stores/settings";
 import { useStatsStore } from "./stores/stats";
 import { useGardenStore } from "./stores/garden";
 import { useAuthStore } from "./stores/auth";
-import { foregroundStart, foregroundStop } from "./api/foreground";
+import {
+  foregroundStart,
+  foregroundStop,
+  foregroundMarkHistoryNot,
+  foregroundMoveBlacklistToWhitelist,
+  type DetectionResult,
+} from "./api/foreground";
 import type { AiPlanItem } from "./api/ai";
 
 const timer = useTimerStore();
@@ -296,6 +302,24 @@ async function onPunishment(): Promise<void> {
   focusModeEnabled.value = false;
 }
 
+// ===== “不是娱乐”误判纠正（对齐旧版 foregroundDetection.js 的 handleNotEntertainment） =====
+async function onNotEntertainment(result: DetectionResult): Promise<void> {
+  try {
+    if (result.source === "blacklist" && result.keyword) {
+      // 来自黑名单：将关键词从黑名单移到白名单
+      await foregroundMoveBlacklistToWhitelist(result.keyword);
+    } else if (
+      (result.source === "history" || result.source === "ai") &&
+      result.windowTitle
+    ) {
+      // 来自历史记录或 AI 判断：将历史记录中的该项标记为“不是”
+      await foregroundMarkHistoryNot(result.windowTitle);
+    }
+  } catch (e) {
+    console.warn("[foreground] 名单纠正失败:", e);
+  }
+}
+
 // ===== 新专注周期开始时重置前台警告次数 =====
 watch(
   () => timer.phase,
@@ -478,6 +502,7 @@ watch(
         :visible="showForegroundWarning"
         @update:visible="showForegroundWarning = $event"
         @punishment="onPunishment"
+        @not-entertainment="onNotEntertainment"
       />
       <TutorialModal :visible="showTutorial" @close="showTutorial = false" />
     </div>

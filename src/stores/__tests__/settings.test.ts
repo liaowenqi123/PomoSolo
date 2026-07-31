@@ -32,8 +32,8 @@ describe("useSettingsStore", () => {
     const store = useSettingsStore();
     expect(store.settings).toEqual(DEFAULT_SETTINGS);
     expect(store.loaded).toBe(false);
-    expect(store.theme).toBe("dark");
-    expect(store.isDark).toBe(true);
+    expect(store.theme).toBe("light");
+    expect(store.isDark).toBe(false);
     expect(store.minimizeBehavior).toBe("tray");
     expect(store.autoStart).toBe(false);
   });
@@ -88,12 +88,12 @@ describe("useSettingsStore", () => {
 
     expect(dataApiMock.writeSettings).toHaveBeenCalledTimes(1);
     const payload = dataApiMock.writeSettings.mock.calls[0][0];
-    expect(payload).toMatchObject({ theme: "dark" });
+    expect(payload).toMatchObject({ theme: "light" });
 
     // localStorage 也应被写入
     const saved = localStorage.getItem("pomodoro-settings");
     expect(saved).not.toBeNull();
-    expect(JSON.parse(saved!).theme).toBe("dark");
+    expect(JSON.parse(saved!).theme).toBe("light");
   });
 
   it("update 应更新单个字段并持久化", async () => {
@@ -116,21 +116,21 @@ describe("useSettingsStore", () => {
 
   it("reset 应恢复默认设置并持久化", async () => {
     const store = useSettingsStore();
-    await store.update("theme", "light");
-    expect(store.theme).toBe("light");
+    await store.update("theme", "dark");
+    expect(store.theme).toBe("dark");
 
     await store.reset();
     expect(store.settings).toEqual(DEFAULT_SETTINGS);
-    expect(store.theme).toBe("dark");
+    expect(store.theme).toBe("light");
   });
 
   it("toggleTheme 应在 dark/light 之间切换", async () => {
     const store = useSettingsStore();
-    expect(store.theme).toBe("dark");
-    await store.toggleTheme();
     expect(store.theme).toBe("light");
     await store.toggleTheme();
     expect(store.theme).toBe("dark");
+    await store.toggleTheme();
+    expect(store.theme).toBe("light");
   });
 
   it("DEFAULT_SETTINGS 应包含所有必需字段", () => {

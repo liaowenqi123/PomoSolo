@@ -9,6 +9,10 @@
  * - foreground_start / foreground_stop
  * - foreground_get_status
  * - foreground_set_api_key(api_key)
+ * - foreground_add_whitelist(keyword) / foreground_add_blacklist(keyword)
+ * - foreground_mark_history_not(window_title)
+ * - foreground_move_blacklist_to_whitelist(keyword)
+ * - foreground_get_config
  *
  * 事件名（与旧 Electron 版一致，kebab-case）：
  * - 'foreground-ready'
@@ -16,9 +20,6 @@
  * - 'foreground-entertainment-detected'
  * - 'foreground-status'
  * - 'foreground-error'
- *
- * 注意：当前 src-tauri/src/lib.rs 暂未注册这些命令，调用会失败。
- * 等后端 commands 注册后即可直接使用。
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn, type EventCallback } from "@tauri-apps/api/event";
@@ -89,6 +90,62 @@ export function foregroundGetStatus(): Promise<ForegroundStatus | null> {
  */
 export function foregroundSetApiKey(key: string): Promise<void> {
   return invoke<void>("foreground_set_api_key", { apiKey: key });
+}
+
+// ===== 名单管理 =====
+
+/** 名单配置（与 Rust `foreground_inspection::ListConfig` 对应） */
+export interface ForegroundListConfig {
+  /** 用户自定义白名单关键词 */
+  whitelist: string[];
+  /** 用户自定义黑名单关键词 */
+  blacklist: string[];
+  /** AI 判断历史：窗口标题 → 是否娱乐 */
+  history: Record<string, boolean>;
+}
+
+/**
+ * 添加关键词到白名单（命中 → 非娱乐）。返回是否真正新增（重复/空关键词返回 false）。
+ * 后端：`foreground_add_whitelist(keyword) -> bool`
+ */
+export function foregroundAddWhitelist(keyword: string): Promise<boolean> {
+  return invoke<boolean>("foreground_add_whitelist", { keyword });
+}
+
+/**
+ * 添加关键词到黑名单（命中 → 娱乐）。返回是否真正新增。
+ * 后端：`foreground_add_blacklist(keyword) -> bool`
+ */
+export function foregroundAddBlacklist(keyword: string): Promise<boolean> {
+  return invoke<boolean>("foreground_add_blacklist", { keyword });
+}
+
+/**
+ * 将历史记录中的窗口标题标记为"不是娱乐"。
+ * ForegroundWarning"不是娱乐"按钮：source 为 history/ai 时调用。
+ * 后端：`foreground_mark_history_not(window_title) -> bool`
+ */
+export function foregroundMarkHistoryNot(windowTitle: string): Promise<boolean> {
+  return invoke<boolean>("foreground_mark_history_not", { windowTitle });
+}
+
+/**
+ * 把黑名单关键词移到白名单（误判纠正）。
+ * ForegroundWarning"不是娱乐"按钮：source 为 blacklist 时调用。
+ * 后端：`foreground_move_blacklist_to_whitelist(keyword) -> bool`
+ */
+export function foregroundMoveBlacklistToWhitelist(
+  keyword: string,
+): Promise<boolean> {
+  return invoke<boolean>("foreground_move_blacklist_to_whitelist", { keyword });
+}
+
+/**
+ * 获取当前名单配置（用户白/黑名单 + 历史记录）。
+ * 后端：`foreground_get_config() -> ForegroundListConfig`
+ */
+export function foregroundGetConfig(): Promise<ForegroundListConfig> {
+  return invoke<ForegroundListConfig>("foreground_get_config");
 }
 
 // ===== 事件监听 =====

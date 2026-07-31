@@ -82,7 +82,7 @@ describe("App.vue UI 一致性", () => {
     const wrapper = await mountApp();
     const settings = useSettingsStore();
 
-    // 默认 theme 是 dark，所以初始应为 true
+    // 默认 theme 是 light，所以初始应为 false
     const initialIsDark = settings.isDark;
     expect(document.documentElement.classList.contains("dark-theme")).toBe(initialIsDark);
 
