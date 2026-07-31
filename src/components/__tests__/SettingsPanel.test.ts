@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { mount } from "@vue/test-utils";
+import { mount, flushPromises } from "@vue/test-utils";
 import { setActivePinia, createPinia } from "pinia";
 
 // Mock @tauri-apps/api/core（update API 间接依赖 invoke）
@@ -25,6 +25,13 @@ const dataApi = vi.hoisted(() => ({
 }));
 vi.mock("@/api/data", () => dataApi);
 
+// Mock @/api/system 模块（autoStart 切换时调用 autostartEnable 同步系统登录项）
+const systemApi = vi.hoisted(() => ({
+  autostartEnable: vi.fn(),
+  autostartIsEnabled: vi.fn(),
+}));
+vi.mock("@/api/system", () => systemApi);
+
 import SettingsPanel from "../SettingsPanel.vue";
 import { useSettingsStore, DEFAULT_SETTINGS } from "../../stores/settings";
 
@@ -35,6 +42,10 @@ describe("SettingsPanel.vue", () => {
     dataApi.readSettings.mockReset();
     dataApi.writeSettings.mockReset();
     dataApi.writeSettings.mockResolvedValue(undefined);
+    systemApi.autostartEnable.mockReset();
+    systemApi.autostartIsEnabled.mockReset();
+    // autostartEnable 默认返回与请求一致的状态（不触发回写）
+    systemApi.autostartEnable.mockResolvedValue(true);
   });
 
   const mountComponent = (visible = true) =>
@@ -279,7 +290,7 @@ describe("SettingsPanel.vue", () => {
     );
   });
 
-  it("切换『开机自启动』应调用 settings.update('autoStart', true)", async () => {
+  it("切换『开机自启动』应调用 settings.update('autoStart', true) 和 autostartEnable(true)", async () => {
     const wrapper = mountComponent();
     const store = useSettingsStore();
     const updateSpy = vi.spyOn(store, "update");
@@ -287,9 +298,12 @@ describe("SettingsPanel.vue", () => {
     const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
     const autoStartToggle = toggles[toggles.length - 1];
     await autoStartToggle.setValue(true);
+    await flushPromises();
 
     expect(updateSpy).toHaveBeenCalledWith("autoStart", true);
     expect(store.autoStart).toBe(true);
+    // autostartEnable 也应被调用以同步系统登录项
+    expect(systemApi.autostartEnable).toHaveBeenCalledWith(true);
   });
 
   // ===== 底部按钮 =====

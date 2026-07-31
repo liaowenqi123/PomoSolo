@@ -36,6 +36,7 @@ import * as musicApi from "../music";
 import * as chartsApi from "../charts";
 import * as aiApi from "../ai";
 import * as studyRoomApi from "../studyRoom";
+import * as systemApi from "../system";
 
 describe("api/index.ts — 统一出口", () => {
   it("应 re-export invoke 自 @tauri-apps/api/core", () => {
@@ -115,5 +116,10 @@ describe("api/index.ts — 统一出口", () => {
     expect(apiIndex.studyRoomCreate).toBe(studyRoomApi.studyRoomCreate);
     expect(apiIndex.studyRoomJoin).toBe(studyRoomApi.studyRoomJoin);
     expect(apiIndex.studyRoomLeave).toBe(studyRoomApi.studyRoomLeave);
+  });
+
+  it("应 re-export system 模块的所有导出", () => {
+    expect(apiIndex.autostartEnable).toBe(systemApi.autostartEnable);
+    expect(apiIndex.autostartIsEnabled).toBe(systemApi.autostartIsEnabled);
   });
 });

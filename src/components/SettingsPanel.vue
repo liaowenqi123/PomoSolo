@@ -25,6 +25,7 @@ import {
   FEEDBACK_STATUS_LABELS,
   type FeedbackItem,
 } from "@/api/feedback";
+import { autostartEnable } from "@/api/system";
 
 const props = defineProps<{
   visible: boolean;
@@ -157,6 +158,18 @@ async function onToggle(
   value: boolean,
 ): Promise<void> {
   await settings.update(key, value);
+  // 开机自启需同步到系统登录项（对应旧版 Electron 的 set-auto-start）
+  if (key === "autoStart") {
+    try {
+      const actual = await autostartEnable(value);
+      // 系统实际状态可能与请求不同（如权限不足），回写保证 UI 一致
+      if (actual !== value) {
+        await settings.update("autoStart", actual);
+      }
+    } catch {
+      // 后端调用失败时静默降级，设置已保存到 data.json，启动时会同步
+    }
+  }
 }
 
 async function onReset(): Promise<void> {

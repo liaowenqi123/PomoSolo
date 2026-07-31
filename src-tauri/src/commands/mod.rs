@@ -9,3 +9,4 @@ pub mod charts;
 pub mod ai;
 pub mod study_room;
 pub mod update;
+pub mod system;

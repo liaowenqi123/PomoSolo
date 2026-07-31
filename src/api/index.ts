@@ -24,6 +24,7 @@ export * from "./music";
 export * from "./charts";
 export * from "./ai";
 export * from "./studyRoom";
+export * from "./system";
 
 // 同时直接导出 invoke / listen，方便调用方按需使用
 export { invoke } from "@tauri-apps/api/core";

@@ -3,12 +3,27 @@ mod modules;
 mod state;
 
 use state::{AppState, ChartsState, MusicState};
-use tauri::Manager;
+use tauri::{Manager, tray::TrayIconBuilder, tray::TrayIconEvent, menu::{Menu, MenuItem}};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(move |app, shortcut, event| {
+                    if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        // Code 的 Debug 表示即变体名（如 "MediaPlayPause"）
+                        let key = format!("{:?}", shortcut.key);
+                        let handle = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = commands::system::dispatch_media_key(&handle, &key).await;
+                        });
+                    }
+                })
+                .build(),
+        )
         .manage(AppState::new())
         .manage(MusicState::new())
         .manage(ChartsState::new())
@@ -109,6 +124,9 @@ pub fn run() {
             // 自动更新
             commands::update::check_update,
             commands::update::download_and_install,
+            // 系统集成（开机自启）
+            commands::system::autostart_enable,
+            commands::system::autostart_is_enabled,
         ])
         .setup(|_app| {
             // Windows 11：禁用 DWM 系统级窗口圆角，避免与 CSS 圆角形成双层圆角。
@@ -128,6 +146,48 @@ pub fn run() {
             if let Err(e) = commands::update::restore_music_dir(&_app.handle()) {
                 eprintln!("[setup] 还原音乐备份失败: {}", e);
             }
+
+            // 系统托盘：显示主窗口 / 退出应用
+            // 对应旧版 Electron ipc-window.js 中迷你模式创建的 Tray（此处改为持久托盘）
+            let show_item = MenuItem::with_id(_app, "show", "显示主窗口", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(_app, "quit", "退出应用", true, None::<&str>)?;
+            let menu = Menu::with_items(_app, &[&show_item, &quit_item])?;
+            TrayIconBuilder::with_id("main-tray")
+                .icon(_app.default_window_icon().cloned().unwrap())
+                .tooltip("PomoSolo - 番茄钟")
+                .menu(&menu)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click { .. } = event {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(_app)?;
+
+            // 同步开机自启状态：从 settings.json 读取 autoStart，同步到系统登录项
+            let autostart_enabled = modules::data_manager::read_settings(&_app.handle())
+                .ok()
+                .and_then(|s| s.get("autoStart").and_then(|v| v.as_bool()))
+                .unwrap_or(false);
+            commands::system::sync_autostart_with_settings(&_app.handle(), autostart_enabled);
+
+            // 注册媒体键全局快捷键（播放/暂停、上一首、下一首）
+            commands::system::register_media_shortcuts(&_app.handle());
 
             #[cfg(debug_assertions)]
             {
