@@ -3,7 +3,7 @@ mod modules;
 mod state;
 
 use state::{AppState, ChartsState, MusicState};
-use tauri::{Manager, tray::TrayIconBuilder, tray::TrayIconEvent, menu::{Menu, MenuItem}};
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -147,37 +147,9 @@ pub fn run() {
                 eprintln!("[setup] 还原音乐备份失败: {}", e);
             }
 
-            // 系统托盘：显示主窗口 / 退出应用
-            // 对应旧版 Electron ipc-window.js 中迷你模式创建的 Tray（此处改为持久托盘）
-            let show_item = MenuItem::with_id(_app, "show", "显示主窗口", true, None::<&str>)?;
-            let quit_item = MenuItem::with_id(_app, "quit", "退出应用", true, None::<&str>)?;
-            let menu = Menu::with_items(_app, &[&show_item, &quit_item])?;
-            TrayIconBuilder::with_id("main-tray")
-                .icon(_app.default_window_icon().cloned().unwrap())
-                .tooltip("PomoSolo - 番茄钟")
-                .menu(&menu)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "show" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                    "quit" => {
-                        app.exit(0);
-                    }
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click { .. } = event {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
-                    }
-                })
-                .build(_app)?;
+            // 系统托盘：对照旧版 Electron 的行为，仅在迷你模式下创建/销毁。
+            // 不再在 setup 中创建持久托盘，避免迷你模式下出现两个托盘图标。
+            // 迷你模式托盘创建逻辑见 commands::window::enter_mini_mode。
 
             // 同步开机自启状态：从 settings.json 读取 autoStart，同步到系统登录项
             let autostart_enabled = modules::data_manager::read_settings(&_app.handle())

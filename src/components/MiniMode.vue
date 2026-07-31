@@ -2,13 +2,14 @@
 /**
  * 迷你模式 - 番茄切片风格
  *
- * 参照原 Electron 版 .mini-mode 样式：
+ * 参照原 Electron 版 .mini-mode 样式 + renderer.js L579-594 + main-content.css L498-515：
  *   小番茄造型，叶子装饰 + 红色主体 + 进度环 + 时间显示。
  *   计时运行时最小化可进入迷你模式。
  *
  * 退出迷你模式有两种方式（由 settings.miniExitMode 控制）：
- *   - "button"：点击右下角箭头按钮退出
- *   - "double-click"：双击番茄主体退出
+ *   - "button"：点击右下角箭头按钮退出，拖动区域为整个迷你窗口
+ *   - "double-click"：双击番茄主体退出，拖动区域仅限叶子装饰
+ *     （对照 Electron 版：箭头模式下 mini-draggable 可拖动，双击模式下 mini-leaves 可拖动）
  *
  * 拖动后通过 mouseleave 调用 updateMiniPosition 保存位置到 data.json。
  */
@@ -31,7 +32,7 @@ const emit = defineEmits<{
 const displayTime = computed(() => timer.displayTime);
 const progress = computed(() => timer.progress);
 
-/** 是否为双击退出模式 */
+/** 是否为双击退出模式（与 Electron 原版一致） */
 const isDoubleClickExit = computed(
   () => settings.settings.miniExitMode === "double-click",
 );
@@ -58,14 +59,25 @@ async function handleDragEnd() {
 
 <template>
   <div v-if="props.visible" class="mini-mode">
+    <!--
+      条件性拖动区域（对照 Electron 原版 renderer.js L584-593 + main-content.css L499-515）：
+      - button 模式：mini-draggable 整层可拖动，展开按钮浮在更高 z-index(10) 可点击
+      - double-click 模式：仅 mini-leaves 可拖动，番茄主体 (z-index:2) 可接收 dblclick
+        mini-draggable 不渲染，避免全层覆盖阻断番茄的点击事件
+    -->
     <div
+      v-if="!isDoubleClickExit"
       class="mini-draggable"
       data-tauri-drag-region
       @mouseleave="handleDragEnd"
     ></div>
 
-    <!-- 番茄叶子装饰 -->
-    <div class="mini-leaves">
+    <!-- 番茄叶子装饰（双击退出模式下作为拖动区域） -->
+    <div
+      class="mini-leaves"
+      :data-tauri-drag-region="isDoubleClickExit ? '' : undefined"
+      @mouseleave="handleDragEnd"
+    >
       <div class="mini-leaf mini-leaf-left"></div>
       <div class="mini-leaf mini-leaf-center"></div>
       <div class="mini-leaf mini-leaf-right"></div>

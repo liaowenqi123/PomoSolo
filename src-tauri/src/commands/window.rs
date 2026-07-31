@@ -1,5 +1,5 @@
 use serde_json::Value;
-use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition};
+use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, tray::TrayIconBuilder, menu::{Menu, MenuItem}};
 
 /// 常量：正常模式与迷你模式窗口尺寸（CSS 像素，与旧版一致）
 const NORMAL_WIDTH: f64 = 520.0;
@@ -9,7 +9,6 @@ const MINI_HEIGHT: f64 = 220.0;
 
 #[tauri::command]
 pub async fn close_window(app: AppHandle) {
-    // 先隐藏窗口（用户感知"已关闭"），然后退出应用
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.hide();
     }
@@ -60,19 +59,92 @@ pub async fn hide_garden_window(app: AppHandle) {
     }
 }
 
+/// 退出迷你模式的内部辅助函数（用于托盘事件中恢复窗口）
+fn do_exit_mini_mode(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_size(LogicalSize::new(NORMAL_WIDTH, NORMAL_HEIGHT));
+        let _ = w.set_always_on_top(false);
+        let _ = w.set_minimizable(true);
+        let _ = w.set_skip_taskbar(false);
+        app.remove_tray_by_id("mini-tray");
+        if let Ok(data) = crate::modules::data_manager::read_data(app) {
+            if let Some(pos) = data.get("normalModePosition").and_then(|v| v.as_array()) {
+                if pos.len() == 2 {
+                    let x = pos[0].as_i64().unwrap_or(0) as i32;
+                    let y = pos[1].as_i64().unwrap_or(0) as i32;
+                    let _ = w.set_position(PhysicalPosition::new(x, y));
+                }
+            }
+        }
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
 /// 进入迷你模式：
-/// 将主窗口尺寸缩小为 180x220（CSS 像素），置顶，禁止最小化，并从任务栏隐藏。
-/// 若 data.json 中保存了上次的迷你模式位置（miniModePosition），则恢复该位置。
+/// 1. 保存当前普通模式位置到 data.json → normalModePosition（退出时恢复）
+/// 2. 缩小窗口到 180x220，置顶，禁止最小化，从任务栏隐藏
+/// 3. 创建系统托盘（对照 Electron 版 ipc-window.js L104-131）
+/// 4. 恢复上次保存的迷你模式位置（miniModePosition）
+///
 /// 对应前端 `src/api/window.ts` 中的 `enterMiniMode()`。
 #[tauri::command]
 pub async fn enter_mini_mode(app: AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
+        // 1. 保存普通模式位置
+        if let Ok(pos) = window.outer_position() {
+            let mut data = match crate::modules::data_manager::read_data(&app) {
+                Ok(d) => d,
+                Err(_) => Value::Object(serde_json::Map::new()),
+            };
+            data["normalModePosition"] = Value::Array(vec![
+                Value::from(pos.x),
+                Value::from(pos.y),
+            ]);
+            let _ = crate::modules::data_manager::write_data(&app, &data);
+        }
+
+        // 2. 缩小窗口 + 置顶 + 隐藏任务栏
         let _ = window.set_size(LogicalSize::new(MINI_WIDTH, MINI_HEIGHT));
         let _ = window.set_always_on_top(true);
         let _ = window.set_minimizable(false);
         let _ = window.set_skip_taskbar(true);
 
-        // 恢复上次迷你模式位置
+        // 3. 创建迷你模式托盘（对照 Electron 版 ipc-window.js L104-131）
+        //    仅迷你模式下才创建，退出时销毁，避免始终显示托盘图标
+        let show_item = MenuItem::with_id(&app, "mini_show", "显示主窗口", true, None::<&str>).ok();
+        let quit_item = MenuItem::with_id(&app, "mini_quit", "退出应用", true, None::<&str>).ok();
+        if let (Some(show), Some(quit)) = (show_item, quit_item) {
+            if let Ok(menu) = Menu::with_items(&app, &[&show, &quit]) {
+                let app_clone = app.clone();
+                let r = TrayIconBuilder::with_id("mini-tray")
+                    .icon(app.default_window_icon().cloned().unwrap())
+                    .tooltip("PomoSolo - 迷你模式")
+                    .menu(&menu)
+                    .on_menu_event(move |app, event| match event.id.as_ref() {
+                        "mini_show" => {
+                            do_exit_mini_mode(app);
+                        }
+                        "mini_quit" => {
+                            app.exit(0);
+                        }
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        use tauri::tray::TrayIconEvent;
+                        if let TrayIconEvent::Click { .. } = event {
+                            let app = tray.app_handle();
+                            do_exit_mini_mode(app);
+                        }
+                    })
+                    .build(&app_clone);
+                if let Err(e) = r {
+                    eprintln!("[enter_mini_mode] 创建托盘失败: {}", e);
+                }
+            }
+        }
+
+        // 4. 恢复上次迷你模式位置
         if let Ok(data) = crate::modules::data_manager::read_data(&app) {
             if let Some(pos) = data.get("miniModePosition").and_then(|v| v.as_array()) {
                 if pos.len() == 2 {
@@ -86,13 +158,16 @@ pub async fn enter_mini_mode(app: AppHandle) {
 }
 
 /// 退出迷你模式：
-/// 先保存当前迷你模式位置到 data.json，然后恢复主窗口尺寸为 520x560，
-/// 取消置顶，恢复最小化与任务栏显示。
+/// 1. 保存当前迷你模式位置到 data.json
+/// 2. 销毁系统托盘
+/// 3. 恢复主窗口尺寸 520x560，取消置顶，恢复任务栏
+/// 4. 恢复到普通模式位置（normalModePosition）
+///
 /// 对应前端 `src/api/window.ts` 中的 `exitMiniMode()`。
 #[tauri::command]
 pub async fn exit_mini_mode(app: AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        // 保存当前迷你模式位置
+        // 1. 保存当前迷你模式位置
         if let Ok(pos) = window.outer_position() {
             let mut data = match crate::modules::data_manager::read_data(&app) {
                 Ok(d) => d,
@@ -105,10 +180,25 @@ pub async fn exit_mini_mode(app: AppHandle) {
             let _ = crate::modules::data_manager::write_data(&app, &data);
         }
 
+        // 2. 销毁托盘（对照 Electron 版 ipc-window.js L150-152）
+        app.remove_tray_by_id("mini-tray");
+
+        // 3. 恢复窗口属性
         let _ = window.set_size(LogicalSize::new(NORMAL_WIDTH, NORMAL_HEIGHT));
         let _ = window.set_always_on_top(false);
         let _ = window.set_minimizable(true);
         let _ = window.set_skip_taskbar(false);
+
+        // 4. 恢复到普通模式位置
+        if let Ok(data) = crate::modules::data_manager::read_data(&app) {
+            if let Some(pos) = data.get("normalModePosition").and_then(|v| v.as_array()) {
+                if pos.len() == 2 {
+                    let x = pos[0].as_i64().unwrap_or(0) as i32;
+                    let y = pos[1].as_i64().unwrap_or(0) as i32;
+                    let _ = window.set_position(PhysicalPosition::new(x, y));
+                }
+            }
+        }
     }
 }
 
@@ -131,14 +221,11 @@ pub async fn update_mini_position(app: AppHandle) {
 }
 
 /// 校验外部链接 URL：非空且仅允许 http/https 协议
-///
-/// 返回 Ok(规范化 URL) 表示通过，Err(原因) 表示拒绝。
 fn validate_external_url(raw: &str) -> Result<String, String> {
     let url = raw.trim();
     if url.is_empty() {
         return Err("URL 不能为空".to_string());
     }
-    // 仅允许 http/https 协议，防止 file:// 等危险协议
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err("仅支持 http/https 链接".to_string());
     }
@@ -241,15 +328,6 @@ mod tests {
 }
 
 /// Windows 11：禁用 DWM 系统级窗口圆角。
-///
-/// 在 `decorations: false` + `transparent: true` 下，Windows 11 22000+ 仍会
-/// 默认应用约 8px 的系统圆角，与定制的 CSS 圆角形成"双层圆角"效果并伴随
-/// 系统描边。调用 `DwmSetWindowAttribute` 将圆角偏好设为 `DWMWCP_DONOTROUND`
-/// 可让 Windows 不再应用系统圆角。
-///
-/// 注意：Tauri 2.11 内部依赖 windows 0.61，而本项目直接依赖 windows 0.58，
-/// 两者的 `HWND` 是不同类型。通过 `.hwnd().0` 取出原始 `*mut c_void` 指针
-/// 再用本 crate 的 `HWND` 重新构造即可桥接。
 #[cfg(windows)]
 pub fn disable_window_rounding(window: &tauri::WebviewWindow) {
     use windows::Win32::Foundation::HWND;
