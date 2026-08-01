@@ -8,7 +8,7 @@
 //! 服务器端对接文档见 server-planning/API-implementation.md。
 
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 
 /// 自建服务器地址（域名备案后替换）
@@ -48,14 +48,115 @@ pub async fn clear_tokens(store: &TokenStore) {
     *store.refresh_token.lock().await = None;
 }
 
-/// 读取 access token
-pub async fn get_access_token(store: &TokenStore) -> Option<String> {
-    store.access_token.lock().await.clone()
-}
-
 /// 读取 refresh token
 pub async fn get_refresh_token(store: &TokenStore) -> Option<String> {
     store.refresh_token.lock().await.clone()
+}
+
+/// 当前 unix 时间（秒）
+fn now_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// 解析 JWT 的 `exp`（unix 秒）。非 JWT 或缺失返回 None。
+///
+/// JWT 结构：`header.payload.signature`，payload 为 base64url 编码的 JSON。
+pub fn jwt_expiry(access: &str) -> Option<u64> {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    let payload_part = access.split('.').nth(1)?;
+    let bytes = URL_SAFE_NO_PAD.decode(payload_part).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    v.get("exp").and_then(|e| e.as_u64())
+}
+
+/// 解析 refresh 响应（纯函数，便于单测）。
+/// 返回 `(new_access_token, 可选 new_refresh_token)`；滚动刷新时服务器会返回新 refresh token。
+fn parse_refresh_response(body: &str) -> Option<(String, Option<String>)> {
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    let access = v.get("access_token")?.as_str()?.to_string();
+    let new_refresh = v
+        .get("refresh_token")
+        .and_then(|r| r.as_str())
+        .map(|s| s.to_string());
+    Some((access, new_refresh))
+}
+
+/// 使用 refresh token 刷新 access token（滚动刷新，成功后更新本地 tokens）
+pub async fn refresh_access_token(store: &TokenStore) -> Result<String, String> {
+    let refresh = get_refresh_token(store)
+        .await
+        .ok_or_else(|| "登录状态已失效，请重新登录".to_string())?;
+    let body = serde_json::json!({ "refresh_token": refresh });
+    let (status, resp_body) = post("/api/v1/auth/refresh", &body, None).await?;
+    if status != 200 {
+        return Err(format!("刷新登录态失败 (HTTP {})", status));
+    }
+    let (access, new_refresh) = parse_refresh_response(&resp_body)
+        .ok_or_else(|| "刷新登录态失败：响应格式错误".to_string())?;
+    if let Some(nr) = new_refresh {
+        set_tokens(store, &access, &nr).await;
+    } else {
+        *store.access_token.lock().await = Some(access.clone());
+    }
+    Ok(access)
+}
+
+/// 读取当前 access token；若有效直接返回
+async fn current_valid_token(store: &TokenStore) -> Option<String> {
+    let guard = store.access_token.lock().await;
+    let at = guard.as_ref()?;
+    match jwt_expiry(at) {
+        // 有效且剩余时间 > 60s → 直接使用（提前刷新，避免请求间隙过期）
+        Some(exp) if exp.saturating_sub(now_unix_secs()) > 60 => Some(at.clone()),
+        // 已过期/临近过期 → 需要刷新
+        Some(_) => None,
+        // 无 exp（格式异常）→ 原样返回，交由 401 兜底
+        None => Some(at.clone()),
+    }
+}
+
+/// 获取有效 access token：已过期/临近过期则自动用 refresh token 刷新。
+///
+/// 并发安全：多个调用方同时触发时只有一个执行刷新，其余等待其结果。
+/// 刷新失败（如 refresh token 已失效）返回 None，调用方应提示重新登录。
+pub async fn get_valid_access_token(store: &TokenStore) -> Option<String> {
+    if let Some(at) = current_valid_token(store).await {
+        return Some(at);
+    }
+
+    // 抢占刷新权；失败说明已有任务在刷新，等待其完成
+    if store
+        .refreshing
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            if let Some(at) = current_valid_token(store).await {
+                return Some(at);
+            }
+            // 刷新方已释放：再尝试抢占并自己刷新（可能上一次刷新失败）
+            if !store.refreshing.load(Ordering::Acquire)
+                && store
+                    .refreshing
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+            {
+                break;
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return None;
+            }
+        }
+    }
+
+    let result = refresh_access_token(store).await;
+    store.refreshing.store(false, Ordering::Release);
+    result.ok()
 }
 
 /// 构造带 Bearer token 的请求头（无 token 时为空）
@@ -194,5 +295,62 @@ mod tests {
     #[test]
     fn test_parse_json_invalid() {
         assert!(parse_json("not json").is_err());
+    }
+
+    // ===== JWT / token 刷新相关 =====
+
+    /// 构造 JWT（payload 用 base64url 无 padding 编码），signature 随意
+    fn make_jwt(payload: &serde_json::Value) -> String {
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        let payload_b64 = URL_SAFE_NO_PAD.encode(serde_json::to_vec(payload).unwrap());
+        format!("header.{}.signature", payload_b64)
+    }
+
+    #[test]
+    fn test_jwt_expiry_valid() {
+        let token = make_jwt(&serde_json::json!({ "exp": 1750000000, "sub": "u1" }));
+        assert_eq!(jwt_expiry(&token), Some(1750000000));
+    }
+
+    #[test]
+    fn test_jwt_expiry_missing() {
+        let token = make_jwt(&serde_json::json!({ "sub": "u1" }));
+        assert_eq!(jwt_expiry(&token), None);
+    }
+
+    #[test]
+    fn test_jwt_expiry_invalid_token() {
+        assert_eq!(jwt_expiry("not-a-jwt"), None);
+        assert_eq!(jwt_expiry("a.b.c"), None);
+        assert_eq!(jwt_expiry(""), None);
+    }
+
+    #[test]
+    fn test_parse_refresh_response_with_new_refresh() {
+        let body = r#"{"access_token": "new-access", "refresh_token": "new-refresh"}"#;
+        let parsed = parse_refresh_response(body).expect("解析应成功");
+        assert_eq!(parsed.0, "new-access");
+        assert_eq!(parsed.1.as_deref(), Some("new-refresh"));
+    }
+
+    #[test]
+    fn test_parse_refresh_response_access_only() {
+        let body = r#"{"access_token": "new-access"}"#;
+        let parsed = parse_refresh_response(body).expect("解析应成功");
+        assert_eq!(parsed.0, "new-access");
+        assert_eq!(parsed.1, None);
+    }
+
+    #[test]
+    fn test_parse_refresh_response_invalid() {
+        assert!(parse_refresh_response("not json").is_none());
+        assert!(parse_refresh_response(r#"{"error": "bad"}"#).is_none());
+    }
+
+    #[test]
+    fn test_now_unix_secs_reasonable() {
+        // 2026 年左右的 unix 时间应在 17 亿 ~ 18 亿之间
+        let now = now_unix_secs();
+        assert!(now > 1_700_000_000, "unix 时间应大于 2023-11");
     }
 }

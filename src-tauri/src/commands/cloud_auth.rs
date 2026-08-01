@@ -302,27 +302,33 @@ pub async fn cloud_get_session(
 pub async fn cloud_test_connection() -> Result<ConnectionTestResult, String> {
     let start = std::time::Instant::now();
 
-    // 用 /api/status 或 /health 测试（服务器实现文档定义了两个）
-    let (status, _) = match server_api::get("/api/v1/health", None).await {
-        Ok(r) => r,
-        Err(e) => {
-            return Ok(ConnectionTestResult {
-                ok: false,
-                latency: Some(start.elapsed().as_millis() as u64),
-                error: Some(e),
-            });
+    // 服务器实际实现 /api/status（/api/v1/health 未实现，404）。
+    // 依次尝试 /api/status → /api/v1/health，任一 200 视为连通。
+    let endpoints = ["/api/status", "/api/v1/health"];
+    let mut last_err: Option<String> = None;
+    let mut last_status: u16 = 0;
+    for ep in endpoints {
+        match server_api::get(ep, None).await {
+            Ok((status, _)) => {
+                if status == 200 {
+                    return Ok(ConnectionTestResult {
+                        ok: true,
+                        latency: Some(start.elapsed().as_millis() as u64),
+                        error: None,
+                    });
+                }
+                last_status = status;
+            }
+            Err(e) => last_err = Some(e),
         }
-    };
+    }
 
-    let ok = status == 200;
     Ok(ConnectionTestResult {
-        ok,
+        ok: false,
         latency: Some(start.elapsed().as_millis() as u64),
-        error: if ok {
-            None
-        } else {
-            Some(format!("HTTP {}", status))
-        },
+        error: Some(
+            last_err.unwrap_or_else(|| format!("服务器未就绪 (HTTP {})", last_status)),
+        ),
     })
 }
 
@@ -442,7 +448,7 @@ pub async fn submit_feedback(
     if !logged_in {
         return Err("请先登录后再提交反馈".to_string());
     }
-    let token = server_api::get_access_token(&state.tokens).await;
+    let token = server_api::get_valid_access_token(&state.tokens).await;
 
     let body = serde_json::json!({ "content": content });
     let (status, resp_body) = match server_api::post("/api/v1/feedback", &body, token.as_deref()).await
@@ -472,7 +478,7 @@ pub async fn get_user_feedbacks(state: State<'_, AppState>) -> Result<Vec<Feedba
     if !logged_in {
         return Ok(Vec::new()); // 未登录返回空列表
     }
-    let token = server_api::get_access_token(&state.tokens).await;
+    let token = server_api::get_valid_access_token(&state.tokens).await;
 
     let (status, resp_body) = match server_api::get("/api/v1/feedback", token.as_deref()).await {
         Ok(r) => r,
@@ -507,7 +513,7 @@ pub async fn delete_feedback(state: State<'_, AppState>, feedback_id: i64) -> Re
     if !logged_in {
         return Err("请先登录后再操作".to_string());
     }
-    let token = server_api::get_access_token(&state.tokens).await;
+    let token = server_api::get_valid_access_token(&state.tokens).await;
 
     let path = format!("/api/v1/feedback/{}", feedback_id);
     let (status, resp_body) = match server_api::delete(&path, token.as_deref()).await {

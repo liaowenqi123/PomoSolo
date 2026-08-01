@@ -23,7 +23,7 @@ async fn require_token(state: &State<'_, AppState>) -> Result<String, String> {
     if !logged_in {
         return Err("请先登录后再同步数据".to_string());
     }
-    server_api::get_access_token(&state.tokens)
+    server_api::get_valid_access_token(&state.tokens)
         .await
         .ok_or_else(|| "登录状态已失效，请重新登录".to_string())
 }
