@@ -463,6 +463,7 @@ v4.5.8 在 `server-planning/API-implementation.md` 留言的三项服务器需�
 1. **传歌卡在某个进度后不再前进，重试是完全重传且再次卡同一位置**：用户经验——"只要卡住 3s 它就能卡住一辈子"。**修复**：① 超时阈值 12s → **3s**（`TRANSFER_TIMEOUT_MS`），检查间隔 10s → 1s；② 重试次数 3 → **10**（`TRANSFER_MAX_RETRY`，每次续传成本低）；③ **断点续传**——超时重试时 `music:request_song` 携带 `from_chunk`（`songTransfer.received` 已成功保存的分片数），Rust 命令 `music_sync_request_song` 新增 `from_chunk` 参数透传；DJ 侧 `handleSongRequested` 从 `evt.from_chunk` 继续读取回传（服务器需转发该字段，见协议文档留言区）。
 2. **DJ 切歌应能打断 P2P 传输**（DJ 误触/快速切歌时旧歌继续下载完还会被播出来）：**修复**——新增 `abortCurrentTransfer()`；`applySyncState` / `applyMusicState` 的切歌分支（`songId !== trackName`）检测到正在传输的歌不是 DJ 当前歌时立即中断（置 idle + 清续传状态），旧歌残留分片由 Rust finalize 同名覆盖清理。
 3. **自习室容易掉线，心跳够不够频？耗流量吗**：WS 心跳消息仅几十字节，几乎不耗流量。**修复**——心跳与数据刷新分离：`StudyRoom.vue` 新增独立 **5s 心跳定时器**（纯 `studyRoomUpdateStatus` 保活，防代理/NAT 掐断），成员/排名 REST 刷新保持 15s 不变；与 Rust 协议层 10s Ping 双保活。（服务器多连接 bug 已在 4.21 修复，此为防御性加固，需服务器确认心跳阈值兼容，见留言区）
+4. **服务器补充：掉线疑似真根因——多线程并发写 socket 帧交错**（2026-08-01）：服务器校准线程 / 业务线程 / WS 主线程**同时对同一用户 socket 写帧**（无锁），TCP 层数据交错 → 客户端收到半个帧解析失败 → WS 异常断开 → 掉出自习室（"偶尔掉"的特征）。**服务器已修复**：每连接发送锁（send_to_user / broadcast_room / 响应 / ping 全串行化）+ `TCP_NODELAY`；并发压测 15s 177 帧 0 帧交错损坏。客户端侧无需改动（帧解析在 Rust tungstenite 层），心跳 5s + WS 断线自动重连（4.19）继续兜底。
 
 ---
 
