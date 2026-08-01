@@ -670,6 +670,28 @@ describe("useMusicStore", () => {
     expect(musicApi.musicPlaySong).toHaveBeenCalledWith("a.mp3");
   });
 
+  it("music:state play：歌单刷新后缺失的本地歌再次播放 → 不再误判缺歌（localHasSongs 已填充）", () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.trackName = "old.mp3";
+    s.playing = false;
+    // 先加载歌单（本地存在 a.mp3 / b.mp3），触发 localHasSongs 填充
+    s.handlePlaylist({ songs: ["a.mp3", "b.mp3"] });
+    // 歌单随后刷新为空（延迟/失败）→ 但 localHasSongs 仍标记本地已有
+    s.handlePlaylist({ songs: [] });
+    s.handleSyncWsEvent({
+      type: "music:state",
+      action: "play",
+      position_ms: 0,
+      timestamp_server: Date.now(),
+      song_id: "a.mp3",
+    });
+    expect(s.missingSongName).toBeNull();
+    expect(s.songTransfer.state).toBe("idle");
+    expect(musicSyncApi.musicSyncRequestSong).not.toHaveBeenCalled();
+  });
+
   it("music:state play：歌单未加载（空）时缺歌 → 直接触发 P2P 拉取", () => {
     const s = useMusicStore();
     s.setSyncEnabled(true);
@@ -692,15 +714,15 @@ describe("useMusicStore", () => {
     expect(musicApi.musicPlaySong).not.toHaveBeenCalled();
   });
 
-  it("playSong 失败（同步场景）→ 设置 missingSongName 并触发 P2P 拉取", async () => {
+  it("playSong 失败 → 不触发 P2P 下载（避免本地已有歌被重复下载）", async () => {
     const s = useMusicStore();
     s.setSyncEnabled(true);
     s.isDj = false;
     musicApi.musicPlaySong.mockRejectedValue(new Error("song_missing"));
     await s.playSong("ghost.mp3");
-    expect(s.missingSongName).toBe("ghost.mp3");
-    expect(s.songTransfer.state).toBe("requesting");
-    expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("ghost.mp3");
+    // 缺歌场景由 sync_state 缺歌分支驱动，playSong 失败不应直接触发下载
+    expect(musicSyncApi.musicSyncRequestSong).not.toHaveBeenCalled();
+    expect(s.songTransfer.state).toBe("idle");
   });
 
   it("playSong 成功 → 清除 missingSongName", async () => {

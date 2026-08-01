@@ -445,6 +445,13 @@
 1. **immediate 边下边播，下完从头播放（缺的不是开头是结尾）**：DJ 只在动作时广播一次 `sync_state`，进度并不持续广播。听众下载耗时越久，`pendingSyncPosition`（下载开始时暂存的 DJ 位置）就越过时，合并完成 seek 到旧位置 = 从头播放；DJ 切歌/自动下一首后这首直接被切掉。**修复（三层）**：① DJ 侧 `handleSongRequested` 传歌期间每 5s 广播一次 `sync_state`，听众 `pendingSyncPosition` 持续保持最新；② 听众合并完成后除 seek `pendingSyncPosition` 外，主动发 `music:request_state` 请求服务器补发最新快照校准（需服务器实现，见协议文档留言区）；③ 服务器未实现时回退到 ①② 的进度，至少是传输开始时刻的位置而非 0。
 2. **DJ 暂停时听众显示"获取歌曲中…2%"，DJ 恢复才切回标题**：传输完成合并成功后歌单刷新（`requestPlaylist`）有延迟，期间 `playlist` 仍不含该歌；DJ 任何一次 `sync_state` 广播（如暂停）都会命中缺歌分支 → 重新触发 P2P → 又显示"获取歌曲中 2%"。**修复**：新增 `localHasSongs` 集合（模块级）记录"本地已确认存在的歌曲"——P2P 合并成功 / `playSong` 成功后加入；`applySyncState` / `applyMusicState` 缺歌判断改为 `!playlist.includes(songId) && !localHasSongs.has(songId)`，传输期间 `startSongTransfer` 从集合移除；`deleteSong` 成功时也从集合移除（本地真的删了，下次 DJ 播放需重新 P2P）。
 
+### 4.18 刚下载完的歌暂停时仍显示"获取歌曲中 2%" + 本地已有歌误触发下载（v4.5.7）
+
+v4.5.6 发布后用户实测仍有 2 个残留症状，根因与修法：
+
+1. **刚下载完的歌在 DJ 暂停时显示"获取歌曲中 2%"**：`handleTransferDone` 合并成功后 `void playSong(songId)`（fire-and-forget），若 `playSong` 因文件刚合并/音乐子进程未就绪而失败，旧逻辑 catch 分支自动 `startSongTransfer(songId)`，而 `startSongTransfer` 开头会 `localHasSongs.delete(songId)`（重新视为缺失）→ 重新发起下载；此时 DJ 暂停广播 sync_state 命中缺歌分支 → 显示"获取歌曲中 2%"。**修复**：`playSong` 失败不再自动触发 P2P 下载——缺歌场景本应由 sync_state 缺歌分支驱动 `startSongTransfer`，这里误触发只会删掉"本地已有"标记制造重复下载；播放失败保持已有标记，等下次 sync_state 驱动重播。
+2. **本地已有的歌也触发下载**：`localHasSongs` 是内存集合，**应用重启后清空**；且歌单加载完成前（`handlePlaylist` 未执行）它一直为空。此时 DJ 播一首本地已有的歌 → `playlist` 空 + `localHasSongs` 空 → 误判缺歌 → 触发 P2P。**修复**：`handlePlaylist` 收到歌单时把**全部歌曲加入 `localHasSongs`**（歌单 = 本地真实存在的歌曲），应用重启后歌单一加载即恢复"本地已有"标记；配合 `deleteSong` 成功时移除，保证标记与本地文件一致。
+
 ---
 
 ## 5. 最终布局结构清单

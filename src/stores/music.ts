@@ -424,11 +424,10 @@ export const useMusicStore = defineStore("music", () => {
       }
     } catch (e) {
       console.error("[MusicStore] playSong error:", e);
-      // 同步听歌场景：播放失败（本地无该文件）→ 显示"无这首歌"并触发 P2P 拉取
-      if (syncEnabled.value) {
-        missingSongName.value = songName;
-        void startSongTransfer(songName);
-      }
+      // 不再自动触发 P2P 下载：本地缺歌场景由 applySyncState / applyMusicState 的
+      // 缺歌分支驱动 startSongTransfer。这里误触发会删掉 localHasSongs 的"本地已有"
+      // 标记，导致"刚下载完的歌"在 DJ 暂停时被重新判为缺歌（显示"获取歌曲中 2%"）。
+      // 文件刚合并/播放器未就绪导致的播放失败应保持已有标记，等下次 sync_state 驱动重播。
     }
   }
 
@@ -808,6 +807,9 @@ export const useMusicStore = defineStore("music", () => {
       playlistTags.value = {};
       songObjs.forEach((s) => {
         if (s.name) {
+          // 歌单 = 本地真实存在的歌曲：全部标记"本地已有"，
+          // 避免应用重启后 localHasSongs 为空期间 DJ 播本地歌被误判缺歌触发下载
+          localHasSongs.add(s.name);
           playlistTags.value[s.name] = {
             name: s.tag || "自定义",
             color: s.tagColor ?? null,
@@ -816,6 +818,7 @@ export const useMusicStore = defineStore("music", () => {
       });
     } else {
       playlist.value = songs as string[];
+      (songs as string[]).forEach((n) => localHasSongs.add(n));
     }
     if (payload.current_song !== undefined) {
       trackName.value = payload.current_song;
