@@ -201,7 +201,8 @@ Response 403: { "error": "无权删除" }
 ```json
 // Response 200
 { "rooms": [{ "id": "uuid", "name": "深夜学习局", "owner_id": "uuid",
-    "max_members": 50, "is_public": true, "description": "一起加油", "created_at": "..." }] }
+    "max_members": 50, "is_public": true, "description": "一起加油", "created_at": "...",
+    "creator_name": "番茄侠", "member_count": 3 }] }
 ```
 
 #### GET /api/v1/rooms/:id
