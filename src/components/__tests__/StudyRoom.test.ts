@@ -268,12 +268,14 @@ describe("StudyRoom.vue", () => {
     expect(wrapper.text()).toContain("暂无排名数据");
   });
 
-  it("空成员显示占位", async () => {
+  it("进入房间乐观添加自己（无需等服务器推送）", async () => {
     studyRoomApi.studyRoomCreate.mockResolvedValue({ id: "abc", name: "R" });
     studyRoomApi.studyRoomGetMembers.mockResolvedValue([]);
     const wrapper = mountComponent(true);
     await enterRoom(wrapper);
-    expect(wrapper.text()).toContain("暂无在线成员");
+    // 服务器成员列表为空时，乐观显示自己（bug 修复：创建并加入瞬间就能看到自己）
+    expect(wrapper.text()).toContain("me");
+    expect(wrapper.findAll(".member-item")).toHaveLength(1);
   });
 
   it("在线成员有 .online 类", async () => {
@@ -310,10 +312,11 @@ describe("StudyRoom.vue", () => {
     expect(createBtn.attributes("disabled")).toBeDefined();
   });
 
-  it("WS room:members 推送后渲染成员列表", async () => {
+  it("WS room:members 推送后渲染成员列表（覆盖乐观的自己）", async () => {
     const wrapper = mountComponent(true);
     await enterRoom(wrapper);
-    expect(wrapper.text()).toContain("暂无在线成员");
+    // 推送前乐观显示自己
+    expect(wrapper.text()).toContain("me");
     await fireWs({
       type: "room:members",
       members: [
@@ -332,8 +335,10 @@ describe("StudyRoom.vue", () => {
     await enterRoom(wrapper);
     await fireWs({ type: "room:member_joined", user: { id: "u-1", username: "carol" } });
     expect(wrapper.text()).toContain("carol");
+    // 乐观的自己 + carol = 2；重复 joined 不再添加
     await fireWs({ type: "room:member_joined", user: { id: "u-1", username: "carol" } });
-    expect(wrapper.findAll(".member-item")).toHaveLength(1);
+    expect(wrapper.findAll(".member-item")).toHaveLength(2);
+    expect(wrapper.findAll(".member-name").filter((e) => e.text() === "carol")).toHaveLength(1);
   });
 
   it("WS room:member_left 移除成员", async () => {
@@ -386,10 +391,14 @@ describe("StudyRoom.vue", () => {
     // 新成员默认空闲
     await fireWs({ type: "room:member_joined", user: { id: "u-1", username: "alice" } });
     expect(wrapper.text()).toContain("空闲");
-    // 推送状态更新 → 文案切换
+    // 推送状态更新 → alice 文案切换为长休息（me 仍是空闲，不影响 alice 断言）
     await fireWs({ type: "room:member_status", user_id: "u-1", status: "long_break" });
     expect(wrapper.text()).toContain("长休息");
-    expect(wrapper.text()).not.toContain("空闲");
+    const aliceItem = wrapper
+      .findAll(".member-item")
+      .find((e) => e.text().includes("alice"));
+    expect(aliceItem?.text()).toContain("长休息");
+    expect(aliceItem?.text()).not.toContain("空闲");
   });
 
   it("主视图收到 room:members 时缓存而非渲染（pendingMembers）", async () => {

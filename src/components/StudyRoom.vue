@@ -227,6 +227,20 @@ async function enterRoom(room: StudyRoom): Promise<void> {
   if (pendingMembers) {
     members.value = pendingMembers;
     pendingMembers = null;
+  } else {
+    // 无缓存（创建房间 / join 响应先于 room:members 广播到达）：
+    // 乐观加入自己，避免房间视图显示"空无一人"，服务器 room:members 推送后自动覆盖校准
+    const me = authStore.session;
+    if (me?.id && !members.value.some((m) => m.userId === me.id)) {
+      members.value = [
+        {
+          userId: me.id,
+          username: me.username || "我",
+          online: true,
+          status: "idle",
+        },
+      ];
+    }
   }
   detailLoaded = false;
   isOwner.value = false;
@@ -888,9 +902,39 @@ function shortId(id: string): string {
             >
               🎤 申请当 DJ
             </button>
-            <p v-else class="sync-hint">
-              你是 DJ：在音乐播放器中操作（播放/暂停/切歌/跳转/音量）将同步给房间所有成员
-            </p>
+            <template v-else>
+              <p class="sync-hint">
+                你是 DJ：在音乐播放器中操作（播放/暂停/切歌/跳转/音量）将同步给房间所有成员
+              </p>
+              <!-- DJ 专属：P2P 传歌方案切换 -->
+              <div class="sync-mode">
+                <span class="sync-mode-label">缺歌传歌</span>
+                <div class="sync-mode-options">
+                  <button
+                    class="btn btn-sm sync-mode-btn"
+                    :class="{ active: music.transferMode === 'immediate' }"
+                    title="听众下载完成后立即播放并跳到当前进度，开头可能缺几秒"
+                    @click="music.setTransferMode('immediate')"
+                  >
+                    边下边播
+                  </button>
+                  <button
+                    class="btn btn-sm sync-mode-btn"
+                    :class="{ active: music.transferMode === 'wait_all' }"
+                    title="等所有听众都下载完再统一从头播放（最大等待时间由服务器控制）"
+                    @click="music.setTransferMode('wait_all')"
+                  >
+                    全员就绪统一播
+                  </button>
+                </div>
+                <span class="sync-mode-desc">
+                  {{ music.transferMode === "immediate" ? "听众下完即播，开头可能缺几秒" : "全员下完统一从头播放" }}
+                </span>
+              </div>
+              <p v-if="music.waitingForSongs" class="sync-hint sync-waiting">
+                ⏳ 等待其他用户下载歌曲…
+              </p>
+            </template>
             <p v-if="!music.isDj" class="sync-hint">
               开启后由 DJ 控制播放，大家同步收听同一首歌；只有 DJ 能操作播放器
             </p>
@@ -1318,6 +1362,61 @@ function shortId(id: string): string {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.5);
   line-height: 1.5;
+}
+
+.sync-waiting {
+  color: rgba(255, 200, 120, 0.9);
+}
+
+/* DJ 传歌方案切换 */
+.sync-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.sync-mode-label {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.sync-mode-options {
+  display: flex;
+  gap: 6px;
+}
+
+.sync-mode-btn {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sync-mode-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.sync-mode-btn.active {
+  background: rgba(78, 204, 163, 0.25);
+  border-color: rgba(78, 204, 163, 0.6);
+  color: #4ecca3;
+  font-weight: 600;
+}
+
+.sync-mode-desc {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
 }
 
 .empty-hint {

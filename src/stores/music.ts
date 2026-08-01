@@ -27,6 +27,9 @@ import {
   musicAddCustomTag,
   musicDeleteCustomTag,
   musicUpdateTag,
+  musicReadSongChunk,
+  musicReceiveSongChunk,
+  musicFinalizeSong,
   type PlayMode,
   type MusicDevice,
   type PlaylistSong,
@@ -48,8 +51,15 @@ import {
   musicSyncNext,
   musicSyncVolume,
   musicSyncRequestDj,
+  musicSyncState,
+  musicSyncRequestSong,
+  musicSyncOfferSong,
+  musicSyncTransferDone,
+  musicSyncTransferFailed,
+  musicSyncSetConfig,
 } from "@/api/musicSync";
 import { useAuthStore } from "@/stores/auth";
+import { useSettingsStore } from "@/stores/settings";
 import { readData, writeData } from "@/api/data";
 
 // ===== 工具函数 =====
@@ -101,6 +111,26 @@ export const useMusicStore = defineStore("music", () => {
   const djName = ref("");
   /** 当前 DJ 用户 id */
   const djUserId = ref<string | null>(null);
+  /** 当前房间 DJ 使用的传歌方案（immediate 边下边播 / wait_all 全员就绪统一播） */
+  const transferMode = ref<"immediate" | "wait_all">("immediate");
+  /** wait_all 模式下：服务器通知"等待其他用户下载歌曲"（DJ 与听众共用提示） */
+  const waitingForSongs = ref(false);
+
+  /** P2P 传歌进度状态（听众侧） */
+  interface SongTransferState {
+    state: "idle" | "requesting" | "downloading" | "failed";
+    songName: string;
+    received: number;
+    total: number;
+  }
+  const songTransfer = ref<SongTransferState>({
+    state: "idle",
+    songName: "",
+    received: 0,
+    total: 0,
+  });
+  /** 传歌期间暂存的 DJ 播放进度（秒），合并完成后用于立即 seek 校准 */
+  let pendingSyncPosition = 0;
 
   // ===== Getters =====
   const progress = computed(() => {
@@ -161,17 +191,50 @@ export const useMusicStore = defineStore("music", () => {
     }
   }
 
+  /**
+   * DJ 模式：广播全量状态快照（music:sync_state）
+   *
+   * 取代旧的动作消息，携带完整状态：song_id + playing + position_ms + volume + transfer_mode。
+   * 听众端据此应用完整状态（切歌/暂停/进度校准/传歌方案），新听众加入也能立即对齐。
+   * 服务器需将 music:sync_state 广播给房间全体（见 server-planning/API-implementation.md）。
+   */
+  async function broadcastSyncState() {
+    if (!syncEnabled.value || !isDj.value) return;
+    const settingsStore = useSettingsStore();
+    try {
+      await musicSyncState({
+        songId: trackName.value || "",
+        playing: playing.value,
+        positionMs: Math.floor(currentTime.value * 1000),
+        volume: volume.value,
+        transferMode: settingsStore.settings.syncTransferMode,
+      });
+    } catch (e) {
+      console.warn("[MusicStore] DJ 全量状态广播失败:", e);
+    }
+  }
+
+  /** DJ 切换传歌方案并广播（immediate / wait_all） */
+  async function setTransferMode(mode: "immediate" | "wait_all") {
+    const settingsStore = useSettingsStore();
+    await settingsStore.update("syncTransferMode", mode);
+    transferMode.value = mode;
+    if (syncEnabled.value && isDj.value) {
+      try {
+        await musicSyncSetConfig(mode);
+      } catch (e) {
+        console.warn("[MusicStore] 广播传歌方案失败:", e);
+      }
+    }
+  }
+
   /** 切换播放/暂停 */
   async function togglePlay() {
     try {
       await musicTogglePlay();
-      // 乐观判断本次切换后的状态并广播（播放状态事件异步回传）
+      // 等待本地状态事件回传后广播全量状态（播放状态 + 进度）
       if (syncEnabled.value && isDj.value) {
-        const willPlay = !playing.value;
-        await broadcastDjAction(willPlay ? "play" : "pause", {
-          songId: trackName.value,
-          positionMs: Math.floor(currentTime.value * 1000),
-        });
+        window.setTimeout(() => void broadcastSyncState(), 150);
       }
     } catch (e) {
       console.error("[MusicStore] togglePlay error:", e);
@@ -183,7 +246,7 @@ export const useMusicStore = defineStore("music", () => {
     try {
       await musicNext();
       if (syncEnabled.value && isDj.value) {
-        await broadcastDjAction("next", { songId: trackName.value });
+        window.setTimeout(() => void broadcastSyncState(), 250);
       }
     } catch (e) {
       console.error("[MusicStore] next error:", e);
@@ -194,6 +257,9 @@ export const useMusicStore = defineStore("music", () => {
   async function prev() {
     try {
       await musicPrev();
+      if (syncEnabled.value && isDj.value) {
+        window.setTimeout(() => void broadcastSyncState(), 250);
+      }
     } catch (e) {
       console.error("[MusicStore] prev error:", e);
     }
@@ -204,7 +270,7 @@ export const useMusicStore = defineStore("music", () => {
     try {
       await musicSeek(seconds);
       if (syncEnabled.value && isDj.value) {
-        await broadcastDjAction("seek", { positionMs: Math.floor(seconds * 1000) });
+        window.setTimeout(() => void broadcastSyncState(), 250);
       }
     } catch (e) {
       console.error("[MusicStore] seek error:", e);
@@ -281,7 +347,7 @@ export const useMusicStore = defineStore("music", () => {
       // 播放成功：本地已确认有这首歌，清除"无这首歌"提示
       missingSongName.value = null;
       if (syncEnabled.value && isDj.value) {
-        await broadcastDjAction("play", { songId: songName, positionMs: 0 });
+        window.setTimeout(() => void broadcastSyncState(), 250);
       }
     } catch (e) {
       console.error("[MusicStore] playSong error:", e);
@@ -290,6 +356,131 @@ export const useMusicStore = defineStore("music", () => {
         missingSongName.value = songName;
       }
     }
+  }
+
+  // ===== P2P 传歌（听众侧下载 / DJ 侧上传，服务器中转分片） =====
+
+  /** 听众侧：请求拉取 DJ 正在播放但本地缺失的歌曲 */
+  async function startSongTransfer(songId: string) {
+    if (songTransfer.value.state !== "idle") return; // 已有传输在进行
+    songTransfer.value = { state: "requesting", songName: songId, received: 0, total: 0 };
+    try {
+      await musicSyncRequestSong(songId);
+      // 等待服务器分配持有者并转发分片（music:song_chunk）
+    } catch (e) {
+      console.warn("[MusicStore] 请求传歌失败:", e);
+      songTransfer.value = { state: "failed", songName: songId, received: 0, total: 0 };
+    }
+  }
+
+  /** 听众侧：保存服务器转发来的歌曲分片 */
+  async function handleSongChunk(evt: Record<string, unknown>) {
+    const songId = typeof evt.song_id === "string" ? evt.song_id : "";
+    if (!songId || songId !== songTransfer.value.songName) return;
+    const chunkIndex = Number(evt.chunk_index ?? 0);
+    const totalChunks = Number(evt.total_chunks ?? 0);
+    const dataBase64 = typeof evt.data_base64 === "string" ? evt.data_base64 : "";
+    if (!dataBase64 || totalChunks <= 0) return;
+    try {
+      const res = await musicReceiveSongChunk(songId, chunkIndex, totalChunks, dataBase64);
+      if (!res.success) return;
+      songTransfer.value.state = "downloading";
+      songTransfer.value.total = totalChunks;
+      songTransfer.value.received += 1;
+    } catch (e) {
+      console.warn("[MusicStore] 保存分片失败:", e);
+    }
+  }
+
+  /** 听众侧：传输完成 → 合并文件 → 播放（immediate 立即 seek 到 DJ 进度） */
+  async function handleTransferDone(evt: Record<string, unknown>) {
+    const songId = typeof evt.song_id === "string" ? evt.song_id : "";
+    if (!songId) return;
+    const totalChunks = songTransfer.value.total;
+    songTransfer.value = { state: "idle", songName: "", received: 0, total: 0 };
+    try {
+      const res = await musicFinalizeSong(songId, totalChunks);
+      if (res.success) {
+        missingSongName.value = null;
+        await requestPlaylist();
+        if (transferMode.value === "wait_all") {
+          // wait_all：不立即播放，等待全员就绪（服务器广播 songs_ready → DJ 从头播放 → sync_state 驱动）
+          waitingForSongs.value = true;
+          return;
+        }
+        // immediate：合并后立即播放，seek 到 DJ 当前进度（开头缺几秒可接受）
+        void playSong(songId);
+        if (pendingSyncPosition > 0) {
+          const target = pendingSyncPosition;
+          pendingSyncPosition = 0;
+          // 播放器加载需要时间，稍后跳转到目标位置
+          window.setTimeout(() => void seek(target), 800);
+        }
+      } else {
+        missingSongName.value = songId;
+      }
+    } catch (e) {
+      console.warn("[MusicStore] 合并歌曲失败:", e);
+      missingSongName.value = songId;
+    }
+  }
+
+  /** 听众侧：传输失败 → 降级为"无这首歌"提示 */
+  function handleTransferFailed(evt: Record<string, unknown>) {
+    const songId = typeof evt.song_id === "string" ? evt.song_id : "";
+    if (songTransfer.value.state !== "idle") {
+      songTransfer.value = { state: "idle", songName: "", received: 0, total: 0 };
+    }
+    if (songId) missingSongName.value = songId;
+  }
+
+  /** DJ/持有者侧：服务器要求传歌 → 逐片读取并回传（music:offer_song） */
+  async function handleSongRequested(evt: Record<string, unknown>) {
+    const songId = typeof evt.song_id === "string" ? evt.song_id : "";
+    if (!songId) return;
+    try {
+      let idx = 0;
+      let totalChunks = 0;
+      while (true) {
+        const res = await musicReadSongChunk(songId, idx);
+        if (!res.success) {
+          // 歌曲不存在/读取失败 → 通知服务器传输失败
+          void musicSyncTransferFailed(songId).catch(() => {});
+          return;
+        }
+        totalChunks = res.total_chunks ?? 0;
+        await musicSyncOfferSong({
+          songId,
+          chunkIndex: idx,
+          totalChunks,
+          chunkSize: res.chunk_size ?? 0,
+          dataBase64: res.data_base64 ?? "",
+        });
+        idx += 1;
+        if (totalChunks === 0 || idx >= totalChunks) break;
+      }
+      await musicSyncTransferDone(songId);
+    } catch (e) {
+      console.warn("[MusicStore] 传歌失败:", e);
+      void musicSyncTransferFailed(songId).catch(() => {});
+    }
+  }
+
+  /** wait_all 模式：服务器通知 DJ 有听众缺歌，DJ 暂停等待全员下载 */
+  async function handleSongWaiting(evt: Record<string, unknown>) {
+    waitingForSongs.value = true;
+    // DJ 暂停播放（若正在播放），等全员就绪后统一从头播放
+    if (playing.value) void togglePlay();
+  }
+
+  /** wait_all 模式：服务器通知全员就绪，DJ 从头播放并广播状态 */
+  async function handleSongsReady(evt: Record<string, unknown>) {
+    waitingForSongs.value = false;
+    if (trackName.value && !playing.value) {
+      void togglePlay();
+      window.setTimeout(() => void seek(0), 300);
+    }
+    window.setTimeout(() => void broadcastSyncState(), 400);
   }
 
   /** 删除歌曲 */
@@ -454,6 +645,10 @@ export const useMusicStore = defineStore("music", () => {
     duration.value = payload.duration;
     currentTime.value = 0;
     if (payload.has_prev !== undefined) hasPrev.value = payload.has_prev;
+    // DJ 模式下歌自然结束自动切歌 → 广播全量状态（听众端跟随切歌，而非只同步动作）
+    if (syncEnabled.value && isDj.value) {
+      window.setTimeout(() => void broadcastSyncState(), 250);
+    }
   }
 
   function handleNoMusic() {
@@ -462,6 +657,8 @@ export const useMusicStore = defineStore("music", () => {
     trackName.value = "";
     currentTime.value = 0;
     duration.value = 0;
+    // 同步听歌无歌可播时复位 P2P 传输状态
+    songTransfer.value = { state: "idle", songName: "", received: 0, total: 0 };
   }
 
   function handlePlayError(payload: MusicPlayErrorPayload) {
@@ -504,11 +701,17 @@ export const useMusicStore = defineStore("music", () => {
   /** 开启/关闭同步听歌（由自习室面板控制） */
   function setSyncEnabled(enabled: boolean) {
     syncEnabled.value = enabled;
-    if (!enabled) {
-      // 关闭后复位 DJ 状态（服务器 DJ 由新申请者接管）
+    if (enabled) {
+      // 开启同步时应用本机设置的传歌方案
+      const settingsStore = useSettingsStore();
+      transferMode.value = settingsStore.settings.syncTransferMode;
+    } else {
+      // 关闭后复位 DJ 状态（服务器 DJ 由新申请者接管）与 P2P 状态
       isDj.value = false;
       djName.value = "";
       djUserId.value = null;
+      waitingForSongs.value = false;
+      songTransfer.value = { state: "idle", songName: "", received: 0, total: 0 };
     }
   }
 
@@ -521,7 +724,7 @@ export const useMusicStore = defineStore("music", () => {
     }
   }
 
-  /** 应用服务器广播的播放状态（听众端），含网络延迟校准 */
+  /** 应用服务器广播的播放动作（旧协议 music:state，听众端），含网络延迟校准 */
   function applyMusicState(evt: Record<string, unknown>) {
     const action = evt.action;
     const positionMs = Number(evt.position_ms ?? 0);
@@ -536,12 +739,15 @@ export const useMusicStore = defineStore("music", () => {
     if (action === "play") {
       const songId = evt.song_id;
       if (typeof songId === "string" && songId && songId !== trackName.value) {
-        // 本地歌单已加载且不含该歌 → 听众端显示"无这首歌"（不尝试播放）
+        // 本地歌单已加载且不含该歌 → 触发 P2P 拉取（服务器未支持时降级为"无这首歌"）
         if (playlist.value.length > 0 && !playlist.value.includes(songId)) {
+          pendingSyncPosition = posSec;
           missingSongName.value = songId;
           if (playing.value) void togglePlay();
+          void startSongTransfer(songId);
           return;
         }
+        pendingSyncPosition = 0;
         missingSongName.value = null;
         void playSong(songId);
         // 播放器加载需要时间，稍后跳转到目标位置
@@ -560,6 +766,57 @@ export const useMusicStore = defineStore("music", () => {
     }
   }
 
+  /** 应用 DJ 全量状态（music:sync_state），听众端：切歌 + 播放状态 + 进度 + 音量 + 传歌方案 */
+  function applySyncState(evt: Record<string, unknown>) {
+    const songId = evt.song_id;
+    const djPlaying = evt.playing === true;
+    const positionMs = Number(evt.position_ms ?? 0);
+    const ts = Number(evt.timestamp_server ?? 0);
+    let pos = positionMs;
+    if (ts > 0) {
+      pos += Math.max(0, Date.now() - ts);
+    }
+    const posSec = Math.floor(pos / 1000);
+
+    // 音量同步（DJ 音量为 0 时不覆盖听众本地音量，避免误静音）
+    if (typeof evt.volume === "number" && evt.volume > 0) {
+      volume.value = evt.volume;
+    }
+    // 传歌方案同步
+    if (evt.transfer_mode === "immediate" || evt.transfer_mode === "wait_all") {
+      transferMode.value = evt.transfer_mode;
+    }
+
+    if (typeof songId === "string" && songId) {
+      // DJ 切歌（本地当前歌曲不同）
+      if (songId !== trackName.value) {
+        // 本地缺歌 → 触发 P2P 拉取；传输期间暂存 DJ 进度，合并完成后 seek
+        if (playlist.value.length > 0 && !playlist.value.includes(songId)) {
+          pendingSyncPosition = posSec;
+          missingSongName.value = songId;
+          if (playing.value) void togglePlay();
+          void startSongTransfer(songId);
+          return;
+        }
+        pendingSyncPosition = 0;
+        missingSongName.value = null;
+        waitingForSongs.value = false;
+        void playSong(songId);
+        window.setTimeout(() => void seek(posSec), 800);
+      } else {
+        // 同歌：校准播放状态 + 进度（DJ 开始播放，清除等待提示）
+        waitingForSongs.value = false;
+        if (djPlaying && !playing.value) void togglePlay();
+        if (!djPlaying && playing.value) void togglePlay();
+        void seek(posSec);
+      }
+    } else {
+      // DJ 无当前歌曲：仅同步播放状态
+      if (djPlaying && !playing.value) void togglePlay();
+      if (!djPlaying && playing.value) void togglePlay();
+    }
+  }
+
   /** 处理 WS 推送的 music:* 事件（由 MusicPlayer.vue 监听 ws-event 转发） */
   function handleSyncWsEvent(payload: unknown) {
     if (!payload || typeof payload !== "object") return;
@@ -571,13 +828,31 @@ export const useMusicStore = defineStore("music", () => {
         djUserId.value = uid;
         djName.value = typeof evt.dj_username === "string" ? evt.dj_username : "";
         const me = useAuthStore().session?.id ?? null;
+        const wasDj = isDj.value;
         isDj.value = !!uid && !!me && uid === me;
+        // 我成为 DJ → 立即广播当前全量状态，让听众对齐
+        if (isDj.value && !wasDj) {
+          window.setTimeout(() => void broadcastSyncState(), 300);
+        }
         break;
       }
       case "music:state": {
-        // 未开启同步 / DJ 本地已生效（避免回环）→ 忽略
+        // DJ 本地已生效（避免回环）/ 未开启同步 → 忽略
         if (!syncEnabled.value || isDj.value) return;
         applyMusicState(evt);
+        break;
+      }
+      case "music:sync_state": {
+        if (!syncEnabled.value || isDj.value) return;
+        applySyncState(evt);
+        break;
+      }
+      case "music:sync_config": {
+        if (!syncEnabled.value) return;
+        const mode = evt.transfer_mode;
+        if (mode === "immediate" || mode === "wait_all") {
+          transferMode.value = mode;
+        }
         break;
       }
       case "music:volume": {
@@ -589,6 +864,38 @@ export const useMusicStore = defineStore("music", () => {
       case "music:playlist_updated": {
         if (!syncEnabled.value) return;
         void requestPlaylist();
+        break;
+      }
+      // ===== P2P 传歌（服务器中转分片） =====
+      case "music:song_requested": {
+        // 服务器要求我（持有者/DJ）传输歌曲分片
+        void handleSongRequested(evt);
+        break;
+      }
+      case "music:song_chunk": {
+        // 服务器转发来的歌曲分片 → 落盘
+        void handleSongChunk(evt);
+        break;
+      }
+      case "music:transfer_done": {
+        // 传输完成 → 合并 → 播放
+        void handleTransferDone(evt);
+        break;
+      }
+      case "music:transfer_failed": {
+        handleTransferFailed(evt);
+        break;
+      }
+      case "music:song_waiting": {
+        // wait_all：通知 DJ 有听众缺歌（DJ 暂停等待）；听众端同样显示等待提示
+        waitingForSongs.value = true;
+        if (isDj.value) void handleSongWaiting(evt);
+        break;
+      }
+      case "music:songs_ready": {
+        // wait_all：全员就绪，DJ 从头播放；听众端清除等待提示
+        waitingForSongs.value = false;
+        if (isDj.value) void handleSongsReady(evt);
         break;
       }
       default:
@@ -620,6 +927,9 @@ export const useMusicStore = defineStore("music", () => {
     isDj,
     djName,
     djUserId,
+    transferMode,
+    waitingForSongs,
+    songTransfer,
     // getters
     progress,
     currentTimeText,
@@ -649,6 +959,9 @@ export const useMusicStore = defineStore("music", () => {
     // 同步听歌 actions
     setSyncEnabled,
     requestDj,
+    broadcastSyncState,
+    setTransferMode,
+    startSongTransfer,
     handleSyncWsEvent,
     // event handlers
     handleReady,

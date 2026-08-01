@@ -405,6 +405,17 @@
 - **m4a 播放时长兜底**（v4.5.3）：`audio_player.rs` 的 `get_song_duration` / `play_song` 在 `total_duration` 为 0（分片 MP4）时，调用 `scan_estimate_duration` 全文件解码计数估算时长，保证进度条有最大值。
 - **验证**：用真实下载的 `刚刚好.m4a`（10MB，B站 DASH）实测：内置转码出 6MB mp3（debug 模式 14s，release 更快），rodio 解码验证 sr=48000、时长 250.5s 正常。
 
+### 4.14 同步听歌：DJ 全量状态同步 + P2P 传歌（v4.5.4）
+
+- **DJ 状态同步改造**：DJ 播放操作（播放/暂停/切歌/上一首/进度/自然切歌）统一改发 `music:sync_state` 全量快照（`{ song_id, playing, position_ms, volume, transfer_mode }`），取代旧动作消息（play/pause/seek/next 兼容保留）。听众端 `applySyncState` 应用完整状态（切歌 + 播放状态 + 进度校准 + 音量 + 传歌方案），解决"DJ 只同步动作、不同步状态"与"新听众加入不知道 DJ 在播什么"的问题。
+- **非 DJ 禁控**：同步听歌开启且非 DJ 时，`MusicPlayer.vue` 的 `controlsDisabled` 禁用全部控制按钮（歌单/上下首/播放暂停/进度/音量/模式），样式置灰。
+- **P2P 传歌（服务器中转分片）**：听众缺歌 → `music:request_song` → 服务器选持有者（优先 DJ）→ `music:song_requested` → 持有者 Rust `music_read_song_chunk` 分片（128KB）→ `music:offer_song` → 服务器 `music:song_chunk` 转发 → 听众 `music_receive_song_chunk` 落盘 `app_data_dir/.transfer/` → `music:transfer_done` → `music_finalize_song` 合并进 `app_data_dir/music` 并刷新歌单。
+- **两种传歌方案（DJ 面板切换，`settings.syncTransferMode` 持久化）**：
+  - `immediate`（默认）：下完即播，seek 到 DJ 当前进度（开头可能缺几秒）
+  - `wait_all`：服务器广播 `music:song_waiting` → DJ 暂停并提示"等待其他用户下载歌曲" → 全员就绪广播 `music:songs_ready` → DJ 从头播放
+- **降级**：服务器未实现 P2P 时，`music:request_song` 无响应 → 播放器显示"⚠️ 无这首歌"。
+- **服务器需求**（详见 `server-planning/API-implementation.md` 留言区）：sync_state 透传 + 快照补发、P2P 分片转发、wait_all 协调、WS 消息上限 ≥512KB。
+
 ---
 
 ## 5. 最终布局结构清单

@@ -123,6 +123,10 @@ pub fn run() {
             commands::music::music_add_custom_tag,
             commands::music::music_delete_custom_tag,
             commands::music::music_update_tag,
+            // P2P 传歌（服务器中转分片）
+            commands::music::music_read_song_chunk,
+            commands::music::music_receive_song_chunk,
+            commands::music::music_finalize_song,
             // 音乐榜单 / 下载
             commands::charts::charts_fetch,
             commands::charts::download_song,
@@ -136,6 +140,13 @@ pub fn run() {
             commands::music_sync::music_sync_volume,
             commands::music_sync::music_sync_add_song,
             commands::music_sync::music_sync_request_dj,
+            // 同步听歌增强：全量状态快照 + P2P 传歌 + 传歌方案
+            commands::music_sync::music_sync_state,
+            commands::music_sync::music_sync_request_song,
+            commands::music_sync::music_sync_offer_song,
+            commands::music_sync::music_sync_transfer_done,
+            commands::music_sync::music_sync_transfer_failed,
+            commands::music_sync::music_sync_set_config,
             // 自动更新
             commands::update::check_update,
             commands::update::download_and_install,

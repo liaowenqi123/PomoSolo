@@ -17,6 +17,9 @@ export type MiniExitMode = "double-click" | "button";
 /** 主题 */
 export type Theme = "dark" | "light";
 
+/** 同步听歌传歌方案：immediate 边下边播 / wait_all 全员就绪统一播 */
+export type SyncTransferMode = "immediate" | "wait_all";
+
 /** 应用设置（核心子集，对应 electron settings.js 的 SETTING_MAP） */
 export interface AppSettings {
   // 计时器
@@ -37,6 +40,8 @@ export interface AppSettings {
   showDeviceBtn: boolean;
   showChartsBtn: boolean;
   advancedColorCustomization: boolean;
+  // 同步听歌（DJ 生效）
+  syncTransferMode: SyncTransferMode;
   // 系统
   autoStart: boolean;
   // 主题
@@ -60,6 +65,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showDeviceBtn: true,
   showChartsBtn: true,
   advancedColorCustomization: false,
+  syncTransferMode: "immediate",
   autoStart: false,
   theme: "light",
 };

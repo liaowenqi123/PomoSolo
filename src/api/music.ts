@@ -189,3 +189,44 @@ export function musicUpdateTag(
 ): Promise<{ success: boolean; error?: string }> {
   return invoke<{ success: boolean; error?: string }>("music_update_tag", { songName, tag, color });
 }
+
+// ===== P2P 传歌（服务器中转分片，见 server-planning/API-implementation.md） =====
+
+/** 读取歌曲文件分片（DJ/持有者侧，返回 base64 分片） */
+export function musicReadSongChunk(
+  songName: string,
+  chunkIndex: number,
+): Promise<{
+  success: boolean;
+  song_name?: string;
+  chunk_index?: number;
+  total_chunks?: number;
+  chunk_size?: number;
+  data_base64?: string;
+  error?: string;
+}> {
+  return invoke("music_read_song_chunk", { songName, chunkIndex });
+}
+
+/** 保存收到的歌曲分片到临时文件（听众侧） */
+export function musicReceiveSongChunk(
+  songName: string,
+  chunkIndex: number,
+  totalChunks: number,
+  dataBase64: string,
+): Promise<{ success: boolean; error?: string }> {
+  return invoke("music_receive_song_chunk", {
+    songName,
+    chunkIndex,
+    totalChunks,
+    dataBase64,
+  });
+}
+
+/** 合并分片写入音乐目录并刷新播放列表（听众侧，传输完成后调用） */
+export function musicFinalizeSong(
+  songName: string,
+  totalChunks: number,
+): Promise<{ success: boolean; song_name?: string; error?: string }> {
+  return invoke("music_finalize_song", { songName, totalChunks });
+}

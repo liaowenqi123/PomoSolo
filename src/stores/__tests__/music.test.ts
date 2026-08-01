@@ -19,6 +19,10 @@ const musicApi = vi.hoisted(() => ({
   musicAddCustomTag: vi.fn(),
   musicDeleteCustomTag: vi.fn(),
   musicUpdateTag: vi.fn(),
+  // P2P 传歌
+  musicReadSongChunk: vi.fn(),
+  musicReceiveSongChunk: vi.fn(),
+  musicFinalizeSong: vi.fn(),
 }));
 vi.mock("@/api/music", () => musicApi);
 
@@ -37,6 +41,13 @@ const musicSyncApi = vi.hoisted(() => ({
   musicSyncNext: vi.fn(),
   musicSyncVolume: vi.fn(),
   musicSyncRequestDj: vi.fn(),
+  // 全量状态 + P2P 传歌
+  musicSyncState: vi.fn(),
+  musicSyncRequestSong: vi.fn(),
+  musicSyncOfferSong: vi.fn(),
+  musicSyncTransferDone: vi.fn(),
+  musicSyncTransferFailed: vi.fn(),
+  musicSyncSetConfig: vi.fn(),
 }));
 vi.mock("@/api/musicSync", () => musicSyncApi);
 
@@ -428,59 +439,72 @@ describe("useMusicStore", () => {
     expect(musicSyncApi.musicSyncRequestDj).toHaveBeenCalledTimes(1);
   });
 
-  it("DJ 模式 togglePlay：当前暂停 → 广播 play（songId + 位置）", async () => {
-    const s = useMusicStore();
-    s.setSyncEnabled(true);
-    s.isDj = true;
-    s.trackName = "a.mp3";
-    s.currentTime = 30;
-    s.playing = false;
-    await s.togglePlay();
-    expect(musicSyncApi.musicSyncPlay).toHaveBeenCalledWith("a.mp3", 30000);
+  it("DJ 模式 togglePlay：广播全量状态（songId + 位置 + 音量 + 方案）", async () => {
+    vi.useFakeTimers();
+    try {
+      const s = useMusicStore();
+      s.setSyncEnabled(true);
+      s.isDj = true;
+      s.trackName = "a.mp3";
+      s.currentTime = 30;
+      s.volume = 0.6;
+      musicApi.musicTogglePlay.mockResolvedValue(undefined);
+      await s.togglePlay();
+      vi.advanceTimersByTime(200);
+      expect(musicSyncApi.musicSyncState).toHaveBeenCalledWith({
+        songId: "a.mp3",
+        playing: false,
+        positionMs: 30000,
+        volume: 0.6,
+        transferMode: "immediate",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it("DJ 模式 togglePlay：当前播放 → 广播 pause（位置）", async () => {
-    const s = useMusicStore();
-    s.setSyncEnabled(true);
-    s.isDj = true;
-    s.playing = true;
-    s.currentTime = 10;
-    await s.togglePlay();
-    expect(musicSyncApi.musicSyncPause).toHaveBeenCalledWith(10000);
-  });
-
-  it("未开启同步或非 DJ 时播放操作不广播", async () => {
+  it("未开启同步或非 DJ 时播放操作不广播全量状态", async () => {
     const s = useMusicStore();
     // 开启同步但非 DJ
     s.setSyncEnabled(true);
     s.isDj = false;
     await s.togglePlay();
+    expect(musicSyncApi.musicSyncState).not.toHaveBeenCalled();
     expect(musicSyncApi.musicSyncPlay).not.toHaveBeenCalled();
-    expect(musicSyncApi.musicSyncPause).not.toHaveBeenCalled();
     // 未开启同步（isDj 随之复位）
     s.setSyncEnabled(false);
     s.isDj = true;
     await s.togglePlay();
-    expect(musicSyncApi.musicSyncPlay).not.toHaveBeenCalled();
+    expect(musicSyncApi.musicSyncState).not.toHaveBeenCalled();
   });
 
-  it("DJ 模式 next/seek/setVolume/playSong 广播对应动作", async () => {
-    const s = useMusicStore();
-    s.setSyncEnabled(true);
-    s.isDj = true;
-    s.trackName = "a.mp3";
-    await s.next();
-    expect(musicSyncApi.musicSyncNext).toHaveBeenCalledWith("a.mp3");
+  it("DJ 模式 next/seek/playSong 广播全量状态；setVolume 广播音量", async () => {
+    vi.useFakeTimers();
+    try {
+      const s = useMusicStore();
+      s.setSyncEnabled(true);
+      s.isDj = true;
+      s.trackName = "a.mp3";
+      musicApi.musicNext.mockResolvedValue(undefined);
+      await s.next();
+      vi.advanceTimersByTime(300);
+      expect(musicSyncApi.musicSyncState).toHaveBeenCalledTimes(1);
 
-    await s.seek(120);
-    expect(musicSyncApi.musicSyncSeek).toHaveBeenCalledWith(120000);
+      await s.seek(120);
+      vi.advanceTimersByTime(300);
+      expect(musicSyncApi.musicSyncState).toHaveBeenCalledTimes(2);
 
-    await s.setVolume(0.5);
-    expect(musicSyncApi.musicSyncVolume).toHaveBeenCalledWith(0.5);
+      await s.setVolume(0.5);
+      expect(musicSyncApi.musicSyncVolume).toHaveBeenCalledWith(0.5);
 
-    s.trackName = "old.mp3";
-    await s.playSong("new.mp3");
-    expect(musicSyncApi.musicSyncPlay).toHaveBeenCalledWith("new.mp3", 0);
+      s.trackName = "old.mp3";
+      musicApi.musicPlaySong.mockResolvedValue(undefined);
+      await s.playSong("new.mp3");
+      vi.advanceTimersByTime(300);
+      expect(musicSyncApi.musicSyncState).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("music:dj_changed：DJ 是自己时 isDj 为 true", () => {

@@ -333,59 +333,88 @@ ws://服务器地址:3001/ws?token=<access_token> # 备用：独立端口直连
 
 ### 同步听歌消息
 
-**设计原则**: 音频文件不经服务器中转，仅同步播放器动作和时间戳。
+**设计原则**: 音频文件不经服务器中转（P2P 传歌除外，见下文），同步播放器动作、完整状态和时间戳。
 
 #### 客户端 → 服务端（DJ 操作）
 
 | type | 说明 | 参数 |
 |------|------|------|
-| `music:play` | 开始播放 | `song_id`, `position_ms` |
-| `music:pause` | 暂停 | `position_ms` |
-| `music:seek` | 跳转 | `position_ms` |
-| `music:next` | 切歌 | `song_id` |
+| `music:play` | 开始播放（旧协议，兼容保留） | `song_id`, `position_ms` |
+| `music:pause` | 暂停（旧协议，兼容保留） | `position_ms` |
+| `music:seek` | 跳转（旧协议，兼容保留） | `position_ms` |
+| `music:next` | 切歌（旧协议，兼容保留） | `song_id` |
 | `music:volume` | 音量 | `volume`: 0-1 |
 | `music:add_song` | 加歌 | `song_name`, `song_url` |
 | `music:request_dj` | 申请当 DJ | - |
+| `music:sync_state` | **DJ 全量状态快照（新，DJ 播放操作统一改发此消息）** | `song_id`, `playing`(bool), `position_ms`, `volume`, `transfer_mode` |
+| `music:sync_config` | **DJ 切换传歌方案（新）** | `transfer_mode`: `immediate` / `wait_all` |
+| `music:request_song` | **听众请求拉取缺失歌曲（新，P2P）** | `song_id` |
+| `music:offer_song` | **持有者回传歌曲分片（新，P2P）** | `song_id`, `chunk_index`, `total_chunks`, `chunk_size`, `data_base64` |
+| `music:transfer_done` | **持有者通知传输完成（新，P2P）** | `song_id` |
+| `music:transfer_failed` | **持有者通知传输失败（新，P2P）** | `song_id` |
 
 #### 服务端 → 全体客户端
 
 | type | 说明 |
 |------|------|
-| `music:state` | 播放状态同步（action + position_ms + timestamp_server） |
+| `music:state` | 播放状态同步（旧协议，兼容保留：action + position_ms + timestamp_server） |
+| `music:sync_state` | **全量状态同步（新）**：DJ 的 `music:sync_state` 原样广播 + `timestamp_server` |
 | `music:dj_changed` | DJ 切换 |
 | `music:playlist_updated` | 歌单更新 |
 | `music:volume` | 音量同步 |
+| `music:sync_config` | **传歌方案广播（新）**：`{ transfer_mode }` |
+| `music:song_requested` | **P2P：要求持有者传歌（新）**：`{ song_id, requester_user_id }` |
+| `music:song_chunk` | **P2P：转发歌曲分片给请求者（新）**：`{ song_id, chunk_index, total_chunks, chunk_size, data_base64 }` |
+| `music:transfer_done` | **P2P：传输完成通知（新）**：`{ song_id }` |
+| `music:transfer_failed` | **P2P：传输失败通知（新）**：`{ song_id }` |
+| `music:song_waiting` | **P2P：有听众缺歌，DJ 暂停等待（新，wait_all 模式）**：`{ song_id }`，广播给房间全体 |
+| `music:songs_ready` | **P2P：全员就绪，DJ 从头播放（新，wait_all 模式）**：`{ song_id }`，广播给房间全体 |
 
 #### 同步精度策略
 ```
-客户端收到 music:state 后计算:
+客户端收到 music:sync_state / music:state 后计算:
   elapsed = Date.now() - timestamp_server
   local_position = position_ms + elapsed
 
 偏差 > 200ms 时静默 seek 到正确位置。
-每 30 秒服务端可广播一次当前状态作为校准点。
+每 30 秒服务端可广播一次最近一次 sync_state 作为校准点。
 ```
 
-#### 缺歌处理（听众端本地无 DJ 播放的歌曲）
+#### DJ 全量状态同步（v4.5.4 起）
 
-**现状（已实现）**：音频文件不中转，听众本地没有 DJ 的歌时无法播放。
+DJ 的所有播放操作（播放/暂停/切歌/上一首/进度/自然切歌）统一改为发送 `music:sync_state`
+（携带 song_id + playing + position_ms + volume + transfer_mode），取代旧的动作消息
+（`music:play/pause/seek/next` 保留协议兼容，客户端仍可接收处理）。
 
-- 客户端 `stores/music.ts`：
-  - 收到 `music:state`（action=play）时，若本地歌单已加载且不含 `song_id` → 停止播放并设置 `missingSongName`，播放器曲名位置显示 **"⚠️ 无这首歌：《歌名》"**
-  - `playSong` 播放失败（`song_missing`）时同样兜底设置
-  - 歌单刷新（`music:playlist_updated` → `music-playlist`）后若该歌已出现则自动清除提示
-- 局限：听众只能看到提示，无法获取音频文件本身。
+**服务器需求**：
+1. 把 `music:sync_state` 当作新的 DJ 操作消息：像 `music:state` 一样广播给房间全体，并附加 `timestamp_server`
+2. **保存房间最近一次 `music:sync_state` 快照**：新成员开启同步 / DJ 切换（`music:dj_changed`）时，主动向该客户端补发一次快照（解决"新听众不知道 DJ 在播什么"的问题）
+3. 透传 `music:sync_config` 给房间全体
 
-**规划（待实施）— P2P 点对点传歌**：
-> 用户需求：未来搭建 P2P 传输，让客户端把歌直接传给对方，替代"无这首歌"提示。
+#### 缺歌处理 + P2P 点对点传歌（v4.5.4 起）
 
-- 目标：听众本地无歌时，向 DJ（或任一持有该文件的在线成员）发起拉取，传输完成后本地播放并缓存到 `app_data_dir/music`（复用 `merge_music_dir` 的存储区）
-- 候选方案：
-  1. **服务器中转**（简单优先）：`music:request_song { song_id }` → 持有者 `music:offer_song { song_id, chunk_index, data_base64 }` 分片上传服务器 → 服务器 `music:song_chunk` 转发给请求者 → 请求者拼接写入本地。受服务器带宽/ws 消息大小限制，需分片（如 256KB/片）。
-  2. **WebRTC 直连**（更优）：客户端间通过 WS 信令（`signal` 交换 SDP/ICE）建立 DataChannel 直接传文件，服务器只做信令协调。Tauri 2 可用 `simple-peer` 或原生 WebRTC；注意 Tauri WebView（WebView2/Safari/WebKitGTK）对 DataChannel 的支持差异。
-  3. **文件指纹校验**：传输前用 `sha256(file_name)` 或大小+名称比对，避免重复传输。
-- 协议预留：建议在 `music:add_song` 时同时广播 `song_meta { song_name, size, sha256 }`，为 P2P 命中校验做准备。
-- 风险：WS 单条消息大小限制（服务器端需确认）、大文件分片序号/乱序处理、离线成员持有的歌不可用时的降级提示。
+**现状（已实现，客户端侧）**：听众本地无 DJ 播放的歌曲时，自动触发 P2P 拉取（不再只显示"无这首歌"）：
+
+- 听众收到 `music:sync_state` / `music:state`（song_id 本地缺失）→ 发送 `music:request_song { song_id }`
+- 传输期间播放器曲名位置显示 **"⏳ 获取歌曲中… x%"**；服务器不支持 P2P 时降级为"⚠️ 无这首歌"
+- 收到全部 `music:song_chunk` 后合并写入 `app_data_dir/music`（Rust `music_finalize_song`），刷新歌单并播放
+
+**两种传歌方案（DJ 在同步听歌面板切换，设置持久化）**：
+
+| 方案 | 行为 | 前端表现 |
+|------|------|----------|
+| `immediate`（边下边播，默认） | 听众下载完成立即播放并 seek 到 DJ 当前进度 | 开头可能缺几秒 |
+| `wait_all`（全员就绪统一播） | 服务器检测到有听众缺歌 → 广播 `music:song_waiting` → DJ 暂停播放并提示"等待其他用户下载歌曲" → 全员下载完成 → 广播 `music:songs_ready` → DJ 从头播放，听众同步开始 | 有最大等待时间，超时由服务器决定放弃或继续 |
+
+**服务器需求（P2P 中转分片）**：
+1. **消息大小限制**：分片 128KB（base64 后约 170KB），请确认 WS 服务器单条消息上限 ≥ 512KB（建议调大）
+2. 收到 `music:request_song`：从房间内选择持有者（**优先 DJ**，其次最近活跃成员）→ 向持有者发送 `music:song_requested { song_id, requester_user_id }`
+3. 持有者回传 `music:offer_song` 分片 → 服务器转发 `music:song_chunk` 给请求者（可同时转发给房间内所有缺歌者，减少重复传输，由服务器实现取舍）
+4. 持有者发 `music:transfer_done` → 服务器广播 `music:transfer_done` 给请求者；`music:transfer_failed` 同理
+5. **wait_all 模式**：服务器跟踪每个成员的歌单（`music:add_song` 时记录的 song_url 集合 + P2P 传输完成状态）：
+   - DJ 广播 `music:sync_state` 且 `transfer_mode=wait_all` 时，若存在缺歌成员 → 触发传输 + 广播 `music:song_waiting`
+   - 全部缺歌成员下载完成（或超过最大等待时间，建议 60s）→ 广播 `music:songs_ready`
+6. **歌曲指纹（可选增强）**：`music:add_song` 时建议同时记录 `song_meta { song_name, size, sha256 }`，P2P 命中校验用
 
 ---
 
@@ -505,3 +534,22 @@ docker run -d \
      - 方案 B：`GET /api/v1/rooms` 列表查询时过滤掉无活跃成员的房间（可配合 room_members_history 最近活跃时间）
 2. **`room:members` 与成员状态的实时性**：`presence:update` 目前只广播 `room:member_status`，客户端依赖 join 时的一次性 `room:members` 快照，建议定期（如 30s）补发一次 `room:members` 作为校准
 3. 若后续要支持"修改密码后踢出旧成员"或"房主转让"，请提前在协议文档中补充消息定义
+
+### 【加急】同步听歌 v4.5.4：全量状态同步 + P2P 传歌（客户端已实现，待服务器配合）
+
+> 客户端 v4.5.4 已按下方协议实现，**需要服务器部门实现后才能生效**。详细消息定义见上文"同步听歌消息" 5.1 节。请按以下优先级加班实现：
+
+**P1 - 全量状态同步（DJ 只发 sync_state）**：
+- 新增透传：`music:sync_state`（DJ → 服务器 → 房间广播，附加 `timestamp_server`），字段 `{ song_id, playing, position_ms, volume, transfer_mode }`
+- **保存房间最近一次 sync_state 快照**，新成员开启同步 / `music:dj_changed` 时主动补发一次
+- 透传 `music:sync_config { transfer_mode }` 给房间全体
+
+**P2 - P2P 传歌（服务器中转分片）**：
+- 确认/调大 WS 单条消息上限 ≥ 512KB（客户端分片 128KB，base64 后约 170KB）
+- `music:request_song { song_id }` → 选持有者（优先 DJ）→ 发 `music:song_requested { song_id, requester_user_id }`
+- `music:offer_song`（持有者分片）→ 转发 `music:song_chunk` 给请求者（可广播给所有缺歌者）
+- `music:transfer_done` / `music:transfer_failed` → 广播给请求者
+- **wait_all 模式**：`transfer_mode=wait_all` 时若存在缺歌成员 → 广播 `music:song_waiting { song_id }`（DJ 暂停）；全员就绪或超时（建议 60s）→ 广播 `music:songs_ready { song_id }`（DJ 从头播）
+- 可选增强：`music:add_song` 记录 `song_meta { song_name, size, sha256 }` 用于命中校验
+
+**服务器未实现前的降级行为**：客户端 `music:request_song` 无响应时，听众端自动降级为"⚠️ 无这首歌"提示，不影响其他功能。

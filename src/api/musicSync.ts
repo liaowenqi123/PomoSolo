@@ -67,3 +67,77 @@ export function musicSyncAddSong(songName: string, songUrl: string): Promise<voi
 export function musicSyncRequestDj(): Promise<void> {
   return invoke<void>("music_sync_request_dj");
 }
+
+/**
+ * 广播 DJ 全量状态快照（歌曲 + 播放状态 + 进度 + 音量 + 传歌方案）。
+ * 取代旧的动作消息（play/pause/seek/next），让听众端拿到完整状态而非单个动作。
+ * 后端：`music_sync_state(song_id, playing, position_ms, volume, transfer_mode) -> Result<(), String>`
+ */
+export function musicSyncState(params: {
+  songId: string;
+  playing: boolean;
+  positionMs: number;
+  volume: number;
+  transferMode: string;
+}): Promise<void> {
+  return invoke<void>("music_sync_state", {
+    songId: params.songId,
+    playing: params.playing,
+    positionMs: params.positionMs,
+    volume: params.volume,
+    transferMode: params.transferMode,
+  });
+}
+
+/**
+ * 听众侧：请求拉取 DJ 正在播放但本地缺失的歌曲（P2P 传歌）。
+ * 后端：`music_sync_request_song(song_id) -> Result<(), String>`
+ */
+export function musicSyncRequestSong(songId: string): Promise<void> {
+  return invoke<void>("music_sync_request_song", { songId });
+}
+
+/**
+ * 持有者（DJ）侧：回传歌曲分片给服务器，由服务器转发给请求者。
+ * 后端：`music_sync_offer_song(song_id, chunk_index, total_chunks, chunk_size, data_base64) -> Result<(), String>`
+ */
+export function musicSyncOfferSong(params: {
+  songId: string;
+  chunkIndex: number;
+  totalChunks: number;
+  chunkSize: number;
+  dataBase64: string;
+}): Promise<void> {
+  return invoke<void>("music_sync_offer_song", {
+    songId: params.songId,
+    chunkIndex: params.chunkIndex,
+    totalChunks: params.totalChunks,
+    chunkSize: params.chunkSize,
+    dataBase64: params.dataBase64,
+  });
+}
+
+/**
+ * 持有者（DJ）侧：通知服务器本歌曲全部分片已发送完毕。
+ * 后端：`music_sync_transfer_done(song_id) -> Result<(), String>`
+ */
+export function musicSyncTransferDone(songId: string): Promise<void> {
+  return invoke<void>("music_sync_transfer_done", { songId });
+}
+
+/**
+ * 持有者（DJ）侧：通知服务器本歌曲传输失败（如中途取消/文件丢失）。
+ * 后端：`music_sync_transfer_failed(song_id) -> Result<(), String>`
+ */
+export function musicSyncTransferFailed(songId: string): Promise<void> {
+  return invoke<void>("music_sync_transfer_failed", { songId });
+}
+
+/**
+ * DJ 侧：广播当前传歌方案（immediate 边下边播 / wait_all 全员就绪统一播）。
+ * 听众端据此显示对应提示。
+ * 后端：`music_sync_set_config(transfer_mode) -> Result<(), String>`
+ */
+export function musicSyncSetConfig(transferMode: string): Promise<void> {
+  return invoke<void>("music_sync_set_config", { transferMode });
+}

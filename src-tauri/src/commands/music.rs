@@ -521,3 +521,194 @@ pub async fn music_update_tag(
         Err(e) => Ok(json!({ "success": false, "error": e })),
     }
 }
+
+// ===== P2P 传歌（服务器中转分片） =====
+//
+// 协议见 server-planning/API-implementation.md 5.1 节 P2P 段：
+//   听众缺歌 → music:request_song → 服务器指定持有者（优先 DJ）
+//   → 持有者 music:offer_song 分片上传服务器 → 服务器 music:song_chunk 转发
+//   → 听众 music_receive_song_chunk 逐个落盘 → music_finalize_song 合并。
+// 分片 128KB（base64 后约 170KB），单条 WS 消息可承载。
+
+/// P2P 分片大小（字节）
+const TRANSFER_CHUNK_SIZE: usize = 128 * 1024;
+
+/// 清理歌曲名中的路径分隔符/非法字符，防止路径穿越
+fn sanitize_song_name(name: &str) -> String {
+    let base = name.split(['/', '\\']).next_back().unwrap_or(name);
+    base.chars()
+        .filter(|c| !matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*' | '\0' | '\n' | '\r'))
+        .collect()
+}
+
+/// 临时分片目录（app_data_dir/.transfer/）
+fn transfer_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法获取应用数据目录: {}", e))?;
+    Ok(app_data_dir.join(".transfer"))
+}
+
+/// P2P 传歌：读取歌曲文件分片（DJ/持有者侧）
+///
+/// 返回：`{ success, song_name, chunk_index, total_chunks, chunk_size, data_base64 }`
+#[tauri::command]
+pub async fn music_read_song_chunk(
+    app: AppHandle,
+    song_name: String,
+    chunk_index: u32,
+) -> Result<Value, String> {
+    let name = sanitize_song_name(&song_name);
+    if name.is_empty() {
+        return Ok(json!({ "success": false, "error": "invalid_song_name" }));
+    }
+    let music_dir = get_music_dir(&app)?;
+    let path = music_dir.join(&name);
+    if !path.is_file() {
+        return Ok(json!({ "success": false, "error": "song_missing" }));
+    }
+    let bytes = std::fs::read(&path).map_err(|e| format!("读取歌曲失败: {}", e))?;
+    let total = bytes.len();
+    if total == 0 {
+        return Ok(json!({ "success": false, "error": "empty_song" }));
+    }
+    let total_chunks = ((total + TRANSFER_CHUNK_SIZE - 1) / TRANSFER_CHUNK_SIZE) as u32;
+    if chunk_index >= total_chunks {
+        return Ok(json!({
+            "success": false,
+            "error": "chunk_index_out_of_range",
+            "total_chunks": total_chunks
+        }));
+    }
+    let start = (chunk_index as usize) * TRANSFER_CHUNK_SIZE;
+    let end = std::cmp::min(start + TRANSFER_CHUNK_SIZE, total);
+    let chunk = &bytes[start..end];
+    use base64::{engine::general_purpose, Engine};
+    let data_b64 = general_purpose::STANDARD.encode(chunk);
+    Ok(json!({
+        "success": true,
+        "song_name": name,
+        "chunk_index": chunk_index,
+        "total_chunks": total_chunks,
+        "chunk_size": chunk.len(),
+        "data_base64": data_b64,
+    }))
+}
+
+/// P2P 传歌：保存收到的分片到临时文件（听众侧）
+///
+/// 每个分片单独写 `<app_data_dir>/.transfer/<song_name>.<idx>`，最后合并。
+#[tauri::command]
+pub async fn music_receive_song_chunk(
+    app: AppHandle,
+    song_name: String,
+    chunk_index: u32,
+    total_chunks: u32,
+    data_base64: String,
+) -> Result<Value, String> {
+    let name = sanitize_song_name(&song_name);
+    if name.is_empty() || total_chunks == 0 || chunk_index >= total_chunks {
+        return Ok(json!({ "success": false, "error": "invalid_params" }));
+    }
+    let tdir = transfer_dir(&app)?;
+    std::fs::create_dir_all(&tdir).map_err(|e| format!("创建临时目录失败: {}", e))?;
+    use base64::{engine::general_purpose, Engine};
+    let bytes = general_purpose::STANDARD
+        .decode(data_base64.as_bytes())
+        .map_err(|e| format!("分片解码失败: {}", e))?;
+    let part_path = tdir.join(format!("{}.{:06}", name, chunk_index));
+    std::fs::write(&part_path, &bytes).map_err(|e| format!("写入分片失败: {}", e))?;
+    Ok(json!({ "success": true, "chunk_index": chunk_index }))
+}
+
+/// P2P 传歌：合并分片写入音乐目录并刷新播放列表（听众侧，传输完成后调用）
+#[tauri::command]
+pub async fn music_finalize_song(
+    app: AppHandle,
+    song_name: String,
+    total_chunks: u32,
+) -> Result<Value, String> {
+    let name = sanitize_song_name(&song_name);
+    if name.is_empty() || total_chunks == 0 {
+        return Ok(json!({ "success": false, "error": "invalid_params" }));
+    }
+    let tdir = transfer_dir(&app)?;
+    let music_dir = get_music_dir(&app)?;
+    std::fs::create_dir_all(&music_dir).map_err(|e| format!("创建音乐目录失败: {}", e))?;
+    let dest = music_dir.join(&name);
+
+    use std::io::Write;
+    let mut out = std::fs::File::create(&dest).map_err(|e| format!("创建歌曲文件失败: {}", e))?;
+    for idx in 0..total_chunks {
+        let part_path = tdir.join(format!("{}.{:06}", name, idx));
+        let bytes = match std::fs::read(&part_path) {
+            Ok(b) => b,
+            Err(_) => {
+                let _ = out.flush();
+                let _ = std::fs::remove_file(&dest);
+                return Ok(json!({
+                    "success": false,
+                    "error": format!("分片 {} 缺失，传输不完整", idx)
+                }));
+            }
+        };
+        out.write_all(&bytes).map_err(|e| format!("写入歌曲失败: {}", e))?;
+    }
+    out.flush().map_err(|e| format!("写入歌曲失败: {}", e))?;
+
+    // 清理临时分片
+    for idx in 0..total_chunks {
+        let _ = std::fs::remove_file(tdir.join(format!("{}.{:06}", name, idx)));
+    }
+
+    // 刷新播放列表并推送前端（复用 music_get_playlist 的事件格式）
+    ensure_init(&app).await?;
+    let music_state = app.state::<MusicState>();
+    let mut player = music_state.player.lock().await;
+    player.refresh_playlist();
+    let (songs, current_song, current_index) = player.get_playlist_with_tags();
+    let _ = app.emit(
+        "music-playlist",
+        json!({
+            "songs": songs,
+            "current_song": current_song,
+            "current_index": current_index
+        }),
+    );
+
+    Ok(json!({ "success": true, "song_name": name }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_song_name_strips_paths() {
+        // 防路径穿越：去掉目录部分
+        assert_eq!(sanitize_song_name("a/../secret.mp3"), "secret.mp3");
+        assert_eq!(sanitize_song_name("..\\..\\evil.mp3"), "evil.mp3");
+        assert_eq!(sanitize_song_name("folder/song.mp3"), "song.mp3");
+    }
+
+    #[test]
+    fn test_sanitize_song_name_strips_illegal_chars() {
+        // Windows 非法字符被过滤
+        assert_eq!(sanitize_song_name("a<b>c:d.mp3"), "abcd.mp3");
+        assert_eq!(sanitize_song_name("a|b?c.mp3"), "abc.mp3");
+    }
+
+    #[test]
+    fn test_sanitize_song_name_keeps_normal() {
+        assert_eq!(sanitize_song_name("刚刚好.m4a"), "刚刚好.m4a");
+        assert_eq!(sanitize_song_name("song - 副本 (1).mp3"), "song - 副本 (1).mp3");
+    }
+
+    #[test]
+    fn test_transfer_chunk_size_positive() {
+        assert!(TRANSFER_CHUNK_SIZE > 0);
+        // 一首 6MB 的歌应分成约 48 片（符合 WS 消息大小限制）
+        assert_eq!((6 * 1024 * 1024 + TRANSFER_CHUNK_SIZE - 1) / TRANSFER_CHUNK_SIZE, 48);
+    }
+}

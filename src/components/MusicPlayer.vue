@@ -38,6 +38,26 @@ const isPlaylistOpen = ref(false);
 const isVolumeOpen = ref(false);
 const isDeviceOpen = ref(false);
 
+/** 同步听歌时非 DJ 用户禁止控制播放器（由 DJ 统一控制播放/切歌/进度/音量） */
+const controlsDisabled = computed(() => store.syncEnabled && !store.isDj);
+
+/**
+ * 曲名显示：优先 P2P 传输进度 / 等待全员下载提示，其次"无这首歌"，再是正常曲名
+ */
+const trackDisplay = computed(() => {
+  const transfer = store.songTransfer;
+  if (transfer.state === "requesting" || transfer.state === "downloading") {
+    if (transfer.total > 0) {
+      const pct = Math.floor((transfer.received / transfer.total) * 100);
+      return `⏳ 获取歌曲中… ${pct}%`;
+    }
+    return `⏳ 获取歌曲中…《${transfer.songName}》`;
+  }
+  if (store.waitingForSongs) return "⏳ 等待其他用户下载歌曲…";
+  if (store.missingSongName) return `⚠️ 无这首歌：《${store.missingSongName}》`;
+  return store.playError || (store.hasMusic ? (store.trackName || "未播放") : "无音乐");
+});
+
 // ===== 进度条拖拽 =====
 const progressBarRef = ref<HTMLDivElement | null>(null);
 const isDraggingProgress = ref(false);
@@ -52,6 +72,7 @@ function calcProgress(clientX: number): number {
 }
 
 function handleProgressMouseDown(e: MouseEvent) {
+  if (controlsDisabled.value) return;
   if (!progressBarRef.value || store.duration <= 0) return;
   isDraggingProgress.value = true;
   store.isDragging = true;
@@ -79,6 +100,7 @@ function handleProgressMouseUp(e: MouseEvent) {
 // 点击（非拖拽）也跳转
 function handleProgressClick(e: MouseEvent) {
   if (isDraggingProgress.value) return;
+  if (controlsDisabled.value) return;
   if (!progressBarRef.value || store.duration <= 0) return;
   const progress = calcProgress(e.clientX);
   const newTime = Math.floor(progress * store.duration);
@@ -142,12 +164,14 @@ function togglePlaylist() {
 }
 
 function handleSongClick(songName: string) {
+  if (controlsDisabled.value) return;
   if (songName !== store.trackName) {
     void store.playSong(songName);
   }
 }
 
 async function handleDeleteSong(songName: string, e: MouseEvent) {
+  if (controlsDisabled.value) return;
   e.stopPropagation();
   if (songName === store.trackName) return;
   await store.deleteSong(songName);
@@ -270,6 +294,7 @@ function displayName(name: string): string {
 
 // ===== 音量控制 =====
 function handleVolumeInput(e: Event) {
+  if (controlsDisabled.value) return;
   const target = e.target as HTMLInputElement;
   const v = parseInt(target.value, 10) / 100;
   void store.setVolume(v);
@@ -396,19 +421,19 @@ if (typeof document !== "undefined") {
           <span class="music-icon">🎵</span>
           <span
             class="music-player__track-name"
-            :class="{ error: !!store.playError || !!store.missingSongName, empty: !store.hasMusic }"
+            :class="{
+              error: !!store.playError || !!store.missingSongName || store.waitingForSongs || store.songTransfer.state !== 'idle',
+              empty: !store.hasMusic,
+            }"
           >
-            {{
-              store.missingSongName
-                ? `⚠️ 无这首歌：《${store.missingSongName}》`
-                : store.playError || (store.hasMusic ? (store.trackName || "未播放") : "无音乐")
-            }}
+            {{ trackDisplay }}
           </span>
 
           <!-- 音量 -->
           <div class="music-volume">
             <button
               class="music-btn"
+              :disabled="controlsDisabled"
               :title="`音量 ${Math.round(store.volume * 100)}%`"
               @click="isVolumeOpen = !isVolumeOpen"
             >
@@ -419,6 +444,7 @@ if (typeof document !== "undefined") {
                 type="range"
                 min="0"
                 max="100"
+                :disabled="controlsDisabled"
                 :value="Math.round(store.volume * 100)"
                 @input="handleVolumeInput"
               />
@@ -481,7 +507,7 @@ if (typeof document !== "undefined") {
           </button>
           <button
             class="music-btn music-btn--prev"
-            :disabled="!store.hasPrev"
+            :disabled="!store.hasPrev || controlsDisabled"
             title="上一首"
             @click="store.prev()"
           >
@@ -490,16 +516,23 @@ if (typeof document !== "undefined") {
           <button
             class="music-btn music-btn--play"
             :data-playing="store.playing"
+            :disabled="controlsDisabled"
             @click="store.togglePlay()"
           >
             {{ store.playing ? "⏸" : "▶" }}
           </button>
-          <button class="music-btn music-btn--next" title="下一首" @click="store.next()">
+          <button
+            class="music-btn music-btn--next"
+            :disabled="controlsDisabled"
+            title="下一首"
+            @click="store.next()"
+          >
             ⏭
           </button>
           <button
             class="music-btn music-btn--mode"
             :class="{ active: store.playMode !== 'order' }"
+            :disabled="controlsDisabled"
             :title="store.playModeTitle"
             @click="store.cyclePlayMode()"
           >
@@ -519,7 +552,7 @@ if (typeof document !== "undefined") {
               v-for="(song, idx) in store.playlist"
               :key="idx"
               class="music-playlist__item"
-              :class="{ current: song === store.trackName }"
+              :class="{ current: song === store.trackName, disabled: controlsDisabled }"
               @click="handleSongClick(song)"
             >
               <span
@@ -534,6 +567,7 @@ if (typeof document !== "undefined") {
               <button
                 v-if="song !== store.trackName"
                 class="music-playlist__delete"
+                :disabled="controlsDisabled"
                 @click="handleDeleteSong(song, $event)"
                 title="删除"
               >
@@ -776,10 +810,18 @@ if (typeof document !== "undefined") {
   transform: scale(0.95);
 }
 
-.music-btn:disabled {
+/* 同步听歌：非 DJ 用户禁用播放器控制 */
+.music-btn:disabled,
+.music-playlist__delete:disabled {
   opacity: 0.35;
   cursor: not-allowed;
   pointer-events: none;
+  transform: none;
+}
+
+.music-playlist__item.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* 小按钮（榜单/模式/播放列表）：20x20 圆形，参照原版 .music-btn-small */
