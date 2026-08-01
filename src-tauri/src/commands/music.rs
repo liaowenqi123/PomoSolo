@@ -30,12 +30,14 @@ fn get_music_dir(app: &AppHandle) -> Result<PathBuf, String> {
             .join("music");
         Ok(path)
     } else {
-        // 生产模式：resource_dir/music/
-        let resource_dir = app
+        // 生产模式：app_data_dir/music（用户数据区）
+        // 安装包内置歌曲在 resource_dir/music，启动时由 update::merge_music_dir
+        // 合并到此处（不覆盖已有），安装/更新不会覆盖用户下载的歌曲
+        let app_data_dir = app
             .path()
-            .resource_dir()
-            .map_err(|e| format!("无法获取资源目录: {}", e))?;
-        Ok(resource_dir.join("music"))
+            .app_data_dir()
+            .map_err(|e| format!("无法获取应用数据目录: {}", e))?;
+        Ok(app_data_dir.join("music"))
     }
 }
 

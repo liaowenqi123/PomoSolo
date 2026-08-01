@@ -76,6 +76,11 @@ export const useMusicStore = defineStore("music", () => {
   const hasMusic = ref(true);
   const hasPrev = ref(false);
   const playError = ref<string | null>(null);
+  /**
+   * 同步听歌场景下，DJ 播放的歌曲本地不存在
+   * （非空时播放器曲名位置显示"无这首歌"提示；P2P 传输方案见 docs/）
+   */
+  const missingSongName = ref<string | null>(null);
 
   const devices = ref<MusicDevice[]>([]);
   const currentDeviceId = ref<number | null>(null);
@@ -273,11 +278,17 @@ export const useMusicStore = defineStore("music", () => {
     if (songName === trackName.value) return;
     try {
       await musicPlaySong(songName);
+      // 播放成功：本地已确认有这首歌，清除"无这首歌"提示
+      missingSongName.value = null;
       if (syncEnabled.value && isDj.value) {
         await broadcastDjAction("play", { songId: songName, positionMs: 0 });
       }
     } catch (e) {
       console.error("[MusicStore] playSong error:", e);
+      // 同步听歌场景：播放失败（本地无该文件）→ 显示"无这首歌"
+      if (syncEnabled.value) {
+        missingSongName.value = songName;
+      }
     }
   }
 
@@ -393,6 +404,7 @@ export const useMusicStore = defineStore("music", () => {
     playing.value = false;
     hasPrev.value = payload.has_prev ?? false;
     playError.value = null;
+    missingSongName.value = null;
   }
 
   function handleStatus(payload: MusicStatus) {
@@ -403,6 +415,7 @@ export const useMusicStore = defineStore("music", () => {
     if (payload.has_prev !== undefined) hasPrev.value = payload.has_prev;
     if (payload.play_mode !== undefined) playMode.value = payload.play_mode;
     playError.value = null;
+    missingSongName.value = null;
   }
 
   function handlePlayState(payload: MusicPlayStatePayload) {
@@ -476,6 +489,10 @@ export const useMusicStore = defineStore("music", () => {
     if (payload.current_song !== undefined) {
       trackName.value = payload.current_song;
     }
+    // 歌单刷新后，之前提示"无这首歌"的歌若已出现在歌单中则清除提示
+    if (missingSongName.value && playlist.value.includes(missingSongName.value)) {
+      missingSongName.value = null;
+    }
   }
 
   function handleSongMissing(payload: MusicSongMissingPayload) {
@@ -519,6 +536,13 @@ export const useMusicStore = defineStore("music", () => {
     if (action === "play") {
       const songId = evt.song_id;
       if (typeof songId === "string" && songId && songId !== trackName.value) {
+        // 本地歌单已加载且不含该歌 → 听众端显示"无这首歌"（不尝试播放）
+        if (playlist.value.length > 0 && !playlist.value.includes(songId)) {
+          missingSongName.value = songId;
+          if (playing.value) void togglePlay();
+          return;
+        }
+        missingSongName.value = null;
         void playSong(songId);
         // 播放器加载需要时间，稍后跳转到目标位置
         window.setTimeout(() => void seek(posSec), 800);
@@ -583,6 +607,7 @@ export const useMusicStore = defineStore("music", () => {
     hasMusic,
     hasPrev,
     playError,
+    missingSongName,
     devices,
     currentDeviceId,
     playlist,

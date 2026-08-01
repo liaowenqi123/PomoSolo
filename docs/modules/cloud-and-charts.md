@@ -394,7 +394,7 @@
 
 ---
 
-### 4.6 ChartsInner.api_key 永远为 None（已知 Bug，待修复）
+### 4.6 ChartsInner.api_key 永远为 None（本地模式已修复，云端链路见 4.7）
 
 - **现象**：用户登录或配置本地 API Key 后，点击下载按钮，**永远**返回错误"请先登录或配置 DeepSeek API Key"。
 - **根因**：
@@ -417,29 +417,46 @@
 - **错误尝试**：
   - 一度怀疑是 `manual_downloader.exe` 路径问题，反复检查 `get_downloader_path` 的 debug/release 分支
   - 一度以为是 mutex 死锁，把锁拆细
-- **正确方案（待实施）**：
-  1. **方案 A（推荐）**：新增一个 Tauri 命令 `charts_set_api_key(api_key: String)`，在 `save_api_key` / `cloud_login` 成功后由前端主动调用，把 API Key 注入 `ChartsState.inner.api_key`。
+- **正确方案（已实施，本地模式）**：
+  1. **新增 Tauri 命令 `charts_set_api_key(api_key: String)`**（`commands/charts.rs:476-484`，已在 `lib.rs` 注册），前端在 `save_api_key` 成功后调用，把 API Key 注入 `ChartsState.inner.api_key`。
 
      ```rust
-     // 在 commands/charts.rs 新增
+     // commands/charts.rs:476-484
      #[tauri::command]
-     pub async fn charts_set_api_key(app: AppHandle, api_key: String) -> Result<bool, String> {
+     pub async fn charts_set_api_key(app: AppHandle, api_key: String) -> Result<(), String> {
          let charts_state = app.state::<ChartsState>();
          let mut guard = charts_state.inner.lock().await;
-         guard.api_key = Some(api_key);
-         Ok(true)
+         guard.api_key = if api_key.is_empty() { None } else { Some(api_key) };
+         Ok(())
      }
      ```
 
-     并在 `lib.rs` 注册：`commands::charts::charts_set_api_key`
+  2. `commands/cloud_auth.rs::save_api_key` 已改为直接同步 `ChartsState.inner.api_key`（写入 `data.json` 后同步内存）。
+  3. 前端 `stores/auth.ts::saveLocalApiKey` 成功后调用 `chartsSetApiKey(key)`（`auth.ts:264-266`）。
 
-     前端 `stores/auth.ts::saveLocalApiKey` / `login` 成功后调用 `invoke("charts_set_api_key", { apiKey })`。
+  4. **云端模式修复见 4.7**（登录后从服务器拉取注入，本轮新增）。
 
-  2. **方案 B（更彻底）**：让 `download_song` 直接从 `data.json` 读取 `apiKey` 字段，移除 `ChartsState.api_key` 字段，避免双源真相。
-
-- **临时绕过**：无。当前所有下载调用都会失败。需尽快修复。
+- **临时绕过**：已无。本地模式配置 Key 后下载即可用；云端模式见 4.7。
 
 > **教训**：当一个状态有"持久化存储"和"内存缓存"两份时，写入路径必须同步更新两份，否则内存缓存永远是初值。
+
+---
+
+### 4.7 全新电脑云端登录后仍报"无 DeepSeek API Key"（已修复）
+
+- **现象**：全新电脑安装番茄钟 → 云端登录（admin 账号）→ 下载歌曲仍报"请先登录或配置 DeepSeek API Key"。UI 上已登录（`hasApiKey` 云端模式只看 session 存在），但实际下载器拿不到 Key。
+- **根因**（三处叠加，迁移自建服务器时整条云端 Key 链路丢失）：
+  1. **服务器无 DeepSeek Key 存储**：旧版从 Supabase `api_keys` 表拉取 `name='deepseek'` 的 Key；自建服务器（Python+PostgreSQL）没有 `api_keys` 表，也没有下发接口。
+  2. **客户端未解析 `admin` 字段**：`commands/cloud_auth.rs::ApiUser` 结构体缺少 `admin` 字段，`api_user_to_session` 硬编码 `admin: false`（服务器登录响应其实已返回 `admin`），导致前端 `AuthPanel` 也不显示 Admin 标识。
+  3. **客户端登录后无注入逻辑**：`cloud_login` / `cloud_get_session` 成功后从未把 Key 注入 `ChartsState`；`ai.rs::resolve_api_key` 注释宣称"云端登录 admin 拉取"但代码从未实现。
+- **正确方案（已实施）**：
+  1. **服务器端**：新增 `api_keys` 表 + `GET/PUT /api/v1/config/deepseek-key`（仅 admin），Key 从旧 Supabase `api_keys` 表迁移一行（`name='deepseek'`）。详见 `server-planning/API-implementation.md`。
+  2. **客户端（`commands/cloud_auth.rs`）**：
+     - `ApiUser` 增加 `admin` 字段（`#[serde(default)]`），`api_user_to_session` 使用真实值
+     - 新增 `sync_deepseek_key(state, app)`：admin 用户登录/恢复会话成功后调用 `GET /api/v1/config/deepseek-key`，把返回的 Key 注入 `ChartsState.inner.api_key`（非 admin 或接口失败静默跳过）
+     - 调用时机：`perform_login` 成功后、`cloud_get_session` 三个分支（内存会话存在 / 自动登录成功 / 自动登录由 perform_login 内部同步）
+- **验证**：服务器端已端到端验证（未登录 401 / 普通用户 403 / admin 200+key）；客户端链路需 `npm run tauri dev` 登录 admin 账号后实测下载。
+- **遗留**：非 admin 用户云端登录仍无 Key（与旧版设计一致，仅 admin 可拿 Key）。若未来要开放给普通用户，需服务器部门评估权限模型。
 
 ---
 
