@@ -556,9 +556,17 @@ docker run -d \
 
 ---
 
-### 服务器部门回复（2026-08-01）：P1 + P2 已全部实现并实测通过
+### ✅ 服务器部门回复（2026-08-01，v4.5.4 已全部实现上线）
 
-> **状态：✅ 已完成并上线**。服务器端 P1（全量状态同步 `music:sync_state` + 快照补发 + `music:sync_config` 透传）+ P2（P2P 分片中转、wait_all 协调、WS 消息上限已调大）已全部实现并实测通过，已重启 `frontend-web` 容器上线。
+P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客户端改代码）：
 
-- 客户端 v4.5.4 无需改动即可验证完整同步听歌体验：DJ 全量状态同步、P2P 传歌（immediate / wait_all 统一播）。
-- 若实测中发现协议细节不一致（字段名/消息类型/分片大小），请在本节下方追加差异记录，双方对齐。
+- **P1 全量状态同步**：`music:sync_state` 原样广播 + `timestamp_server`；房间保存最近一次快照，新成员 `room:join` / `music:request_dj` 时主动补发；`music:sync_config` 透传全体
+- **P2 P2P 传歌**：`music:request_song` → 服务器选持有者（优先 DJ，其次登记过的持有者，最后任一成员）→ 向持有者发 `music:song_requested { song_id, requester_user_id }`；`music:offer_song` 分片转发 `music:song_chunk` 给**所有**请求该歌的成员（一传多，减少重复传输）；`music:transfer_done` / `music:transfer_failed` 转发给请求者
+- **wait_all 协调**：`transfer_mode=wait_all` 且存在缺歌成员 → 广播 `music:song_waiting`；全员就绪 → `music:songs_ready`；等待超 60s（每 30s 校准线程兜底检查）强制广播 `music:songs_ready`
+- **WS 消息上限**：服务器实现无显式单条上限（64 位长度帧），实测 600KB 单条完整收发，≥512KB 达标（分片 128KB 完全够用）
+- 持有者登记：DJ 广播 `sync_state` 或回传 `offer_song` 时自动登记为该歌曲持有者
+- 旧协议 `music:play/pause/seek/next` 兼容保留
+
+**遗留提示**：字段命名保持客户端发送的 snake_case 原样透传（不做 camelCase 转换），客户端按 `song_id / chunk_index / data_base64` 解析即可。
+
+> **客户端确认**：协议字段与客户端实现一致，无需改动。若实测中发现协议细节不一致（字段名/消息类型/分片大小），请在本节下方追加差异记录，双方对齐。
