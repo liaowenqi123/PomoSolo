@@ -165,12 +165,11 @@ export const useMusicStore = defineStore("music", () => {
   const localHasSongs = new Set<string>();
 
   /**
-   * 下载合并完成后的"防回缩"窗口（ms）截止时间戳。
-   * 窗口内（刚下载完某首歌）收到的**同歌** sync_state 只允许向前校准：
-   * 位置 < 当前进度视为"传输期间迟到的旧广播"，直接忽略，避免弹到 DJ 位置又往回缩；
-   * 位置 ≥ 当前进度（DJ 前进中/requestState 触发的实时广播）正常校准。其他歌不受影响。
+   * 最近一次应用的同步广播时间戳（timestamp_server，服务器转发时附加，毫秒）。
+   * 用于广播新旧判定：时间戳更小的迟到旧广播直接忽略（旧状态不覆盖新状态）；
+   * 与进度位置无关——DJ 手动回退/前进都是"新广播"（ts 更大），都能正常应用。
    */
-  let syncSuppressUntil = 0;
+  let lastSyncTs = 0;
 
   function ensureTransferWatch() {
     if (transferWatchTimer) return;
@@ -567,9 +566,6 @@ export const useMusicStore = defineStore("music", () => {
         }
         // immediate：合并后立即播放，seek 到 DJ 当前进度（开头缺几秒可接受）
         void playSong(songId);
-        // 防回缩窗口：合并完成瞬间 4s 内忽略"迟到的旧同歌广播"（传输期间 DJ 发的旧位置），
-        // 避免 seek 到 DJ 位置后又被旧广播拉回去（弹跳回缩）
-        syncSuppressUntil = Date.now() + 4_000;
         if (pendingSyncPosition > 0) {
           const target = pendingSyncPosition;
           pendingSyncPosition = 0;
@@ -935,6 +931,10 @@ export const useMusicStore = defineStore("music", () => {
       pos += Math.max(0, Date.now() - ts);
     }
     const posSec = Math.floor(pos / 1000);
+    // 广播新旧判定：时间戳更小的迟到旧广播直接忽略（旧状态不覆盖新状态）。
+    // 与进度方向无关——DJ 手动回退/前进都是新广播（ts 更大），都能正常应用
+    if (ts > 0 && ts < lastSyncTs) return;
+    if (ts > lastSyncTs) lastSyncTs = ts;
 
     if (action === "play") {
       const songId = evt.song_id;
@@ -959,8 +959,6 @@ export const useMusicStore = defineStore("music", () => {
         window.setTimeout(() => seekIfFar(posSec), 800);
       } else {
         if (!playing.value) void togglePlay();
-        // 防回缩窗口：同歌只允许向前校准（防传输期间迟到的旧广播把进度拉回）
-        if (Date.now() < syncSuppressUntil && posSec < currentTime.value) return;
         seekIfFar(posSec);
       }
     } else if (action === "pause") {
@@ -984,6 +982,10 @@ export const useMusicStore = defineStore("music", () => {
       pos += Math.max(0, Date.now() - ts);
     }
     const posSec = Math.floor(pos / 1000);
+    // 广播新旧判定：时间戳更小的迟到旧广播直接忽略（旧状态不覆盖新状态）。
+    // 与进度方向无关——DJ 手动回退/前进都是新广播（ts 更大），都能正常应用
+    if (ts > 0 && ts < lastSyncTs) return;
+    if (ts > lastSyncTs) lastSyncTs = ts;
 
     // 音量同步（DJ 音量为 0 时不覆盖听众本地音量，避免误静音）
     if (typeof evt.volume === "number" && evt.volume > 0) {
@@ -995,11 +997,6 @@ export const useMusicStore = defineStore("music", () => {
     }
 
     if (typeof songId === "string" && songId) {
-      // 防回缩窗口：刚下载完这首歌（合并瞬间 4s 内），同歌广播只允许向前校准——
-      // 位置 < 当前进度视为"传输期间迟到的旧广播"，忽略，避免弹到 DJ 位置又往回缩
-      if (songId === trackName.value && Date.now() < syncSuppressUntil) {
-        if (posSec < currentTime.value) return;
-      }
       // DJ 切歌（本地当前歌曲不同）
       if (songId !== trackName.value) {
         // DJ 切歌：若正在 P2P 传输旧歌，立即中断（避免误触/快速切歌时旧歌继续下载并播出来）
