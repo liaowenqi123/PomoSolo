@@ -149,6 +149,12 @@ export const useMusicStore = defineStore("music", () => {
   const TRANSFER_MAX_RETRY = 3;
   /** 传输兜底检查定时器：requesting/downloading 超时无进展 → 自动重新下载（最多 N 次） */
   let transferWatchTimer: ReturnType<typeof setInterval> | null = null;
+  /**
+   * 本地已确认存在的歌曲集合（P2P 合并成功 / playSong 成功后加入）。
+   * 解决：传输完成后歌单刷新有延迟，期间 DJ 再广播 sync_state 会被误判"缺歌"
+   * 而重新触发 P2P（表现为 DJ 暂停时显示"获取歌曲中 2%"，DJ 恢复才切回标题）。
+   */
+  const localHasSongs = new Set<string>();
 
   function ensureTransferWatch() {
     if (transferWatchTimer) return;
@@ -411,6 +417,7 @@ export const useMusicStore = defineStore("music", () => {
     try {
       await musicPlaySong(songName);
       // 播放成功：本地已确认有这首歌，清除"无这首歌"提示
+      localHasSongs.add(songName);
       missingSongName.value = null;
       if (syncEnabled.value && isDj.value) {
         window.setTimeout(() => void broadcastSyncState(), 250);
@@ -435,6 +442,8 @@ export const useMusicStore = defineStore("music", () => {
    * 避免"DJ 切歌后这边没反应"。
    */
   async function startSongTransfer(songId: string) {
+    // 再次传输 = 视为本地暂时缺失（若之前合并过，先移除本地已有标记）
+    localHasSongs.delete(songId);
     const t = songTransfer.value;
     if (t.state !== "idle") {
       if (t.songName === songId) return; // 同一首歌已在传输
@@ -505,6 +514,8 @@ export const useMusicStore = defineStore("music", () => {
       const res = await musicFinalizeSong(songId, totalChunks);
       if (res.success) {
         missingSongName.value = null;
+        // 本地已确认存在（歌单刷新有延迟，先记录避免误判缺歌重新触发 P2P）
+        localHasSongs.add(songId);
         // 从 DJ 处下载的歌曲自动打上 DJ 名字标签（识别歌曲来源）
         if (djName.value) {
           void updateSongTag(songId, djName.value, null);
@@ -523,6 +534,9 @@ export const useMusicStore = defineStore("music", () => {
           // 播放器加载需要时间，稍后跳转到目标位置
           window.setTimeout(() => void seek(target), 800);
         }
+        // 兜底：请求服务器补发最新 sync_state，校准到 DJ 当前实际进度
+        // （下载耗时可能较长，下载开始时的 pendingSyncPosition 已过时；服务器实现后回发快照 → seek 校准）
+        void musicSyncRequestState().catch(() => {});
       } else {
         missingSongName.value = songId;
       }
@@ -548,6 +562,9 @@ export const useMusicStore = defineStore("music", () => {
     // 并发守卫：同一首歌只开一个传输循环（服务器"一传多"时可能重复收到请求）
     if (activeTransfers.has(songId)) return;
     activeTransfers.add(songId);
+    // 传歌期间每 5s 广播一次 sync_state：听众下载可能耗时较久，
+    // 若不广播，听众的 pendingSyncPosition 停留在下载开始时（seek 会回到旧位置，表现为"从头播放"）
+    const progressSync = setInterval(() => void broadcastSyncState(), 5000);
     try {
       let idx = 0;
       let totalChunks = 0;
@@ -576,6 +593,7 @@ export const useMusicStore = defineStore("music", () => {
       console.warn("[MusicStore] 传歌失败:", e);
       void musicSyncTransferFailed(songId).catch(() => {});
     } finally {
+      clearInterval(progressSync);
       activeTransfers.delete(songId);
     }
   }
@@ -602,6 +620,8 @@ export const useMusicStore = defineStore("music", () => {
     try {
       const result = await musicDeleteSong(songName);
       if (result.success) {
+        // 删除成功：本地已无该歌，下次 DJ 播放时需重新 P2P
+        localHasSongs.delete(songName);
         await requestPlaylist();
       }
       return result.success;
@@ -865,7 +885,7 @@ export const useMusicStore = defineStore("music", () => {
       const songId = evt.song_id;
       if (typeof songId === "string" && songId && songId !== trackName.value) {
         // 本地歌单不含该歌 → 触发 P2P 拉取（服务器未支持时降级为"无这首歌"）
-        if (!playlist.value.includes(songId)) {
+        if (!playlist.value.includes(songId) && !localHasSongs.has(songId)) {
           pendingSyncPosition = posSec;
           missingSongName.value = songId;
           if (playing.value) void togglePlay();
@@ -916,7 +936,7 @@ export const useMusicStore = defineStore("music", () => {
       // DJ 切歌（本地当前歌曲不同）
       if (songId !== trackName.value) {
         // 本地缺歌 → 触发 P2P 拉取；传输期间暂存 DJ 进度，合并完成后 seek
-        if (!playlist.value.includes(songId)) {
+        if (!playlist.value.includes(songId) && !localHasSongs.has(songId)) {
           pendingSyncPosition = posSec;
           missingSongName.value = songId;
           if (playing.value) void togglePlay();

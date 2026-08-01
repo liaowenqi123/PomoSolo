@@ -438,6 +438,13 @@
 
 **服务器配套需求**（已在 `server-planning/API-implementation.md` 留言区留言）：`music:request_state` 收到后向该客户端回发房间最近一次 `music:sync_state` 快照（附加 `timestamp_server`）；WS 心跳已由客户端自保，服务器侧空闲断连阈值建议调大。
 
+### 4.17 immediate 模式下载后进度对齐 + 歌单刷新前误判缺歌（v4.5.6 补充）
+
+发版前用户实测又发现 2 个问题，随 v4.5.6 一并修复：
+
+1. **immediate 边下边播，下完从头播放（缺的不是开头是结尾）**：DJ 只在动作时广播一次 `sync_state`，进度并不持续广播。听众下载耗时越久，`pendingSyncPosition`（下载开始时暂存的 DJ 位置）就越过时，合并完成 seek 到旧位置 = 从头播放；DJ 切歌/自动下一首后这首直接被切掉。**修复（三层）**：① DJ 侧 `handleSongRequested` 传歌期间每 5s 广播一次 `sync_state`，听众 `pendingSyncPosition` 持续保持最新；② 听众合并完成后除 seek `pendingSyncPosition` 外，主动发 `music:request_state` 请求服务器补发最新快照校准（需服务器实现，见协议文档留言区）；③ 服务器未实现时回退到 ①② 的进度，至少是传输开始时刻的位置而非 0。
+2. **DJ 暂停时听众显示"获取歌曲中…2%"，DJ 恢复才切回标题**：传输完成合并成功后歌单刷新（`requestPlaylist`）有延迟，期间 `playlist` 仍不含该歌；DJ 任何一次 `sync_state` 广播（如暂停）都会命中缺歌分支 → 重新触发 P2P → 又显示"获取歌曲中 2%"。**修复**：新增 `localHasSongs` 集合（模块级）记录"本地已确认存在的歌曲"——P2P 合并成功 / `playSong` 成功后加入；`applySyncState` / `applyMusicState` 缺歌判断改为 `!playlist.includes(songId) && !localHasSongs.has(songId)`，传输期间 `startSongTransfer` 从集合移除；`deleteSong` 成功时也从集合移除（本地真的删了，下次 DJ 播放需重新 P2P）。
+
 ---
 
 ## 5. 最终布局结构清单
