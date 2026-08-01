@@ -1039,6 +1039,13 @@ export const useMusicStore = defineStore("music", () => {
         }
         break;
       }
+      case "music:state_request": {
+        // 服务器转达：有听众请求当前状态（下载完成/刚加入需校准位置）→
+        // DJ 立即广播一次实时 sync_state，让请求者拿到 DJ 广播时刻的实时进度
+        // （配合 music:request_state：服务器收到请求后转给 DJ 触发实时广播）
+        if (isDj.value) void broadcastSyncState();
+        break;
+      }
       case "music:volume": {
         if (!syncEnabled.value || isDj.value) return;
         const v = evt.volume;

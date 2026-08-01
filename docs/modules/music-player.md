@@ -461,6 +461,15 @@ v4.5.6 发布后用户实测仍有 2 个残留症状，根因与修法：
 3. **已有 DJ 的房间开启同步后显示"DJ 暂无"（能听歌但 djName 空）**：`djName` 只在 `music:dj_changed`（DJ 切换）时更新，加入已有 DJ 房间时服务器未补发。**纯服务器需求**：`room:join` / `music:request_state` 时补发 `music:dj_changed { dj_user_id, dj_username }`（客户端已能处理，无需改代码）。
 4. **DJ 切歌时听众听到 AABCD 重复开头（多次 seek 校准导致回跳）**：DJ 切歌/传歌期间广播 sync_state 较频繁（5s 一次），听众端每次收到都无条件 `seek(posSec)`，进度小偏差也被反复回跳。**修复**：新增 `SYNC_SEEK_TOLERANCE_S = 2` 容忍度与 `seekIfFar(target)`——`|本地进度 - 目标| ≤ 2s` 时不 seek，超过 2s 才校准；`applySyncState` / `applyMusicState` 的所有校准点（同歌分支、切歌后 800ms、pause/seek 动作）统一改用 `seekIfFar`。下载完成后的对齐（`pendingSyncPosition`）保持无条件 seek，不受容忍度影响。
 
+### 4.20 下载完成后主动向 DJ 要实时位置（v4.5.8 开发中）
+
+- **现象**：immediate 模式下下载完成不再从头播（v4.5.6 已修），但 seek 到的是"传输期间最后一次广播的位置"（DJ 传歌期间 5s 广播一次，最多落后几秒）→ 与 DJ 实际位置仍有差距
+- **原因**：`musicSyncRequestState()` 服务器回发的是**服务器保存的快照**（也可能旧），不是 DJ 实时进度；且 `seekIfFar` 的 2s 容忍度遇到小差距不校准
+- **修复（需服务器配合，已留言）**：
+  - 服务器：收到 `music:request_state` 时若房间有 DJ → **向 DJ 单发 `music:state_request`**（新消息）；DJ 收到后立即广播一次实时 `music:sync_state`（含 `timestamp_server`）→ 请求者拿到 DJ 广播时刻的实时进度并 `seekIfFar` 校准
+  - 客户端（已实现）：DJ 侧 `handleSyncWsEvent` 新增 `case "music:state_request"` → `broadcastSyncState()` 立即广播实时状态
+- **触发点**：`musicSyncRequestState()` 已覆盖全部"要位置"场景——开启同步时、`handleTransferDone` 下载完成合并后、StudyRoom WS 断线重连时
+
 ---
 
 ## 5. 最终布局结构清单

@@ -370,6 +370,7 @@ ws://服务器地址:3001/ws?token=<access_token> # 备用：独立端口直连
 | `music:transfer_failed` | **P2P：传输失败通知（新）**：`{ song_id }` |
 | `music:song_waiting` | **P2P：有听众缺歌，DJ 暂停等待（新，wait_all 模式）**：`{ song_id }`，广播给房间全体 |
 | `music:songs_ready` | **P2P：全员就绪，DJ 从头播放（新，wait_all 模式）**：`{ song_id }`，广播给房间全体 |
+| `music:state_request` | **转达：有听众请求当前状态（新）**：服务器收到 `music:request_state` 时若房间有 DJ，向 DJ 单发此消息，DJ 收到后立即广播一次实时 `music:sync_state` |
 
 #### 同步精度策略
 ```
@@ -392,6 +393,7 @@ DJ 的所有播放操作（播放/暂停/切歌/上一首/进度/自然切歌）
 2. **保存房间最近一次 `music:sync_state` 快照**：新成员开启同步 / DJ 切换（`music:dj_changed`）时，主动向该客户端补发一次快照（解决"新听众不知道 DJ 在播什么"的问题）
 3. 透传 `music:sync_config` 给房间全体
 4. **收到 `music:request_state` 时向该客户端补发房间最近一次 `music:sync_state` 快照**（附加 `timestamp_server`）。客户端在开启同步时主动发送，作为快照补发的兜底（服务器主动补发时机不可控时，确保听众加入后一定能拿到当前 DJ 状态；v4.5.6 起）
+5. **`music:request_state` 触发 DJ 实时广播（v4.5.8 起，推荐）**：收到 `music:request_state` 时若房间存在 DJ，**向 DJ 单发 `music:state_request`**，DJ 收到后立即广播一次实时 `music:sync_state`（走现有广播链路 + `timestamp_server`）→ 请求者拿到的是 **DJ 广播时刻的实时进度**而非服务器旧快照。用途：听众下载歌曲完成后主动校准到 DJ 当前播放位置（"下载完还差几秒"问题）。若无 DJ，维持第 4 条回发快照
 
 #### 缺歌处理 + P2P 点对点传歌（v4.5.4 起）
 
@@ -622,4 +624,8 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 - 原因：`djName` 只在 `music:dj_changed`（DJ 切换）时更新；听众加入已有 DJ 的房间时，服务器未补发 dj_changed
 - 需求：**房间成员加入（`room:join`）或收到 `music:request_state` 时，若房间存在 DJ，向该客户端补发一次 `music:dj_changed { dj_user_id, dj_username }`**（客户端已能处理，无需改代码）
 
-> 第 1 项最严重（掉线），第 3 项改动最小（补发一条消息），请按优先级处理并在下方回复确认。
+**4. `music:request_state` 触发 DJ 实时广播（校准"下载完位置还差几秒"）**
+- 背景：听众下载完成后 seek 到"传输期间最后一次广播的位置"（最多落后几秒），`music:request_state` 现在回发的是服务器保存的快照（也可能旧）→ 与 DJ 实际位置仍有差距
+- 需求：收到 `music:request_state` 时若房间有 DJ，**向 DJ 单发 `music:state_request`**（新消息，DJ 侧 v4.5.8 已实现处理：收到后立即广播一次实时 `music:sync_state`），让请求者拿到 DJ 广播时刻的实时进度。无 DJ 时维持现有回发快照逻辑
+
+> 第 1 项最严重（掉线），第 3/4 项改动很小（补发消息/转达），请按优先级处理并在下方回复确认。
