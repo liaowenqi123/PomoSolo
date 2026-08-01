@@ -396,9 +396,13 @@ if (typeof document !== "undefined") {
           <span class="music-icon">🎵</span>
           <span
             class="music-player__track-name"
-            :class="{ error: !!store.playError, empty: !store.hasMusic }"
+            :class="{ error: !!store.playError || !!store.missingSongName, empty: !store.hasMusic }"
           >
-            {{ store.playError || (store.hasMusic ? (store.trackName || "未播放") : "无音乐") }}
+            {{
+              store.missingSongName
+                ? `⚠️ 无这首歌：《${store.missingSongName}》`
+                : store.playError || (store.hasMusic ? (store.trackName || "未播放") : "无音乐")
+            }}
           </span>
 
           <!-- 音量 -->

@@ -157,9 +157,9 @@ pub fn run() {
                 }
             }
 
-            // 还原上次更新前备份的用户音乐（如果有）
-            if let Err(e) = commands::update::restore_music_dir(&_app.handle()) {
-                eprintln!("[setup] 还原音乐备份失败: {}", e);
+            // 合并内置歌曲/历史备份到用户音乐目录（app_data_dir/music，不覆盖已有）
+            if let Err(e) = commands::update::merge_music_dir(&_app.handle()) {
+                eprintln!("[setup] 合并音乐目录失败: {}", e);
             }
 
             // 系统托盘：对照旧版 Electron 的行为，仅在迷你模式下创建/销毁。

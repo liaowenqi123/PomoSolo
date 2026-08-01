@@ -496,7 +496,7 @@ pub struct DownloadTask {
 /// 获取 music 目录路径（music-player/music/）
 ///
 /// debug 模式：CARGO_MANIFEST_DIR/../music-player/music/
-/// release 模式：resource_dir()/music/
+/// release 模式：app_data_dir()/music/（用户数据区，与 music.rs 一致）
 fn get_music_dir(app: &AppHandle) -> Result<PathBuf, String> {
     if cfg!(debug_assertions) {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
@@ -507,11 +507,11 @@ fn get_music_dir(app: &AppHandle) -> Result<PathBuf, String> {
             .join("music");
         Ok(path)
     } else {
-        let resource_dir = app
+        let app_data_dir = app
             .path()
-            .resource_dir()
-            .map_err(|e| format!("无法获取资源目录: {}", e))?;
-        Ok(resource_dir.join("music"))
+            .app_data_dir()
+            .map_err(|e| format!("无法获取应用数据目录: {}", e))?;
+        Ok(app_data_dir.join("music"))
     }
 }
 

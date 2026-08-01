@@ -9,8 +9,9 @@
 //!   available → (用户点击下载) → downloading → downloaded → (自动安装重启)
 //!
 //! 用户数据备份：
-//!   安装更新会覆盖 resource_dir/music/，所以下载前备份用户下载的歌曲
-//!   （跳过三首内置歌曲 " - 番茄钟.mp3"），应用启动时还原。
+//!   运行时音乐目录 = app_data_dir/music（用户数据区，安装/更新不覆盖）。
+//!   安装包内置歌曲在 resource_dir/music，启动时由 merge_music_dir 合并到用户目录
+//!   （不覆盖已有文件）；更新前备份 resource_dir/music 中老版本残留的用户歌曲。
 
 use serde::Serialize;
 use std::fs;
@@ -260,38 +261,68 @@ mod tests {
     }
 }
 
-/// 还原 app_config_dir/backup/music/ 到 resource_dir/music/
+/// 将内置歌曲与历史备份合并到用户音乐目录（app_data_dir/music）
 ///
-/// 在应用启动时调用（setup 钩子），恢复用户下载的歌曲。
-/// 还原后删除备份目录。
-pub fn restore_music_dir(app: &AppHandle) -> Result<(), String> {
-    let config_dir = get_backup_base_dir(app)?;
-    let backup_dir = config_dir.join("backup").join("music");
-
-    if !backup_dir.exists() {
-        return Ok(());
-    }
-
-    let resource_dir = app
+/// 在应用启动时调用（setup 钩子），替代 restore_music_dir。
+///
+/// 设计：运行时音乐目录与安装目录分离 —— 用户下载的歌曲放在
+/// `app_data_dir/music`，安装/更新包永远只覆盖安装目录（resource_dir），
+/// 不会碰到用户音乐。两个来源的歌曲合并过去，规则为**不覆盖已有同名文件**：
+///
+/// 1. `resource_dir/music`：安装包内置歌曲（全新安装首次复制）
+/// 2. `backup/music`：更新前备份的老版本用户歌曲（老版本 → 新版本迁移）
+pub fn merge_music_dir(app: &AppHandle) -> Result<(), String> {
+    let app_data_dir = app
         .path()
-        .resource_dir()
-        .map_err(|e| format!("无法获取资源目录: {}", e))?;
-    let music_dir = resource_dir.join("music");
-    fs::create_dir_all(&music_dir).map_err(|e| format!("创建 music/ 目录失败: {}", e))?;
+        .app_data_dir()
+        .map_err(|e| format!("无法获取应用数据目录: {}", e))?;
+    let target = app_data_dir.join("music");
+    fs::create_dir_all(&target).map_err(|e| format!("创建用户音乐目录失败: {}", e))?;
 
-    let mut restored = 0;
-    for entry in fs::read_dir(&backup_dir).map_err(|e| format!("读取备份失败: {}", e))? {
-        let entry = entry.map_err(|e| format!("读取目录项失败: {}", e))?;
-        let filename = entry.file_name();
-        let dest = music_dir.join(&filename);
-        fs::copy(entry.path(), &dest).map_err(|e| format!("还原文件失败: {}", e))?;
-        restored += 1;
+    let mut merged = 0;
+
+    // 来源 1：安装包内置歌曲（resource_dir/music）
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let src = resource_dir.join("music");
+        if src.exists() {
+            for entry in fs::read_dir(&src).map_err(|e| format!("读取内置音乐失败: {}", e))? {
+                let entry = entry.map_err(|e| format!("读取目录项失败: {}", e))?;
+                let filename = entry.file_name();
+                let dest = target.join(&filename);
+                // 不覆盖用户已有的歌曲（含用户自定义的同名文件）
+                if dest.exists() {
+                    continue;
+                }
+                if let Ok(meta) = entry.metadata() {
+                    if meta.is_file() {
+                        fs::copy(entry.path(), &dest).map_err(|e| format!("复制内置歌曲失败: {}", e))?;
+                        merged += 1;
+                    }
+                }
+            }
+        }
     }
 
-    // 还原后删除备份
-    fs::remove_dir_all(&backup_dir)
-        .map_err(|e| format!("删除备份目录失败: {}", e))?;
+    // 来源 2：更新前备份的老版本用户歌曲（backup/music），合并后删除备份
+    let backup_dir = get_backup_base_dir(app)?.join("backup").join("music");
+    if backup_dir.exists() {
+        for entry in fs::read_dir(&backup_dir).map_err(|e| format!("读取备份失败: {}", e))? {
+            let entry = entry.map_err(|e| format!("读取目录项失败: {}", e))?;
+            let filename = entry.file_name();
+            let dest = target.join(&filename);
+            if dest.exists() {
+                continue;
+            }
+            if let Ok(meta) = entry.metadata() {
+                if meta.is_file() {
+                    fs::copy(entry.path(), &dest).map_err(|e| format!("迁移备份歌曲失败: {}", e))?;
+                    merged += 1;
+                }
+            }
+        }
+        let _ = fs::remove_dir_all(&backup_dir);
+    }
 
-    eprintln!("[updater] 已从备份还原 {} 个用户文件", restored);
+    eprintln!("[updater] 已合并 {} 个音乐文件到用户目录 {:?}", merged, target);
     Ok(())
 }

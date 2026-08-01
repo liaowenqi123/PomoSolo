@@ -147,6 +147,33 @@ Response 403: { "error": "无权删除" }
 { "mode": "cloud" }
 ```
 
+#### GET /api/v1/config/deepseek-key
+获取 DeepSeek API Key（云端下发，供登录用户下载歌曲/AI 使用）。
+```json
+// 需要登录，且仅 admin 用户可访问；非 admin 返回 403
+// Request Headers
+Authorization: Bearer <access_token>
+
+// Response 200
+{ "api_key": "sk-xxxx" }
+
+// 未配置时
+{ "api_key": null }
+
+// 未登录 401 / 非 admin 403
+{ "error": "仅管理员可获取 API Key" }
+```
+
+#### PUT /api/v1/config/deepseek-key
+更新 DeepSeek API Key（仅 admin）。
+```json
+// Request
+{ "api_key": "sk-xxxx" }
+
+// Response 200
+{ "ok": true }
+```
+
 #### GET /api/v1/health
 ```json
 // 无需认证
@@ -335,6 +362,27 @@ ws://服务器地址:3001/ws?token=<access_token> # 备用：独立端口直连
 每 30 秒服务端可广播一次当前状态作为校准点。
 ```
 
+#### 缺歌处理（听众端本地无 DJ 播放的歌曲）
+
+**现状（v4.5+ 已实现）**：音频文件不中转，听众本地没有 DJ 的歌时无法播放。
+
+- 客户端 `stores/music.ts`：
+  - 收到 `music:state`（action=play）时，若本地歌单已加载且不含 `song_id` → 停止播放并设置 `missingSongName`，播放器曲名位置显示 **"⚠️ 无这首歌：《歌名》"**
+  - `playSong` 播放失败（`song_missing`）时同样兜底设置
+  - 歌单刷新（`music:playlist_updated` → `music-playlist`）后若该歌已出现则自动清除提示
+- 局限：听众只能看到提示，无法获取音频文件本身。
+
+**规划（待实施）— P2P 点对点传歌**：
+> 用户需求：未来搭建 P2P 传输，让客户端把歌直接传给对方，替代"无这首歌"提示。
+
+- 目标：听众本地无歌时，向 DJ（或任一持有该文件的在线成员）发起拉取，传输完成后本地播放并缓存到 `app_data_dir/music`（复用 `merge_music_dir` 的存储区）
+- 候选方案：
+  1. **服务器中转**（简单优先）：`music:request_song { song_id }` → 持有者 `music:offer_song { song_id, chunk_index, data_base64 }` 分片上传服务器 → 服务器 `music:song_chunk` 转发给请求者 → 请求者拼接写入本地。受服务器带宽/ws 消息大小限制，需分片（如 256KB/片）。
+  2. **WebRTC 直连**（更优）：客户端间通过 WS 信令（`signal` 交换 SDP/ICE）建立 DataChannel 直接传文件，服务器只做信令协调。Tauri 2 可用 `simple-peer` 或原生 WebRTC；注意 Tauri WebView（WebView2/Safari/WebKitGTK）对 DataChannel 的支持差异。
+  3. **文件指纹校验**：传输前用 `sha256(file_name)` 或大小+名称比对，避免重复传输。
+- 协议预留：建议在 `music:add_song` 时同时广播 `song_meta { song_name, size, sha256 }`，为 P2P 命中校验做准备。
+- 风险：WS 单条消息大小限制（服务器端需确认）、大文件分片序号/乱序处理、离线成员持有的歌不可用时的降级提示。
+
 ---
 
 ## 数据库表结构
@@ -436,6 +484,13 @@ docker run -d \
 2. **`GET /api/v1/rooms/:id` 响应新增 `has_password` 字段**
    - 用途：客户端通过 ID 加入时判断是否需要弹出密码输入框
    - 实现：`SELECT ... (password IS NOT NULL AND password <> '') AS has_password`
+
+3. **新增 `api_keys` 表 + `GET/PUT /api/v1/config/deepseek-key`（仅 admin，DeepSeek Key 云端下发）**
+   - 背景：全新电脑安装番茄钟后登录云端（admin 账号）拿不到 DeepSeek API Key，下载歌曲/AI 功能不可用（旧版从 Supabase `api_keys` 表拉取，自建服务器迁移时遗漏）
+   - 表结构：`api_keys(id SERIAL, name TEXT UNIQUE, api_key TEXT, created_at, updated_at)`，当前已插入 `name='deepseek'` 一行（Key 从旧 Supabase `api_keys` 表迁移）
+   - 接口权限：仅 admin 可 GET（下发）/ PUT（更新），非 admin 403
+   - 已端到端验证：未登录 401 / 普通用户 403 / admin 200 + key
+   - 文件：`/home/ubuntu/frontend/db.py`、`/home/ubuntu/frontend/server.py`（备份 `*.bak.patch`，已重启上线）
 
 ### 建议服务器部门后续处理
 

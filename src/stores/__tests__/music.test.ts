@@ -605,4 +605,96 @@ describe("useMusicStore", () => {
     expect(() => s.handleSyncWsEvent("str")).not.toThrow();
     expect(() => s.handleSyncWsEvent({ type: "unknown" })).not.toThrow();
   });
+
+  it("music:state play：本地歌单不含该歌 → 设置 missingSongName（无这首歌）", () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.trackName = "old.mp3";
+    s.playing = false;
+    // 先加载本地歌单（不含 dj 播放的歌）
+    s.handlePlaylist({ songs: ["a.mp3", "b.mp3"] });
+    s.handleSyncWsEvent({
+      type: "music:state",
+      action: "play",
+      position_ms: 0,
+      timestamp_server: Date.now(),
+      song_id: "dj-only.mp3",
+    });
+    expect(s.missingSongName).toBe("dj-only.mp3");
+    // 不应尝试播放
+    expect(musicApi.musicPlaySong).not.toHaveBeenCalled();
+  });
+
+  it("music:state play：本地歌单含该歌 → 正常播放且不设 missingSongName", () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.trackName = "old.mp3";
+    s.playing = false;
+    s.handlePlaylist({ songs: ["a.mp3", "b.mp3"] });
+    s.handleSyncWsEvent({
+      type: "music:state",
+      action: "play",
+      position_ms: 0,
+      timestamp_server: Date.now(),
+      song_id: "a.mp3",
+    });
+    expect(s.missingSongName).toBeNull();
+    expect(musicApi.musicPlaySong).toHaveBeenCalledWith("a.mp3");
+  });
+
+  it("music:state play：歌单未加载（空）时不误判缺歌，直接尝试播放", () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.trackName = "old.mp3";
+    s.playing = false;
+    // playlist 为空（尚未加载完成）→ 走 playSong，由播放失败兜底
+    s.handleSyncWsEvent({
+      type: "music:state",
+      action: "play",
+      position_ms: 0,
+      timestamp_server: Date.now(),
+      song_id: "unknown.mp3",
+    });
+    expect(s.missingSongName).toBeNull();
+    expect(musicApi.musicPlaySong).toHaveBeenCalledWith("unknown.mp3");
+  });
+
+  it("playSong 失败（同步场景）→ 设置 missingSongName 兜底", async () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    musicApi.musicPlaySong.mockRejectedValue(new Error("song_missing"));
+    await s.playSong("ghost.mp3");
+    expect(s.missingSongName).toBe("ghost.mp3");
+  });
+
+  it("playSong 成功 → 清除 missingSongName", async () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.missingSongName = "ghost.mp3";
+    musicApi.musicPlaySong.mockResolvedValue(undefined);
+    await s.playSong("a.mp3");
+    expect(s.missingSongName).toBeNull();
+  });
+
+  it("handlePlaylist 刷新后缺歌已出现 → 清除 missingSongName", () => {
+    const s = useMusicStore();
+    s.missingSongName = "ghost.mp3";
+    s.handlePlaylist({ songs: ["a.mp3", "ghost.mp3"] });
+    expect(s.missingSongName).toBeNull();
+  });
+
+  it("handleReady / handleStatus 清除 missingSongName", () => {
+    const s = useMusicStore();
+    s.missingSongName = "ghost.mp3";
+    s.handleReady({ name: "a.mp3", duration: 100, has_prev: false });
+    expect(s.missingSongName).toBeNull();
+    s.missingSongName = "ghost.mp3";
+    s.handleStatus({ playing: true, name: "b.mp3", current: 0, duration: 200 });
+    expect(s.missingSongName).toBeNull();
+  });
 });
