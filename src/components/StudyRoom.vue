@@ -23,10 +23,14 @@ import {
   studyRoomLeave,
   studyRoomGetRanking,
   studyRoomGetMembers,
+  studyRoomGetDetail,
+  studyRoomDelete,
   type StudyRoom,
   type StudyRoomMember,
   type StudyRoomRankingEntry,
 } from "@/api/studyRoom";
+import { useAuthStore } from "@/stores/auth";
+import { useMusicStore } from "@/stores/music";
 
 interface Props {
   /** 是否显示 */
@@ -45,6 +49,9 @@ const emit = defineEmits<{
   (e: "left"): void;
 }>();
 
+const authStore = useAuthStore();
+const music = useMusicStore();
+
 // ===== 视图状态 =====
 type View = "main" | "create" | "join" | "room";
 
@@ -57,6 +64,12 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null;
 const currentRoom = ref<StudyRoom | null>(null);
 const members = ref<StudyRoomMember[]>([]);
 const ranking = ref<StudyRoomRankingEntry[]>([]);
+/** 是否房主（决定是否显示删除按钮） */
+const isOwner = ref(false);
+/** 是否已拉取房间详情（避免重复请求） */
+let detailLoaded = false;
+/** 加入流程中暂存的成员列表（join 时服务器已推送 room:members，进房间前先缓存） */
+let pendingMembers: StudyRoomMember[] | null = null;
 
 // 心跳/刷新定时器
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -101,25 +114,33 @@ const STATUS_LABELS: Record<string, string> = {
 
 /** 处理服务端 WS 推送（room:members / member_joined / member_left / member_status / pomo_done） */
 function handleWsEvent(payload: unknown): void {
-  if (!currentRoom.value) return;
   if (!payload || typeof payload !== "object") return;
   const evt = payload as Record<string, unknown>;
-  switch (evt.type) {
-    case "room:members": {
-      // { members: [{ userId, username, online, status }] }
-      if (Array.isArray(evt.members)) {
-        members.value = evt.members.map((m) => {
-          const obj = (m ?? {}) as Record<string, unknown>;
-          return {
-            userId: String(obj.userId ?? obj.user_id ?? ""),
-            username: String(obj.username ?? ""),
-            online: obj.online !== false,
-            status: typeof obj.status === "string" ? obj.status : undefined,
-          };
-        });
+  // room:members 在 join 请求发出后即被服务端广播，此时可能尚未进入房间视图
+  // （currentRoom 为 null），必须先处理缓存，否则进房间后成员列表会一直为空
+  if (evt.type === "room:members") {
+    // { members: [{ userId, username, online, status }] }
+    if (Array.isArray(evt.members)) {
+      const parsed = evt.members.map((m) => {
+        const obj = (m ?? {}) as Record<string, unknown>;
+        return {
+          userId: String(obj.userId ?? obj.user_id ?? ""),
+          username: String(obj.username ?? ""),
+          online: obj.online !== false,
+          status: typeof obj.status === "string" ? obj.status : undefined,
+        };
+      });
+      if (currentRoom.value) {
+        members.value = parsed;
+      } else {
+        // 加入流程中（join 后、进房间前）到达的成员列表先缓存，进房间后应用
+        pendingMembers = parsed;
       }
-      break;
     }
+    return;
+  }
+  if (!currentRoom.value) return;
+  switch (evt.type) {
     case "room:member_joined": {
       // { user: { id, username } }
       const u = evt.user as Record<string, unknown> | undefined;
@@ -193,12 +214,19 @@ function onClose(): void {
 async function enterRoom(room: StudyRoom): Promise<void> {
   currentRoom.value = room;
   view.value = "room";
+  // 应用加入流程中缓存的成员列表（join 时服务器已推送过 room:members）
+  if (pendingMembers) {
+    members.value = pendingMembers;
+    pendingMembers = null;
+  }
+  detailLoaded = false;
+  isOwner.value = false;
   await refreshRoomData();
   startRefresh();
   emit("joined", room);
 }
 
-/** 刷新成员 & 排名 */
+/** 刷新成员 & 排名 & 房间详情（房主判断） */
 async function refreshRoomData(): Promise<void> {
   if (!currentRoom.value) return;
   const roomId = currentRoom.value.id;
@@ -214,6 +242,23 @@ async function refreshRoomData(): Promise<void> {
   } catch (err) {
     // 后端未实现时会失败，静默处理
     console.warn("[StudyRoom] refreshRoomData failed:", err);
+  }
+
+  // 拉取房间详情（名称/描述/房主），仅首次进入时
+  if (!detailLoaded) {
+    detailLoaded = true;
+    try {
+      const detail = await studyRoomGetDetail(roomId);
+      currentRoom.value = {
+        ...currentRoom.value,
+        name: detail.name || currentRoom.value.name,
+        description: detail.description ?? currentRoom.value.description,
+        ownerId: detail.ownerId,
+      };
+      isOwner.value = !!detail.ownerId && detail.ownerId === authStore.session?.id;
+    } catch (err) {
+      console.warn("[StudyRoom] get detail failed:", err);
+    }
   }
 }
 
@@ -326,13 +371,51 @@ async function handleLeave(): Promise<void> {
     currentRoom.value = null;
     members.value = [];
     ranking.value = [];
+    isOwner.value = false;
+    pendingMembers = null;
     view.value = "main";
+    music.setSyncEnabled(false);
     emit("left");
   } catch (err) {
     console.warn("[StudyRoom] leave failed:", err);
     showToast("退出失败：" + (err instanceof Error ? err.message : String(err)));
   } finally {
     loading.value = false;
+  }
+}
+
+/** 删除自习室（仅房主） */
+async function handleDelete(): Promise<void> {
+  if (!currentRoom.value || !isOwner.value) return;
+  const roomId = currentRoom.value.id;
+  loading.value = true;
+  try {
+    await studyRoomDelete(roomId);
+    showToast("自习室已删除");
+    stopRefresh();
+    currentRoom.value = null;
+    members.value = [];
+    ranking.value = [];
+    isOwner.value = false;
+    pendingMembers = null;
+    view.value = "main";
+    music.setSyncEnabled(false);
+    emit("left");
+  } catch (err) {
+    console.warn("[StudyRoom] delete failed:", err);
+    showToast("删除失败：" + (err instanceof Error ? err.message : String(err)));
+  } finally {
+    loading.value = false;
+  }
+}
+
+// ===== 同步听歌（房间内） =====
+
+/** 切换同步听歌开关 */
+function toggleSync(): void {
+  music.setSyncEnabled(!music.syncEnabled);
+  if (music.syncEnabled) {
+    showToast("同步听歌已开启");
   }
 }
 
@@ -370,19 +453,35 @@ function shortId(id: string): string {
 
     <!-- 主视图 -->
     <div v-if="view === 'main'" class="study-main">
+      <!-- 当前房间卡片 -->
       <div v-if="currentRoom" class="current-room-card">
+        <div class="current-room-icon">🏠</div>
         <div class="current-room-info">
           <div class="current-room-name">{{ currentRoom.name }}</div>
           <div class="current-room-id">ID: {{ shortId(currentRoom.id) }}</div>
         </div>
-        <button class="btn btn-secondary" @click="enterRoom(currentRoom)">
-          查看
+        <button class="btn btn-primary btn-sm" @click="enterRoom(currentRoom)">
+          进入
         </button>
       </div>
+
+      <!-- 功能入口卡片 -->
       <div class="main-actions">
-        <button class="btn btn-primary" @click="goCreate">创建自习室</button>
-        <button class="btn btn-secondary" @click="goJoin">加入自习室</button>
+        <button class="action-card" @click="goCreate">
+          <span class="action-card__icon">✨</span>
+          <span class="action-card__title">创建自习室</span>
+          <span class="action-card__desc">开一间房，邀请大家一起专注</span>
+        </button>
+        <button class="action-card" @click="goJoin">
+          <span class="action-card__icon">🚪</span>
+          <span class="action-card__title">加入自习室</span>
+          <span class="action-card__desc">输入 ID 或从公开列表加入</span>
+        </button>
       </div>
+
+      <p v-if="!authStore.isLoggedIn" class="login-hint">
+        ⚠️ 需要先登录账号才能使用自习室
+      </p>
     </div>
 
     <!-- 创建视图 -->
@@ -462,18 +561,26 @@ function shortId(id: string): string {
           class="room-list-item"
         >
           <div class="room-list-info">
-            <div class="room-list-name">{{ room.name }}</div>
+            <div class="room-list-top">
+              <span class="room-list-name">{{ room.name }}</span>
+              <span class="room-tag" :class="room.isPublic ? 'tag-public' : 'tag-private'">
+                {{ room.isPublic ? "公开" : "私密" }}
+              </span>
+            </div>
             <div class="room-list-meta">
-              ID: {{ shortId(room.id) }}
-              <span v-if="room.memberCount !== undefined">
-                · {{ room.memberCount }} 人
+              <span class="room-meta-item">🆔 {{ shortId(room.id) }}</span>
+              <span v-if="room.memberCount !== undefined" class="room-meta-item">
+                👥 {{ room.memberCount }} 人
+              </span>
+              <span v-if="room.creatorName" class="room-meta-item">
+                👤 {{ room.creatorName }}
               </span>
             </div>
             <div v-if="room.description" class="room-list-desc">
               {{ room.description }}
             </div>
           </div>
-          <button class="btn btn-secondary btn-sm" @click="handleJoinFromList(room)">
+          <button class="btn btn-primary btn-sm" @click="handleJoinFromList(room)">
             加入
           </button>
         </div>
@@ -491,13 +598,24 @@ function shortId(id: string): string {
           <div class="room-header-name">{{ currentRoom.name }}</div>
           <div class="room-header-id">ID: {{ currentRoom.id }}</div>
         </div>
-        <button
-          class="btn btn-danger"
-          :disabled="loading"
-          @click="handleLeave"
-        >
-          退出
-        </button>
+        <div class="room-header-actions">
+          <button
+            v-if="isOwner"
+            class="btn btn-danger-outline btn-sm"
+            :disabled="loading"
+            title="删除自习室（仅房主）"
+            @click="handleDelete"
+          >
+            🗑 删除
+          </button>
+          <button
+            class="btn btn-danger"
+            :disabled="loading"
+            @click="handleLeave"
+          >
+            退出
+          </button>
+        </div>
       </div>
 
       <div v-if="currentRoom?.description" class="room-desc">
@@ -538,6 +656,42 @@ function shortId(id: string): string {
           </li>
         </ul>
       </div>
+
+      <!-- 同步听歌 -->
+      <div class="room-section">
+        <h4 class="section-title">🎵 同步听歌</h4>
+        <div class="sync-card">
+          <div class="sync-row">
+            <span class="sync-label">
+              {{ music.syncEnabled ? "已开启" : "未开启" }}
+            </span>
+            <button class="btn btn-secondary btn-sm" @click="toggleSync">
+              {{ music.syncEnabled ? "关闭同步" : "开启同步" }}
+            </button>
+          </div>
+          <template v-if="music.syncEnabled">
+            <div class="sync-dj">
+              <span class="sync-dj-label">DJ</span>
+              <span class="sync-dj-name">
+                {{ music.isDj ? "我" : music.djName || "暂无（点下方按钮申请）" }}
+              </span>
+            </div>
+            <button
+              v-if="!music.isDj"
+              class="btn btn-primary btn-sm sync-dj-btn"
+              @click="music.requestDj()"
+            >
+              🎤 申请当 DJ
+            </button>
+            <p v-else class="sync-hint">
+              你是 DJ：在音乐播放器中操作（播放/暂停/切歌/跳转/音量）将同步给房间所有成员
+            </p>
+            <p v-if="!music.isDj" class="sync-hint">
+              开启后由 DJ 控制播放，大家同步收听同一首歌；只有 DJ 能操作播放器
+            </p>
+          </template>
+        </div>
+      </div>
     </div>
   </Modal>
 </template>
@@ -562,11 +716,16 @@ function shortId(id: string): string {
 .current-room-card {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(233, 69, 96, 0.18), rgba(78, 204, 163, 0.12));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.current-room-icon {
+  font-size: 26px;
+  flex-shrink: 0;
 }
 
 .current-room-name {
@@ -583,11 +742,54 @@ function shortId(id: string): string {
 
 .main-actions {
   display: flex;
-  gap: 10px;
+  gap: 12px;
 }
 
-.main-actions .btn {
+.main-actions .action-card {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 18px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.main-actions .action-card:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--accent, #e94560);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+}
+
+.action-card__icon {
+  font-size: 24px;
+}
+
+.action-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.action-card__desc {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.4;
+}
+
+.login-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: rgba(255, 200, 100, 0.9);
+  text-align: center;
 }
 
 .form-group {
@@ -705,6 +907,72 @@ function shortId(id: string): string {
   border: 1px solid rgba(233, 69, 96, 0.3);
 }
 
+.btn-danger-outline {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.btn-danger-outline:hover {
+  background: rgba(233, 69, 96, 0.12);
+  color: #e94560;
+  border-color: rgba(233, 69, 96, 0.4);
+}
+
+/* ============ 同步听歌 ============ */
+.sync-card {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sync-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sync-label {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 500;
+}
+
+.sync-dj {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.sync-dj-label {
+  font-size: 10px;
+  padding: 2px 10px;
+  border-radius: 8px;
+  background: rgba(233, 69, 96, 0.2);
+  color: #ff7a8f;
+  font-weight: 600;
+}
+
+.sync-dj-name {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.sync-dj-btn {
+  align-self: flex-start;
+}
+
+.sync-hint {
+  margin: 0;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.5;
+}
+
 .empty-hint {
   text-align: center;
   color: rgba(255, 255, 255, 0.6);
@@ -736,10 +1004,41 @@ function shortId(id: string): string {
   color: rgba(255, 255, 255, 0.9);
 }
 
+.room-list-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.room-tag {
+  font-size: 10px;
+  padding: 1px 8px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.room-tag.tag-public {
+  background: rgba(78, 204, 163, 0.18);
+  color: #4ecca3;
+}
+
+.room-tag.tag-private {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.6);
+}
+
 .room-list-meta {
+  display: flex;
+  gap: 10px;
   font-size: 12px;
   color: rgba(255, 255, 255, 0.6);
   margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.room-meta-item {
+  white-space: nowrap;
 }
 
 .room-list-desc {
@@ -753,6 +1052,12 @@ function shortId(id: string): string {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+}
+
+.room-header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .room-header-name {

@@ -61,6 +61,7 @@ function makeStore(overrides: Record<string, unknown> = {}) {
         loadSavedVolume: vi.fn(),
         loadCustomTags: vi.fn(),
         cyclePlayMode: vi.fn(),
+        handleSyncWsEvent: vi.fn(),
       },
       overrides,
     ),

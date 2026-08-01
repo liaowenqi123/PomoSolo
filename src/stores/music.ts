@@ -41,6 +41,15 @@ import {
   type MusicSongMissingPayload,
   type PlaylistData,
 } from "@/api/music";
+import {
+  musicSyncPlay,
+  musicSyncPause,
+  musicSyncSeek,
+  musicSyncNext,
+  musicSyncVolume,
+  musicSyncRequestDj,
+} from "@/api/musicSync";
+import { useAuthStore } from "@/stores/auth";
 import { readData, writeData } from "@/api/data";
 
 // ===== 工具函数 =====
@@ -78,6 +87,16 @@ export const useMusicStore = defineStore("music", () => {
   const isDragging = ref(false);
   const isCollapsed = ref(false);
 
+  // ===== 同步听歌状态（自习室房间内） =====
+  /** 是否开启同步听歌 */
+  const syncEnabled = ref(false);
+  /** 我是否为当前 DJ */
+  const isDj = ref(false);
+  /** 当前 DJ 用户名（空 = 无 DJ） */
+  const djName = ref("");
+  /** 当前 DJ 用户 id */
+  const djUserId = ref<string | null>(null);
+
   // ===== Getters =====
   const progress = computed(() => {
     if (duration.value <= 0) return 0;
@@ -108,10 +127,47 @@ export const useMusicStore = defineStore("music", () => {
 
   // ===== Actions =====
 
+  /** DJ 模式：把播放动作广播到房间（仅 DJ 且已开启同步时生效） */
+  async function broadcastDjAction(
+    action: "play" | "pause" | "seek" | "next" | "volume",
+    params: Record<string, unknown> = {},
+  ) {
+    if (!syncEnabled.value || !isDj.value) return;
+    try {
+      switch (action) {
+        case "play":
+          await musicSyncPlay(String(params.songId ?? ""), Number(params.positionMs ?? 0));
+          break;
+        case "pause":
+          await musicSyncPause(Number(params.positionMs ?? 0));
+          break;
+        case "seek":
+          await musicSyncSeek(Number(params.positionMs ?? 0));
+          break;
+        case "next":
+          await musicSyncNext(String(params.songId ?? ""));
+          break;
+        case "volume":
+          await musicSyncVolume(Number(params.volume ?? 0));
+          break;
+      }
+    } catch (e) {
+      console.warn("[MusicStore] DJ 广播失败:", e);
+    }
+  }
+
   /** 切换播放/暂停 */
   async function togglePlay() {
     try {
       await musicTogglePlay();
+      // 乐观判断本次切换后的状态并广播（播放状态事件异步回传）
+      if (syncEnabled.value && isDj.value) {
+        const willPlay = !playing.value;
+        await broadcastDjAction(willPlay ? "play" : "pause", {
+          songId: trackName.value,
+          positionMs: Math.floor(currentTime.value * 1000),
+        });
+      }
     } catch (e) {
       console.error("[MusicStore] togglePlay error:", e);
     }
@@ -121,6 +177,9 @@ export const useMusicStore = defineStore("music", () => {
   async function next() {
     try {
       await musicNext();
+      if (syncEnabled.value && isDj.value) {
+        await broadcastDjAction("next", { songId: trackName.value });
+      }
     } catch (e) {
       console.error("[MusicStore] next error:", e);
     }
@@ -139,6 +198,9 @@ export const useMusicStore = defineStore("music", () => {
   async function seek(seconds: number) {
     try {
       await musicSeek(seconds);
+      if (syncEnabled.value && isDj.value) {
+        await broadcastDjAction("seek", { positionMs: Math.floor(seconds * 1000) });
+      }
     } catch (e) {
       console.error("[MusicStore] seek error:", e);
     }
@@ -150,6 +212,9 @@ export const useMusicStore = defineStore("music", () => {
     try {
       await musicSetVolume(v);
       await saveVolume(v);
+      if (syncEnabled.value && isDj.value) {
+        await broadcastDjAction("volume", { volume: v });
+      }
     } catch (e) {
       console.error("[MusicStore] setVolume error:", e);
     }
@@ -208,6 +273,9 @@ export const useMusicStore = defineStore("music", () => {
     if (songName === trackName.value) return;
     try {
       await musicPlaySong(songName);
+      if (syncEnabled.value && isDj.value) {
+        await broadcastDjAction("play", { songId: songName, positionMs: 0 });
+      }
     } catch (e) {
       console.error("[MusicStore] playSong error:", e);
     }
@@ -414,6 +482,96 @@ export const useMusicStore = defineStore("music", () => {
     playError.value = payload.message || "原歌曲已消失";
   }
 
+  // ===== 同步听歌 =====
+
+  /** 开启/关闭同步听歌（由自习室面板控制） */
+  function setSyncEnabled(enabled: boolean) {
+    syncEnabled.value = enabled;
+    if (!enabled) {
+      // 关闭后复位 DJ 状态（服务器 DJ 由新申请者接管）
+      isDj.value = false;
+      djName.value = "";
+      djUserId.value = null;
+    }
+  }
+
+  /** 申请成为 DJ */
+  async function requestDj() {
+    try {
+      await musicSyncRequestDj();
+    } catch (e) {
+      console.warn("[MusicStore] 申请 DJ 失败:", e);
+    }
+  }
+
+  /** 应用服务器广播的播放状态（听众端），含网络延迟校准 */
+  function applyMusicState(evt: Record<string, unknown>) {
+    const action = evt.action;
+    const positionMs = Number(evt.position_ms ?? 0);
+    const ts = Number(evt.timestamp_server ?? 0);
+    // 校准：服务器广播时刻 + 已流逝时间 ≈ 当前播放位置
+    let pos = positionMs;
+    if (ts > 0) {
+      pos += Math.max(0, Date.now() - ts);
+    }
+    const posSec = Math.floor(pos / 1000);
+
+    if (action === "play") {
+      const songId = evt.song_id;
+      if (typeof songId === "string" && songId && songId !== trackName.value) {
+        void playSong(songId);
+        // 播放器加载需要时间，稍后跳转到目标位置
+        window.setTimeout(() => void seek(posSec), 800);
+      } else {
+        if (!playing.value) void togglePlay();
+        void seek(posSec);
+      }
+    } else if (action === "pause") {
+      if (playing.value) void togglePlay();
+      void seek(posSec);
+    } else if (action === "seek") {
+      void seek(posSec);
+    } else if (action === "next") {
+      void next();
+    }
+  }
+
+  /** 处理 WS 推送的 music:* 事件（由 MusicPlayer.vue 监听 ws-event 转发） */
+  function handleSyncWsEvent(payload: unknown) {
+    if (!payload || typeof payload !== "object") return;
+    const evt = payload as Record<string, unknown>;
+    switch (evt.type) {
+      case "music:dj_changed": {
+        // { dj_user_id, dj_username }
+        const uid = typeof evt.dj_user_id === "string" ? evt.dj_user_id : null;
+        djUserId.value = uid;
+        djName.value = typeof evt.dj_username === "string" ? evt.dj_username : "";
+        const me = useAuthStore().session?.id ?? null;
+        isDj.value = !!uid && !!me && uid === me;
+        break;
+      }
+      case "music:state": {
+        // 未开启同步 / DJ 本地已生效（避免回环）→ 忽略
+        if (!syncEnabled.value || isDj.value) return;
+        applyMusicState(evt);
+        break;
+      }
+      case "music:volume": {
+        if (!syncEnabled.value || isDj.value) return;
+        const v = evt.volume;
+        if (typeof v === "number") void setVolume(v);
+        break;
+      }
+      case "music:playlist_updated": {
+        if (!syncEnabled.value) return;
+        void requestPlaylist();
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
   return {
     // state
     playing,
@@ -432,6 +590,11 @@ export const useMusicStore = defineStore("music", () => {
     customTags,
     isDragging,
     isCollapsed,
+    // 同步听歌状态
+    syncEnabled,
+    isDj,
+    djName,
+    djUserId,
     // getters
     progress,
     currentTimeText,
@@ -458,6 +621,10 @@ export const useMusicStore = defineStore("music", () => {
     updateSongTag,
     toggleCollapse,
     loadSavedVolume,
+    // 同步听歌 actions
+    setSyncEnabled,
+    requestDj,
+    handleSyncWsEvent,
     // event handlers
     handleReady,
     handleStatus,

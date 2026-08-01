@@ -25,6 +25,8 @@ export interface StudyRoom {
   name: string;
   /** 描述（可选） */
   description?: string;
+  /** 创建者用户 ID（房主判断） */
+  ownerId?: string;
   /** 创建者用户名 */
   creatorName?: string;
   /** 当前成员数 */
@@ -96,6 +98,22 @@ export function studyRoomJoin(roomId: string): Promise<void> {
  */
 export function studyRoomLeave(roomId: string): Promise<void> {
   return invoke<void>("study_room_leave", { roomId });
+}
+
+/**
+ * 获取自习室详情（含 ownerId，用于房主判断）。
+ * 后端：`study_room_get_detail(room_id: String) -> Result<StudyRoom, String>`
+ */
+export function studyRoomGetDetail(roomId: string): Promise<StudyRoom> {
+  return invoke<StudyRoom>("study_room_get_detail", { roomId });
+}
+
+/**
+ * 删除自习室（仅房主）。
+ * 后端：`study_room_delete(room_id: String) -> Result<bool, String>`
+ */
+export function studyRoomDelete(roomId: string): Promise<boolean> {
+  return invoke<boolean>("study_room_delete", { roomId });
 }
 
 /**

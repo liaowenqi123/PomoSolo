@@ -321,6 +321,11 @@ useTauriEvent<MusicSongMissingPayload>("music-song-missing", (e) => {
   store.handleSongMissing(e.payload);
 });
 
+// 自习室同步听歌：WS 推送的 music:* 事件（dj_changed / state / volume / playlist_updated）
+useTauriEvent<unknown>("ws-event", (e) => {
+  store.handleSyncWsEvent(e.payload);
+});
+
 // ===== 初始化 =====
 onMounted(async () => {
   await store.loadSavedVolume();

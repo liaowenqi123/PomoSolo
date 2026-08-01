@@ -29,6 +29,22 @@ const dataApi = vi.hoisted(() => ({
 }));
 vi.mock("@/api/data", () => dataApi);
 
+// Mock api/musicSync（同步听歌）
+const musicSyncApi = vi.hoisted(() => ({
+  musicSyncPlay: vi.fn(),
+  musicSyncPause: vi.fn(),
+  musicSyncSeek: vi.fn(),
+  musicSyncNext: vi.fn(),
+  musicSyncVolume: vi.fn(),
+  musicSyncRequestDj: vi.fn(),
+}));
+vi.mock("@/api/musicSync", () => musicSyncApi);
+
+// Mock auth store（DJ 身份判断用当前用户 id）
+vi.mock("@/stores/auth", () => ({
+  useAuthStore: () => ({ session: { id: "me-1", username: "me", admin: false } }),
+}));
+
 import { useMusicStore } from "../music";
 
 describe("useMusicStore", () => {
@@ -37,12 +53,14 @@ describe("useMusicStore", () => {
     localStorage.clear();
     Object.values(musicApi).forEach((fn) => fn.mockReset());
     Object.values(dataApi).forEach((fn) => fn.mockReset());
+    Object.values(musicSyncApi).forEach((fn) => fn.mockReset());
     // 默认 resolve 成功
     musicApi.musicDeleteSong.mockResolvedValue({ success: true });
     musicApi.musicGetCustomTags.mockResolvedValue({ success: false });
     musicApi.musicGetStatus.mockResolvedValue(undefined);
     musicApi.musicGetPlaylist.mockResolvedValue({ songs: [] });
     musicApi.musicGetDevices.mockResolvedValue({ devices: [], current: null });
+    musicSyncApi.musicSyncRequestDj.mockResolvedValue(undefined);
     dataApi.readData.mockResolvedValue({});
     dataApi.writeData.mockResolvedValue(undefined);
   });
@@ -385,5 +403,206 @@ describe("useMusicStore", () => {
     await s.loadSavedVolume();
     expect(s.volume).toBe(1.0);
     expect(musicApi.musicSetVolume).not.toHaveBeenCalled();
+  });
+
+  // ===== 同步听歌 =====
+
+  it("setSyncEnabled(true) 开启同步；关闭时复位 DJ 状态", () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    expect(s.syncEnabled).toBe(true);
+    // 模拟已成为 DJ 后关闭同步
+    s.isDj = true;
+    s.djName = "me";
+    s.djUserId = "me-1";
+    s.setSyncEnabled(false);
+    expect(s.syncEnabled).toBe(false);
+    expect(s.isDj).toBe(false);
+    expect(s.djName).toBe("");
+    expect(s.djUserId).toBeNull();
+  });
+
+  it("requestDj 调用 musicSyncRequestDj", async () => {
+    const s = useMusicStore();
+    await s.requestDj();
+    expect(musicSyncApi.musicSyncRequestDj).toHaveBeenCalledTimes(1);
+  });
+
+  it("DJ 模式 togglePlay：当前暂停 → 广播 play（songId + 位置）", async () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = true;
+    s.trackName = "a.mp3";
+    s.currentTime = 30;
+    s.playing = false;
+    await s.togglePlay();
+    expect(musicSyncApi.musicSyncPlay).toHaveBeenCalledWith("a.mp3", 30000);
+  });
+
+  it("DJ 模式 togglePlay：当前播放 → 广播 pause（位置）", async () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = true;
+    s.playing = true;
+    s.currentTime = 10;
+    await s.togglePlay();
+    expect(musicSyncApi.musicSyncPause).toHaveBeenCalledWith(10000);
+  });
+
+  it("未开启同步或非 DJ 时播放操作不广播", async () => {
+    const s = useMusicStore();
+    // 开启同步但非 DJ
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    await s.togglePlay();
+    expect(musicSyncApi.musicSyncPlay).not.toHaveBeenCalled();
+    expect(musicSyncApi.musicSyncPause).not.toHaveBeenCalled();
+    // 未开启同步（isDj 随之复位）
+    s.setSyncEnabled(false);
+    s.isDj = true;
+    await s.togglePlay();
+    expect(musicSyncApi.musicSyncPlay).not.toHaveBeenCalled();
+  });
+
+  it("DJ 模式 next/seek/setVolume/playSong 广播对应动作", async () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = true;
+    s.trackName = "a.mp3";
+    await s.next();
+    expect(musicSyncApi.musicSyncNext).toHaveBeenCalledWith("a.mp3");
+
+    await s.seek(120);
+    expect(musicSyncApi.musicSyncSeek).toHaveBeenCalledWith(120000);
+
+    await s.setVolume(0.5);
+    expect(musicSyncApi.musicSyncVolume).toHaveBeenCalledWith(0.5);
+
+    s.trackName = "old.mp3";
+    await s.playSong("new.mp3");
+    expect(musicSyncApi.musicSyncPlay).toHaveBeenCalledWith("new.mp3", 0);
+  });
+
+  it("music:dj_changed：DJ 是自己时 isDj 为 true", () => {
+    const s = useMusicStore();
+    s.handleSyncWsEvent({
+      type: "music:dj_changed",
+      dj_user_id: "me-1",
+      dj_username: "me",
+    });
+    expect(s.djUserId).toBe("me-1");
+    expect(s.djName).toBe("me");
+    expect(s.isDj).toBe(true);
+  });
+
+  it("music:dj_changed：DJ 是他人时 isDj 为 false", () => {
+    const s = useMusicStore();
+    s.handleSyncWsEvent({
+      type: "music:dj_changed",
+      dj_user_id: "other-1",
+      dj_username: "bob",
+    });
+    expect(s.djUserId).toBe("other-1");
+    expect(s.djName).toBe("bob");
+    expect(s.isDj).toBe(false);
+  });
+
+  it("music:state play：听众端跟播（同曲目直接播放并跳转）", () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.trackName = "a.mp3";
+    s.playing = false;
+    s.handleSyncWsEvent({
+      type: "music:state",
+      action: "play",
+      position_ms: 15000,
+      timestamp_server: Date.now(),
+      song_id: "a.mp3",
+    });
+    expect(musicApi.musicTogglePlay).toHaveBeenCalled();
+    expect(musicApi.musicSeek).toHaveBeenCalled();
+    const seekArg = musicApi.musicSeek.mock.calls[0][0] as number;
+    expect(seekArg).toBeGreaterThanOrEqual(15);
+  });
+
+  it("music:state pause：听众端暂停并跳转", () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.playing = true;
+    s.handleSyncWsEvent({
+      type: "music:state",
+      action: "pause",
+      position_ms: 20000,
+      timestamp_server: Date.now(),
+    });
+    expect(musicApi.musicTogglePlay).toHaveBeenCalled();
+    expect(musicApi.musicSeek).toHaveBeenCalled();
+  });
+
+  it("music:state seek：直接跳转到目标位置", () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.handleSyncWsEvent({
+      type: "music:state",
+      action: "seek",
+      position_ms: 30000,
+      timestamp_server: Date.now(),
+    });
+    expect(musicApi.musicSeek).toHaveBeenCalled();
+  });
+
+  it("music:state next：切歌", () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.handleSyncWsEvent({ type: "music:state", action: "next" });
+    expect(musicApi.musicNext).toHaveBeenCalled();
+  });
+
+  it("music:state：DJ 自身忽略避免回环", () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = true;
+    s.handleSyncWsEvent({ type: "music:state", action: "pause" });
+    expect(musicApi.musicTogglePlay).not.toHaveBeenCalled();
+  });
+
+  it("music:state：未开启同步时忽略", () => {
+    const s = useMusicStore();
+    s.handleSyncWsEvent({
+      type: "music:state",
+      action: "play",
+      position_ms: 0,
+      timestamp_server: Date.now(),
+      song_id: "a.mp3",
+    });
+    expect(musicApi.musicTogglePlay).not.toHaveBeenCalled();
+    expect(musicApi.musicPlaySong).not.toHaveBeenCalled();
+  });
+
+  it("music:volume：听众端同步音量", async () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.handleSyncWsEvent({ type: "music:volume", volume: 0.4 });
+    expect(s.volume).toBe(0.4);
+    expect(musicApi.musicSetVolume).toHaveBeenCalledWith(0.4);
+  });
+
+  it("music:playlist_updated：刷新播放列表", async () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.handleSyncWsEvent({ type: "music:playlist_updated" });
+    expect(musicApi.musicGetPlaylist).toHaveBeenCalled();
+  });
+
+  it("handleSyncWsEvent 忽略无效负载", () => {
+    const s = useMusicStore();
+    expect(() => s.handleSyncWsEvent(null)).not.toThrow();
+    expect(() => s.handleSyncWsEvent("str")).not.toThrow();
+    expect(() => s.handleSyncWsEvent({ type: "unknown" })).not.toThrow();
   });
 });

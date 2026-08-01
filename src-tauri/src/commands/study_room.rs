@@ -24,6 +24,9 @@ pub struct StudyRoom {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// 创建者用户 id（用于房主判断，删除房间）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub creator_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -88,6 +91,7 @@ pub fn parse_room_value(row: &Value) -> StudyRoom {
         id: row.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         name: row.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
         description: row.get("description").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        owner_id: row.get("owner_id").and_then(|v| v.as_str()).map(|s| s.to_string()),
         creator_name: None,
         member_count: None,
         is_public: row.get("is_public").and_then(|v| v.as_bool()),
@@ -217,6 +221,52 @@ pub async fn study_room_leave(
     ws::send(&app, &state.ws, &token, "room:leave", params).await
 }
 
+/// 获取自习室详情（REST GET /api/v1/rooms/:id，含 owner_id 供房主判断）
+#[tauri::command]
+pub async fn study_room_get_detail(
+    state: State<'_, AppState>,
+    room_id: String,
+) -> Result<StudyRoom, String> {
+    let token = require_token(&state).await?;
+
+    let path = format!("/api/v1/rooms/{}", room_id);
+    let (status, body) = match server_api::get(&path, Some(&token)).await {
+        Ok(r) => r,
+        Err(e) => return Err(e),
+    };
+    if status != 200 {
+        return Err(format!("获取自习室详情失败 (HTTP {})", status));
+    }
+
+    let value = server_api::parse_json(&body)?;
+    Ok(parse_room_value(&value))
+}
+
+/// 删除自习室（REST DELETE /api/v1/rooms/:id，仅房主）
+#[tauri::command]
+pub async fn study_room_delete(
+    state: State<'_, AppState>,
+    room_id: String,
+) -> Result<bool, String> {
+    let token = require_token(&state).await?;
+
+    let path = format!("/api/v1/rooms/{}", room_id);
+    let (status, resp_body) = match server_api::delete(&path, Some(&token)).await {
+        Ok(r) => r,
+        Err(e) => return Err(format!("删除自习室失败: {}", e)),
+    };
+
+    if status == 204 || status == 200 {
+        Ok(true)
+    } else {
+        let err = server_api::parse_json(&resp_body)
+            .ok()
+            .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(|s| s.to_string()))
+            .unwrap_or_else(|| format!("删除自习室失败 (HTTP {})", status));
+        Err(err)
+    }
+}
+
 /// 获取自习室今日排名（REST GET /rooms/:id/leaderboard）
 #[tauri::command]
 pub async fn study_room_get_ranking(
@@ -331,6 +381,7 @@ mod tests {
         assert_eq!(room.id, "abc-123");
         assert_eq!(room.name, "专注自习室");
         assert_eq!(room.description.as_deref(), Some("一起学习"));
+        assert_eq!(room.owner_id.as_deref(), Some("u-42"));
         assert_eq!(room.is_public, Some(true));
         assert!(room.creator_name.is_none());
         assert!(room.member_count.is_none());
@@ -383,6 +434,7 @@ mod tests {
             id: "r1".to_string(),
             name: "test".to_string(),
             description: Some("desc".to_string()),
+            owner_id: Some("u-42".to_string()),
             creator_name: Some("alice".to_string()),
             member_count: Some(3),
             is_public: Some(true),
@@ -391,6 +443,7 @@ mod tests {
         assert!(json.contains("\"creatorName\""));
         assert!(json.contains("\"memberCount\""));
         assert!(json.contains("\"isPublic\""));
+        assert!(json.contains("\"ownerId\""));
         assert!(!json.contains("creator_name"));
         assert!(!json.contains("member_count"));
     }
