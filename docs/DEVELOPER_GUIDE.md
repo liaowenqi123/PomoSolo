@@ -543,6 +543,11 @@ npm start
   - 自建服务器代码改动 → 在 `server-planning/API-implementation.md` 留言区记录并同步服务器部门
 - 发版顺序：改代码 → 更新文档 → commit（含文档）→ push → 打 tag → 触发 CI 构建/发布
 - 禁止在文档未更新的情况下直接 `npm run build` / `build:installer` / 打 tag
+- 构建运行位置（自建 runner，v4.5.8 起）：
+  - `test`（Test & Coverage）与 `release` job 仍在 GitHub 托管 runner 执行
+  - `build`（NSIS 打包）job 由**本地自建 runner** 执行（`d:\actions-runner`，label `self-hosted, windows, x64`）——速度快、不排队、不占 GitHub 构建配额；首次运行需全量编译较慢，之后依赖 rust-cache 加速
+  - 使用前自建 runner 必须处于运行状态：前台 `d:\actions-runner\run.cmd`（或已安装为 Windows 服务）；若未启动，build job 会一直排队直至超时，需手动启动 runner 或临时把 `runs-on` 改回 `windows-latest`
+  - 工具链与缓存全部放 D 盘（`D:\pomosolo-cache\{cargo,rustup,npm}`），避免占 C 盘；机器空间有限，注意定期清理 `D:\actions-runner\_work` 下历史 job 目录
 
 ### 打包为可执行文件
 

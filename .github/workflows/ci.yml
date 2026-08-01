@@ -57,7 +57,13 @@ jobs:
   build:
     name: Build (Windows)
     needs: test
-    runs-on: windows-latest
+    # 本地自建 runner（d:\actions-runner，更快且不排队）；test/release 仍走托管 runner
+    runs-on: [self-hosted, windows, x64]
+    # 自建 runner 专用：工具链与缓存全部放 D 盘，避免占 C 盘
+    env:
+      CARGO_HOME: D:\pomosolo-cache\cargo
+      RUSTUP_HOME: D:\pomosolo-cache\rustup
+      NPM_CONFIG_CACHE: D:\pomosolo-cache\npm
     # 仅在 push 到 main/master 或打 tag 时构建安装包，PR 跳过
     if: github.event_name == 'push'
 
