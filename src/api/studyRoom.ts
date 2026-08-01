@@ -43,6 +43,8 @@ export interface StudyRoomMember {
   todayMinutes?: number;
   /** 是否在线 */
   online?: boolean;
+  /** 专注状态：idle / focusing / short_break / long_break（WS 实时推送） */
+  status?: string;
 }
 
 /** 排名条目 */

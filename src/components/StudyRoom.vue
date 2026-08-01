@@ -91,6 +91,14 @@ void listen<unknown>("ws-event", (e) => handleWsEvent(e.payload))
     /* jsdom 测试环境无 Tauri，静默 */
   });
 
+/** 成员专注状态 → 展示文案 */
+const STATUS_LABELS: Record<string, string> = {
+  idle: "空闲",
+  focusing: "专注中",
+  short_break: "短休息",
+  long_break: "长休息",
+};
+
 /** 处理服务端 WS 推送（room:members / member_joined / member_left / member_status / pomo_done） */
 function handleWsEvent(payload: unknown): void {
   if (!currentRoom.value) return;
@@ -98,7 +106,7 @@ function handleWsEvent(payload: unknown): void {
   const evt = payload as Record<string, unknown>;
   switch (evt.type) {
     case "room:members": {
-      // { members: [{ userId, username, online }] }
+      // { members: [{ userId, username, online, status }] }
       if (Array.isArray(evt.members)) {
         members.value = evt.members.map((m) => {
           const obj = (m ?? {}) as Record<string, unknown>;
@@ -106,6 +114,7 @@ function handleWsEvent(payload: unknown): void {
             userId: String(obj.userId ?? obj.user_id ?? ""),
             username: String(obj.username ?? ""),
             online: obj.online !== false,
+            status: typeof obj.status === "string" ? obj.status : undefined,
           };
         });
       }
@@ -119,6 +128,7 @@ function handleWsEvent(payload: unknown): void {
           userId: String(u.id ?? u.userId ?? ""),
           username: String(u.username ?? ""),
           online: true,
+          status: "idle",
         };
         if (member.userId && !members.value.some((m) => m.userId === member.userId)) {
           members.value.push(member);
@@ -135,11 +145,15 @@ function handleWsEvent(payload: unknown): void {
       break;
     }
     case "room:member_status": {
-      // { user_id, status }：收到说明该成员仍在线
+      // { user_id, status }：更新成员专注状态，同时确认其仍在线
       const uid = evt.user_id;
+      const status = evt.status;
       if (typeof uid === "string") {
         const m = members.value.find((x) => x.userId === uid);
-        if (m) m.online = true;
+        if (m) {
+          m.online = true;
+          if (typeof status === "string") m.status = status;
+        }
       }
       break;
     }
@@ -513,6 +527,13 @@ function shortId(id: string): string {
           >
             <span class="member-dot" :class="{ online: m.online !== false }"></span>
             <span class="member-name">{{ m.username }}</span>
+            <span
+              v-if="m.status"
+              class="member-status"
+              :class="'status-' + m.status"
+            >
+              {{ STATUS_LABELS[m.status] || m.status }}
+            </span>
             <span class="member-time">{{ formatMinutes(m.todayMinutes) }}</span>
           </li>
         </ul>
@@ -832,6 +853,26 @@ function shortId(id: string): string {
 .member-name {
   flex: 1;
   color: rgba(255, 255, 255, 0.9);
+}
+
+.member-status {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+}
+
+.member-status.status-focusing {
+  background: rgba(233, 69, 96, 0.16);
+  color: #e94560;
+}
+
+.member-status.status-short_break,
+.member-status.status-long_break {
+  background: rgba(78, 204, 163, 0.16);
+  color: #4ecca3;
 }
 
 .member-time {

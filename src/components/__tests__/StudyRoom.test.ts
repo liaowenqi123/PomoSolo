@@ -332,6 +332,35 @@ describe("StudyRoom.vue", () => {
     );
   });
 
+  it("成员状态文案：focusing 显示『专注中』，short_break 显示『短休息』", async () => {
+    const wrapper = mountComponent(true);
+    await enterRoom(wrapper);
+    await fireWs({
+      type: "room:members",
+      members: [
+        { userId: "u-1", username: "alice", online: true, status: "focusing" },
+        { userId: "u-2", username: "bob", online: true, status: "short_break" },
+      ],
+    });
+    expect(wrapper.text()).toContain("专注中");
+    expect(wrapper.text()).toContain("短休息");
+    // 状态徽标带对应 class
+    expect(wrapper.find(".member-status.status-focusing").exists()).toBe(true);
+    expect(wrapper.find(".member-status.status-short_break").exists()).toBe(true);
+  });
+
+  it("WS room:member_status 实时更新状态文案", async () => {
+    const wrapper = mountComponent(true);
+    await enterRoom(wrapper);
+    // 新成员默认空闲
+    await fireWs({ type: "room:member_joined", user: { id: "u-1", username: "alice" } });
+    expect(wrapper.text()).toContain("空闲");
+    // 推送状态更新 → 文案切换
+    await fireWs({ type: "room:member_status", user_id: "u-1", status: "long_break" });
+    expect(wrapper.text()).toContain("长休息");
+    expect(wrapper.text()).not.toContain("空闲");
+  });
+
   it("未进入房间时忽略 WS 事件", async () => {
     const wrapper = mountComponent(true);
     await fireWs({

@@ -42,6 +42,9 @@ pub struct StudyRoomMember {
     pub today_minutes: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub online: Option<bool>,
+    /// 专注状态：idle / focusing / short_break / long_break
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 /// 排名条目
@@ -399,10 +402,12 @@ mod tests {
             username: "alice".to_string(),
             today_minutes: Some(30),
             online: Some(true),
+            status: Some("focusing".to_string()),
         };
         let json = serde_json::to_string(&member).expect("序列化应成功");
         assert!(json.contains("\"userId\""));
         assert!(json.contains("\"todayMinutes\""));
+        assert!(json.contains("\"status\""));
         assert!(!json.contains("user_id"));
     }
 
