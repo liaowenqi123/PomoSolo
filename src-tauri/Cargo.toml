@@ -27,6 +27,9 @@ pbkdf2 = { version = "0.12", features = ["simple"] }
 rand = "0.8"
 # HTTP 客户端（替代 axios + DeepSeek API）
 reqwest = { version = "0.12", features = ["json"] }
+# WebSocket 客户端（自习室实时 + 同步听歌）
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
 # 正则表达式（标题/文件名清洗）
 regex = "1"
 # 机器标识（用于派生加密密钥）

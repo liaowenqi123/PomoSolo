@@ -19,9 +19,9 @@ import { invoke } from "@tauri-apps/api/core";
 /** API 模式：云端（用 Session Key）或本地（用自有 API Key） */
 export type ApiMode = "cloud" | "local";
 
-/** 用户会话（与 Rust `cloud_auth::Session` 对应） */
+/** 用户会话（与 Rust `cloud_auth::Session` 对应；id 为服务器 UUID 字符串） */
 export interface Session {
-  id: number;
+  id: string;
   username: string;
   admin: boolean;
 }

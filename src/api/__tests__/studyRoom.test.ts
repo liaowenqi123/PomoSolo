@@ -77,7 +77,7 @@ describe("api/studyRoom", () => {
   });
 
   it("studyRoomGetMembers 应调用 invoke('study_room_get_members', { roomId })", async () => {
-    const members = [{ userId: 1, username: "u", online: true }];
+    const members = [{ userId: "u-1", username: "u", online: true }];
     invokeMock.mockResolvedValue(members);
     const result = await studyRoomGetMembers("room-id");
     expect(invokeMock).toHaveBeenCalledWith("study_room_get_members", {

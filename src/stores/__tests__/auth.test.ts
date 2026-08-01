@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+﻿import { describe, it, expect, beforeEach, vi } from "vitest";
 import { setActivePinia, createPinia } from "pinia";
 
 // Mock @/api/auth 模块，避免依赖 Tauri 运行时
@@ -82,7 +82,7 @@ describe("useAuthStore", () => {
   it("isLoggedIn：session !== null 时为 true", () => {
     const store = useAuthStore();
     expect(store.isLoggedIn).toBe(false);
-    store.session = { id: 1, username: "alice", admin: false };
+    store.session = { id: "1", username: "alice", admin: false };
     expect(store.isLoggedIn).toBe(true);
   });
 
@@ -110,7 +110,7 @@ describe("useAuthStore", () => {
     store.mode = "cloud";
     expect(store.hasApiKey).toBe(false);
 
-    store.session = { id: 1, username: "alice", admin: false };
+    store.session = { id: "1", username: "alice", admin: false };
     expect(store.hasApiKey).toBe(true);
   });
 
@@ -234,7 +234,7 @@ describe("useAuthStore", () => {
   it("switchMode 到 local 应清除云端凭据 + cloudLogout", async () => {
     const store = useAuthStore();
     // 先模拟有云端会话
-    store.session = { id: 1, username: "alice", admin: false };
+    store.session = { id: "1", username: "alice", admin: false };
 
     await store.switchMode("local");
 
@@ -272,7 +272,7 @@ describe("useAuthStore", () => {
   // ===== login =====
 
   it("login 成功时应设置 session 并返回 true", async () => {
-    const fakeUser = { id: 1, username: "alice", admin: false };
+    const fakeUser = { id: "1", username: "alice", admin: false };
     authApiMock.cloudLogin.mockResolvedValue({
       success: true,
       user: fakeUser,
@@ -289,7 +289,7 @@ describe("useAuthStore", () => {
   it("login 成功 + rememberPassword 时应调用 saveCredentials", async () => {
     authApiMock.cloudLogin.mockResolvedValue({
       success: true,
-      user: { id: 1, username: "alice", admin: false },
+      user: { id: "1", username: "alice", admin: false },
     });
 
     const store = useAuthStore();
@@ -305,7 +305,7 @@ describe("useAuthStore", () => {
   it("login 成功 + 不记住密码时不应调用 saveCredentials", async () => {
     authApiMock.cloudLogin.mockResolvedValue({
       success: true,
-      user: { id: 1, username: "alice", admin: false },
+      user: { id: "1", username: "alice", admin: false },
     });
 
     const store = useAuthStore();
@@ -341,7 +341,7 @@ describe("useAuthStore", () => {
   it("login 过程中 loading 应最终为 false", async () => {
     authApiMock.cloudLogin.mockResolvedValue({
       success: true,
-      user: { id: 1, username: "alice", admin: false },
+      user: { id: "1", username: "alice", admin: false },
     });
 
     const store = useAuthStore();
@@ -388,7 +388,7 @@ describe("useAuthStore", () => {
 
   it("logout 应调用 cloudLogout + clearCredentials 并清除 session", async () => {
     const store = useAuthStore();
-    store.session = { id: 1, username: "alice", admin: false };
+    store.session = { id: "1", username: "alice", admin: false };
 
     await store.logout();
 
@@ -402,7 +402,7 @@ describe("useAuthStore", () => {
     authApiMock.clearCredentials.mockRejectedValue(new Error("fs error"));
 
     const store = useAuthStore();
-    store.session = { id: 1, username: "alice", admin: false };
+    store.session = { id: "1", username: "alice", admin: false };
 
     await expect(store.logout()).resolves.not.toThrow();
     expect(store.session).toBeNull();

@@ -17,87 +17,15 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
-pub(crate) const SUPABASE_URL: &str = "https://sjexeynibnfqxvwehnxk.supabase.co";
-pub(crate) const SUPABASE_ANON_KEY: &str = "sb_publishable_NtzlEhTWwC4qpSY0DEvQ0Q_ER6yJoTz";
-const PBKDF2_ITERATIONS: u32 = 100_000;
+pub(crate) const PBKDF2_ITERATIONS: u32 = 100_000;
 const KEY_LENGTH: usize = 32; // AES-256
 
-/// 单点登录：心跳间隔（秒）
-pub const HEARTBEAT_INTERVAL_SECS: u64 = 60;
-/// 单点登录：心跳超时阈值（秒），超过此时间未收到心跳视为掉线
-pub const HEARTBEAT_TIMEOUT_SECS: u64 = 120;
-
-/// 单点登录检查结果
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LoginCheckResult {
-    pub allowed: bool,
-    pub reason: String,
-}
-
-/// 评估是否允许登录（纯逻辑，便于单元测试）
-///
-/// 优先级：
-/// 1. cloud_client_id == local_client_id → 允许（同一设备重新登录）
-/// 2. is_online == false → 允许（云端显示离线）
-/// 3. last_heartbeat 为 null → 允许（无心跳记录但显示在线，异常状态）
-/// 4. elapsed > HEARTBEAT_TIMEOUT_SECS → 允许（对方已掉线）
-/// 5. 否则 → 拒绝（对方确实在线）
-///
-/// 参数 `elapsed_secs` 为当前时间与 `last_main_login_heartbeat` 的差值（秒）。
-pub fn evaluate_login_allowed(
-    cloud_client_id: Option<&str>,
-    local_client_id: &str,
-    is_online: bool,
-    last_heartbeat: Option<&str>,
-    elapsed_secs: Option<u64>,
-) -> LoginCheckResult {
-    // 优先级 1：同一设备重新登录
-    if let Some(cid) = cloud_client_id {
-        if cid == local_client_id {
-            return LoginCheckResult {
-                allowed: true,
-                reason: "same_device".to_string(),
-            };
-        }
-    }
-
-    // 优先级 2：云端显示离线
-    if !is_online {
-        return LoginCheckResult {
-            allowed: true,
-            reason: "offline".to_string(),
-        };
-    }
-
-    // 优先级 3：无心跳记录但显示在线
-    if last_heartbeat.is_none() {
-        return LoginCheckResult {
-            allowed: true,
-            reason: "no_heartbeat_record".to_string(),
-        };
-    }
-
-    // 优先级 4：心跳超时
-    if let Some(elapsed) = elapsed_secs {
-        if elapsed > HEARTBEAT_TIMEOUT_SECS {
-            return LoginCheckResult {
-                allowed: true,
-                reason: "heartbeat_timeout".to_string(),
-            };
-        }
-    }
-
-    // 对方确实在线
-    LoginCheckResult {
-        allowed: false,
-        reason: "already_online".to_string(),
-    }
-}
-
 /// 用户会话
+///
+/// id 为服务器端 UUID 字符串（对应自建 API users.id）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
-    pub id: i64,
+    pub id: String,
     pub username: String,
     pub admin: bool,
 }
@@ -366,121 +294,5 @@ mod tests {
         let short = base64_encode(b"short");
         let result = decrypt_string(&short);
         assert!(result.is_err(), "过短的密文应返回错误");
-    }
-
-    // ===== 单点登录 evaluate_login_allowed 测试 =====
-
-    #[test]
-    fn test_login_allowed_same_device() {
-        let result = evaluate_login_allowed(
-            Some("my-client-id"),
-            "my-client-id",
-            true,
-            Some("2026-01-01T00:00:00Z"),
-            Some(10),
-        );
-        assert!(result.allowed);
-        assert_eq!(result.reason, "same_device");
-    }
-
-    #[test]
-    fn test_login_allowed_offline() {
-        let result = evaluate_login_allowed(
-            Some("other-client"),
-            "my-client-id",
-            false,
-            None,
-            None,
-        );
-        assert!(result.allowed);
-        assert_eq!(result.reason, "offline");
-    }
-
-    #[test]
-    fn test_login_allowed_no_heartbeat_record() {
-        let result = evaluate_login_allowed(
-            Some("other-client"),
-            "my-client-id",
-            true,
-            None,
-            None,
-        );
-        assert!(result.allowed);
-        assert_eq!(result.reason, "no_heartbeat_record");
-    }
-
-    #[test]
-    fn test_login_allowed_heartbeat_timeout() {
-        let result = evaluate_login_allowed(
-            Some("other-client"),
-            "my-client-id",
-            true,
-            Some("2026-01-01T00:00:00Z"),
-            Some(HEARTBEAT_TIMEOUT_SECS + 1),
-        );
-        assert!(result.allowed);
-        assert_eq!(result.reason, "heartbeat_timeout");
-    }
-
-    #[test]
-    fn test_login_denied_already_online() {
-        let result = evaluate_login_allowed(
-            Some("other-client"),
-            "my-client-id",
-            true,
-            Some("2026-01-01T00:00:00Z"),
-            Some(30),
-        );
-        assert!(!result.allowed);
-        assert_eq!(result.reason, "already_online");
-    }
-
-    #[test]
-    fn test_login_allowed_exact_timeout_boundary() {
-        // elapsed == HEARTBEAT_TIMEOUT_SECS 不算超时（需要 > ）
-        let result = evaluate_login_allowed(
-            Some("other-client"),
-            "my-client-id",
-            true,
-            Some("2026-01-01T00:00:00Z"),
-            Some(HEARTBEAT_TIMEOUT_SECS),
-        );
-        assert!(!result.allowed, "恰好等于超时阈值不应算超时");
-    }
-
-    #[test]
-    fn test_login_allowed_cloud_client_id_none() {
-        // cloud_client_id 为 None（首次登录），is_online=false → 允许
-        let result = evaluate_login_allowed(
-            None,
-            "my-client-id",
-            false,
-            None,
-            None,
-        );
-        assert!(result.allowed);
-        assert_eq!(result.reason, "offline");
-    }
-
-    #[test]
-    fn test_login_denied_cloud_client_id_none_but_online() {
-        // cloud_client_id 为 None，is_online=true，last_heartbeat=None → 允许（异常状态）
-        let result = evaluate_login_allowed(
-            None,
-            "my-client-id",
-            true,
-            None,
-            None,
-        );
-        assert!(result.allowed);
-        assert_eq!(result.reason, "no_heartbeat_record");
-    }
-
-    #[test]
-    fn test_heartbeat_constants() {
-        assert_eq!(HEARTBEAT_INTERVAL_SECS, 60);
-        assert_eq!(HEARTBEAT_TIMEOUT_SECS, 120);
-        // 超时 = 间隔 × 2（给心跳宽限时间）
-        assert_eq!(HEARTBEAT_TIMEOUT_SECS, HEARTBEAT_INTERVAL_SECS * 2);
     }
 }

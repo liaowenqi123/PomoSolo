@@ -64,6 +64,10 @@ pub fn run() {
             commands::cloud_auth::submit_feedback,
             commands::cloud_auth::get_user_feedbacks,
             commands::cloud_auth::delete_feedback,
+            // 云端同步（设置 / 番茄钟记录）
+            commands::sync::cloud_sync_pull_settings,
+            commands::sync::cloud_sync_push_settings,
+            commands::sync::cloud_upload_pomodoro_records,
             // 菜园子
             commands::garden::garden_read,
             commands::garden::garden_write,
@@ -121,6 +125,14 @@ pub fn run() {
             commands::charts::download_song,
             commands::charts::get_download_status,
             commands::charts::charts_set_api_key,
+            // 同步听歌（自建服务器实时）
+            commands::music_sync::music_sync_play,
+            commands::music_sync::music_sync_pause,
+            commands::music_sync::music_sync_seek,
+            commands::music_sync::music_sync_next,
+            commands::music_sync::music_sync_volume,
+            commands::music_sync::music_sync_add_song,
+            commands::music_sync::music_sync_request_dj,
             // 自动更新
             commands::update::check_update,
             commands::update::download_and_install,

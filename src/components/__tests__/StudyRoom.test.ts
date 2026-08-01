@@ -205,7 +205,7 @@ describe("StudyRoom.vue", () => {
   it("在线成员有 .online 类", async () => {
     studyRoomApi.studyRoomCreate.mockResolvedValue({ id: "abc", name: "R" });
     studyRoomApi.studyRoomGetMembers.mockResolvedValue([
-      { userId: 1, username: "a", online: true },
+      { userId: "u-1", username: "a", online: true },
     ]);
     const wrapper = mountComponent(true);
     await wrapper.find(".main-actions .btn-primary").trigger("click");

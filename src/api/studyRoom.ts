@@ -35,8 +35,8 @@ export interface StudyRoom {
 
 /** 自习室成员 */
 export interface StudyRoomMember {
-  /** 用户 ID */
-  userId: number;
+  /** 用户 ID（服务器 UUID 字符串） */
+  userId: string;
   /** 用户名 */
   username: string;
   /** 今日专注时长（分钟） */
