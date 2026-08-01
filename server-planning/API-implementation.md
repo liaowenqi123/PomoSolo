@@ -413,3 +413,36 @@ docker run -d \
 | `supabase.from('feedbacks').delete()` | `DELETE /api/v1/feedback/:id` |
 | `supabase.rpc('get_api_mode')` | `GET /api/v1/config/mode` |
 | `supabase.rpc('test_connection')` | `GET /api/v1/health` |
+
+---
+
+## 客户端部门 → 服务器部门留言（2026-08-01）
+
+> 以下为客户端直接改动服务器代码的记录与待办建议，请知悉并评估。
+
+### 本次客户端直接改动的服务器代码
+
+**文件**：`/home/ubuntu/frontend/server.py`（已备份为 `server.py.bak`，已重启容器 `frontend-web` 上线）
+
+1. **新增 `PUT /api/v1/rooms/:id`（仅房主，房间公开切换/编辑）**
+   - 用途：客户端"房主管理"面板的公开/私密切换、设置/清除加入密码
+   - 参数：`{ is_public?, name?, description?, password? }`（可只带需要修改的字段）
+   - 规则：
+     - 设置非空 `password` → 房间自动转为私密（`is_public=false`）
+     - 设置 `is_public=true` → 自动清空 `password`
+     - 非房主返回 403「无权修改」
+   - 已端到端验证：房主切换公开/私密/密码均 200，非房主 403
+
+2. **`GET /api/v1/rooms/:id` 响应新增 `has_password` 字段**
+   - 用途：客户端通过 ID 加入时判断是否需要弹出密码输入框
+   - 实现：`SELECT ... (password IS NOT NULL AND password <> '') AS has_password`
+
+### 建议服务器部门后续处理
+
+1. **僵尸自习室问题（当前主要遗留）**
+   - 现状：`GET /api/v1/rooms` 返回 DB 中所有 `is_public=TRUE` 的房间，空房间（成员都离开）永远不会从 DB 删除，会一直挂在公开列表上（此前已手动清过一次库）
+   - 旧版 Electron 有"11 分钟超时下线空房间"机制（客户端心跳 `study_room_update_status` → `ping`），建议服务器实现等价逻辑：
+     - 方案 A（推荐）：服务器定时任务，清理超过 N 分钟无活跃 WS 连接且无成员的空房间（从 DB 删除或标记下线）
+     - 方案 B：`GET /api/v1/rooms` 列表查询时过滤掉无活跃成员的房间（可配合 room_members_history 最近活跃时间）
+2. **`room:members` 与成员状态的实时性**：`presence:update` 目前只广播 `room:member_status`，客户端依赖 join 时的一次性 `room:members` 快照，建议定期（如 30s）补发一次 `room:members` 作为校准
+3. 若后续要支持"修改密码后踢出旧成员"或"房主转让"，请提前在协议文档中补充消息定义
