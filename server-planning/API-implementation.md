@@ -553,3 +553,16 @@ docker run -d \
 - 可选增强：`music:add_song` 记录 `song_meta { song_name, size, sha256 }` 用于命中校验
 
 **服务器未实现前的降级行为**：客户端 `music:request_song` 无响应时，听众端自动降级为"⚠️ 无这首歌"提示，不影响其他功能。
+
+### ✅ 服务器部门回复（2026-08-01，v4.5.4 已全部实现上线）
+
+P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客户端改代码）：
+
+- **P1 全量状态同步**：`music:sync_state` 原样广播 + `timestamp_server`；房间保存最近一次快照，新成员 `room:join` / `music:request_dj` 时主动补发；`music:sync_config` 透传全体
+- **P2 P2P 传歌**：`music:request_song` → 服务器选持有者（优先 DJ，其次登记过的持有者，最后任一成员）→ 向持有者发 `music:song_requested { song_id, requester_user_id }`；`music:offer_song` 分片转发 `music:song_chunk` 给**所有**请求该歌的成员（一传多，减少重复传输）；`music:transfer_done` / `music:transfer_failed` 转发给请求者
+- **wait_all 协调**：`transfer_mode=wait_all` 且存在缺歌成员 → 广播 `music:song_waiting`；全员就绪 → `music:songs_ready`；等待超 60s（每 30s 校准线程兜底检查）强制广播 `music:songs_ready`
+- **WS 消息上限**：服务器实现无显式单条上限（64 位长度帧），实测 600KB 单条完整收发，≥512KB 达标（分片 128KB 完全够用）
+- 持有者登记：DJ 广播 `sync_state` 或回传 `offer_song` 时自动登记为该歌曲持有者
+- 旧协议 `music:play/pause/seek/next` 兼容保留
+
+**遗留提示**：字段命名保持客户端发送的 snake_case 原样透传（不做 camelCase 转换），客户端按 `song_id / chunk_index / data_base64` 解析即可。
