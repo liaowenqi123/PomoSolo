@@ -369,20 +369,22 @@
 
 ---
 
-### 4.12 下载的 m4a 歌曲播放"解码失败"（全新主机无 ffmpeg）
+### 4.12 下载的 m4a 歌曲播放"解码失败"/"卡死"（全新主机无 ffmpeg）
 
-- **现象**：全新主机（系统未装 ffmpeg）上下载歌曲后播放报解码/播放失败；老电脑正常。
-- **根因**（两层叠加）：
+- **现象**：全新主机（系统未装 ffmpeg）上下载歌曲后，播放列表显示该歌，但一选择就报解码失败或播放器卡死；老电脑（下载的歌都是 mp3）正常。
+- **根因**（三层叠加）：
   1. **下载器依赖系统 ffmpeg 转码**：`downloader.rs::find_ffmpeg` 先查系统 PATH，其次查打包资源 `resource_dir/ffmpeg.exe`——但 ffmpeg 从未打进安装包（96MB，`tauri.conf.json` resources 只有 `resources/music/`）。全新主机无 ffmpeg → `download_song` 转码失败回退，**直接保存 B 站 DASH 的 m4a 原文件**。
-  2. **播放器不支持 m4a 解码**：`rodio 0.20` 默认 features 只含 mp3/wav/flac/vorbis，**没有 AAC codec / MP4 容器**（symphonia 的 `aac` + `isomp4`）。即使文件被扫描进歌单（`SUPPORTED_FORMATS` 已含 `.m4a`），解码仍失败。
-- **正确方案（v4.5.1 已实施）**：不打包 ffmpeg，改为**播放器原生支持 m4a**：
+  2. **rodio 0.20 无 AAC 支持**：`rodio 0.20` 默认 features 只含 mp3/wav/flac/vorbis。v4.5.1 加了 `symphonia-aac` + `symphonia-isomp4`，但**依然崩**。
+  3. **rodio 0.20 的 symphonia 集成有 panic bug（真正断点）**：`rodio-0.20.1/src/decoder/symphonia.rs:45` 对初始化阶段的 `SeekError` 直接 `unreachable!("Seek errors should not occur during initialization")`——而 symphonia 0.5.5 解析 m4a（读 moov/gapless 信息）时确实会返回 `SeekError`，rodio 直接线程 panic 而非返回错误。tauri async command 里 panic → 持有播放器锁的线程崩溃 → 前端报错、后续音乐命令全部堵死。**实测三种 m4a（moov 前/moov 尾/fMP4）打开全部 panic**；绕过 rodio 用 symphonia 0.5.5 原生 API 解同样的文件**全部成功**，证明解码器本身没问题。
+- **正确方案（v4.5.2 已实施）**：**升级 rodio 0.20.1 → 0.21.1**（官方修复，不引入 ffmpeg，不换解码器）：
   ```toml
   # src-tauri/Cargo.toml
-  rodio = { version = "0.20", features = ["mp3", "wav", "flac", "vorbis", "symphonia-aac", "symphonia-isomp4"] }
+  rodio = { version = "0.21", default-features = false, features = ["playback", "mp3", "wav", "flac", "vorbis", "mp4"] }
   ```
-  - `symphonia-aac`：AAC 解码；`symphonia-isomp4`：MP4/M4A 容器解封装
-  - 下载器逻辑不变：有 ffmpeg（系统 PATH）仍转 mp3；无 ffmpeg 直接保留 m4a，播放器可原生播放
-- **验证**：`cargo test --lib` 通过；下载 m4a 文件在无 ffmpeg 主机上可正常播放
+  - rodio 0.21.0 changelog 明确修复：*"Symphonia decoder for MP4 now seeks correctly (#577)"*，且 **MP4+AAC 默认支持**（`mp4 = ["symphonia-isomp4", "symphonia-aac"]`，官方自带 `music_m4a` 示例）。
+  - 0.21 是 breaking 大版本，`audio_player.rs` 适配：`OutputStream::try_default()` → `OutputStreamBuilder::open_default_stream()`；`OutputStreamHandle` 移除 → 存 `Mixer`（`stream.mixer()`），`Sink::try_new(&handle)` → `Sink::connect_new(&Mixer)`（不再返回 Result）；`Decoder::new(BufReader)` → `Decoder::try_from(file)`；样本输出 i16 → **f32**；设备切换 `OutputStreamBuilder::from_device(device).open_stream_or_fallback()`。
+  - 下载器逻辑不变：有 ffmpeg（系统 PATH）仍转 mp3；无 ffmpeg 直接保留 m4a，播放器可原生播放。
+- **验证**：`cargo test --lib` 184 通过；升级后用三种 m4a（moov 前/moov 尾/fMP4）实测全部解码成功（48000Hz 双声道，时长/样本数正确）。
 - **遗留**：转码为 mp3 可减小体积、提高兼容性，但需打包 ffmpeg（体积大），暂不引入。
 
 ---

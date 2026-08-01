@@ -1,6 +1,6 @@
 [package]
 name = "pomo-solo"
-version = "4.5.1"
+version = "4.5.2"
 description = "PomoSolo - 番茄钟应用"
 authors = ["liaowenqi123"]
 edition = "2021"
@@ -40,9 +40,10 @@ base64 = "0.22"
 # SHA-512 哈希
 sha2 = "0.10"
 # 音频播放（替代 Python sounddevice + soundfile）
-# 音频播放：mp3/wav/flac/vorbis + m4a/aac（symphonia 解码，不依赖系统 ffmpeg）
-rodio = { version = "0.20", features = ["mp3", "wav", "flac", "vorbis", "symphonia-aac", "symphonia-isomp4"] }
-cpal = "0.15"
+# rodio 0.21：修复 0.20 的 symphonia MP4 seek panic（#577），默认支持 MP4+AAC
+# 播放格式：mp3/wav/flac/vorbis/m4a（symphonia 解码，不依赖系统 ffmpeg）
+rodio = { version = "0.21", default-features = false, features = ["playback", "mp3", "wav", "flac", "vorbis", "mp4"] }
+cpal = "0.16"
 # 自建服务器客户端（reqwest 调 REST API + tokio-tungstenite 走 WebSocket）
 # Windows API（前台检测）
 [target.'cfg(windows)'.dependencies]

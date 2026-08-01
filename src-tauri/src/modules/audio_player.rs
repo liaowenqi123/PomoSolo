@@ -7,12 +7,12 @@
 //! - 播放列表：随机/顺序/单曲循环 + 双向历史表
 
 use std::fs;
-use std::io::BufReader;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use rand::seq::SliceRandom;
-use rodio::{source::Source, Decoder, OutputStream, OutputStreamHandle, Sink};
+use rodio::{source::Source, Decoder, OutputStream, OutputStreamBuilder, Sink};
+use rodio::mixer::Mixer;
 use cpal::traits::{DeviceTrait, HostTrait};
 use serde::Serialize;
 
@@ -84,7 +84,8 @@ pub struct PlayerSnapshot {
 pub struct AudioPlayer {
     // 音频输出（_stream 必须保持存活）
     _stream: Option<OutputStream>,
-    stream_handle: Option<OutputStreamHandle>,
+    // rodio 0.21：OutputStreamHandle 已移除，Sink 通过 &Mixer 创建（内部克隆 Arc）
+    mixer: Option<Mixer>,
     sink: Option<Sink>,
 
     // 播放状态
@@ -119,7 +120,7 @@ impl AudioPlayer {
     pub fn new() -> Self {
         Self {
             _stream: None,
-            stream_handle: None,
+            mixer: None,
             sink: None,
             volume: 1.0,
             track_name: String::new(),
@@ -145,11 +146,11 @@ impl AudioPlayer {
 
     /// 初始化：创建默认输出流，扫描播放列表
     pub fn init(&mut self) -> Result<bool, String> {
-        // 创建默认输出流
-        let (stream, handle) =
-            OutputStream::try_default().map_err(|e| format!("创建音频输出流失败: {}", e))?;
+        // 创建默认输出流（rodio 0.21：OutputStreamBuilder + open_default_stream）
+        let stream = OutputStreamBuilder::open_default_stream()
+            .map_err(|e| format!("创建音频输出流失败: {}", e))?;
+        self.mixer = Some(stream.mixer().clone());
         self._stream = Some(stream);
-        self.stream_handle = Some(handle);
 
         // 记录默认设备索引
         let host = cpal::default_host();
@@ -252,7 +253,7 @@ impl AudioPlayer {
         let path = self.music_dir.join(name);
         match fs::File::open(&path) {
             Ok(file) => {
-                let source = Decoder::new(BufReader::new(file));
+                let source = Decoder::try_from(file);
                 match source {
                     Ok(decoder) => decoder
                         .total_duration()
@@ -278,8 +279,8 @@ impl AudioPlayer {
 
         let file = fs::File::open(&path).map_err(|e| format!("打开文件失败: {}", e))?;
 
-        // 用 rodio 原生 Decoder 解码（流式，不解码整首）
-        let source = Decoder::new(BufReader::new(file))
+        // 用 rodio 原生 Decoder 解码（rodio 0.21：try_from 自动包装，支持 m4a/AAC）
+        let source = Decoder::try_from(file)
             .map_err(|e| format!("解码失败: {}, 文件: {}", e, name))?;
 
         // 获取总时长
@@ -300,13 +301,12 @@ impl AudioPlayer {
         // 真实播放位置 = position_offset + get_pos()
         self.position_offset = start_position.max(0.0) as u64;
 
-        // 创建新的 Sink 并流式播放
-        let handle = self
-            .stream_handle
+        // 创建新的 Sink 并流式播放（rodio 0.21：Sink::connect_new(&Mixer)，不再返回 Result）
+        let mixer = self
+            .mixer
             .as_ref()
-            .ok_or("音频输出未初始化")?
-            .clone();
-        let sink = Sink::try_new(&handle).map_err(|e| format!("创建 Sink 失败: {}", e))?;
+            .ok_or("音频输出未初始化")?;
+        let sink = Sink::connect_new(mixer);
         sink.set_volume(self.volume);
         sink.append(source);
         sink.play();
@@ -781,12 +781,14 @@ impl AudioPlayer {
 
         // 重建输出流
         self._stream = None;
-        self.stream_handle = None;
+        self.mixer = None;
 
-        let (stream, handle) = OutputStream::try_from_device(device)
+        let stream = OutputStreamBuilder::from_device(device.clone())
+            .map_err(|e| format!("创建设备输出流失败: {}", e))?
+            .open_stream_or_fallback()
             .map_err(|e| format!("创建设备输出流失败: {}", e))?;
+        self.mixer = Some(stream.mixer().clone());
         self._stream = Some(stream);
-        self.stream_handle = Some(handle);
         self.current_device_id = Some(device_id);
 
         // 恢复播放
