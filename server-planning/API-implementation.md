@@ -198,6 +198,7 @@ Response 403: { "error": "无权删除" }
 
 #### GET /api/v1/rooms
 获取公开房间列表。
+> 注：仅返回**有在线成员**（`member_count > 0`）的公开房间。最后一个成员离开/断开后房间自动从数据库删除（防僵尸房挂列表）。
 ```json
 // Response 200
 { "rooms": [{ "id": "uuid", "name": "深夜学习局", "owner_id": "uuid",
@@ -210,8 +211,7 @@ Response 403: { "error": "无权删除" }
 ```json
 // Response 200
 { "id": "uuid", "name": "...", "owner_id": "uuid", "max_members": 50,
-  "is_public": true, "description": "...", "created_at": "...",
-  "has_password": false }
+  "is_public": true, "description": "...", "created_at": "...", "has_password": false }
 ```
 > `has_password`: 房间是否设置了加入密码（客户端据此决定是否弹出密码输入框）。
 
@@ -237,6 +237,7 @@ Headers: Authorization: Bearer <access_token>
 Response: 204
 Response 403: { "error": "无权删除" }
 ```
+> 删除后服务器会同步清理 WebSocket 内存房间，并向仍在线成员推送 `room:closed` 事件。
 
 #### GET /api/v1/rooms/:id/leaderboard?period=today
 获取房间排行榜（period: today | week）。
@@ -293,10 +294,13 @@ ws://服务器地址:3001/ws?token=<access_token> # 备用：独立端口直连
 | `room:member_joined` | 有成员加入：`{ user: { id, username } }` |
 | `room:member_left` | 有成员离开：`{ user_id }` |
 | `room:member_status` | 成员状态更新：`{ user_id, status }` |
+| `room:closed` | 房间被房主删除：`{ room_id }`，收到后客户端应退出房间视图 |
 | `room:chat` | 聊天消息：`{ user_id, username, message, time }` |
 | `room:pomo_done` | 番茄完成广播：`{ user_id, username, mode }` |
 | `pong` | 心跳回复（含 server_time） |
 | `error` | 错误信息 |
+
+> **成员校准**：服务器每 30s 向每个房间补发一次 `room:members`（客户端除 join 时的一次性快照外，以此校准在线成员）。
 
 ---
 
