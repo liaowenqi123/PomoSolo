@@ -549,6 +549,7 @@ npm start
   - 使用前自建 runner 必须处于运行状态：前台 `d:\actions-runner\run.cmd`（或已安装为 Windows 服务）；若未启动，build job 会一直排队直至超时，需手动启动 runner 或临时把 `runs-on` 改回 `windows-latest`
   - 工具链与缓存全部放 D 盘（`D:\pomosolo-cache\{cargo,rustup,npm,target}`），避免占 C 盘；机器空间有限，注意定期清理 `D:\actions-runner\_work` 下历史 job 目录
 - 本地构建缓存不走 GitHub 缓存服务（v4.5.10 起）：build job 移除 `rust-cache`，新增 `CARGO_TARGET_DIR: D:\pomosolo-cache\target`——target 固定本地，依赖未变时增量编译，**零缓存上传/下载**（托管机才需要 GitHub 缓存，因为托管机不持久）；首次在本地跑会全量编译暖缓存。注意：自建 runner 同时只允许一个 build job（单 runner 串行），若未来加第二个本地 runner 需让两者用不同 target 目录或加锁，避免 cargo 文件锁互等
+- build job 产物路径（v4.5.11 起）：因 `CARGO_TARGET_DIR` 指向 `D:\pomosolo-cache\target`，NSIS 安装包生成在 `D:\pomosolo-cache\target\release\bundle\nsis\`（**不是** `src-tauri/target/...`），ci.yml 的 upload-artifact 路径已同步为 `${{ env.CARGO_TARGET_DIR }}/release/bundle/nsis/*`；改动 target 位置时务必同步此路径，否则 Release job 下载产物会 "Artifact not found"
 
 ### 打包为可执行文件
 

@@ -98,9 +98,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: PomoSolo-installer
+          # 产物在 CARGO_TARGET_DIR（本地固定缓存目录）下的 bundle，不在 src-tauri/target
           path: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/nsis/*.sig
+            ${{ env.CARGO_TARGET_DIR }}/release/bundle/nsis/*.exe
+            ${{ env.CARGO_TARGET_DIR }}/release/bundle/nsis/*.sig
           retention-days: 30
 
   release:
