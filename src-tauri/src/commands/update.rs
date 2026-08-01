@@ -267,10 +267,11 @@ mod tests {
 ///
 /// 设计：运行时音乐目录与安装目录分离 —— 用户下载的歌曲放在
 /// `app_data_dir/music`，安装/更新包永远只覆盖安装目录（resource_dir），
-/// 不会碰到用户音乐。两个来源的歌曲合并过去，规则为**不覆盖已有同名文件**：
+/// 不会碰到用户音乐。各来源的歌曲合并过去，规则为**不覆盖已有同名文件**：
 ///
-/// 1. `resource_dir/music`：安装包内置歌曲（全新安装首次复制）
-/// 2. `backup/music`：更新前备份的老版本用户歌曲（老版本 → 新版本迁移）
+/// 1. `resource_dir/resources/music`：安装包内置歌曲（Tauri resources 打包位置，全新安装时存在）
+/// 2. `resource_dir/music`：老版本（4.4.x）遗留的用户音乐目录（升级场景迁移）
+/// 3. `backup/music`：更新前备份的老版本用户歌曲（老版本 → 新版本迁移）
 pub fn merge_music_dir(app: &AppHandle) -> Result<(), String> {
     let app_data_dir = app
         .path()
@@ -281,10 +282,20 @@ pub fn merge_music_dir(app: &AppHandle) -> Result<(), String> {
 
     let mut merged = 0;
 
-    // 来源 1：安装包内置歌曲（resource_dir/music）
+    // 来源 1：安装包内置歌曲（resource_dir/resources/music）+ 老版本遗留目录（resource_dir/music）
     if let Ok(resource_dir) = app.path().resource_dir() {
-        let src = resource_dir.join("music");
-        if src.exists() {
+        let mut builtin_srcs = Vec::new();
+        // Tauri resources 打包位置（4.5.0+）：resources/music/
+        let packed = resource_dir.join("resources").join("music");
+        if packed.exists() {
+            builtin_srcs.push(packed);
+        }
+        // 老版本（4.4.x）遗留的用户音乐目录（升级时一并迁移）
+        let legacy = resource_dir.join("music");
+        if legacy.exists() {
+            builtin_srcs.push(legacy);
+        }
+        for src in builtin_srcs {
             for entry in fs::read_dir(&src).map_err(|e| format!("读取内置音乐失败: {}", e))? {
                 let entry = entry.map_err(|e| format!("读取目录项失败: {}", e))?;
                 let filename = entry.file_name();
@@ -295,7 +306,8 @@ pub fn merge_music_dir(app: &AppHandle) -> Result<(), String> {
                 }
                 if let Ok(meta) = entry.metadata() {
                     if meta.is_file() {
-                        fs::copy(entry.path(), &dest).map_err(|e| format!("复制内置歌曲失败: {}", e))?;
+                        fs::copy(entry.path(), &dest)
+                            .map_err(|e| format!("复制内置歌曲失败: {}", e))?;
                         merged += 1;
                     }
                 }

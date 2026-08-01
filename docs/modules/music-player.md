@@ -158,9 +158,9 @@
 - **背景**：早期运行时音乐目录 = `resource_dir/music`（安装目录）。自动更新会用新安装包**整体覆盖安装目录**，用户下载的歌曲会丢；此前靠 `update.rs::restore_music_dir`（更新前备份 → 更新后还原）保护，但备份/还原本身有遗漏风险（如更新中断）。
 - **新设计（已实施）**：
   - 运行时音乐目录 = `app_data_dir/music`（用户数据区，安装/更新永不触碰）
-  - 安装包内置歌曲在 `resource_dir/music`，应用启动时由 `update.rs::merge_music_dir` 合并到用户目录（**不覆盖用户已有同名文件**）
-  - 老版本更新前备份在 `backup/music` 的歌曲，启动合并时一并迁入用户目录后删除备份
+  - 安装包内置歌曲由 Tauri 打包到 `resource_dir/resources/music`，老版本（4.4.x）遗留的用户音乐目录在 `resource_dir/music`；应用启动时由 `update.rs::merge_music_dir` 把**这两个来源 + 老备份 `backup/music`** 合并到用户目录（**不覆盖用户已有同名文件**）
   - `commands/music.rs::get_music_dir` 与 `commands/charts.rs::get_music_dir` 统一返回 `app_data_dir/music`
+- **踩坑**：v4.5.0 首发时 `merge_music_dir` 只读 `resource_dir/music`，全新安装主机没有该目录（内置歌实际在 `resource_dir/resources/music`），导致新装用户"无音乐"；v4.5.1 已改为同时合并两个来源
 - **改动文件**：`src-tauri/src/commands/update.rs`（`merge_music_dir`）、`src-tauri/src/lib.rs`（setup 钩子）、`commands/music.rs`、`commands/charts.rs`
 - **验证**：`cargo test --lib` 通过；全新安装 → 内置 3 首歌出现在用户目录；老版本升级 → 用户下载的歌保留且不重复
 
@@ -366,6 +366,24 @@
   - `.music-volume__slider { z-index: 1000 }`，高于 `.music-collapse-btn` 的 10，调音量时临时遮住收起按钮。
   - `.music-collapse-btn { z-index: 10 }`，在 `.music-player` 内部最低，正常态下不遮挡内容。
 - **验证**：所有浮层正确显示在对应层级；不同弹层互不干扰；番茄钟主界面按钮可正常点击。
+
+---
+
+### 4.12 下载的 m4a 歌曲播放"解码失败"（全新主机无 ffmpeg）
+
+- **现象**：全新主机（系统未装 ffmpeg）上下载歌曲后播放报解码/播放失败；老电脑正常。
+- **根因**（两层叠加）：
+  1. **下载器依赖系统 ffmpeg 转码**：`downloader.rs::find_ffmpeg` 先查系统 PATH，其次查打包资源 `resource_dir/ffmpeg.exe`——但 ffmpeg 从未打进安装包（96MB，`tauri.conf.json` resources 只有 `resources/music/`）。全新主机无 ffmpeg → `download_song` 转码失败回退，**直接保存 B 站 DASH 的 m4a 原文件**。
+  2. **播放器不支持 m4a 解码**：`rodio 0.20` 默认 features 只含 mp3/wav/flac/vorbis，**没有 AAC codec / MP4 容器**（symphonia 的 `aac` + `isomp4`）。即使文件被扫描进歌单（`SUPPORTED_FORMATS` 已含 `.m4a`），解码仍失败。
+- **正确方案（v4.5.1 已实施）**：不打包 ffmpeg，改为**播放器原生支持 m4a**：
+  ```toml
+  # src-tauri/Cargo.toml
+  rodio = { version = "0.20", features = ["mp3", "wav", "flac", "vorbis", "symphonia-aac", "symphonia-isomp4"] }
+  ```
+  - `symphonia-aac`：AAC 解码；`symphonia-isomp4`：MP4/M4A 容器解封装
+  - 下载器逻辑不变：有 ffmpeg（系统 PATH）仍转 mp3；无 ffmpeg 直接保留 m4a，播放器可原生播放
+- **验证**：`cargo test --lib` 通过；下载 m4a 文件在无 ffmpeg 主机上可正常播放
+- **遗留**：转码为 mp3 可减小体积、提高兼容性，但需打包 ffmpeg（体积大），暂不引入。
 
 ---
 

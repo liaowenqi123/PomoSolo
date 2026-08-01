@@ -1,6 +1,6 @@
 [package]
 name = "pomo-solo"
-version = "4.5.0"
+version = "4.5.1"
 description = "PomoSolo - 番茄钟应用"
 authors = ["liaowenqi123"]
 edition = "2021"
@@ -40,7 +40,8 @@ base64 = "0.22"
 # SHA-512 哈希
 sha2 = "0.10"
 # 音频播放（替代 Python sounddevice + soundfile）
-rodio = { version = "0.20", features = ["mp3", "wav", "flac", "vorbis"] }
+# 音频播放：mp3/wav/flac/vorbis + m4a/aac（symphonia 解码，不依赖系统 ffmpeg）
+rodio = { version = "0.20", features = ["mp3", "wav", "flac", "vorbis", "symphonia-aac", "symphonia-isomp4"] }
 cpal = "0.15"
 # 自建服务器客户端（reqwest 调 REST API + tokio-tungstenite 走 WebSocket）
 # Windows API（前台检测）
