@@ -1,7 +1,8 @@
 /**
  * 用户反馈 API
  *
- * 对接 Supabase `feedback` 表，与旧 Electron 版 cloudAuth.js 的三个反馈方法对齐。
+ * 对接自建服务器 `feedback` 接口（POST/GET/DELETE /api/v1/feedback），
+ * 与旧 Electron 版 cloudAuth.js 的三个反馈方法对齐。
  * 用户身份由后端从 AppState.cloud_session 取，前端无需传 user_id。
  */
 import { invoke } from "@tauri-apps/api/core";

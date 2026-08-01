@@ -1,5 +1,10 @@
 # 云端认证 + 歌曲热榜下载模块文档
 
+> **状态**：历史模块文档。云端认证已于 v4.3.0 从 Supabase 迁移至自建服务器
+> （JWT + WebSocket），当前实现见 `src-tauri/src/modules/server_api.rs` /
+> `commands/cloud_auth.rs`，协议见 `server-planning/API-implementation.md`。
+> 本文保留 Supabase 时代的方案与踩坑记录作参考。
+
 > 本文档记录 Tauri 番茄钟应用"云端认证（Supabase）"和"歌曲热榜 + 下载"两个模块的实现方案与踩坑历史。
 > 两个模块共用同一套 DeepSeek API Key 体系（云端模式从 Supabase 用户表派生、本地模式由用户手动输入），因此合并文档。
 > 迁移自 Electron 旧版 `electron/src/modules/cloudAuth.js` + `electron/src/scripts/modules/charts.js` + `electron/main/ipc-cloud.js` + `electron/main/ipc-music.js`。

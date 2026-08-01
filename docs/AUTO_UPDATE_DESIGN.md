@@ -1,5 +1,8 @@
 # Electron 应用自动更新技术文档
 
+> **状态**：历史设计文档（Electron + Supabase 时代）。Tauri 版自动更新已改用
+> Tauri updater 插件 + GitHub Releases（见 `src-tauri/tauri.conf.json` plugins.updater）。
+
 ## 一、概述
 
 本文档描述如何为 Electron 应用实现自动更新功能。用户第一次安装时可以选择安装目录，后续更新完全静默自动完成。

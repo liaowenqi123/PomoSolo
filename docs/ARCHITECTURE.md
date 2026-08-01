@@ -101,7 +101,7 @@ tauri::Builder::default()
 
 | 文件 | 职责 | 外部依赖 |
 |------|------|---------|
-| `modules/cloud_auth.rs` | AES-256-GCM 加密、PBKDF2 密码哈希、Supabase REST 调用、凭据文件管理 | `aes-gcm` / `pbkdf2` / `sha2` / `reqwest` / `hostname` / `whoami` / `base64` |
+| `modules/cloud_auth.rs` | AES-256-GCM 加密、PBKDF2 密码哈希、自建服务器认证（JWT + refresh token 自动续期）、凭据文件管理 | `aes-gcm` / `pbkdf2` / `sha2` / `reqwest` / `hostname` / `whoami` / `base64` |
 | `modules/data_manager.rs` | `data.json` / `garden_data.json` / `settings.json` 读写，菜园子数据带 Mutex 锁防并发写 | `serde_json` / `std::fs` / `dirs` |
 | `modules/foreground_inspection.rs` | Windows 前台窗口标题抓取、DeepSeek API 调用、检测循环（`tokio::spawn`）、事件推送 | `windows` crate / `reqwest` / `tokio` |
 | `modules/music_process.rs` | Python 子进程（`music.exe`）启动、stdin/stdout JSON 通信、生命周期管理 | `tokio::process` / `sysinfo` |
@@ -128,7 +128,7 @@ pub struct AppState {
 
 | 用途 | crate | 替代的 Electron 模块 |
 |------|-------|---------------------|
-| HTTP 客户端 | `reqwest` | `axios` + `@supabase/supabase-js` |
+| HTTP 客户端 | `reqwest` | `axios` + `@supabase/supabase-js`（已迁移自建服务器，保留历史对比） |
 | 异步运行时 | `tokio` (full) | Node.js 事件循环 |
 | 序列化 | `serde` / `serde_json` | `JSON.parse` / `JSON.stringify` |
 | 加密 | `aes-gcm` / `pbkdf2` / `sha2` / `rand` | `electron.safeStorage` + `crypto.pbkdf2` |
@@ -233,7 +233,7 @@ Rust #[tauri::command] (commands/*.rs)
 业务模块 (modules/*.rs)
   │  实际逻辑
   ├──► 文件系统（data.json / garden_data.json / settings.json / credentials.json）
-  ├──► 网络请求（Supabase REST / DeepSeek API）
+  ├──► 网络请求（自建服务器 REST / WebSocket / DeepSeek API）
   └──► Python 子进程（music.exe）
   │
   ▼
@@ -293,7 +293,7 @@ Vue 组件响应式重渲染
 用户密码 ──注册/登录──► PBKDF2-SHA512(100000 iter, 16B salt) ──► 64B hash hex
                                                                         │
                                                                         ▼
-                                                              存入 Supabase users 表
+                                                              存入自建服务器 users 表
 
 本地凭据 ──保存──► AES-256-GCM 加密
                      │
@@ -506,7 +506,7 @@ PomoSolo.exe (Tauri 主进程)
 - **无额外依赖**：`serde_json` 已在依赖树中，SQLite 需引入 `rusqlite` + 编译 C 库
 - **菜园子并发保护**：`data_manager.rs` 中用 `static GARDEN_LOCK: Mutex<()>` 防并发写
 
-> 自习室多人数据走 Supabase 云端，不依赖本地 JSON。
+> 自习室多人数据走自建服务器云端（REST + WebSocket 实时推送），不依赖本地 JSON。
 
 ---
 

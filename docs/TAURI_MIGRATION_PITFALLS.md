@@ -337,12 +337,13 @@ export type DownloadStatus =
   img-src 'self' data:; \
   font-src 'self' data:; \
   connect-src 'self' \
-    https://sjexeynibnfqxvwehnxk.supabase.co \   // Supabase
-    https://api.deepseek.com"                    // DeepSeek
+    https://api.deepseek.com"                    // DeepSeek（自建服务器请求走 Rust，不进 CSP）
 ```
 
 > **注意**：新增任何外部 API 调用时，必须同步更新 CSP。否则在 release build 下会直接失败。
-> 网易云 / QQ音乐的榜单抓取走 Rust `reqwest`，**不经过 WebView**，因此**不需要**加进 CSP——这是 Tauri 的优势之一。
+> 网易云 / QQ音乐的榜单抓取、自建服务器 REST/WS 均走 Rust `reqwest` / `tokio-tungstenite`，
+> **不经过 WebView**，因此**不需要**加进 CSP——这是 Tauri 的优势之一。
+> （旧版 Supabase 域名 `sjexeynibnfqxvwehnxk.supabase.co` 已于 v4.3.0 从 CSP 移除。）
 
 **代码位置**：`src-tauri/tauri.conf.json` L42-45。
 

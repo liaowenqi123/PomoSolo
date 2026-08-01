@@ -234,7 +234,7 @@
 
 | 模式 | 说明 |
 |------|------|
-| ☁️ **云端登录** | Supabase 认证，Admin 用户自动获取 API Key |
+| ☁️ **云端登录** | 自建服务器认证（JWT），Admin 用户自动获取 API Key |
 | ⚙️ **本地配置** | 手动输入 DeepSeek API Key，无需联网 |
 
 ### Admin 特权
@@ -303,7 +303,7 @@
 | 图表 | Chart.js 4.5 |
 | 子进程 | Python 3.x（music.exe, foreground_inspection.exe） |
 | AI | DeepSeek API |
-| 云端 | Supabase（认证 + 数据库） |
+| 云端 | 自建服务器（认证 + 数据库 + WebSocket 实时） |
 | 自动更新 | electron-updater + GitHub Releases |
 
 ---

@@ -59,7 +59,7 @@ PomoSolo 是一款 Windows 桌面番茄钟应用，从原 Electron + Python 版�
 | 👥 **自习室** | 公开/私密房间、实时排名、专注时长同步 |
 | 📊 **统计** | 日/周/月专注时长图表、热力图、趋势分析 |
 | 🤖 **AI 规划助手** | 一句话生成番茄钟计划，调用 DeepSeek（云端 / 本地双模式） |
-| 🔐 **云端账号** | Supabase 后端、本地凭据 AES-256-GCM 加密、自动登录 |
+| 🔐 **云端账号** | 自建服务器后端（JWT 认证 + refresh token 自动续期）、本地凭据 AES-256-GCM 加密、自动登录 |
 | 🔄 **自动更新** | 内置更新检查、签名验证、一键升级、用户数据备份 |
 
 ---
@@ -134,7 +134,7 @@ electron_pomodoro/
 │   │   └── modules/              # 业务模块（不直接暴露给前端）
 │   │       ├── audio_player.rs   # 音频播放器（rodio + Sink::try_seek）
 │   │       ├── downloader.rs     # B 站音频下载（纯 Rust，DASH 解析）
-│   │       ├── cloud_auth.rs     # AES-GCM 加密 + PBKDF2 + Supabase
+│   │       ├── cloud_auth.rs     # AES-GCM 加密 + PBKDF2 + 自建服务器认证
 │   │       ├── data_manager.rs   # JSON 文件持久化（带锁）
 │   │       └── foreground_inspection.rs  # windows crate 前台检测
 │   ├── resources/music/          # 内置歌曲（构建时由 copy-resources.mjs 复制）

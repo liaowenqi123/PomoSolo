@@ -5,7 +5,7 @@
  * 参考 electron/src/scripts/modules/apiKeyManager.js。
  *
  * 两种互斥模式：
- * - cloud（云端登录）：通过 Supabase 登录获取 API Key（仅内存）
+ * - cloud（云端登录）：通过自建服务器登录获取 API Key（仅内存）
  * - local（本地配置）：手动输入 API Key 并持久化
  *
  * 切换模式时会清理对方的凭据。

@@ -1,5 +1,8 @@
 # 开发者指南
 
+> 本文档含旧版 Electron + Supabase 内容（历史参考）。当前版本为 **Tauri v2 + Vue 3 + Rust**，
+> 云端后端为自建服务器（JWT + WebSocket），对接文档见 `server-planning/API-implementation.md`。
+
 本文档为番茄钟项目的开发者提供技术参考，包含项目架构、模块说明、开发规范等内容。
 
 ---

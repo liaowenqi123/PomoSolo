@@ -1,5 +1,9 @@
 # 自习室功能架构文档
 
+> **状态**：历史架构文档（Electron + Supabase 时代）。当前自习室已迁移至自建服务器
+> （REST + WebSocket 实时推送），客户端实现见 `src-tauri/src/commands/study_room.rs` 与
+> `src/components/StudyRoom.vue`，协议见 `server-planning/API-implementation.md`。
+
 ## 一、整体架构概览
 
 ```

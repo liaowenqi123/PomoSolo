@@ -42,7 +42,7 @@ sha2 = "0.10"
 # 音频播放（替代 Python sounddevice + soundfile）
 rodio = { version = "0.20", features = ["mp3", "wav", "flac", "vorbis"] }
 cpal = "0.15"
-# Supabase 客户端（用 reqwest 直接调 REST API）
+# 自建服务器客户端（reqwest 调 REST API + tokio-tungstenite 走 WebSocket）
 # Windows API（前台检测）
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = [

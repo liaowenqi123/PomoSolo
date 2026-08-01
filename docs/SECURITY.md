@@ -157,7 +157,7 @@ Rust 端用相同 password + salt 计算出的 hex 字符串与 Node.js 完全�
 
 #### 应用场景
 
-- Supabase `users` 表的 `password_hash` + `salt` 字段
+- 自建服务器 `users` 表（`pbkdf2$100000$<salt>$<hash>` 单字段，兼容迁移自 Supabase 的老数据）
 - 注册时：生成随机 salt → 计算 hash → 存入数据库
 - 登录时：查询用户的 salt → 计算 hash → 与数据库 hash 比对
 
@@ -419,7 +419,8 @@ PomoSolo 支持两种 API 模式：
 
 ### 7.5 网络层
 
-- Supabase anon key 硬编码在 `modules/cloud_auth.rs` 中（`SUPABASE_ANON_KEY` 常量）。这是 Supabase 设计（anon key 是公开的，RLS 策略控制权限），但需确保数据库 RLS 配置正确
+- 已从 Supabase 迁移至自建服务器：access token（JWT，15 分钟）+ refresh token（30 天滚动），过期自动续期；refresh token 存储于服务端 `sessions` 表，登出即失效
+- `SERVER_URL` 当前为 HTTP（`http://115.159.49.112`），JWT 通过 WS query 传递，建议域名备案后切换 HTTPS
 - DeepSeek API 调用走 HTTPS，但无证书 pinning（标准 `reqwest` 默认信任系统证书）
 
 ### 7.6 进程层
@@ -450,7 +451,7 @@ PomoSolo 支持两种 API 模式：
 | **本地管理员权限攻击者** | 攻击者有管理员权限时可读取进程内存、注入 DLL，任何客户端加密都无效 |
 | **物理设备访问** | 攻击者拿到机器物理访问权可离线破解（但仍受密钥派生保护） |
 | **零日漏洞** | WebView2 / Rust 编译器 / 依赖库的未知漏洞 |
-| **服务端漏洞** | Supabase / DeepSeek 服务端被攻破 |
+| **服务端漏洞** | 自建服务器 / DeepSeek 服务端被攻破 |
 | **社会工程** | 钓鱼攻击骗取用户主动输入凭据到伪造界面 |
 
 ### 8.3 假设
@@ -458,7 +459,8 @@ PomoSolo 支持两种 API 模式：
 - 用户机器未被 rootkit 感染
 - 用户操作系统为正版 Windows 10/11，WebView2 已更新到最新版
 - 用户不会主动用管理员权限修改 `credentials.json` 并期待它仍能解密
-- Supabase 数据库 RLS 策略配置正确，anon key 不能越权读取其他用户数据
+- 自建服务器（`SERVER_URL`）已配置强 JWT_SECRET，且仅通过 HTTPS 对外提供服务（当前为 HTTP + 内网策略，备案后切 HTTPS）
+- access token 15 分钟过期 + refresh token 30 天滚动刷新，refresh token 泄露风险可控
 
 ---
 
@@ -471,7 +473,7 @@ PomoSolo 支持两种 API 模式：
 - [ ] `Cargo.lock` 中 `aes-gcm` / `pbkdf2` / `sha2` 是否有已知 CVE（`cargo audit`）
 - [ ] `package.json` 中前端依赖是否有已知漏洞（`npm audit`）
 - [ ] `credentials.json` 文件权限是否为仅当前用户可读写（Windows ACL）
-- [ ] Supabase RLS 策略是否正确（anon key 不能越权）
+- [ ] 自建服务器 `JWT_SECRET` 是否足够强、是否未泄露
 - [ ] `get_api_key` 命令是否仍返回完整 Key（应为布尔值）
 - [ ] DevTools 在 release 构建中是否禁用（`#[cfg(debug_assertions)]` 应保证）
 - [ ] Rust 端 `unwrap()` 是否会在恶意输入下 panic（应改为 `?` + `map_err`）

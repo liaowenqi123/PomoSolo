@@ -229,7 +229,7 @@
 | `nodeIntegration` | 必须设为 `false` | Tauri 默认无 Node | ✅ 架构层面消除 |
 | `contextIsolation` | 必须设为 `true` | Tauri 默认隔离 | ✅ |
 | 外部链接打开 | `shell.openExternal` | `tauri-plugin-shell` + capabilities 授权 | ✅ 显式授权 |
-| Supabase SDK | `@supabase/supabase-js`（引入大依赖） | 直接 reqwest 调 REST API | ✅ 体积更小 |
+| Supabase SDK | `@supabase/supabase-js`（引入大依赖，已废弃） | reqwest 调自建服务器 REST + WebSocket | ✅ 体积更小、服务自控 |
 
 ---
 
@@ -244,7 +244,7 @@
 | 设置读写 | `api/data.ts` | `commands/data.rs` | 同上 | ✅ |
 | 窗口控制 | `api/window.ts` | `commands/window.rs` | Tauri API | ✅ |
 | 云端认证（本地凭据） | `api/auth.ts` | `commands/cloud_auth.rs` | `modules/cloud_auth.rs` | ✅ |
-| 云端账号（登录/注册/退出/会话） | `api/auth.ts` | `commands/cloud_auth.rs` | Supabase REST | ✅ |
+| 云端账号（登录/注册/退出/会话） | `api/auth.ts` | `commands/cloud_auth.rs` | 自建服务器 REST（JWT，已迁移） | ✅ |
 | API Key / API 模式 | `api/auth.ts` | `commands/cloud_auth.rs` | `modules/data_manager.rs` | ✅ |
 | 菜园子读写 | `api/garden.ts` | `commands/garden.rs` | `modules/data_manager.rs` | ✅ |
 | 菜园子种植 / 收获 / 解锁 / 签到 | `api/garden.ts` | `commands/garden.rs` | 同上 | ✅ |
