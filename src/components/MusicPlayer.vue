@@ -293,8 +293,8 @@ function displayName(name: string): string {
 }
 
 // ===== 音量控制 =====
+// 音量是本地输出，非 DJ 也可调整（不影响同步，DJ 调整才会广播给房间）
 function handleVolumeInput(e: Event) {
-  if (controlsDisabled.value) return;
   const target = e.target as HTMLInputElement;
   const v = parseInt(target.value, 10) / 100;
   void store.setVolume(v);
@@ -429,11 +429,10 @@ if (typeof document !== "undefined") {
             {{ trackDisplay }}
           </span>
 
-          <!-- 音量 -->
+          <!-- 音量（本地输出，非 DJ 也可调整） -->
           <div class="music-volume">
             <button
               class="music-btn"
-              :disabled="controlsDisabled"
               :title="`音量 ${Math.round(store.volume * 100)}%`"
               @click="isVolumeOpen = !isVolumeOpen"
             >
@@ -444,7 +443,6 @@ if (typeof document !== "undefined") {
                 type="range"
                 min="0"
                 max="100"
-                :disabled="controlsDisabled"
                 :value="Math.round(store.volume * 100)"
                 @input="handleVolumeInput"
               />

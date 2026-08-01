@@ -416,6 +416,15 @@
 - **降级**：服务器未实现 P2P 时，`music:request_song` 无响应 → 播放器显示"⚠️ 无这首歌"。
 - **服务器需求**（详见 `server-planning/API-implementation.md` 留言区）：sync_state 透传 + 快照补发、P2P 分片转发、wait_all 协调、WS 消息上限 ≥512KB。
 
+### 4.15 同步听歌细节修复（v4.5.5）
+
+实测发现并修复的 4 个问题：
+
+1. **DJ 播放中不传歌、只显示"无这首歌"**：缺歌判断原为 `playlist.length > 0 && !includes(songId)`，听众刚进房间歌单未加载（length=0）时误走 `playSong` 失败分支，只设 `missingSongName` 不触发 P2P；等 DJ 暂停再广播时歌单已加载才传。**修复**：缺歌判断改为 `!playlist.includes(songId)`（空歌单也走 P2P 分支），且 `playSong` 失败兜底时也触发 `startSongTransfer`。
+2. **非 DJ 不能调音量**：`controlsDisabled` 连音量一起禁用。**修复**：音量是本地输出，不受同步控制（DJ 调音量才广播），音量按钮/滑块/`handleVolumeInput` 移出禁用。
+3. **DJ 上台瞬间所有听众的歌都开始放（而 DJ 暂停中）**：`applySyncState` 切歌分支无条件 `playSong` 播放，未尊重 DJ 的 `playing` 状态。**修复**：DJ 处于暂停（`playing=false`）时，听众切歌后 900ms 内自动暂停，只切歌不播放。
+4. **传歌卡在"获取歌曲中 x%"**：三处加固——① `handleSongChunk` 单片保存失败自动重试一次；② `startSongTransfer` 请求发出 6s 无分片自动重发 `request_song`（幂等）；③ DJ 侧 `handleSongRequested` 加 `activeTransfers` 并发守卫（服务器"一传多"可能重复收到请求）+ 每片 15ms 节流，避免 170KB×N 消息瞬时堆积。
+
 ---
 
 ## 5. 最终布局结构清单
