@@ -104,6 +104,9 @@ const joinPwInput = ref("");
 const joinPwMode = ref(false);
 const publicRooms = ref<StudyRoom[]>([]);
 
+/** 同步听歌"使用说明"是否展开 */
+const syncInfoOpen = ref(false);
+
 onUnmounted(() => {
   stopRefresh();
   if (toastTimer) clearTimeout(toastTimer);
@@ -1000,6 +1003,20 @@ function shortId(id: string): string {
               {{ music.syncEnabled ? "关闭同步" : "开启同步" }}
             </button>
           </div>
+          <!-- 使用说明（可展开；未开启时也能先了解机制，重点是"歌会被共享"） -->
+          <button class="sync-info-toggle" @click="syncInfoOpen = !syncInfoOpen">
+            <span class="sync-info-toggle-icon">{{ syncInfoOpen ? "▾" : "▸" }}</span>
+            📖 同步听歌使用说明
+          </button>
+          <div v-if="syncInfoOpen" class="sync-info">
+            <ul class="sync-info-list">
+              <li>🎧 开启后，房间由 <b>DJ</b> 控制播放，大家同步收听同一首歌；只有 DJ 能操作播放器（播放/暂停/切歌/进度/音量），其他人跟随</li>
+              <li>🔁 DJ 播放的歌你本地没有时，会自动从 DJ（或持有这首歌的人）<b>P2P 传歌</b>，断线自动续传；两种模式由 DJ 选择：<b>边下边播</b>（快，开头可能缺几秒）/ <b>全员就绪统一播</b>（整齐，等最慢的人）</li>
+              <li>⬆️ <b>你的本地歌曲也会被共享</b>给房间内缺这首歌的人——开启同步听歌即代表同意共享（仅房间内点对点传输，不会上传到任何公开服务器）</li>
+              <li>💾 下载到的歌曲会<b>保存到本地音乐库</b>，并自动打上来源标签（DJ 名字），可在播放列表随时删除</li>
+              <li>❌ 反复传歌失败会提示"无这首歌"，不影响本地已有歌曲播放</li>
+            </ul>
+          </div>
           <template v-if="music.syncEnabled">
             <div class="sync-dj">
               <span class="sync-dj-label">DJ</span>
@@ -1354,13 +1371,16 @@ function shortId(id: string): string {
 }
 
 .dice-btn:hover {
-  transform: rotate(15deg) scale(1.05);
+  /* 只做纵向位移 + 发光：旋转/缩放会让视觉外接矩形横向变宽，
+     在可滚动容器内产生左右横向滚动条，故弃用 */
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
   border-color: var(--accent, #e94560);
   background: rgba(255, 255, 255, 0.1);
 }
 
 .dice-btn:active {
-  transform: rotate(-20deg) scale(0.95);
+  transform: translateY(0) scale(0.92);
 }
 
 .form-textarea {
@@ -1512,6 +1532,53 @@ function shortId(id: string): string {
 
 .sync-waiting {
   color: rgba(255, 200, 120, 0.9);
+}
+
+/* 使用说明（可展开折叠） */
+.sync-info-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  background: transparent;
+  border: none;
+  padding: 2px 4px;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.sync-info-toggle:hover {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.sync-info-toggle-icon {
+  font-size: 9px;
+  transition: transform 0.15s ease;
+}
+
+.sync-info {
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 8px 10px;
+}
+
+.sync-info-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.sync-info-list b {
+  color: rgba(255, 255, 255, 0.9);
 }
 
 /* DJ 传歌方案切换 */
