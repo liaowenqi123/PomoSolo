@@ -471,6 +471,20 @@ v4.5.8 在 `server-planning/API-implementation.md` 留言的三项服务器需�
 - **from_chunk 断点续传已实现**：`music:request_song` 带 `from_chunk` 时，转发给持有者的 `music:song_requested` 同样携带（实测 from_chunk=7 完整透传）；不带时协议兼容老客户端；**传输状态接管**——已有传输状态时新请求重置超时计时并重新选持有者重发（带 from_chunk），不会被旧状态挡掉；30s 传输超时维持（分片到达仍重置）
 - **心跳频率确认无需改动**：服务器 `recv` 无超时、不主动断开任何频率的心跳连接，客户端 5s 业务心跳 + 10s 协议 Ping 均兼容（不会误踢高频，也不会过早清理低频）
 
+### 4.23 歌单未加载误判缺歌 + 切歌打断下载不及时（v4.5.10）
+
+用户反馈两个与"下载"相关的问题，根因同源：**下载相关路径都缺"当前目标歌/歌单状态"的特判**。
+
+1. **本地明确已有的歌，第一次同步听歌也先触发下载**（下载到一半才"发现"有这首歌，放弃下载开始播放）：根因——**歌单是懒加载的**（只有点开播放列表面板才 `requestPlaylist`），进自习室开启同步时 `playlist` 仍是空数组 + `localHasSongs` 为空（重启后未填充），同步广播先到 → 空 playlist 被误判"缺歌" → 触发 P2P 下载；下载中歌单加载完成，`playlist`/`localHasSongs` 补齐后下一轮广播走 `playSong` 放弃下载。**修复**：
+   - **三处提前加载歌单**：① `MusicPlayer.vue onMounted` 启动即 `requestPlaylist()`；② `setSyncEnabled(true)` 开启同步时预加载；③ `handlePlaylist` **首次加载完成**且同步已开启、非 DJ → 主动 `musicSyncRequestState()` 重取 DJ 最新状态（此前广播被守卫跳过，重取补对齐）。
+   - **`playlistLoaded` 守卫**：`applyMusicState` / `applySyncState` 的切歌缺歌分支，`!playlistLoaded` 时直接 `return`——playlist 空数组不能判定缺歌，等歌单加载完成后再由重取状态/后续广播驱动（DJ 传歌期间每 5s 广播，不担心永久丢失）。
+2. **切歌打断下载不及时，被同步端切歌时间与 DJ 有时差**：根因——**迟到的旧歌传输事件污染新状态**。DJ 切到 B 后，服务器转发的旧歌 A 的 `transfer_done` / `transfer_failed` 仍会到达听众端：`handleTransferDone` 原来不校验歌曲就 `finalize + playSong(A)`（"下载完播放旧歌"，把听众拽回 A）；`handleTransferFailed` 原来无条件复位传输状态 + 设 `missingSongName`（会打断正在进行的 B 传输、错误提示"无这首歌"）。**修复（按当前目标歌特判）**：
+   - `handleTransferDone`：`songTransfer.songName !== songId` → 直接忽略（不 finalize、不播放旧歌）。
+   - `handleTransferFailed`：正在传输其他歌（`songName !== songId`）→ 忽略不打断；复位仅限同歌；`missingSongName` 仅当失败歌曲是当前曲目时设置。
+   - 配套：`handleTrackChange`（DJ 自然切歌）广播延迟 250ms → **100ms**，让听众端更快收到切歌、更快打断下载，缩小与 DJ 的时差。（`handleSongChunk` 本就有按 `songTransfer.songName` 丢弃分片的守卫，传输环节闭环。）
+
+**测试**：music.test.ts 更新"歌单未加载时缺歌 → 不再触发 P2P"用例；新增 sync_state 未加载守卫、setSyncEnabled 预加载、handlePlaylist 首次重取、transfer_done/transfer_failed 旧歌迟到事件特判共 8 个用例（全量 52 文件 950 用例通过）。
+
 ---
 
 ## 5. 最终布局结构清单

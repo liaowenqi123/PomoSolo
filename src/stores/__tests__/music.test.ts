@@ -692,13 +692,14 @@ describe("useMusicStore", () => {
     expect(musicSyncApi.musicSyncRequestSong).not.toHaveBeenCalled();
   });
 
-  it("music:state play：歌单未加载（空）时缺歌 → 直接触发 P2P 拉取", () => {
+  it("music:state play：歌单未加载时不做缺歌判定 → 不触发 P2P（本地已有的歌不被误下载）", () => {
     const s = useMusicStore();
     s.setSyncEnabled(true);
     s.isDj = false;
     s.trackName = "old.mp3";
     s.playing = false;
-    // playlist 为空（尚未加载完成）→ 不应误判为"本地有"，直接走 P2P 缺歌分支
+    // playlist 为空（歌单尚未加载）→ 不能据此判定"缺歌"触发下载，
+    // 等歌单加载完成后由 handlePlaylist 重取状态/后续广播驱动
     s.handleSyncWsEvent({
       type: "music:state",
       action: "play",
@@ -706,11 +707,10 @@ describe("useMusicStore", () => {
       timestamp_server: Date.now(),
       song_id: "unknown.mp3",
     });
-    expect(s.missingSongName).toBe("unknown.mp3");
-    expect(s.songTransfer.state).toBe("requesting");
-    expect(s.songTransfer.songName).toBe("unknown.mp3");
-    expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("unknown.mp3", 0);
-    // 不应尝试播放（本地未知歌曲）
+    expect(s.missingSongName).toBeNull();
+    expect(s.songTransfer.state).toBe("idle");
+    expect(musicSyncApi.musicSyncRequestSong).not.toHaveBeenCalled();
+    // 不应尝试播放（未知歌曲，等歌单加载后判定）
     expect(musicApi.musicPlaySong).not.toHaveBeenCalled();
   });
 
@@ -750,5 +750,97 @@ describe("useMusicStore", () => {
     s.missingSongName = "ghost.mp3";
     s.handleStatus({ playing: true, name: "b.mp3", current: 0, duration: 200 });
     expect(s.missingSongName).toBeNull();
+  });
+
+  // ===== Bug 1：歌单未加载误判缺歌 / 提前加载 =====
+
+  it("music:sync_state：歌单未加载时缺歌不做判定 → 不触发 P2P", () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.trackName = "old.mp3";
+    s.handleSyncWsEvent({
+      type: "music:sync_state",
+      song_id: "a.mp3",
+      playing: true,
+      position_ms: 0,
+      timestamp_server: Date.now(),
+    });
+    expect(s.missingSongName).toBeNull();
+    expect(musicSyncApi.musicSyncRequestSong).not.toHaveBeenCalled();
+    expect(musicApi.musicPlaySong).not.toHaveBeenCalled();
+  });
+
+  it("setSyncEnabled(true) 提前加载本地歌单（预加载，避免同步广播先到时误判缺歌）", () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    expect(musicApi.musicGetPlaylist).toHaveBeenCalled();
+  });
+
+  it("handlePlaylist 首次加载完成且同步已开启 → 主动重取 DJ 状态对齐", () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.handlePlaylist({ songs: ["a.mp3"] });
+    expect(musicSyncApi.musicSyncRequestState).toHaveBeenCalled();
+  });
+
+  it("handlePlaylist 非首次刷新不再重取状态", () => {
+    const s = useMusicStore();
+    s.handlePlaylist({ songs: ["a.mp3"] }); // 首次，未开同步 → 不重取
+    expect(musicSyncApi.musicSyncRequestState).not.toHaveBeenCalled();
+    s.setSyncEnabled(true); // 开启同步本身会重取一次（清掉计数）
+    musicSyncApi.musicSyncRequestState.mockClear();
+    s.handlePlaylist({ songs: ["a.mp3", "b.mp3"] }); // 非首次 → 不重取
+    expect(musicSyncApi.musicSyncRequestState).not.toHaveBeenCalled();
+  });
+
+  // ===== Bug 2：切歌打断下载不及时 / 旧歌迟到传输事件特判 =====
+
+  it("handleTransferDone：切歌打断后旧歌的迟到 transfer_done 被忽略", async () => {
+    const s = useMusicStore();
+    // 当前正在传输 b.mp3（DJ 已切歌），此时到达旧歌 a.mp3 的 transfer_done
+    s.songTransfer = { state: "downloading", songName: "b.mp3", received: 3, total: 10, startedAt: Date.now(), retryCount: 0 };
+    s.handleSyncWsEvent({ type: "music:transfer_done", song_id: "a.mp3", total_chunks: 10 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(musicApi.musicFinalizeSong).not.toHaveBeenCalled();
+    expect(musicApi.musicPlaySong).not.toHaveBeenCalled();
+    // 当前传输状态不被破坏
+    expect(s.songTransfer.songName).toBe("b.mp3");
+    expect(s.songTransfer.state).toBe("downloading");
+  });
+
+  it("handleTransferDone：正常完成 → 合并、标记本地已有并播放", async () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.songTransfer = { state: "downloading", songName: "a.mp3", received: 10, total: 10, startedAt: Date.now(), retryCount: 0 };
+    s.djName = "bob";
+    musicApi.musicFinalizeSong.mockResolvedValue({ success: true });
+    musicApi.musicPlaySong.mockResolvedValue(undefined);
+    s.handleSyncWsEvent({ type: "music:transfer_done", song_id: "a.mp3", total_chunks: 10 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(musicApi.musicFinalizeSong).toHaveBeenCalledWith("a.mp3", 10);
+    expect(musicApi.musicPlaySong).toHaveBeenCalledWith("a.mp3");
+    expect(s.missingSongName).toBeNull();
+    expect(s.songTransfer.state).toBe("idle");
+  });
+
+  it("handleTransferFailed：旧歌的迟到失败事件不打断当前传输", () => {
+    const s = useMusicStore();
+    s.trackName = "b.mp3";
+    s.songTransfer = { state: "downloading", songName: "b.mp3", received: 2, total: 10, startedAt: Date.now(), retryCount: 0 };
+    s.handleSyncWsEvent({ type: "music:transfer_failed", song_id: "a.mp3" });
+    expect(s.songTransfer.state).toBe("downloading");
+    expect(s.songTransfer.songName).toBe("b.mp3");
+    expect(s.missingSongName).toBeNull();
+  });
+
+  it("handleTransferFailed：当前传输失败 → 复位并提示无这首歌", () => {
+    const s = useMusicStore();
+    s.trackName = "a.mp3";
+    s.songTransfer = { state: "downloading", songName: "a.mp3", received: 2, total: 10, startedAt: Date.now(), retryCount: 0 };
+    s.handleSyncWsEvent({ type: "music:transfer_failed", song_id: "a.mp3" });
+    expect(s.songTransfer.state).toBe("idle");
+    expect(s.missingSongName).toBe("a.mp3");
   });
 });

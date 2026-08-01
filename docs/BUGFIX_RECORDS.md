@@ -4,6 +4,43 @@
 
 ---
 
+## 2026-08-02
+
+### 1. 本地明确已有的歌，第一次同步听歌也先触发下载（v4.5.10）
+
+**问题描述：**
+- 应用重启后第一次开始同步听歌，DJ 播的第一首歌**本地明明有**，却先触发 P2P 下载，下载到一半"发现"有这首歌，放弃下载开始播放
+
+**原因分析：**
+- 歌单是懒加载的（只有点开播放列表面板才 `requestPlaylist`），进自习室开启同步时 `playlist` 仍是空数组、`localHasSongs` 为空
+- 同步广播先于歌单到达 → 空 playlist 被误判"缺歌" → 触发 P2P 下载；下载中歌单加载补齐后，下一轮广播改走 `playSong` 放弃下载
+
+**解决方案：**
+1. `MusicPlayer.vue onMounted` 启动即 `requestPlaylist()` 预加载歌单；`setSyncEnabled(true)` 开启同步时也预加载
+2. 新增 `playlistLoaded` 标志：`applyMusicState` / `applySyncState` 缺歌分支在歌单未加载时直接 `return`，空数组不判定缺歌
+3. `handlePlaylist` 首次加载完成且同步已开启、非 DJ → 主动 `musicSyncRequestState()` 重取 DJ 最新状态对齐
+
+**影响范围：**
+- `src/stores/music.ts`、`src/components/MusicPlayer.vue`
+
+### 2. 切歌打断下载不及时，被同步端切歌时间与 DJ 有时差（v4.5.10）
+
+**问题描述：**
+- DJ 切歌后，旧歌的迟到传输事件（`transfer_done` / `transfer_failed`）污染听众端新状态：旧歌 `transfer_done` 会 finalize 并**播放旧歌**（听众被拽回旧歌）；旧歌 `transfer_failed` 会复位正在进行的**新歌**传输并误报"无这首歌"
+
+**原因分析：**
+- `handleTransferDone` 不校验当前传输目标歌就 finalize + playSong；`handleTransferFailed` 无条件复位传输状态 + 设 `missingSongName`
+
+**解决方案：**
+- `handleTransferDone`：`songTransfer.songName !== songId` → 忽略
+- `handleTransferFailed`：正在传别的歌 → 忽略；`missingSongName` 仅当失败歌曲是当前曲目时设置
+- `handleTrackChange` 广播延迟 250ms → 100ms，听众更快收到切歌、更快打断下载
+
+**影响范围：**
+- `src/stores/music.ts`
+
+---
+
 ## 2026-04-10
 
 ### 1. 父进程崩溃后子进程残留

@@ -171,6 +171,13 @@ export const useMusicStore = defineStore("music", () => {
    */
   let lastSyncTs = 0;
 
+  /**
+   * 播放列表是否已加载完成（handlePlaylist 收到过歌单）。
+   * 同步广播可能先于歌单加载到达：歌单未加载时 playlist 为空数组，
+   * 不能据此判定"缺歌"触发 P2P 下载——本地可能其实有这首歌（用户明确已有的歌被误下载）。
+   */
+  let playlistLoaded = false;
+
   function ensureTransferWatch() {
     if (transferWatchTimer) return;
     transferWatchTimer = setInterval(() => {
@@ -541,6 +548,10 @@ export const useMusicStore = defineStore("music", () => {
   async function handleTransferDone(evt: Record<string, unknown>) {
     const songId = typeof evt.song_id === "string" ? evt.song_id : "";
     if (!songId) return;
+    // 切歌打断后的迟到 transfer_done（旧歌）：当前没有这首歌的传输 → 忽略。
+    // 否则会在切歌后仍 finalize 并播放旧歌，导致被同步端切歌时间与 DJ 出现时差
+    // （"下载完播放旧歌"与"首首歌被误下载"同根：下载相关事件都必须按当前目标歌特判）
+    if (songTransfer.value.songName !== songId) return;
     // total_chunks 以服务器 transfer_done 携带为准，缺失时回退到已记录值
     const totalChunks =
       Number(evt.total_chunks) > 0
@@ -584,13 +595,17 @@ export const useMusicStore = defineStore("music", () => {
     }
   }
 
-  /** 听众侧：传输失败 → 降级为"无这首歌"提示 */
+  /** 听众侧：传输失败 → 降级为"无这首歌"提示（切歌打断后的旧歌迟到事件不污染当前状态） */
   function handleTransferFailed(evt: Record<string, unknown>) {
     const songId = typeof evt.song_id === "string" ? evt.song_id : "";
-    if (songTransfer.value.state !== "idle") {
+    const t = songTransfer.value;
+    // 正在传输其他歌时收到旧歌的迟到 transfer_failed：不打断当前传输、不设缺歌提示
+    if (t.state !== "idle") {
+      if (t.songName !== songId) return;
       songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0 };
     }
-    if (songId) missingSongName.value = songId;
+    // 仅当失败的是当前曲目时才提示"无这首歌"（迟到的旧歌失败不污染提示）
+    if (songId && songId === trackName.value) missingSongName.value = songId;
   }
 
   /** DJ/持有者侧：服务器要求传歌 → 逐片读取并回传（music:offer_song） */
@@ -826,9 +841,10 @@ export const useMusicStore = defineStore("music", () => {
     duration.value = payload.duration;
     currentTime.value = 0;
     if (payload.has_prev !== undefined) hasPrev.value = payload.has_prev;
-    // DJ 模式下歌自然结束自动切歌 → 广播全量状态（听众端跟随切歌，而非只同步动作）
+    // DJ 模式下歌自然结束自动切歌 → 尽快广播全量状态（听众端跟随切歌，而非只同步动作；
+    // 100ms：trackName/duration 已就绪，广播越快听众端切歌打断下载越及时，时差越小）
     if (syncEnabled.value && isDj.value) {
-      window.setTimeout(() => void broadcastSyncState(), 250);
+      window.setTimeout(() => void broadcastSyncState(), 100);
     }
   }
 
@@ -848,6 +864,8 @@ export const useMusicStore = defineStore("music", () => {
   }
 
   function handlePlaylist(payload: PlaylistData) {
+    const firstLoad = !playlistLoaded;
+    playlistLoaded = true;
     const songs = payload.songs || [];
     if (songs.length > 0 && typeof songs[0] === "object") {
       const songObjs = songs as PlaylistSong[];
@@ -875,6 +893,11 @@ export const useMusicStore = defineStore("music", () => {
     if (missingSongName.value && playlist.value.includes(missingSongName.value)) {
       missingSongName.value = null;
     }
+    // 歌单首次加载完成：同步广播可能早于歌单到达而被守卫跳过（playlist 空数组
+    // 会被误判"缺歌"触发 P2P 下载），主动重取 DJ 最新状态对齐
+    if (firstLoad && syncEnabled.value && !isDj.value) {
+      void musicSyncRequestState().catch(() => {});
+    }
   }
 
   function handleSongMissing(payload: MusicSongMissingPayload) {
@@ -891,6 +914,9 @@ export const useMusicStore = defineStore("music", () => {
       const settingsStore = useSettingsStore();
       transferMode.value = settingsStore.settings.syncTransferMode;
       ensureTransferWatch();
+      // 提前加载本地歌单：同步广播可能早于歌单到达，playlist 空数组会被误判
+      // "缺歌"触发 P2P 下载（本地明确有的歌也被误下载）
+      void requestPlaylist();
       // 应用缓存的状态快照（若加入房间时服务器已补发过 sync_state）
       if (lastSyncState) {
         const snap = lastSyncState;
@@ -944,8 +970,15 @@ export const useMusicStore = defineStore("music", () => {
           console.warn("[MusicStore] DJ 切歌，中断旧歌传输:", songTransfer.value.songName, "→", songId);
           abortCurrentTransfer();
         }
+        // 歌单未加载：playlist 为空数组，不能据此判定"缺歌"（本地明确有的歌会被
+        // 误判触发 P2P 下载）。等歌单加载完成后由 handlePlaylist 重取状态/后续广播驱动。
+        if (!playlistLoaded) return;
         // 本地歌单不含该歌 → 触发 P2P 拉取（服务器未支持时降级为"无这首歌"）
-        if (!playlist.value.includes(songId) && !localHasSongs.has(songId)) {
+        // 传输中的歌始终视为"缺失"：歌单刷新可能在传输完成前把该歌加入
+        // localHasSongs（本地其实还没有完整文件），此时不能放弃下载去播放
+        const transferring =
+          songTransfer.value.state !== "idle" && songTransfer.value.songName === songId;
+        if (!playlist.value.includes(songId) && (!localHasSongs.has(songId) || transferring)) {
           pendingSyncPosition = posSec;
           missingSongName.value = songId;
           if (playing.value) void togglePlay();
@@ -1004,8 +1037,15 @@ export const useMusicStore = defineStore("music", () => {
           console.warn("[MusicStore] DJ 切歌，中断旧歌传输:", songTransfer.value.songName, "→", songId);
           abortCurrentTransfer();
         }
+        // 歌单未加载：同 applyMusicState——playlist 空数组不能判定"缺歌"，
+        // 等待歌单加载完成（handlePlaylist 重取状态/后续广播）再处理
+        if (!playlistLoaded) return;
         // 本地缺歌 → 触发 P2P 拉取；传输期间暂存 DJ 进度，合并完成后 seek
-        if (!playlist.value.includes(songId) && !localHasSongs.has(songId)) {
+        // 传输中的歌始终视为"缺失"：歌单刷新可能在传输完成前把该歌加入
+        // localHasSongs（本地其实还没有完整文件），此时不能放弃下载去播放
+        const transferring =
+          songTransfer.value.state !== "idle" && songTransfer.value.songName === songId;
+        if (!playlist.value.includes(songId) && (!localHasSongs.has(songId) || transferring)) {
           pendingSyncPosition = posSec;
           missingSongName.value = songId;
           if (playing.value) void togglePlay();

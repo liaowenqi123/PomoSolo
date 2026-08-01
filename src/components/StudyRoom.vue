@@ -34,6 +34,7 @@ import {
 import { useAuthStore } from "@/stores/auth";
 import { useMusicStore } from "@/stores/music";
 import { musicSyncRequestState } from "@/api/musicSync";
+import { generateRoomName } from "@/utils/roomName";
 
 interface Props {
   /** 是否显示 */
@@ -704,13 +705,23 @@ function shortId(id: string): string {
     <div v-else-if="view === 'create'" class="study-create">
       <div class="form-group">
         <label class="form-label">自习室名称 <span class="required">*</span></label>
-        <input
-          v-model="createForm.name"
-          class="form-input"
-          type="text"
-          maxlength="50"
-          placeholder="例如：深夜学习室"
-        />
+        <div class="name-input-row">
+          <input
+            v-model="createForm.name"
+            class="form-input"
+            type="text"
+            maxlength="50"
+            placeholder="例如：深夜学习室"
+          />
+          <button
+            type="button"
+            class="dice-btn"
+            title="随机生成一个名字（可多次点击）"
+            @click="createForm.name = generateRoomName()"
+          >
+            🎲
+          </button>
+        </div>
       </div>
       <div class="form-group">
         <label class="form-label">自习室描述</label>
@@ -1316,6 +1327,40 @@ function shortId(id: string): string {
 
 .form-input:focus {
   border-color: var(--accent, #e94560);
+}
+
+/* 名称输入 + 🎲 随机按钮同一行 */
+.name-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.name-input-row .form-input {
+  flex: 1;
+}
+
+.dice-btn {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  font-size: 18px;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.2s ease, background 0.2s ease;
+  line-height: 1;
+}
+
+.dice-btn:hover {
+  transform: rotate(15deg) scale(1.05);
+  border-color: var(--accent, #e94560);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.dice-btn:active {
+  transform: rotate(-20deg) scale(0.95);
 }
 
 .form-textarea {

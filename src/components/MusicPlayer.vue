@@ -364,6 +364,9 @@ onMounted(async () => {
   await store.loadCustomTags();
   void store.requestStatus();
   void store.requestDevices();
+  // 提前加载本地歌单：同步广播可能先于歌单到达，playlist 空数组会被误判
+  // "缺歌"触发 P2P 下载（本地明确有的歌也被误下载）
+  void store.requestPlaylist();
   // 注册全局拖拽事件（mouseup/mousemove 需在 document 上监听，避免拖出进度条后失效）
   if (typeof document !== "undefined") {
     document.addEventListener("mousemove", handleProgressMouseMove);
