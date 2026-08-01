@@ -464,6 +464,7 @@ v4.5.8 在 `server-planning/API-implementation.md` 留言的三项服务器需�
 2. **DJ 切歌应能打断 P2P 传输**（DJ 误触/快速切歌时旧歌继续下载完还会被播出来）：**修复**——新增 `abortCurrentTransfer()`；`applySyncState` / `applyMusicState` 的切歌分支（`songId !== trackName`）检测到正在传输的歌不是 DJ 当前歌时立即中断（置 idle + 清续传状态），旧歌残留分片由 Rust finalize 同名覆盖清理。
 3. **自习室容易掉线，心跳够不够频？耗流量吗**：WS 心跳消息仅几十字节，几乎不耗流量。**修复**——心跳与数据刷新分离：`StudyRoom.vue` 新增独立 **5s 心跳定时器**（纯 `studyRoomUpdateStatus` 保活，防代理/NAT 掐断），成员/排名 REST 刷新保持 15s 不变；与 Rust 协议层 10s Ping 双保活。（服务器多连接 bug 已在 4.21 修复，此为防御性加固，需服务器确认心跳阈值兼容，见留言区）
 4. **服务器补充：掉线疑似真根因——多线程并发写 socket 帧交错**（2026-08-01）：服务器校准线程 / 业务线程 / WS 主线程**同时对同一用户 socket 写帧**（无锁），TCP 层数据交错 → 客户端收到半个帧解析失败 → WS 异常断开 → 掉出自习室（"偶尔掉"的特征）。**服务器已修复**：每连接发送锁（send_to_user / broadcast_room / 响应 / ping 全串行化）+ `TCP_NODELAY`；并发压测 15s 177 帧 0 帧交错损坏。客户端侧无需改动（帧解析在 Rust tungstenite 层），心跳 5s + WS 断线自动重连（4.19）继续兜底。
+5. **下载完成后弹到 DJ 位置又往回缩**（v4.5.9 补充）：传输期间 DJ 每 5s 广播 `sync_state`，下载合并完成瞬间这些**迟到的旧广播**（携带传输早期位置）陆续到达 → `seekIfFar` 把刚校准的进度拉回去。**修复（同歌特判，只进不退）**：`handleTransferDone` 合并成功后设 `syncSuppressUntil = Date.now() + 4s` 防回缩窗口；窗口内 `applySyncState` / `applyMusicState` 收到**同歌**广播时，位置 < 当前进度视为迟到旧广播直接忽略，位置 ≥ 当前进度（DJ 前进中 / requestState 触发的实时广播）正常校准；**其他歌不受影响，照常打断传输**。
 
 ---
 

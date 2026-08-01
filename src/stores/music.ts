@@ -158,12 +158,19 @@ export const useMusicStore = defineStore("music", () => {
   const SYNC_SEEK_TOLERANCE_S = 2;
   /** 传输兜底检查定时器：requesting/downloading 超时无进展 → 自动重新下载（最多 N 次） */
   let transferWatchTimer: ReturnType<typeof setInterval> | null = null;
-  /**
-   * 本地已确认存在的歌曲集合（P2P 合并成功 / playSong 成功后加入）。
+  /** 本地已确认存在的歌曲集合（P2P 合并成功 / playSong 成功后加入）。
    * 解决：传输完成后歌单刷新有延迟，期间 DJ 再广播 sync_state 会被误判"缺歌"
    * 而重新触发 P2P（表现为 DJ 暂停时显示"获取歌曲中 2%"，DJ 恢复才切回标题）。
    */
   const localHasSongs = new Set<string>();
+
+  /**
+   * 下载合并完成后的"防回缩"窗口（ms）截止时间戳。
+   * 窗口内（刚下载完某首歌）收到的**同歌** sync_state 只允许向前校准：
+   * 位置 < 当前进度视为"传输期间迟到的旧广播"，直接忽略，避免弹到 DJ 位置又往回缩；
+   * 位置 ≥ 当前进度（DJ 前进中/requestState 触发的实时广播）正常校准。其他歌不受影响。
+   */
+  let syncSuppressUntil = 0;
 
   function ensureTransferWatch() {
     if (transferWatchTimer) return;
@@ -560,6 +567,9 @@ export const useMusicStore = defineStore("music", () => {
         }
         // immediate：合并后立即播放，seek 到 DJ 当前进度（开头缺几秒可接受）
         void playSong(songId);
+        // 防回缩窗口：合并完成瞬间 4s 内忽略"迟到的旧同歌广播"（传输期间 DJ 发的旧位置），
+        // 避免 seek 到 DJ 位置后又被旧广播拉回去（弹跳回缩）
+        syncSuppressUntil = Date.now() + 4_000;
         if (pendingSyncPosition > 0) {
           const target = pendingSyncPosition;
           pendingSyncPosition = 0;
@@ -942,6 +952,8 @@ export const useMusicStore = defineStore("music", () => {
         window.setTimeout(() => seekIfFar(posSec), 800);
       } else {
         if (!playing.value) void togglePlay();
+        // 防回缩窗口：同歌只允许向前校准（防传输期间迟到的旧广播把进度拉回）
+        if (Date.now() < syncSuppressUntil && posSec < currentTime.value) return;
         seekIfFar(posSec);
       }
     } else if (action === "pause") {
@@ -976,6 +988,11 @@ export const useMusicStore = defineStore("music", () => {
     }
 
     if (typeof songId === "string" && songId) {
+      // 防回缩窗口：刚下载完这首歌（合并瞬间 4s 内），同歌广播只允许向前校准——
+      // 位置 < 当前进度视为"传输期间迟到的旧广播"，忽略，避免弹到 DJ 位置又往回缩
+      if (songId === trackName.value && Date.now() < syncSuppressUntil) {
+        if (posSec < currentTime.value) return;
+      }
       // DJ 切歌（本地当前歌曲不同）
       if (songId !== trackName.value) {
         // DJ 切歌：若正在 P2P 传输旧歌，立即中断（避免误触/快速切歌时旧歌继续下载并播出来）
