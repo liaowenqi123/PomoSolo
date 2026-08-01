@@ -532,6 +532,18 @@ npm start
 
 ## 构建与打包
 
+### 发布流程约定（强制）
+
+> 规则：**每次完成代码改动或准备打包/发版前，必须先同步更新文档**，再 commit + push。
+> 文档落后于代码时禁止发版。
+
+- 涉及功能的改动 → 同步更新对应文档：
+  - 接口/协议变化 → `server-planning/API-implementation.md`
+  - 模块架构/流程变化 → `docs/` 下对应架构文档（如 `STUDY_ROOM_ARCHITECTURE.md`）
+  - 自建服务器代码改动 → 在 `server-planning/API-implementation.md` 留言区记录并同步服务器部门
+- 发版顺序：改代码 → 更新文档 → commit（含文档）→ push → 打 tag → 触发 CI 构建/发布
+- 禁止在文档未更新的情况下直接 `npm run build` / `build:installer` / 打 tag
+
 ### 打包为可执行文件
 
 ```bash

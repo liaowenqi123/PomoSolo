@@ -339,3 +339,66 @@ window.electronAPI.studyRoomUpdateStatus(roomId)
 | `src/styles/study-room.css` | 样式文件 |
 | `main.js` | 主进程 IPC 接口 |
 | `preload.js` | 预加载脚本 IPC 桥接 |
+
+---
+
+## 十六、新版架构（Tauri v2 + Vue 3 + 自建服务器，2026-08）
+
+> 当前版本实现（`v4.4.x`）。以上旧章节为 Electron + Supabase 时代的历史参考，以下为新版说明。
+
+### 1. 通信架构
+
+```
+┌────────────────────────────────────────────────┐
+│ 前端 Vue3                                      │
+│  src/components/StudyRoom.vue  (弹窗 UI)       │
+│  src/api/studyRoom.ts         (invoke 封装)    │
+│  src/stores/music.ts          (同步听歌状态)   │
+└───────────────┬────────────────────────────────┘
+                │ Tauri invoke（Rust 命令）
+                ▼
+┌────────────────────────────────────────────────┐
+│ Rust 命令层  src-tauri/src/commands/study_room.rs│
+│  - REST: GET /rooms, GET /rooms/:id,           │
+│          PUT /rooms/:id, DELETE /rooms/:id     │
+│  - WS:   room:create / room:join / room:leave  │
+│          presence:update / room:pomo_done / ping│
+└───────────────┬────────────────────────────────┘
+                │ HTTP + WebSocket
+                ▼
+┌────────────────────────────────────────────────┐
+│ 自建服务器（server-planning/API-implementation.md）│
+│  REST(8080) + WS(/ws) + PostgreSQL(pg-elephant)│
+└────────────────────────────────────────────────┘
+```
+
+### 2. 房间权限模型（v4.4.1 起）
+
+| 能力 | 说明 |
+|------|------|
+| 房主（owner_id） | 唯一创建者；可删除房间、切换公开/私密、设置/清除密码 |
+| 公开房间 | 出现在 `GET /api/v1/rooms` 列表，任何人可加入（无密码） |
+| 私密房间 | 不出现在公开列表，只能通过 ID 加入；可另设密码（ID+密码） |
+| 密码规则 | 设置非空密码 → 自动转私密；设为公开 → 自动清空密码（服务器强制） |
+
+### 3. 核心流程
+
+**创建**：名称 + 描述 + 隐私（公开 / 私密 / 私密+密码）→ `room:create`（WS 请求-响应）
+**加入（ID）**：先 `GET /rooms/:id` 查详情 → 若 `has_password` 则弹出密码输入 → `room:join` 带密码
+**在线成员**：join 后服务器广播 `room:members`；客户端若尚未进入房间视图则暂存到
+`pendingMembers`，进入后应用（修复"在线成员显示为空"）；`presence:update` 推送
+`member_status` 实时更新专注状态
+**房主管理**：公开/私密切换、密码设置 → `PUT /api/v1/rooms/:id`（仅房主 200，否则 403）
+**删除**：`DELETE /api/v1/rooms/:id`（仅房主）
+
+### 4. 同步听歌（v4.4.0 起）
+
+- 音频本地播放，服务器仅转发控制动作 + `timestamp_server` 时间戳
+- DJ 模式：`music:request_dj` → `music:dj_changed`（比对 `dj_user_id` 与当前用户判断身份）
+- 听众端：收到 `music:state` 后 `position = position_ms + (Date.now() - timestamp_server)` 校准跟播
+- 事件统一由 `MusicPlayer.vue` 监听 `ws-event` 转发到 `music.ts` 的 `handleSyncWsEvent`
+
+### 5. 已知待办（服务器侧）
+
+- 僵尸房间：公开列表会永久保留 DB 中的空房间，需服务器定时清理（11 分钟超时下线机制）
+- 服务器每 30s 补发一次 `room:members` 作为成员状态校准
