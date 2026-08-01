@@ -210,8 +210,26 @@ Response 403: { "error": "无权删除" }
 ```json
 // Response 200
 { "id": "uuid", "name": "...", "owner_id": "uuid", "max_members": 50,
-  "is_public": true, "description": "...", "created_at": "..." }
+  "is_public": true, "description": "...", "created_at": "...",
+  "has_password": false }
 ```
+> `has_password`: 房间是否设置了加入密码（客户端据此决定是否弹出密码输入框）。
+
+#### PUT /api/v1/rooms/:id
+更新房间（**仅房主**，客户端"公开/私密切换 + 修改名称/描述/密码"）。
+```json
+Headers: Authorization: Bearer <access_token>
+// Request（可只带需要修改的字段）
+{ "is_public": false, "password": "8888" }
+// 或 { "is_public": true }  /  { "name": "新名称" }  /  { "description": "..." }
+
+// Response 200
+{ "ok": true }
+
+// Response 403: { "error": "无权修改" }
+// Response 404: { "error": "房间不存在" }
+```
+> 规则：设置非空 `password` 时房间自动转为私密（`is_public=false`）；设置 `is_public=true` 时自动清空密码。
 
 #### DELETE /api/v1/rooms/:id
 删除房间（仅房主）。

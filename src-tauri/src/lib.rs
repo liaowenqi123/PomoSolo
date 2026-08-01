@@ -87,6 +87,7 @@ pub fn run() {
             commands::study_room::study_room_get_active,
             commands::study_room::study_room_get_detail,
             commands::study_room::study_room_delete,
+            commands::study_room::study_room_update,
             commands::study_room::study_room_create,
             commands::study_room::study_room_join,
             commands::study_room::study_room_leave,

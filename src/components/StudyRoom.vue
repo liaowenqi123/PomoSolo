@@ -25,6 +25,7 @@ import {
   studyRoomGetMembers,
   studyRoomGetDetail,
   studyRoomDelete,
+  studyRoomUpdate,
   type StudyRoom,
   type StudyRoomMember,
   type StudyRoomRankingEntry,
@@ -79,10 +80,18 @@ const REFRESH_INTERVAL_MS = 30_000;
 const createForm = ref({
   name: "",
   description: "",
+  /** 隐私：public 公开 / private 私密（仅 ID 或 ID+密码加入） */
+  privacy: "public",
+  /** 私密房间可选密码（设置密码后只能通过 ID+密码加入） */
+  password: "",
 });
 
 // ===== 加入表单 =====
 const joinIdInput = ref("");
+/** 加入时输入的密码（私密房间需要） */
+const joinPwInput = ref("");
+/** 是否显示密码输入框（查询到房间需要密码时自动展开） */
+const joinPwMode = ref(false);
 const publicRooms = ref<StudyRoom[]>([]);
 
 onUnmounted(() => {
@@ -244,7 +253,7 @@ async function refreshRoomData(): Promise<void> {
     console.warn("[StudyRoom] refreshRoomData failed:", err);
   }
 
-  // 拉取房间详情（名称/描述/房主），仅首次进入时
+  // 拉取房间详情（名称/描述/房主/隐私），仅首次进入时
   if (!detailLoaded) {
     detailLoaded = true;
     try {
@@ -254,6 +263,8 @@ async function refreshRoomData(): Promise<void> {
         name: detail.name || currentRoom.value.name,
         description: detail.description ?? currentRoom.value.description,
         ownerId: detail.ownerId,
+        isPublic: detail.isPublic ?? currentRoom.value.isPublic,
+        hasPassword: detail.hasPassword ?? currentRoom.value.hasPassword,
       };
       isOwner.value = !!detail.ownerId && detail.ownerId === authStore.session?.id;
     } catch (err) {
@@ -278,7 +289,7 @@ function stopRefresh(): void {
 
 /** 切换到创建视图 */
 function goCreate(): void {
-  createForm.value = { name: "", description: "" };
+  createForm.value = { name: "", description: "", privacy: "public", password: "" };
   view.value = "create";
 }
 
@@ -311,8 +322,14 @@ async function handleCreate(): Promise<void> {
   }
   loading.value = true;
   try {
-    const room = await studyRoomCreate(name, createForm.value.description.trim());
-    showToast("创建成功");
+    const isPrivate = createForm.value.privacy === "private";
+    const password = isPrivate ? createForm.value.password.trim() : "";
+    const room = await studyRoomCreate(
+      name,
+      createForm.value.description.trim(),
+      password,
+    );
+    showToast(isPrivate ? "创建成功（私密）" : "创建成功（公开）");
     await enterRoom(room);
   } catch (err) {
     console.warn("[StudyRoom] create failed:", err);
@@ -331,14 +348,39 @@ async function handleJoinById(): Promise<void> {
   }
   loading.value = true;
   try {
-    await studyRoomJoin(id);
+    // 先查详情判断房间是否需要密码，并拿到名称/隐私信息
+    let detail: StudyRoom | null = null;
+    try {
+      detail = await studyRoomGetDetail(id);
+    } catch {
+      /* 详情查询失败不阻塞加入流程 */
+    }
+    if (detail?.hasPassword === true && !joinPwMode.value) {
+      joinPwMode.value = true;
+      loading.value = false;
+      showToast("该房间需要密码，请输入后加入");
+      return;
+    }
+    await studyRoomJoin(id, joinPwInput.value.trim());
     // 后端目前不返回 room 信息，前端构造最小信息
-    const room: StudyRoom = { id, name: `自习室 ${id.slice(0, 8)}` };
+    const room: StudyRoom = {
+      id,
+      name: detail?.name || `自习室 ${id.slice(0, 8)}`,
+      description: detail?.description,
+      isPublic: detail?.isPublic,
+      hasPassword: detail?.hasPassword,
+    };
     showToast("加入成功");
+    joinPwMode.value = false;
+    joinPwInput.value = "";
     await enterRoom(room);
   } catch (err) {
     console.warn("[StudyRoom] join by id failed:", err);
-    showToast("加入失败：" + (err instanceof Error ? err.message : String(err)));
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("密码")) {
+      joinPwMode.value = true;
+    }
+    showToast("加入失败：" + msg);
   } finally {
     loading.value = false;
   }
@@ -409,6 +451,51 @@ async function handleDelete(): Promise<void> {
   }
 }
 
+// ===== 房主管理：公开/私密切换 + 密码设置 =====
+
+/** 公开/私密切换（仅房主，调用服务器 PUT /api/v1/rooms/:id） */
+async function handleTogglePublic(): Promise<void> {
+  if (!currentRoom.value || !isOwner.value) return;
+  const target = !(currentRoom.value.isPublic ?? true);
+  loading.value = true;
+  try {
+    await studyRoomUpdate(currentRoom.value.id, { isPublic: target });
+    currentRoom.value.isPublic = target;
+    currentRoom.value.hasPassword = target ? false : currentRoom.value.hasPassword;
+    showToast(target ? "已设为公开房间，所有人可加入" : "已设为私密房间，只能通过 ID 加入");
+  } catch (err) {
+    console.warn("[StudyRoom] toggle public failed:", err);
+    showToast("切换失败：" + (err instanceof Error ? err.message : String(err)));
+  } finally {
+    loading.value = false;
+  }
+}
+
+/** 设置/清除房间密码（仅房主；设密码后自动转为私密） */
+async function handleSetPassword(): Promise<void> {
+  if (!currentRoom.value || !isOwner.value) return;
+  const pw = setPwInput.value.trim();
+  loading.value = true;
+  try {
+    await studyRoomUpdate(currentRoom.value.id, { password: pw });
+    currentRoom.value.hasPassword = !!pw;
+    if (pw) currentRoom.value.isPublic = false;
+    showToast(pw ? "已设置加入密码（房间转为私密）" : "已清除加入密码");
+    setPwMode.value = false;
+    setPwInput.value = "";
+  } catch (err) {
+    console.warn("[StudyRoom] set password failed:", err);
+    showToast("设置失败：" + (err instanceof Error ? err.message : String(err)));
+  } finally {
+    loading.value = false;
+  }
+}
+
+/** 是否显示密码设置输入（房主管理） */
+const setPwMode = ref(false);
+/** 密码设置输入值 */
+const setPwInput = ref("");
+
 // ===== 同步听歌（房间内） =====
 
 /** 切换同步听歌开关 */
@@ -453,6 +540,20 @@ function shortId(id: string): string {
 
     <!-- 主视图 -->
     <div v-if="view === 'main'" class="study-main">
+      <!-- 顶部介绍区 -->
+      <div class="study-hero">
+        <div class="study-hero-icon">📚</div>
+        <div class="study-hero-title">一起自习，效率翻倍</div>
+        <div class="study-hero-desc">
+          创建自己的自习室邀请好友，或加入别人的房间共同专注。房间里能实时看到大家的专注状态与今日排名，还能同步听歌一起学习。
+        </div>
+        <div class="study-hero-features">
+          <span>👥 在线成员</span>
+          <span>📊 今日排名</span>
+          <span>🎵 同步听歌</span>
+        </div>
+      </div>
+
       <!-- 当前房间卡片 -->
       <div v-if="currentRoom" class="current-room-card">
         <div class="current-room-icon">🏠</div>
@@ -505,6 +606,45 @@ function shortId(id: string): string {
           placeholder="例如：一起加油！（可选）"
         ></textarea>
       </div>
+      <div class="form-group">
+        <label class="form-label">隐私设置</label>
+        <div class="privacy-options">
+          <button
+            type="button"
+            class="privacy-option"
+            :class="{ active: createForm.privacy === 'public' }"
+            @click="createForm.privacy = 'public'"
+          >
+            <span class="privacy-option-icon">🌐</span>
+            <span class="privacy-option-text">
+              <span class="privacy-option-title">公开</span>
+              <span class="privacy-option-desc">所有人可以浏览并加入</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            class="privacy-option"
+            :class="{ active: createForm.privacy === 'private' }"
+            @click="createForm.privacy = 'private'"
+          >
+            <span class="privacy-option-icon">🔒</span>
+            <span class="privacy-option-text">
+              <span class="privacy-option-title">私密</span>
+              <span class="privacy-option-desc">只能通过 ID 加入</span>
+            </span>
+          </button>
+        </div>
+      </div>
+      <div v-if="createForm.privacy === 'private'" class="form-group">
+        <label class="form-label">加入密码（可选，设置后需输入密码才能进入）</label>
+        <input
+          v-model="createForm.password"
+          class="form-input"
+          type="password"
+          maxlength="20"
+          placeholder="留空则仅凭 ID 加入"
+        />
+      </div>
       <div class="form-actions">
         <button class="btn btn-secondary" @click="backToMain">取消</button>
         <button
@@ -535,6 +675,18 @@ function shortId(id: string): string {
           >
             加入
           </button>
+        </div>
+        <div v-if="joinPwMode" class="form-group join-pw-group">
+          <label class="form-label">该房间需要密码</label>
+          <div class="input-with-btn">
+            <input
+              v-model="joinPwInput"
+              class="form-input"
+              type="password"
+              maxlength="20"
+              placeholder="输入加入密码"
+            />
+          </div>
         </div>
       </div>
 
@@ -595,7 +747,16 @@ function shortId(id: string): string {
     <div v-else-if="view === 'room'" class="study-room">
       <div v-if="currentRoom" class="room-header">
         <div>
-          <div class="room-header-name">{{ currentRoom.name }}</div>
+          <div class="room-header-top">
+            <span class="room-header-name">{{ currentRoom.name }}</span>
+            <span
+              class="room-tag"
+              :class="currentRoom.isPublic !== false ? 'tag-public' : 'tag-private'"
+            >
+              {{ currentRoom.isPublic !== false ? "🌐 公开" : "🔒 私密" }}
+            </span>
+            <span v-if="currentRoom.hasPassword" class="room-tag tag-private">🔑 有密码</span>
+          </div>
           <div class="room-header-id">ID: {{ currentRoom.id }}</div>
         </div>
         <div class="room-header-actions">
@@ -620,6 +781,50 @@ function shortId(id: string): string {
 
       <div v-if="currentRoom?.description" class="room-desc">
         {{ currentRoom.description }}
+      </div>
+
+      <!-- 房主管理 -->
+      <div v-if="isOwner" class="owner-panel">
+        <div class="owner-panel-title">🏠 房主管理</div>
+        <div class="owner-panel-row">
+          <span class="owner-panel-label">
+            {{ currentRoom?.isPublic !== false ? "当前为公开房间" : "当前为私密房间" }}
+          </span>
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="loading"
+            @click="handleTogglePublic"
+          >
+            {{ currentRoom?.isPublic !== false ? "设为私密" : "设为公开" }}
+          </button>
+        </div>
+        <div class="owner-panel-row">
+          <span class="owner-panel-label">
+            {{ currentRoom?.hasPassword ? "已设置加入密码" : "未设置加入密码" }}
+          </span>
+          <button
+            class="btn btn-secondary btn-sm"
+            :disabled="loading"
+            @click="setPwMode = !setPwMode"
+          >
+            {{ currentRoom?.hasPassword ? "修改/清除密码" : "设置密码" }}
+          </button>
+        </div>
+        <div v-if="setPwMode" class="owner-panel-pw">
+          <div class="input-with-btn">
+            <input
+              v-model="setPwInput"
+              class="form-input"
+              type="password"
+              maxlength="20"
+              placeholder="输入新密码（留空清除密码）"
+            />
+            <button class="btn btn-primary btn-sm" :disabled="loading" @click="handleSetPassword">
+              保存
+            </button>
+          </div>
+          <p class="owner-panel-hint">设置密码后房间自动转为私密，成员需输入密码才能加入</p>
+        </div>
       </div>
 
       <div class="room-section">
@@ -713,6 +918,50 @@ function shortId(id: string): string {
   gap: 16px;
 }
 
+/* ============ 顶部介绍区 ============ */
+.study-hero {
+  padding: 20px 18px;
+  border-radius: 14px;
+  text-align: center;
+  background: linear-gradient(135deg, rgba(233, 69, 96, 0.22), rgba(78, 204, 163, 0.14));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.study-hero-icon {
+  font-size: 30px;
+  margin-bottom: 8px;
+}
+
+.study-hero-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 8px;
+}
+
+.study-hero-desc {
+  font-size: 12px;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, 0.65);
+  margin-bottom: 12px;
+}
+
+.study-hero-features {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.study-hero-features span {
+  font-size: 11px;
+  padding: 3px 12px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+  white-space: nowrap;
+}
+
 .current-room-card {
   display: flex;
   align-items: center;
@@ -765,8 +1014,7 @@ function shortId(id: string): string {
 .main-actions .action-card:hover {
   background: rgba(255, 255, 255, 0.1);
   border-color: var(--accent, #e94560);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
 }
 
 .action-card__icon {
@@ -797,6 +1045,105 @@ function shortId(id: string): string {
   flex-direction: column;
   gap: 6px;
   margin-bottom: 12px;
+}
+
+/* ============ 隐私选择 ============ */
+.privacy-options {
+  display: flex;
+  gap: 10px;
+}
+
+.privacy-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.privacy-option.active {
+  border-color: var(--accent, #e94560);
+  background: rgba(233, 69, 96, 0.12);
+  box-shadow: 0 0 0 1px var(--accent, #e94560);
+}
+
+.privacy-option-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.privacy-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.privacy-option-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.privacy-option-desc {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.join-pw-group {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 200, 100, 0.08);
+  border: 1px solid rgba(255, 200, 100, 0.2);
+}
+
+/* ============ 房主管理 ============ */
+.owner-panel {
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px solid rgba(233, 69, 96, 0.25);
+  border-radius: 10px;
+  background: rgba(233, 69, 96, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.owner-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #ff7a8f;
+}
+
+.owner-panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.owner-panel-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.owner-panel-pw {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.owner-panel-hint {
+  margin: 0;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.45);
 }
 
 .form-label {
@@ -984,8 +1331,6 @@ function shortId(id: string): string {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 240px;
-  overflow-y: auto;
 }
 
 .room-list-item {
@@ -1064,6 +1409,13 @@ function shortId(id: string): string {
   font-size: 16px;
   font-weight: 600;
   color: #fff;
+}
+
+.room-header-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .room-header-id {

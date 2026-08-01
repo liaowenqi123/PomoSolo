@@ -14,6 +14,7 @@ import {
   studyRoomGetMembers,
   studyRoomUploadStats,
   studyRoomUpdateStatus,
+  studyRoomUpdate,
 } from "../studyRoom";
 
 describe("api/studyRoom", () => {
@@ -39,23 +40,55 @@ describe("api/studyRoom", () => {
     });
   });
 
-  it("studyRoomCreate 应调用 invoke('study_room_create', { name, description }) 并返回 room", async () => {
+  it("studyRoomCreate 应调用 invoke('study_room_create', { name, description, password }) 并返回 room", async () => {
     const room = { id: "xyz", name: "自习室" };
     invokeMock.mockResolvedValue(room);
     const result = await studyRoomCreate("自习室", "一起学习");
     expect(invokeMock).toHaveBeenCalledWith("study_room_create", {
       name: "自习室",
       description: "一起学习",
+      password: "",
     });
     expect(result).toEqual(room);
   });
 
-  it("studyRoomJoin 应调用 invoke('study_room_join', { roomId })", async () => {
+  it("studyRoomCreate 带密码创建私密房间", async () => {
+    invokeMock.mockResolvedValue({ id: "xyz", name: "私密" });
+    await studyRoomCreate("私密", "", "8888");
+    expect(invokeMock).toHaveBeenCalledWith("study_room_create", {
+      name: "私密",
+      description: "",
+      password: "8888",
+    });
+  });
+
+  it("studyRoomJoin 应调用 invoke('study_room_join', { roomId, password })", async () => {
     invokeMock.mockResolvedValue(undefined);
     await studyRoomJoin("room-id-123");
     expect(invokeMock).toHaveBeenCalledWith("study_room_join", {
       roomId: "room-id-123",
+      password: "",
     });
+  });
+
+  it("studyRoomJoin 带密码加入私密房间", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await studyRoomJoin("room-id-123", "8888");
+    expect(invokeMock).toHaveBeenCalledWith("study_room_join", {
+      roomId: "room-id-123",
+      password: "8888",
+    });
+  });
+
+  it("studyRoomUpdate 应调用 invoke('study_room_update', { roomId, ...payload })", async () => {
+    invokeMock.mockResolvedValue(true);
+    const result = await studyRoomUpdate("room-id", { isPublic: false, password: "1234" });
+    expect(invokeMock).toHaveBeenCalledWith("study_room_update", {
+      roomId: "room-id",
+      isPublic: false,
+      password: "1234",
+    });
+    expect(result).toBe(true);
   });
 
   it("studyRoomLeave 应调用 invoke('study_room_leave', { roomId })", async () => {
@@ -96,6 +129,7 @@ describe("api/studyRoom", () => {
     await expect(studyRoomGetMembers("id")).rejects.toThrow("backend error");
     await expect(studyRoomUploadStats("id", 1, 1)).rejects.toThrow("backend error");
     await expect(studyRoomUpdateStatus("id")).rejects.toThrow("backend error");
+    await expect(studyRoomUpdate("id", { isPublic: true })).rejects.toThrow("backend error");
   });
 
   it("studyRoomUploadStats 应调用 invoke('study_room_upload_stats', { roomId, todayMinutes, todayCount })", async () => {
@@ -131,6 +165,7 @@ describe("api/studyRoom", () => {
     invokeMock.mockResolvedValue(true);
     await studyRoomUploadStats("id", 1, 1);
     await studyRoomUpdateStatus("id");
+    await studyRoomUpdate("id", { isPublic: true });
     const names = invokeMock.mock.calls.map((c) => c[0]);
     expect(names).toEqual([
       "study_room_get_active",
@@ -141,6 +176,7 @@ describe("api/studyRoom", () => {
       "study_room_get_members",
       "study_room_upload_stats",
       "study_room_update_status",
+      "study_room_update",
     ]);
   });
 });

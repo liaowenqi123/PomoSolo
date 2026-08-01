@@ -33,6 +33,8 @@ export interface StudyRoom {
   memberCount?: number;
   /** 是否公开 */
   isPublic?: boolean;
+  /** 是否设置了加入密码（私密房间判断是否需要密码） */
+  hasPassword?: boolean;
 }
 
 /** 自习室成员 */
@@ -75,21 +77,24 @@ export function studyRoomGetActive(publicOnly = true): Promise<StudyRoom[]> {
 
 /**
  * 创建自习室。
- * 后端：`study_room_create(name: String, description: String) -> Result<StudyRoom, String>`
+ * 后端：`study_room_create(name, description, password) -> Result<StudyRoom, String>`
+ * 通过 WebSocket room:create 发送；password 非空时为私密房间。
  */
 export function studyRoomCreate(
   name: string,
   description: string,
+  password = "",
 ): Promise<StudyRoom> {
-  return invoke<StudyRoom>("study_room_create", { name, description });
+  return invoke<StudyRoom>("study_room_create", { name, description, password });
 }
 
 /**
  * 加入自习室。
- * 后端：`study_room_join(room_id: String) -> Result<(), String>`
+ * 后端：`study_room_join(room_id, password) -> Result<(), String>`
+ * 私密房间需传入密码，密码错误返回"房间密码错误"。
  */
-export function studyRoomJoin(roomId: string): Promise<void> {
-  return invoke<void>("study_room_join", { roomId });
+export function studyRoomJoin(roomId: string, password = ""): Promise<void> {
+  return invoke<void>("study_room_join", { roomId, password });
 }
 
 /**
@@ -114,6 +119,29 @@ export function studyRoomGetDetail(roomId: string): Promise<StudyRoom> {
  */
 export function studyRoomDelete(roomId: string): Promise<boolean> {
   return invoke<boolean>("study_room_delete", { roomId });
+}
+
+/** 房间更新字段（可只传需要修改的项） */
+export interface StudyRoomUpdatePayload {
+  /** 是否公开（公开会自动清空密码） */
+  isPublic?: boolean;
+  /** 新名称 */
+  name?: string;
+  /** 新描述 */
+  description?: string;
+  /** 加入密码（非空设置密码时自动转为私密；传空字符串清空密码） */
+  password?: string;
+}
+
+/**
+ * 更新自习室（仅房主）：公开/私密切换、名称、描述、密码。
+ * 后端：`study_room_update(room_id, is_public, name, description, password) -> Result<bool, String>`
+ */
+export function studyRoomUpdate(
+  roomId: string,
+  payload: StudyRoomUpdatePayload,
+): Promise<boolean> {
+  return invoke<boolean>("study_room_update", { roomId, ...payload });
 }
 
 /**

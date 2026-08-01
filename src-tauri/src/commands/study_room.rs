@@ -33,6 +33,9 @@ pub struct StudyRoom {
     pub member_count: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_public: Option<bool>,
+    /// 房间是否设置了加入密码
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_password: Option<bool>,
 }
 
 /// 自习室成员
@@ -95,6 +98,7 @@ pub fn parse_room_value(row: &Value) -> StudyRoom {
         creator_name: None,
         member_count: None,
         is_public: row.get("is_public").and_then(|v| v.as_bool()),
+        has_password: row.get("has_password").and_then(|v| v.as_bool()),
     }
 }
 
@@ -147,13 +151,14 @@ pub async fn study_room_get_active(
     Ok(rooms)
 }
 
-/// 创建自习室（WebSocket room:create）
+/// 创建自习室（WebSocket room:create，password 非空则为私密房间）
 #[tauri::command]
 pub async fn study_room_create(
     app: AppHandle,
     state: State<'_, AppState>,
     name: String,
     description: String,
+    password: String,
 ) -> Result<StudyRoom, String> {
     let name = name.trim();
     if name.is_empty() {
@@ -169,7 +174,7 @@ pub async fn study_room_create(
     let params = serde_json::json!({
         "name": name,
         "max_members": 50,
-        "password": "",
+        "password": password,
         "description": description,
     });
     let resp = ws::request(&app, &state.ws, &token, "room:create", params).await?;
@@ -184,20 +189,22 @@ pub async fn study_room_create(
     let mut room = parse_room_value(&room_val);
     room.creator_name = Some(session.username);
     room.member_count = Some(1);
+    room.has_password = Some(!password.is_empty());
     Ok(room)
 }
 
-/// 加入自习室（WebSocket room:join）
+/// 加入自习室（WebSocket room:join，私密房间需传 password）
 #[tauri::command]
 pub async fn study_room_join(
     app: AppHandle,
     state: State<'_, AppState>,
     room_id: String,
+    password: String,
 ) -> Result<(), String> {
     let _session = require_session(&state)?;
     let token = require_token(&state).await?;
 
-    let params = serde_json::json!({ "room_id": room_id, "password": "" });
+    let params = serde_json::json!({ "room_id": room_id, "password": password });
     let resp = ws::request(&app, &state.ws, &token, "room:join", params).await?;
 
     if resp.get("type").and_then(|v| v.as_str()) == Some("error") {
@@ -263,6 +270,53 @@ pub async fn study_room_delete(
             .ok()
             .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(|s| s.to_string()))
             .unwrap_or_else(|| format!("删除自习室失败 (HTTP {})", status));
+        Err(err)
+    }
+}
+
+/// 更新自习室（REST PUT /api/v1/rooms/:id，仅房主）：公开/私密切换、名称、描述、密码
+#[tauri::command]
+pub async fn study_room_update(
+    state: State<'_, AppState>,
+    room_id: String,
+    is_public: Option<bool>,
+    name: Option<String>,
+    description: Option<String>,
+    password: Option<String>,
+) -> Result<bool, String> {
+    let token = require_token(&state).await?;
+
+    let mut body = serde_json::Map::new();
+    if let Some(v) = is_public {
+        body.insert("is_public".to_string(), serde_json::json!(v));
+    }
+    if let Some(v) = name {
+        body.insert("name".to_string(), serde_json::json!(v));
+    }
+    if let Some(v) = description {
+        body.insert("description".to_string(), serde_json::json!(v));
+    }
+    if let Some(v) = password {
+        body.insert("password".to_string(), serde_json::json!(v));
+    }
+    if body.is_empty() {
+        return Err("没有需要更新的字段".to_string());
+    }
+
+    let path = format!("/api/v1/rooms/{}", room_id);
+    let (status, resp_body) =
+        match server_api::put(&path, &serde_json::Value::Object(body), Some(&token)).await {
+            Ok(r) => r,
+            Err(e) => return Err(format!("更新自习室失败: {}", e)),
+        };
+
+    if status == 200 {
+        Ok(true)
+    } else {
+        let err = server_api::parse_json(&resp_body)
+            .ok()
+            .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(|s| s.to_string()))
+            .unwrap_or_else(|| format!("更新自习室失败 (HTTP {})", status));
         Err(err)
     }
 }
@@ -375,7 +429,8 @@ mod tests {
             "name": "专注自习室",
             "description": "一起学习",
             "owner_id": "u-42",
-            "is_public": true
+            "is_public": true,
+            "has_password": false
         });
         let room = parse_room_value(&row);
         assert_eq!(room.id, "abc-123");
@@ -383,6 +438,7 @@ mod tests {
         assert_eq!(room.description.as_deref(), Some("一起学习"));
         assert_eq!(room.owner_id.as_deref(), Some("u-42"));
         assert_eq!(room.is_public, Some(true));
+        assert_eq!(room.has_password, Some(false));
         assert!(room.creator_name.is_none());
         assert!(room.member_count.is_none());
     }
@@ -395,6 +451,7 @@ mod tests {
         assert_eq!(room.name, "minimal");
         assert!(room.description.is_none());
         assert!(room.is_public.is_none());
+        assert!(room.has_password.is_none());
     }
 
     #[test]
@@ -438,11 +495,13 @@ mod tests {
             creator_name: Some("alice".to_string()),
             member_count: Some(3),
             is_public: Some(true),
+            has_password: Some(false),
         };
         let json = serde_json::to_string(&room).expect("序列化应成功");
         assert!(json.contains("\"creatorName\""));
         assert!(json.contains("\"memberCount\""));
         assert!(json.contains("\"isPublic\""));
+        assert!(json.contains("\"hasPassword\""));
         assert!(json.contains("\"ownerId\""));
         assert!(!json.contains("creator_name"));
         assert!(!json.contains("member_count"));

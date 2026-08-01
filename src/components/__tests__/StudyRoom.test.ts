@@ -11,6 +11,7 @@ const studyRoomApi = vi.hoisted(() => ({
   studyRoomGetMembers: vi.fn(),
   studyRoomGetDetail: vi.fn(),
   studyRoomDelete: vi.fn(),
+  studyRoomUpdate: vi.fn(),
 }));
 vi.mock("@/api/studyRoom", () => studyRoomApi);
 
@@ -69,6 +70,7 @@ describe("StudyRoom.vue", () => {
       ownerId: "",
     });
     studyRoomApi.studyRoomDelete.mockResolvedValue(true);
+    studyRoomApi.studyRoomUpdate.mockResolvedValue(true);
     // 复位同步听歌 mock 状态
     musicMock.setSyncEnabled.mockReset();
     musicMock.requestDj.mockReset();
@@ -174,7 +176,7 @@ describe("StudyRoom.vue", () => {
     await wrapper.find(".study-create textarea.form-textarea").setValue("一起学");
     await wrapper.find(".study-create .btn-primary").trigger("click");
     await flushPromises();
-    expect(studyRoomApi.studyRoomCreate).toHaveBeenCalledWith("我的自习室", "一起学");
+    expect(studyRoomApi.studyRoomCreate).toHaveBeenCalledWith("我的自习室", "一起学", "");
     expect(studyRoomApi.studyRoomGetMembers).toHaveBeenCalled();
     expect(studyRoomApi.studyRoomGetRanking).toHaveBeenCalled();
     expect(wrapper.find(".study-room").exists()).toBe(true);
@@ -188,7 +190,7 @@ describe("StudyRoom.vue", () => {
     await wrapper.find(".study-join .input-with-btn input.form-input").setValue("room-id-xyz");
     await wrapper.find(".study-join .input-with-btn .btn-primary").trigger("click");
     await flushPromises();
-    expect(studyRoomApi.studyRoomJoin).toHaveBeenCalledWith("room-id-xyz");
+    expect(studyRoomApi.studyRoomJoin).toHaveBeenCalledWith("room-id-xyz", "");
     expect(wrapper.find(".study-room").exists()).toBe(true);
   });
 
@@ -496,6 +498,118 @@ describe("StudyRoom.vue", () => {
     expect(wrapper.text()).toContain("bob");
     await wrapper.find(".sync-dj-btn").trigger("click");
     expect(musicMock.requestDj).toHaveBeenCalledTimes(1);
+  });
+
+  it("创建私密房间：选私密并填密码后带密码创建", async () => {
+    const wrapper = mountComponent(true);
+    await clickCreateCard(wrapper);
+    await wrapper.find(".study-create input.form-input").setValue("秘密自习室");
+    // 默认公开；切到私密后出现密码输入框
+    expect(wrapper.find(".privacy-option").exists()).toBe(true);
+    await wrapper.findAll(".privacy-option")[1].trigger("click");
+    await wrapper.find(".study-create input[type=password]").setValue("8888");
+    await wrapper.find(".study-create .btn-primary").trigger("click");
+    await flushPromises();
+    expect(studyRoomApi.studyRoomCreate).toHaveBeenCalledWith("秘密自习室", "", "8888");
+    expect(wrapper.find(".study-room").exists()).toBe(true);
+  });
+
+  it("通过 ID 加入需要密码的房间：先提示密码输入，再带密码加入", async () => {
+    studyRoomApi.studyRoomGetDetail.mockResolvedValue({
+      id: "secret-room",
+      name: "秘密自习室",
+      hasPassword: true,
+      isPublic: false,
+    });
+    const wrapper = mountComponent(true);
+    await clickJoinCard(wrapper);
+    await flushPromises();
+    await wrapper
+      .find(".study-join .input-with-btn input.form-input")
+      .setValue("secret-room");
+    await wrapper.find(".study-join .input-with-btn .btn-primary").trigger("click");
+    await flushPromises();
+    // 第一次：需要密码，未直接加入
+    expect(studyRoomApi.studyRoomJoin).not.toHaveBeenCalled();
+    expect(wrapper.find(".join-pw-group").exists()).toBe(true);
+    // 输入密码后加入
+    await wrapper.find(".join-pw-group input[type=password]").setValue("8888");
+    await wrapper.find(".study-join .input-with-btn .btn-primary").trigger("click");
+    await flushPromises();
+    expect(studyRoomApi.studyRoomJoin).toHaveBeenCalledWith("secret-room", "8888");
+    expect(wrapper.find(".study-room").exists()).toBe(true);
+  });
+
+  it("房主可切换公开/私密并调用 studyRoomUpdate", async () => {
+    studyRoomApi.studyRoomGetDetail.mockResolvedValue({
+      id: "abcdefgh",
+      name: "R",
+      ownerId: "me-1",
+      isPublic: true,
+      hasPassword: false,
+    });
+    const wrapper = mountComponent(true);
+    await enterRoom(wrapper);
+    expect(wrapper.find(".owner-panel").exists()).toBe(true);
+    // 当前公开 → 点击切换为私密
+    await wrapper.find(".owner-panel-row .btn-secondary").trigger("click");
+    await flushPromises();
+    expect(studyRoomApi.studyRoomUpdate).toHaveBeenCalledWith("abcdefgh", {
+      isPublic: false,
+    });
+  });
+
+  it("房主可设置加入密码", async () => {
+    studyRoomApi.studyRoomGetDetail.mockResolvedValue({
+      id: "abcdefgh",
+      name: "R",
+      ownerId: "me-1",
+      isPublic: true,
+      hasPassword: false,
+    });
+    const wrapper = mountComponent(true);
+    await enterRoom(wrapper);
+    // 打开密码设置输入
+    const pwBtn = wrapper.findAll(".owner-panel-row .btn-secondary");
+    await pwBtn[1].trigger("click");
+    await wrapper.find(".owner-panel-pw input[type=password]").setValue("1234");
+    await wrapper.find(".owner-panel-pw .btn-primary").trigger("click");
+    await flushPromises();
+    expect(studyRoomApi.studyRoomUpdate).toHaveBeenCalledWith("abcdefgh", {
+      password: "1234",
+    });
+  });
+
+  it("非房主不显示房主管理面板", async () => {
+    studyRoomApi.studyRoomGetDetail.mockResolvedValue({
+      id: "abcdefgh",
+      name: "R",
+      ownerId: "other-1",
+      isPublic: true,
+    });
+    const wrapper = mountComponent(true);
+    await enterRoom(wrapper);
+    expect(wrapper.find(".owner-panel").exists()).toBe(false);
+  });
+
+  it("主视图顶部显示自习室介绍区", () => {
+    const wrapper = mountComponent(true);
+    expect(wrapper.find(".study-hero").exists()).toBe(true);
+    expect(wrapper.text()).toContain("一起自习，效率翻倍");
+  });
+
+  it("加入视图公开房间列表无独立滚动条（room-list 不设 max-height）", async () => {
+    studyRoomApi.studyRoomGetActive.mockResolvedValue([
+      { id: "abc", name: "R1", isPublic: true },
+      { id: "def", name: "R2", isPublic: true },
+    ]);
+    const wrapper = mountComponent(true);
+    await clickJoinCard(wrapper);
+    await flushPromises();
+    const list = wrapper.find(".room-list");
+    expect(list.exists()).toBe(true);
+    expect(list.attributes("style") || "").not.toContain("max-height");
+    expect(list.findAll(".room-list-item")).toHaveLength(2);
   });
 
   it("组件卸载时取消 ws-event 监听", async () => {
