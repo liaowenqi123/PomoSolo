@@ -59,11 +59,13 @@ jobs:
     needs: test
     # 本地自建 runner（d:\actions-runner，更快且不排队）；test/release 仍走托管 runner
     runs-on: [self-hosted, windows, x64]
-    # 自建 runner 专用：工具链与缓存全部放 D 盘，避免占 C 盘
+    # 自建 runner 专用：工具链与缓存全部放 D 盘，避免占 C 盘；
+    # CARGO_TARGET_DIR 固定本地 → target 天然增量缓存，不再走 GitHub 缓存服务（免上传/下载）
     env:
       CARGO_HOME: D:\pomosolo-cache\cargo
       RUSTUP_HOME: D:\pomosolo-cache\rustup
       NPM_CONFIG_CACHE: D:\pomosolo-cache\npm
+      CARGO_TARGET_DIR: D:\pomosolo-cache\target
     # 仅在 push 到 main/master 或打 tag 时构建安装包，PR 跳过
     if: github.event_name == 'push'
 
@@ -83,10 +85,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
+      # 无 rust-cache：本地固定 CARGO_TARGET_DIR 即缓存（依赖未变时增量编译，与 GitHub 零缓存往返）
 
       - name: Build installer
         run: npm run build:installer

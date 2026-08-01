@@ -547,7 +547,8 @@ npm start
   - `test`（Test & Coverage）与 `release` job 仍在 GitHub 托管 runner 执行
   - `build`（NSIS 打包）job 由**本地自建 runner** 执行（`d:\actions-runner`，label `self-hosted, windows, x64`）——速度快、不排队、不占 GitHub 构建配额；首次运行需全量编译较慢，之后依赖 rust-cache 加速
   - 使用前自建 runner 必须处于运行状态：前台 `d:\actions-runner\run.cmd`（或已安装为 Windows 服务）；若未启动，build job 会一直排队直至超时，需手动启动 runner 或临时把 `runs-on` 改回 `windows-latest`
-  - 工具链与缓存全部放 D 盘（`D:\pomosolo-cache\{cargo,rustup,npm}`），避免占 C 盘；机器空间有限，注意定期清理 `D:\actions-runner\_work` 下历史 job 目录
+  - 工具链与缓存全部放 D 盘（`D:\pomosolo-cache\{cargo,rustup,npm,target}`），避免占 C 盘；机器空间有限，注意定期清理 `D:\actions-runner\_work` 下历史 job 目录
+- 本地构建缓存不走 GitHub 缓存服务（v4.5.10 起）：build job 移除 `rust-cache`，新增 `CARGO_TARGET_DIR: D:\pomosolo-cache\target`——target 固定本地，依赖未变时增量编译，**零缓存上传/下载**（托管机才需要 GitHub 缓存，因为托管机不持久）；首次在本地跑会全量编译暖缓存。注意：自建 runner 同时只允许一个 build job（单 runner 串行），若未来加第二个本地 runner 需让两者用不同 target 目录或加锁，避免 cargo 文件锁互等
 
 ### 打包为可执行文件
 
