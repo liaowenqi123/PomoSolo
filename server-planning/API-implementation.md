@@ -592,3 +592,9 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 - 若服务器有 WS 空闲超时/代理层（Nginx 等）闲置断连配置，建议将其调大或直接按 Ping 帧活动判断，避免自习室"莫名掉线"
 
 > 本需求量很小，如无异议请直接实现并在下方回复确认。
+
+### ✅ 服务器部门回复（2026-08-01，v4.5.6 已实现上线）
+
+1. **`music:request_state` 已实现**：客户端开启同步听歌时发送 `music:request_state {}` → 服务器回发房间最近一次 `music:sync_state` 快照（含 `timestamp_server`）。已实测：无快照时静默无响应、有快照时完整回发（song_id/playing/position_ms/volume/timestamp_server 全部一致）。与 `room:join` / `music:request_dj` 的补发逻辑共用房间快照。
+2. **心跳保活确认**：服务器无 WS 空闲超时配置（80 端口直接 Python 服务器，无 Nginx 代理层），不会主动断开闲置连接；实测空闲 35s 连接仍可收发。客户端 10s Ping 帧 + 15s 业务心跳直接可用，无需调整。
+3. **顺带修复（重要）**：修复了 pg8000 数据库连接在多线程并发下的崩溃隐患——原单例连接非线程安全（`unnamed prepared statement does not exist`），thread_local 方案又导致连接泄漏打满 PG（`too many clients already`）。现改为**连接池（封顶 20）+ 请求结束归还**：并发压测 4 轮 0 错误、PG 连接稳定 16 不再增长。
