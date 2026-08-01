@@ -42,11 +42,15 @@ const isDeviceOpen = ref(false);
 const controlsDisabled = computed(() => store.syncEnabled && !store.isDj);
 
 /**
- * 曲名显示：优先 P2P 传输进度 / 等待全员下载提示，其次"无这首歌"，再是正常曲名
+ * 曲名显示：优先 P2P 传输进度 / 等待全员下载提示，其次"无这首歌"，再是正常曲名。
+ * 传输提示只在"当前没有歌在播放"时占用曲名位置（此时曲名本来要显示传输目标）；
+ * 一旦有歌在播放（传完/已切到别的歌），曲名显示歌名，不被进度提示锁定。
  */
 const trackDisplay = computed(() => {
   const transfer = store.songTransfer;
-  if (transfer.state === "requesting" || transfer.state === "downloading") {
+  const transferActive =
+    (transfer.state === "requesting" || transfer.state === "downloading") && !store.playing;
+  if (transferActive) {
     if (transfer.total > 0) {
       const pct = Math.floor((transfer.received / transfer.total) * 100);
       return `⏳ 获取歌曲中… ${pct}%`;
@@ -422,7 +426,7 @@ if (typeof document !== "undefined") {
           <span
             class="music-player__track-name"
             :class="{
-              error: !!store.playError || !!store.missingSongName || store.waitingForSongs || store.songTransfer.state !== 'idle',
+              error: !!store.playError || !!store.missingSongName || store.waitingForSongs || (store.songTransfer.state !== 'idle' && !store.playing),
               empty: !store.hasMusic,
             }"
           >

@@ -424,6 +424,7 @@
 2. **非 DJ 不能调音量**：`controlsDisabled` 连音量一起禁用。**修复**：音量是本地输出，不受同步控制（DJ 调音量才广播），音量按钮/滑块/`handleVolumeInput` 移出禁用。
 3. **DJ 上台瞬间所有听众的歌都开始放（而 DJ 暂停中）**：`applySyncState` 切歌分支无条件 `playSong` 播放，未尊重 DJ 的 `playing` 状态。**修复**：DJ 处于暂停（`playing=false`）时，听众切歌后 900ms 内自动暂停，只切歌不播放。
 4. **传歌卡在"获取歌曲中 x%"**：三处加固——① `handleSongChunk` 单片保存失败自动重试一次；② `startSongTransfer` 请求发出 6s 无分片自动重发 `request_song`（幂等）；③ DJ 侧 `handleSongRequested` 加 `activeTransfers` 并发守卫（服务器"一传多"可能重复收到请求）+ 每片 15ms 节流，避免 170KB×N 消息瞬时堆积。
+5. **传完/本地已有后曲名仍锁定显示"获取歌曲中 2%"**：`songTransfer` 状态因中断/未复位而残留时，曲名位置被传输提示永久占住（切到别的歌也如此）。**修复**：① `trackDisplay` 传输提示只在"当前没有歌在播放"（`!playing`）时占位——一旦有歌在播放（传完自动播放 / 手动切歌），曲名立即恢复正常显示，不被锁定；② store 增加传输兜底定时器（`ensureTransferWatch`）：requesting 超 20s / downloading 30s 无进展自动复位 `songTransfer`，避免永久占用（同步开启时启动、关闭时停止）。
 
 ---
 

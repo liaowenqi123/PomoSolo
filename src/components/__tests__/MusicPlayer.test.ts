@@ -359,4 +359,41 @@ describe("MusicPlayer.vue", () => {
     expect(wrapper.find(".music-player__track-name").text()).toBe("未播放");
     wrapper.unmount();
   });
+
+  it("传输进行中：目标歌未播放 → 曲名显示获取进度", () => {
+    mockStore = makeStore({
+      playing: false,
+      trackName: "old.mp3",
+      songTransfer: { state: "downloading", songName: "new.mp3", received: 1, total: 48 },
+    });
+    const wrapper = mountComponent();
+    expect(wrapper.find(".music-player__track-name").text()).toContain("获取歌曲中");
+    wrapper.unmount();
+  });
+
+  it("传输状态残留但歌已播放 → 曲名正常显示歌名（不被进度提示锁定）", () => {
+    // 回归：传完/本地已有导致 songTransfer 未及时复位时，曲名不能被"获取歌曲中 2%"占住
+    mockStore = makeStore({
+      playing: true,
+      trackName: "a.mp3",
+      songTransfer: { state: "downloading", songName: "a.mp3", received: 1, total: 48 },
+    });
+    const wrapper = mountComponent();
+    const name = wrapper.find(".music-player__track-name");
+    expect(name.text()).toBe("a.mp3");
+    expect(name.text()).not.toContain("获取歌曲中");
+    expect(name.classes()).not.toContain("error");
+    wrapper.unmount();
+  });
+
+  it("传输状态残留但已切到别的歌播放 → 曲名显示当前歌名", () => {
+    mockStore = makeStore({
+      playing: true,
+      trackName: "b.mp3",
+      songTransfer: { state: "downloading", songName: "a.mp3", received: 1, total: 48 },
+    });
+    const wrapper = mountComponent();
+    expect(wrapper.find(".music-player__track-name").text()).toBe("b.mp3");
+    wrapper.unmount();
+  });
 });

@@ -136,6 +136,32 @@ export const useMusicStore = defineStore("music", () => {
   let pendingSyncPosition = 0;
   /** DJ/持有者侧：正在传输中的歌曲集合（防止并发 song_requested 开多个循环） */
   const activeTransfers = new Set<string>();
+  /** 听众侧：最近一次成功保存分片的时间（用于下载超时兜底复位） */
+  let lastChunkAt = 0;
+  /** 传输兜底检查定时器（requesting 20s / downloading 30s 无进展自动复位，避免曲名被永久占用） */
+  let transferWatchTimer: ReturnType<typeof setInterval> | null = null;
+
+  function ensureTransferWatch() {
+    if (transferWatchTimer) return;
+    transferWatchTimer = setInterval(() => {
+      const t = songTransfer.value;
+      const now = Date.now();
+      if (t.state === "requesting" && now - t.startedAt > 20_000) {
+        console.warn("[MusicStore] 传歌请求超时，复位传输状态:", t.songName);
+        songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0 };
+      } else if (t.state === "downloading" && lastChunkAt > 0 && now - lastChunkAt > 30_000) {
+        console.warn("[MusicStore] 下载无进展超时，复位传输状态:", t.songName);
+        songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0 };
+      }
+    }, 10_000);
+  }
+
+  function stopTransferWatch() {
+    if (transferWatchTimer) {
+      clearInterval(transferWatchTimer);
+      transferWatchTimer = null;
+    }
+  }
 
   // ===== Getters =====
   const progress = computed(() => {
@@ -428,6 +454,7 @@ export const useMusicStore = defineStore("music", () => {
     songTransfer.value.state = "downloading";
     songTransfer.value.total = totalChunks;
     songTransfer.value.received += 1;
+    lastChunkAt = Date.now();
   }
 
   /** 听众侧：传输完成 → 合并文件 → 播放（immediate 立即 seek 到 DJ 进度） */
@@ -440,6 +467,7 @@ export const useMusicStore = defineStore("music", () => {
         ? Number(evt.total_chunks)
         : songTransfer.value.total;
     songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0 };
+    lastChunkAt = 0;
     try {
       const res = await musicFinalizeSong(songId, totalChunks);
       if (res.success) {
@@ -751,9 +779,10 @@ export const useMusicStore = defineStore("music", () => {
   function setSyncEnabled(enabled: boolean) {
     syncEnabled.value = enabled;
     if (enabled) {
-      // 开启同步时应用本机设置的传歌方案
+      // 开启同步时应用本机设置的传歌方案，并启动传输兜底检查
       const settingsStore = useSettingsStore();
       transferMode.value = settingsStore.settings.syncTransferMode;
+      ensureTransferWatch();
     } else {
       // 关闭后复位 DJ 状态（服务器 DJ 由新申请者接管）与 P2P 状态
       isDj.value = false;
@@ -761,6 +790,8 @@ export const useMusicStore = defineStore("music", () => {
       djUserId.value = null;
       waitingForSongs.value = false;
       songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0 };
+      lastChunkAt = 0;
+      stopTransferWatch();
     }
   }
 
