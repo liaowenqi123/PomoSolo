@@ -427,7 +427,7 @@ v4.5.6 发布后用户实测仍有 2 个残留症状，根因与修法：
 1. **刚下载完的歌在 DJ 暂停时显示"获取歌曲中 2%"**：`handleTransferDone` 合并成功后 `void playSong(songId)`（fire-and-forget），若 `playSong` 因文件刚合并/播放器未就绪而失败，旧逻辑 catch 分支自动 `startSongTransfer(songId)`，而 `startSongTransfer` 开头会 `localHasSongs.delete(songId)`（重新视为缺失）→ 重新发起下载；此时 DJ 暂停广播 sync_state 命中缺歌分支 → 显示"获取歌曲中 2%"。**修复**：`playSong` 失败不再自动触发 P2P 下载——缺歌场景本应由 sync_state 缺歌分支驱动 `startSongTransfer`，这里误触发只会删掉"本地已有"标记制造重复下载；播放失败保持已有标记，等下次 sync_state 驱动重播。
 2. **本地已有的歌也触发下载**：`localHasSongs` 是内存集合，**应用重启后清空**；且歌单加载完成前（`handlePlaylist` 未执行）它一直为空。此时 DJ 播一首本地已有的歌 → `playlist` 空 + `localHasSongs` 空 → 误判缺歌 → 触发 P2P。**修复**：`handlePlaylist` 收到歌单时把**全部歌曲加入 `localHasSongs`**（歌单 = 本地真实存在的歌曲），应用重启后歌单一加载即恢复"本地已有"标记；配合 `deleteSong` 成功时移除，保证标记与本地文件一致。
 
-### 4.19 传歌失败/重试可见性 + seek 校准容忍度 + WS 断开自动重连（v4.5.8 开发中）
+### 4.19 传歌失败/重试可见性 + seek 校准容忍度 + WS 断开自动重连（v4.5.8）
 
 用户实测反馈 4 个问题（前 2 个根因在服务器侧，已留言联调；后 2 个纯客户端修复）：
 
@@ -436,7 +436,7 @@ v4.5.6 发布后用户实测仍有 2 个残留症状，根因与修法：
 3. **已有 DJ 的房间开启同步后显示"DJ 暂无"（能听歌但 djName 空）**：`djName` 只在 `music:dj_changed`（DJ 切换）时更新，加入已有 DJ 房间时服务器未补发。**纯服务器需求**：`room:join` / `music:request_state` 时补发 `music:dj_changed { dj_user_id, dj_username }`（客户端已能处理，无需改代码）。
 4. **DJ 切歌时听众听到 AABCD 重复开头（多次 seek 校准导致回跳）**：DJ 切歌/传歌期间广播 sync_state 较频繁（5s 一次），听众端每次收到都无条件 `seek(posSec)`，进度小偏差也被反复回跳。**修复**：新增 `SYNC_SEEK_TOLERANCE_S = 2` 容忍度与 `seekIfFar(target)`——`|本地进度 - 目标| ≤ 2s` 时不 seek，超过 2s 才校准；`applySyncState` / `applyMusicState` 的所有校准点（同歌分支、切歌后 800ms、pause/seek 动作）统一改用 `seekIfFar`。下载完成后的对齐（`pendingSyncPosition`）保持无条件 seek，不受容忍度影响。
 
-### 4.20 下载完成后主动向 DJ 要实时位置（v4.5.8 开发中）
+### 4.20 下载完成后主动向 DJ 要实时位置（v4.5.8）
 
 - **现象**：immediate 模式下下载完成不再从头播（v4.5.6 已修），但 seek 到的是"传输期间最后一次广播的位置"（DJ 传歌期间 5s 广播一次，最多落后几秒）→ 与 DJ 实际位置仍有差距
 - **原因**：`musicSyncRequestState()` 服务器回发的是**服务器保存的快照**（也可能旧），不是 DJ 实时进度；且 `seekIfFar` 的 2s 容忍度遇到小差距不校准
@@ -444,6 +444,17 @@ v4.5.6 发布后用户实测仍有 2 个残留症状，根因与修法：
   - 服务器：收到 `music:request_state` 时若房间有 DJ → **向 DJ 单发 `music:state_request`**（新消息）；DJ 收到后立即广播一次实时 `music:sync_state`（含 `timestamp_server`）→ 请求者拿到 DJ 广播时刻的实时进度并 `seekIfFar` 校准
   - 客户端（已实现）：DJ 侧 `handleSyncWsEvent` 新增 `case "music:state_request"` → `broadcastSyncState()` 立即广播实时状态
 - **触发点**：`musicSyncRequestState()` 已覆盖全部"要位置"场景——开启同步时、`handleTransferDone` 下载完成合并后、StudyRoom WS 断线重连时
+
+### 4.21 服务器侧三项根因修复确认（v4.5.8，服务器回复 c99b841）
+
+v4.5.8 在 `server-planning/API-implementation.md` 留言的三项服务器需求已全部处理上线，客户端本地验证通过后闭环：
+
+1. **掉线问题（同用户多连接 bug，真根因）**：服务器排查确认无"传输失败即踢人"逻辑，但发现 `connections[user_id]` 是**单值 dict**——客户端重连/重开连接时新连接覆盖旧连接，旧连接线程退出时 `cleanup_user` 误 pop 到新连接 → 误从房间移除 + 广播 `member_left` → 其他端看到"掉线"。**修复**：连接建立时先清理旧连接（单连接语义），`cleanup_user` 只清理 socket 匹配的当前连接。实测二次连接后旧连接被服务器正确接管，房间成员/DB 清理正确。
+2. **传输卡死（song_requests 永久悬挂）**：持有者收到 `song_requested` 但永不回传分片时状态悬挂。**修复**：① 30s 传输超时清理——超时后向请求者广播 `transfer_failed` 并清状态（覆盖客户端 12s×3 重试窗口）；② 重复 `request_song` 每次都重新选持有者重新触发 + 重置超时；③ 分片到达重置超时（活跃传输不误杀）。实测 60s 收到 failed（此前 65s 收不到）、重复请求每次触发、20s 活跃期不清理。
+3. **DJ 信息补发**：`room:join` 和 `music:request_state` 时补发 `music:dj_changed`，实测均收到——解决"已有 DJ 的房间开启同步显示 DJ 暂无"（4.19 第 3 点）。
+4. **`music:state_request` 配合确认**（4.20 服务器需求）：`request_state` 时有 DJ → 向 DJ 单发 `music:state_request`（DJ 广播实时进度）；无 DJ → 回发保存的快照。
+
+**验证**：v4.5.8 五项验证全过 + 全部旧功能回归（P1/P2/wait_all/大消息/自习室/广播/双用户）通过；DB 无残留。服务器已保证单连接语义，客户端 WS 断线重连（4.19 第 2 点）不再误报 `member_left`。
 
 ---
 
