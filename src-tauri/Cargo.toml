@@ -71,9 +71,13 @@ tempfile = "3"
 [features]
 custom-protocol = ["tauri/custom-protocol"]
 
+# 构建速度优化（v4.5.9 起）：旧配置 fat LTO + codegen-units=1 把编译/链接压成单线程，
+# 7800X3D 16 线程全闲置，全量构建 30-40 分钟。
+# thin LTO 链接可并行 + codegen-units=16 恢复并行 codegen：
+# 构建提速数倍，体积略增（~1MB），性能差异 <2%，对发版可接受。
 [profile.release]
 panic = "abort"
-codegen-units = 1
-lto = true
+codegen-units = 16
+lto = "thin"
 opt-level = "s"
 strip = true

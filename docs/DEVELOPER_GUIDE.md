@@ -577,6 +577,10 @@ npm run build:installer
 - 开始菜单项
 - 卸载程序
 
+**构建速度（Cargo.toml `[profile.release]`）：**
+- v4.5.9 起改为 `lto = "thin"` + `codegen-units = 16`：链接可并行 + 恢复并行 codegen，构建提速数倍（7800X3D 16 线程用满）；体积略增（~1MB）、性能差异 <2%
+- 旧配置（fat LTO + codegen-units=1）把编译/链接压成单线程，全量构建 30-40 分钟且 CPU 占用低，勿改回
+
 **安装包配置（package.json）：**
 ```json
 {
