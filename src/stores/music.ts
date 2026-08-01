@@ -613,6 +613,13 @@ export const useMusicStore = defineStore("music", () => {
       let idx = Number(evt.from_chunk ?? 0);
       let totalChunks = 0;
       while (true) {
+        // 可打断：DJ 已切歌（不再播放这首）→ 立即中断上传，让服务器清理传输状态。
+        // 否则旧歌会继续传完整个文件，听众端一直收到旧歌分片（切歌被下载拖住）
+        if (songId !== trackName.value) {
+          console.warn("[MusicStore] DJ 已切歌，中断本地上传:", songId, "→", trackName.value);
+          void musicSyncTransferFailed(songId).catch(() => {});
+          return;
+        }
         const res = await musicReadSongChunk(songId, idx);
         if (!res.success) {
           // 歌曲不存在/读取失败 → 通知服务器传输失败
@@ -629,8 +636,8 @@ export const useMusicStore = defineStore("music", () => {
         });
         idx += 1;
         if (totalChunks === 0 || idx >= totalChunks) break;
-        // 轻微节流，避免 170KB×N 的 WS 消息瞬时堆积
-        await new Promise((r) => setTimeout(r, 15));
+        // 轻微节流，避免 170KB×N 的 WS 消息瞬时堆积（传输可被打断，节流可更小）
+        await new Promise((r) => setTimeout(r, 5));
       }
       await musicSyncTransferDone(songId);
     } catch (e) {
