@@ -14,6 +14,7 @@
  * 通过 v-model:visible 控制显示。
  */
 import { ref, watch, onUnmounted } from "vue";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import Modal from "./Modal.vue";
 import {
   studyRoomGetActive,
@@ -74,7 +75,83 @@ const publicRooms = ref<StudyRoom[]>([]);
 onUnmounted(() => {
   stopRefresh();
   if (toastTimer) clearTimeout(toastTimer);
+  if (unlistenWs) unlistenWs();
 });
+
+// ===== WebSocket 实时事件 =====
+// 服务端推送通过 "ws-event" 事件进入（见 modules/ws.rs），
+// 成员列表主要依赖实时推送更新；进入房间后由 studyRoomGetMembers
+// 触发一次 presence:update，服务端随即推送 room:members。
+let unlistenWs: UnlistenFn | null = null;
+void listen<unknown>("ws-event", (e) => handleWsEvent(e.payload))
+  .then((fn) => {
+    unlistenWs = fn;
+  })
+  .catch(() => {
+    /* jsdom 测试环境无 Tauri，静默 */
+  });
+
+/** 处理服务端 WS 推送（room:members / member_joined / member_left / member_status / pomo_done） */
+function handleWsEvent(payload: unknown): void {
+  if (!currentRoom.value) return;
+  if (!payload || typeof payload !== "object") return;
+  const evt = payload as Record<string, unknown>;
+  switch (evt.type) {
+    case "room:members": {
+      // { members: [{ userId, username, online }] }
+      if (Array.isArray(evt.members)) {
+        members.value = evt.members.map((m) => {
+          const obj = (m ?? {}) as Record<string, unknown>;
+          return {
+            userId: String(obj.userId ?? obj.user_id ?? ""),
+            username: String(obj.username ?? ""),
+            online: obj.online !== false,
+          };
+        });
+      }
+      break;
+    }
+    case "room:member_joined": {
+      // { user: { id, username } }
+      const u = evt.user as Record<string, unknown> | undefined;
+      if (u) {
+        const member: StudyRoomMember = {
+          userId: String(u.id ?? u.userId ?? ""),
+          username: String(u.username ?? ""),
+          online: true,
+        };
+        if (member.userId && !members.value.some((m) => m.userId === member.userId)) {
+          members.value.push(member);
+        }
+      }
+      break;
+    }
+    case "room:member_left": {
+      // { user_id }
+      const uid = evt.user_id;
+      if (typeof uid === "string") {
+        members.value = members.value.filter((m) => m.userId !== uid);
+      }
+      break;
+    }
+    case "room:member_status": {
+      // { user_id, status }：收到说明该成员仍在线
+      const uid = evt.user_id;
+      if (typeof uid === "string") {
+        const m = members.value.find((x) => x.userId === uid);
+        if (m) m.online = true;
+      }
+      break;
+    }
+    case "room:pomo_done": {
+      // 有成员完成番茄 → 刷新今日排名
+      void refreshRoomData();
+      break;
+    }
+    default:
+      break;
+  }
+}
 
 // 关闭弹窗时停止心跳刷新，避免后台定时器持续请求
 watch(
@@ -116,7 +193,9 @@ async function refreshRoomData(): Promise<void> {
       studyRoomGetMembers(roomId),
       studyRoomGetRanking(roomId),
     ]);
-    members.value = m;
+    // 成员列表以 WS room:members 实时推送为主；
+    // REST 返回值非空才覆盖，避免推送先到后被空数组清空
+    if (m.length > 0) members.value = m;
     ranking.value = r;
   } catch (err) {
     // 后端未实现时会失败，静默处理

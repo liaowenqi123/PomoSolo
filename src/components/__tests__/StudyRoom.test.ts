@@ -12,6 +12,19 @@ const studyRoomApi = vi.hoisted(() => ({
 }));
 vi.mock("@/api/studyRoom", () => studyRoomApi);
 
+// Mock @tauri-apps/api/event（ws-event 监听）
+type WsEventListener = (
+  event: string,
+  handler: (e: { payload: unknown }) => void,
+) => Promise<() => void>;
+const eventListenMock = vi.hoisted(() =>
+  vi.fn<WsEventListener>(() => Promise.resolve(() => {})),
+);
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: (event: string, handler: (e: { payload: unknown }) => void) =>
+    eventListenMock(event, handler),
+}));
+
 import StudyRoom from "../StudyRoom.vue";
 
 describe("StudyRoom.vue", () => {
@@ -19,6 +32,8 @@ describe("StudyRoom.vue", () => {
 
   beforeEach(() => {
     Object.values(studyRoomApi).forEach((fn) => fn.mockReset());
+    eventListenMock.mockReset();
+    eventListenMock.mockImplementation(() => Promise.resolve(() => {}));
     studyRoomApi.studyRoomGetActive.mockResolvedValue([]);
     studyRoomApi.studyRoomCreate.mockResolvedValue({ id: "abcdefgh", name: "R" });
     studyRoomApi.studyRoomJoin.mockResolvedValue(undefined);
@@ -36,6 +51,28 @@ describe("StudyRoom.vue", () => {
 
   const mountComponent = (visible = true) =>
     mount(StudyRoom, { props: { visible } });
+
+  /** 获取组件注册的 ws-event handler（未注册返回 null） */
+  const getWsHandler = (): ((e: { payload: unknown }) => void) | null => {
+    const call = eventListenMock.mock.calls.find((c) => c[0] === "ws-event");
+    return call ? (call[1] as (e: { payload: unknown }) => void) : null;
+  };
+
+  /** 进入房间视图（创建自习室） */
+  const enterRoom = async (wrapper: ReturnType<typeof mountComponent>) => {
+    await wrapper.find(".main-actions .btn-primary").trigger("click");
+    await wrapper.find(".study-create input.form-input").setValue("R");
+    await wrapper.find(".study-create .btn-primary").trigger("click");
+    await flushPromises();
+  };
+
+  /** 触发一条 ws-event */
+  const fireWs = async (payload: unknown) => {
+    const handler = getWsHandler();
+    expect(handler).toBeTruthy();
+    await handler!({ payload });
+    await flushPromises();
+  };
 
   it("弹窗标题为『👥 自习室』", () => {
     const wrapper = mountComponent(true);
@@ -240,5 +277,82 @@ describe("StudyRoom.vue", () => {
     // 名称空时创建按钮禁用
     const createBtn = wrapper.find(".study-create .btn-primary");
     expect(createBtn.attributes("disabled")).toBeDefined();
+  });
+
+  it("WS room:members 推送后渲染成员列表", async () => {
+    const wrapper = mountComponent(true);
+    await enterRoom(wrapper);
+    expect(wrapper.text()).toContain("暂无在线成员");
+    await fireWs({
+      type: "room:members",
+      members: [
+        { userId: "u-1", username: "alice", online: true },
+        { userId: "u-2", username: "bob", online: false },
+      ],
+    });
+    const items = wrapper.findAll(".member-item");
+    expect(items).toHaveLength(2);
+    expect(wrapper.text()).toContain("alice");
+    expect(wrapper.text()).toContain("bob");
+  });
+
+  it("WS room:member_joined 追加成员（重复 userId 不重复添加）", async () => {
+    const wrapper = mountComponent(true);
+    await enterRoom(wrapper);
+    await fireWs({ type: "room:member_joined", user: { id: "u-1", username: "carol" } });
+    expect(wrapper.text()).toContain("carol");
+    await fireWs({ type: "room:member_joined", user: { id: "u-1", username: "carol" } });
+    expect(wrapper.findAll(".member-item")).toHaveLength(1);
+  });
+
+  it("WS room:member_left 移除成员", async () => {
+    const wrapper = mountComponent(true);
+    await enterRoom(wrapper);
+    await fireWs({
+      type: "room:members",
+      members: [
+        { userId: "u-1", username: "alice", online: true },
+        { userId: "u-2", username: "bob", online: true },
+      ],
+    });
+    expect(wrapper.findAll(".member-item")).toHaveLength(2);
+    await fireWs({ type: "room:member_left", user_id: "u-1" });
+    expect(wrapper.findAll(".member-item")).toHaveLength(1);
+    expect(wrapper.text()).toContain("bob");
+    expect(wrapper.text()).not.toContain("alice");
+  });
+
+  it("WS room:pomo_done 触发排名刷新", async () => {
+    const wrapper = mountComponent(true);
+    await enterRoom(wrapper);
+    const rankCallsBefore = studyRoomApi.studyRoomGetRanking.mock.calls.length;
+    await fireWs({ type: "room:pomo_done", user_id: "u-1", username: "alice", mode: "focus" });
+    expect(studyRoomApi.studyRoomGetRanking.mock.calls.length).toBeGreaterThan(
+      rankCallsBefore,
+    );
+  });
+
+  it("未进入房间时忽略 WS 事件", async () => {
+    const wrapper = mountComponent(true);
+    await fireWs({
+      type: "room:members",
+      members: [{ userId: "u-1", username: "alice", online: true }],
+    });
+    // 主视图，未进入房间 → 不渲染成员
+    expect(wrapper.find(".member-item").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("alice");
+  });
+
+  it("组件卸载时取消 ws-event 监听", async () => {
+    const unlistenSpy = vi.fn();
+    eventListenMock.mockImplementation(() => Promise.resolve(unlistenSpy));
+    const wrapper = mountComponent(true);
+    await flushPromises();
+    // 组件挂载时注册了 ws-event 监听
+    expect(eventListenMock).toHaveBeenCalledWith("ws-event", expect.any(Function));
+    wrapper.unmount();
+    await flushPromises();
+    // 卸载时应调用 unlisten 清理监听
+    expect(unlistenSpy).toHaveBeenCalledTimes(1);
   });
 });

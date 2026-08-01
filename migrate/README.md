@@ -34,12 +34,12 @@ INSERT INTO users (id, username, email, password_hash, nickname, created_at)
 VALUES ('<new_id>', '<username>', '<email>', '<password_hash>', '<nickname>', '<created_at>');
 ```
 
-> ⚠️ **密码兼容说明**：旧 Supabase 的密码哈希是 **PBKDF2-SHA512（100000 次迭代）**，
-> 新服务器的 `password_hash` 字段需支持两种格式：
-> - 若以 `pbkdf2$100000$<salt_hex>$<hash_hex>` 前缀存储 → 登录时用 PBKDF2 校验
-> - 否则按 bcrypt 校验
-> 建议服务器端做成**双格式校验**（先试 pbkdf2，再试 bcrypt），
-> 这样老用户无需改密码即可登录。
+> ⚠️ **密码兼容说明**（已与服务器实现对齐，见 `server-planning/API-implementation.md`）：
+> 旧 Supabase 的密码哈希为 **PBKDF2-SHA512（100000 次迭代）**，导出时拆分为
+> `password_hash` + `salt` 两个字段。服务器导入时需组装为支持的格式之一：
+> - 本服务格式：`pbkdf2_sha512$100000$<salt>$<hash_hex>`
+> - Supabase 迁移格式：`pbkdf2$100000$<salt_hex>$<hash_hex>`（校验时自动兼容）
+> 服务器登录校验已支持上述双格式，老用户无需改密码即可登录。
 
 4. 导入反馈：
 
