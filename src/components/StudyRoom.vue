@@ -26,6 +26,7 @@ import {
   studyRoomGetDetail,
   studyRoomDelete,
   studyRoomUpdate,
+  studyRoomUpdateStatus,
   type StudyRoom,
   type StudyRoomMember,
   type StudyRoomRankingEntry,
@@ -74,7 +75,9 @@ let pendingMembers: StudyRoomMember[] | null = null;
 
 // 心跳/刷新定时器
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
-const REFRESH_INTERVAL_MS = 30_000;
+// 15s 一次：业务心跳（presence:update/ping）+ 成员/排名刷新。
+// 旧 30s 在抢 DJ/换房等操作时易被代理掐断导致"莫名掉线"，故提高频率。
+const REFRESH_INTERVAL_MS = 15_000;
 
 // ===== 创建表单 =====
 const createForm = ref({
@@ -253,6 +256,8 @@ async function enterRoom(room: StudyRoom): Promise<void> {
 async function refreshRoomData(): Promise<void> {
   if (!currentRoom.value) return;
   const roomId = currentRoom.value.id;
+  // 业务心跳（WS ping）：保持在线状态 + 防止连接被中间设备掐断
+  void studyRoomUpdateStatus(roomId).catch(() => {});
   try {
     const [m, r] = await Promise.all([
       studyRoomGetMembers(roomId),

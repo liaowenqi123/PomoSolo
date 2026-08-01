@@ -12,6 +12,7 @@ const studyRoomApi = vi.hoisted(() => ({
   studyRoomGetDetail: vi.fn(),
   studyRoomDelete: vi.fn(),
   studyRoomUpdate: vi.fn(),
+  studyRoomUpdateStatus: vi.fn(),
 }));
 vi.mock("@/api/studyRoom", () => studyRoomApi);
 
@@ -71,6 +72,7 @@ describe("StudyRoom.vue", () => {
     });
     studyRoomApi.studyRoomDelete.mockResolvedValue(true);
     studyRoomApi.studyRoomUpdate.mockResolvedValue(true);
+    studyRoomApi.studyRoomUpdateStatus.mockResolvedValue(undefined);
     // 复位同步听歌 mock 状态
     musicMock.setSyncEnabled.mockReset();
     musicMock.requestDj.mockReset();
@@ -288,15 +290,15 @@ describe("StudyRoom.vue", () => {
     expect(wrapper.find(".member-dot").classes()).toContain("online");
   });
 
-  it("30s 自动刷新：setInterval 注册并在触发时再次拉取数据", async () => {
+  it("15s 自动刷新：setInterval 注册并在触发时再次拉取数据", async () => {
     studyRoomApi.studyRoomCreate.mockResolvedValue({ id: "abc", name: "R" });
     const wrapper = mountComponent(true);
     await enterRoom(wrapper);
     // 进入房间时已刷新一次
     expect(studyRoomApi.studyRoomGetMembers).toHaveBeenCalledTimes(1);
-    // setInterval 应以 30000ms 注册
-    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 30000);
-    // 手动触发定时器回调模拟 30s 后刷新
+    // setInterval 应以 15000ms 注册（心跳频率提高：30s → 15s）
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 15000);
+    // 手动触发定时器回调模拟 15s 后刷新
     const refreshCallback = setIntervalSpy.mock.calls[0][0] as () => void;
     refreshCallback();
     await flushPromises();

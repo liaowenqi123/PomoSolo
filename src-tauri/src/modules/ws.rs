@@ -16,6 +16,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tokio::net::TcpStream;
 use tokio::sync::{oneshot, Mutex};
+use tokio::time::{interval, Duration};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
@@ -122,6 +123,33 @@ pub async fn ensure_connected(
         let mut pend = pending.lock().await;
         for (_, tx) in pend.drain() {
             let _ = tx.send(serde_json::json!({ "error": "WebSocket 连接已断开" }));
+        }
+    });
+
+    // 协议层心跳保活：每 10s 发一次 WS Ping 帧（协议层 Pong 由 tungstenite 自动处理）。
+    // 解决自习室"莫名掉线"：业务心跳（presence:update）频率低且依赖上层调用，
+    // 若经过代理/NAT，长时间无流量会被中间设备掐断连接。
+    let keepalive_write = state.write.clone();
+    let keepalive_connected = state.connected.clone();
+    tokio::spawn(async move {
+        let mut tick = interval(Duration::from_secs(10));
+        tick.tick().await; // 立即等首个周期
+        loop {
+            tick.tick().await;
+            if !keepalive_connected.load(Ordering::Relaxed) {
+                break;
+            }
+            let mut guard = keepalive_write.lock().await;
+            if let Some(write) = guard.as_mut() {
+                if write
+                    .inner
+                    .send(Message::Ping(Vec::new().into()))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
         }
     });
 

@@ -48,6 +48,7 @@ const musicSyncApi = vi.hoisted(() => ({
   musicSyncTransferDone: vi.fn(),
   musicSyncTransferFailed: vi.fn(),
   musicSyncSetConfig: vi.fn(),
+  musicSyncRequestState: vi.fn(),
 }));
 vi.mock("@/api/musicSync", () => musicSyncApi);
 
@@ -72,6 +73,7 @@ describe("useMusicStore", () => {
     musicApi.musicGetPlaylist.mockResolvedValue({ songs: [] });
     musicApi.musicGetDevices.mockResolvedValue({ devices: [], current: null });
     musicSyncApi.musicSyncRequestDj.mockResolvedValue(undefined);
+    musicSyncApi.musicSyncRequestState.mockResolvedValue(undefined);
     dataApi.readData.mockResolvedValue({});
     dataApi.writeData.mockResolvedValue(undefined);
   });

@@ -141,3 +141,12 @@ export function musicSyncTransferFailed(songId: string): Promise<void> {
 export function musicSyncSetConfig(transferMode: string): Promise<void> {
   return invoke<void>("music_sync_set_config", { transferMode });
 }
+
+/**
+ * 听众侧：请求服务器补发当前同步状态快照。
+ * 用于"加入已有 DJ 的同步听歌"时对齐（开启同步后立即恢复 DJ 正在播的歌/进度/状态）。
+ * 后端：`music_sync_request_state() -> Result<(), String>`，服务器收到后向该客户端回发房间最近一次 music:sync_state。
+ */
+export function musicSyncRequestState(): Promise<void> {
+  return invoke<void>("music_sync_request_state");
+}

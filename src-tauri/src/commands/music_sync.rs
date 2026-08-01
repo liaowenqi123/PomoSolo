@@ -219,3 +219,17 @@ pub async fn music_sync_set_config(
     let params = serde_json::json!({ "transfer_mode": transfer_mode });
     ws::send(&app, &state.ws, &token, "music:sync_config", params).await
 }
+
+/// 听众请求当前同步状态快照：music:request_state
+///
+/// 用于"加入已有 DJ 的同步听歌"时对齐：服务器收到后向该客户端补发房间
+/// 最近一次 music:sync_state 快照（含 timestamp_server），客户端据此恢复
+/// DJ 正在播的歌/进度/播放状态（开启同步瞬间就能对齐，无需等 DJ 下一次操作）。
+#[tauri::command]
+pub async fn music_sync_request_state(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let token = require_token(&state).await?;
+    ws::send(&app, &state.ws, &token, "music:request_state", serde_json::json!({})).await
+}

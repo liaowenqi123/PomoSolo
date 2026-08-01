@@ -426,6 +426,18 @@
 4. **传歌卡在"获取歌曲中 x%"**：三处加固——① `handleSongChunk` 单片保存失败自动重试一次；② `startSongTransfer` 请求发出 6s 无分片自动重发 `request_song`（幂等）；③ DJ 侧 `handleSongRequested` 加 `activeTransfers` 并发守卫（服务器"一传多"可能重复收到请求）+ 每片 15ms 节流，避免 170KB×N 消息瞬时堆积。
 5. **传完/本地已有后曲名仍锁定显示"获取歌曲中 2%"**：`songTransfer` 状态因中断/未复位而残留时，曲名位置被传输提示永久占住（切到别的歌也如此）。**修复**：① `trackDisplay` 传输提示只在"当前没有歌在播放"（`!playing`）时占位——一旦有歌在播放（传完自动播放 / 手动切歌），曲名立即恢复正常显示，不被锁定；② store 增加传输兜底定时器（`ensureTransferWatch`）：requesting 超 20s / downloading 30s 无进展自动复位 `songTransfer`，避免永久占用（同步开启时启动、关闭时停止）。
 
+### 4.16 同步听歌体验加固（v4.5.6）
+
+用户实测反馈 5 个问题，逐一修复：
+
+1. **DJ 切歌后这边没反应（旧传输挂死）**：P2P 卡顿重试耗尽后降级"无这首歌"是正常兜底，但 DJ 已切歌时旧传输状态残留，新歌的 `request_song` 被"同歌幂等"吞掉 → 完全无反应。**修复**：`startSongTransfer` 目标歌变化时先中断旧传输（复位 `lastChunkAt`/`transferRetry`），再启动新歌下载，旧歌分片由 `music_finalize_song` 同名覆盖清理。
+2. **自习室抢 DJ 时崩溃/莫名掉线（心跳频率太低）**：业务心跳 `study_room_update_status` 仅 30s 一次且依赖 REST 轮询，经过代理/NAT 长时间无流量会被中间设备掐断。**修复**：① Rust `ws.rs` 增加协议层保活——每 10s 发 WS Ping 帧（tungstenite 自动回 Pong），与业务心跳解耦；② 业务心跳提到 15s 一次（`REFRESH_INTERVAL_MS` 30s→15s），每轮刷新都发 `studyRoomUpdateStatus`。
+3. **加入已有 DJ 的同步听歌没反应（只能等 DJ 下台重来）**：服务器仅在 `room:join`/`request_dj` 时补发快照，客户端中途开启同步时拿不到当前 DJ 状态。**修复**：双兜底——① 未开启同步时缓存最近一次 `music:sync_state`（`lastSyncState`），开启同步立即应用；② 开启同步时主动发 `music:request_state` 请求服务器补发快照（需服务器配合，见协议文档留言区）。
+4. **传歌卡在某百分比长时间无进展才报错**：旧逻辑 requesting 20s / downloading 30s 才判定超时，卡在 41% 要等很久。**修复**：超时阈值降为 **12s**（`TRANSFER_TIMEOUT_MS`），无进展自动重新下载，最多 **3 次**（`TRANSFER_MAX_RETRY`），多次机会但每次阈值低——每次超时 `transferRetry+1` 并重发 `request_song`，耗尽才降级"无这首歌"。
+5. **从 DJ 下载的歌曲打上 DJ 名字标签**：`handleTransferDone` 合并成功后，若存在 `djName` 自动调用 `updateSongTag(songId, djName, null)`——B 从 A（DJ）处下载的歌，标签直接显示"A"。
+
+**服务器配套需求**（已在 `server-planning/API-implementation.md` 留言区留言）：`music:request_state` 收到后向该客户端回发房间最近一次 `music:sync_state` 快照（附加 `timestamp_server`）；WS 心跳已由客户端自保，服务器侧空闲断连阈值建议调大。
+
 ---
 
 ## 5. 最终布局结构清单

@@ -57,6 +57,7 @@ import {
   musicSyncTransferDone,
   musicSyncTransferFailed,
   musicSyncSetConfig,
+  musicSyncRequestState,
 } from "@/api/musicSync";
 import { useAuthStore } from "@/stores/auth";
 import { useSettingsStore } from "@/stores/settings";
@@ -134,11 +135,19 @@ export const useMusicStore = defineStore("music", () => {
   });
   /** 传歌期间暂存的 DJ 播放进度（秒），合并完成后用于立即 seek 校准 */
   let pendingSyncPosition = 0;
+  /** 未开启同步时缓存的最近一次 music:sync_state（开启同步后立即应用，解决"加入已有 DJ 的同步没反应"） */
+  let lastSyncState: Record<string, unknown> | null = null;
   /** DJ/持有者侧：正在传输中的歌曲集合（防止并发 song_requested 开多个循环） */
   const activeTransfers = new Set<string>();
-  /** 听众侧：最近一次成功保存分片的时间（用于下载超时兜底复位） */
+  /** 听众侧：最近一次成功保存分片的时间（用于下载超时兜底重试） */
   let lastChunkAt = 0;
-  /** 传输兜底检查定时器（requesting 20s / downloading 30s 无进展自动复位，避免曲名被永久占用） */
+  /** 听众侧：当前歌曲传输已重试次数（每次超时重新下载 +1，耗尽后降级"无这首歌"） */
+  let transferRetry = 0;
+  /** 传输无进展超时阈值（ms）：卡住超过该时长即重新下载 */
+  const TRANSFER_TIMEOUT_MS = 12_000;
+  /** 传输最大重试次数：多次机会但每次阈值低，避免干等很久才报错 */
+  const TRANSFER_MAX_RETRY = 3;
+  /** 传输兜底检查定时器：requesting/downloading 超时无进展 → 自动重新下载（最多 N 次） */
   let transferWatchTimer: ReturnType<typeof setInterval> | null = null;
 
   function ensureTransferWatch() {
@@ -146,12 +155,38 @@ export const useMusicStore = defineStore("music", () => {
     transferWatchTimer = setInterval(() => {
       const t = songTransfer.value;
       const now = Date.now();
-      if (t.state === "requesting" && now - t.startedAt > 20_000) {
-        console.warn("[MusicStore] 传歌请求超时，复位传输状态:", t.songName);
+      if (t.state === "idle") return;
+      const stuck =
+        t.state === "requesting"
+          ? now - t.startedAt > TRANSFER_TIMEOUT_MS
+          : t.state === "downloading" && lastChunkAt > 0 && now - lastChunkAt > TRANSFER_TIMEOUT_MS;
+      if (!stuck) return;
+      if (transferRetry < TRANSFER_MAX_RETRY) {
+        // 超时自动重新下载：复位后重新发起请求
+        transferRetry += 1;
+        console.warn(
+          `[MusicStore] 传歌超时无进展，自动重新下载 ${transferRetry}/${TRANSFER_MAX_RETRY}:`,
+          t.songName,
+        );
+        const songId = t.songName;
+        songTransfer.value = {
+          state: "requesting",
+          songName: songId,
+          received: 0,
+          total: 0,
+          startedAt: now,
+        };
+        void musicSyncRequestSong(songId).catch((e) => {
+          console.warn("[MusicStore] 重新下载请求失败:", e);
+        });
+      } else {
+        // 重试耗尽 → 降级为"无这首歌"（不再卡住曲名）
+        console.warn("[MusicStore] 传歌多次重试失败，降级为无这首歌:", t.songName);
+        const songId = t.songName;
         songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0 };
-      } else if (t.state === "downloading" && lastChunkAt > 0 && now - lastChunkAt > 30_000) {
-        console.warn("[MusicStore] 下载无进展超时，复位传输状态:", t.songName);
-        songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0 };
+        lastChunkAt = 0;
+        transferRetry = 0;
+        if (songId) missingSongName.value = songId;
       }
     }, 10_000);
   }
@@ -395,23 +430,21 @@ export const useMusicStore = defineStore("music", () => {
   /**
    * 听众侧：请求拉取 DJ 正在播放但本地缺失的歌曲
    *
-   * 幂等：同一首歌的传输已在进行时，若请求发出后 6s 仍未收到任何分片，
-   * 说明服务器可能没选到持有者/请求丢失，自动重发一次 request_song。
+   * 幂等：同一首歌的传输已在进行时不重复请求；
+   * DJ 切歌后目标变了，若旧歌传输还挂着（中断/卡住），直接中断旧传输启动新歌下载，
+   * 避免"DJ 切歌后这边没反应"。
    */
   async function startSongTransfer(songId: string) {
     const t = songTransfer.value;
     if (t.state !== "idle") {
-      if (t.songName === songId && t.state === "requesting" && Date.now() - t.startedAt > 6000) {
-        // 超时重发一次，避免永久卡在"获取歌曲中"
-        t.startedAt = Date.now();
-        try {
-          await musicSyncRequestSong(songId);
-        } catch (e) {
-          console.warn("[MusicStore] 重发传歌请求失败:", e);
-        }
-      }
-      return;
+      if (t.songName === songId) return; // 同一首歌已在传输
+      // 目标歌已变：中断旧传输（残留分片由 Rust finalize 清理，同名覆盖），启动新的
+      console.warn("[MusicStore] DJ 已切歌，中断旧传输:", t.songName, "→", songId);
+      songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0 };
+      lastChunkAt = 0;
+      transferRetry = 0;
     }
+    transferRetry = 0;
     songTransfer.value = {
       state: "requesting",
       songName: songId,
@@ -472,6 +505,10 @@ export const useMusicStore = defineStore("music", () => {
       const res = await musicFinalizeSong(songId, totalChunks);
       if (res.success) {
         missingSongName.value = null;
+        // 从 DJ 处下载的歌曲自动打上 DJ 名字标签（识别歌曲来源）
+        if (djName.value) {
+          void updateSongTag(songId, djName.value, null);
+        }
         await requestPlaylist();
         if (transferMode.value === "wait_all") {
           // wait_all：不立即播放，等待全员就绪（服务器广播 songs_ready → DJ 从头播放 → sync_state 驱动）
@@ -783,6 +820,14 @@ export const useMusicStore = defineStore("music", () => {
       const settingsStore = useSettingsStore();
       transferMode.value = settingsStore.settings.syncTransferMode;
       ensureTransferWatch();
+      // 应用缓存的状态快照（若加入房间时服务器已补发过 sync_state）
+      if (lastSyncState) {
+        const snap = lastSyncState;
+        lastSyncState = null;
+        if (!isDj.value) applySyncState(snap);
+      }
+      // 主动向服务器请求当前同步状态（服务器需支持 music:request_state）
+      void musicSyncRequestState().catch(() => {});
     } else {
       // 关闭后复位 DJ 状态（服务器 DJ 由新申请者接管）与 P2P 状态
       isDj.value = false;
@@ -929,7 +974,13 @@ export const useMusicStore = defineStore("music", () => {
         break;
       }
       case "music:sync_state": {
-        if (!syncEnabled.value || isDj.value) return;
+        // 未开启同步：缓存最近一次状态，开启同步时立即应用（解决"加入已有 DJ 的同步没反应"）
+        if (!syncEnabled.value) {
+          lastSyncState = evt;
+          return;
+        }
+        // DJ 本地已生效（避免回环）→ 忽略
+        if (isDj.value) return;
         applySyncState(evt);
         break;
       }

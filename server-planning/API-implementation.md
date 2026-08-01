@@ -352,6 +352,7 @@ ws://服务器地址:3001/ws?token=<access_token> # 备用：独立端口直连
 | `music:offer_song` | **持有者回传歌曲分片（新，P2P）** | `song_id`, `chunk_index`, `total_chunks`, `chunk_size`, `data_base64` |
 | `music:transfer_done` | **持有者通知传输完成（新，P2P）** | `song_id` |
 | `music:transfer_failed` | **持有者通知传输失败（新，P2P）** | `song_id` |
+| `music:request_state` | **听众请求补发当前同步状态快照（新）** | - |
 
 #### 服务端 → 全体客户端
 
@@ -390,6 +391,7 @@ DJ 的所有播放操作（播放/暂停/切歌/上一首/进度/自然切歌）
 1. 把 `music:sync_state` 当作新的 DJ 操作消息：像 `music:state` 一样广播给房间全体，并附加 `timestamp_server`
 2. **保存房间最近一次 `music:sync_state` 快照**：新成员开启同步 / DJ 切换（`music:dj_changed`）时，主动向该客户端补发一次快照（解决"新听众不知道 DJ 在播什么"的问题）
 3. 透传 `music:sync_config` 给房间全体
+4. **收到 `music:request_state` 时向该客户端补发房间最近一次 `music:sync_state` 快照**（附加 `timestamp_server`）。客户端在开启同步时主动发送，作为快照补发的兜底（服务器主动补发时机不可控时，确保听众加入后一定能拿到当前 DJ 状态；v4.5.6 起）
 
 #### 缺歌处理 + P2P 点对点传歌（v4.5.4 起）
 
@@ -570,3 +572,23 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 **遗留提示**：字段命名保持客户端发送的 snake_case 原样透传（不做 camelCase 转换），客户端按 `song_id / chunk_index / data_base64` 解析即可。
 
 > **客户端确认**：协议字段与客户端实现一致，无需改动。若实测中发现协议细节不一致（字段名/消息类型/分片大小），请在本节下方追加差异记录，双方对齐。
+
+---
+
+### 【加急】v4.5.6 新增需求（客户端已实现，待服务器配合）
+
+> 客户端 v4.5.6 已按下方说明实现，需要服务器部门补一个小功能 + 评估一个建议：
+
+**1. `music:request_state` 快照补发（小改动，建议尽快）**
+
+- 客户端在**开启同步听歌时主动发送** `music:request_state {}`（无参数）
+- 服务器收到后：**向该客户端回发房间最近一次 `music:sync_state` 快照**（附加 `timestamp_server`，字段同 P1 广播）
+- 背景：目前服务器在 `room:join` / `music:request_dj` 时补发快照，但客户端"加入已有 DJ 的房间并开启同步"时仍偶发拿不到状态（表现为开了同步没反应）。客户端侧已做兜底（缓存最近一次 sync_state + 开启同步时主动请求），需要服务器补发逻辑配合闭环
+- 若服务器此前已有同类补发逻辑，可复用同一函数，仅需新增该消息分支
+
+**2. WS 心跳保活建议（可选，客户端已自保）**
+
+- 客户端已自行加保活：Rust 层每 10s 发 WS Ping 帧（协议层 Pong），业务心跳 `study_room_update_status` 也提升到 15s 一次
+- 若服务器有 WS 空闲超时/代理层（Nginx 等）闲置断连配置，建议将其调大或直接按 Ping 帧活动判断，避免自习室"莫名掉线"
+
+> 本需求量很小，如无异议请直接实现并在下方回复确认。
