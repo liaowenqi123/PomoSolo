@@ -91,10 +91,11 @@ export function musicSyncState(params: {
 
 /**
  * 听众侧：请求拉取 DJ 正在播放但本地缺失的歌曲（P2P 传歌）。
- * 后端：`music_sync_request_song(song_id) -> Result<(), String>`
+ * @param fromChunk 断点续传起点（已成功保存的分片数）；0 = 从头传输。
+ * 后端：`music_sync_request_song(song_id, from_chunk) -> Result<(), String>`
  */
-export function musicSyncRequestSong(songId: string): Promise<void> {
-  return invoke<void>("music_sync_request_song", { songId });
+export function musicSyncRequestSong(songId: string, fromChunk = 0): Promise<void> {
+  return invoke<void>("music_sync_request_song", { songId, fromChunk });
 }
 
 /**

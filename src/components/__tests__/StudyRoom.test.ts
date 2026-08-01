@@ -296,10 +296,11 @@ describe("StudyRoom.vue", () => {
     await enterRoom(wrapper);
     // 进入房间时已刷新一次
     expect(studyRoomApi.studyRoomGetMembers).toHaveBeenCalledTimes(1);
-    // setInterval 应以 15000ms 注册（心跳频率提高：30s → 15s）
+    // setInterval 应以 5000ms（纯心跳）和 15000ms（数据刷新）注册
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
     expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 15000);
-    // 手动触发定时器回调模拟 15s 后刷新
-    const refreshCallback = setIntervalSpy.mock.calls[0][0] as () => void;
+    // 手动触发 15000ms 刷新定时器回调模拟 15s 后刷新
+    const refreshCallback = setIntervalSpy.mock.calls.find((c) => c[1] === 15000)![0] as () => void;
     refreshCallback();
     await flushPromises();
     expect(studyRoomApi.studyRoomGetMembers).toHaveBeenCalledTimes(2);

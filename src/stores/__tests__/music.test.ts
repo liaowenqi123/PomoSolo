@@ -709,7 +709,7 @@ describe("useMusicStore", () => {
     expect(s.missingSongName).toBe("unknown.mp3");
     expect(s.songTransfer.state).toBe("requesting");
     expect(s.songTransfer.songName).toBe("unknown.mp3");
-    expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("unknown.mp3");
+    expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("unknown.mp3", 0);
     // 不应尝试播放（本地未知歌曲）
     expect(musicApi.musicPlaySong).not.toHaveBeenCalled();
   });

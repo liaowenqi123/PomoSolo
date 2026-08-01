@@ -76,9 +76,14 @@ let pendingMembers: StudyRoomMember[] | null = null;
 
 // 心跳/刷新定时器
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
-// 15s 一次：业务心跳（presence:update/ping）+ 成员/排名刷新。
+// 纯心跳定时器：5s 一次 studyRoomUpdateStatus（WS 消息极小，几乎不耗流量）。
+// 心跳与数据刷新分离：高频保活（防代理/NAT 掐断 + 维持在线），低频刷新数据。
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+// 15s 一次：成员/排名/房间详情刷新（REST）。
 // 旧 30s 在抢 DJ/换房等操作时易被代理掐断导致"莫名掉线"，故提高频率。
 const REFRESH_INTERVAL_MS = 15_000;
+// 心跳间隔：WS 心跳消息仅几十字节，5s 一跳流量可忽略；配合 Rust 协议层 10s Ping 双保活
+const HEARTBEAT_INTERVAL_MS = 5_000;
 
 // ===== 创建表单 =====
 const createForm = ref({
@@ -375,12 +380,22 @@ async function refreshRoomData(): Promise<void> {
 
 function startRefresh(): void {
   stopRefresh();
+  // 高频纯心跳：维持 WS 在线（消息极小，不耗流量）
+  heartbeatTimer = setInterval(() => {
+    const roomId = currentRoom.value?.id;
+    if (roomId) void studyRoomUpdateStatus(roomId).catch(() => {});
+  }, HEARTBEAT_INTERVAL_MS);
+  // 低频数据刷新：成员/排名 + 顺带心跳 + 掉线检测
   refreshTimer = setInterval(() => {
     void refreshRoomData();
   }, REFRESH_INTERVAL_MS);
 }
 
 function stopRefresh(): void {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
   if (refreshTimer) {
     clearInterval(refreshTimer);
     refreshTimer = null;

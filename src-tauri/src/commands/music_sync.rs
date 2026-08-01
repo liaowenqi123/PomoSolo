@@ -145,14 +145,22 @@ pub async fn music_sync_state(
 ///
 /// 服务器收到后从房间内选择持有者（优先 DJ），向其发送 music:song_requested，
 /// 持有者回传 music:offer_song 分片，服务器转发 music:song_chunk 给请求者。
+/// from_chunk（可选，>0 时才带上）：断点续传起点，服务器需转发给持有者，
+/// 持有者从该分片序号继续读取回传，避免超时重试时完全重传。
 #[tauri::command]
 pub async fn music_sync_request_song(
     app: AppHandle,
     state: State<'_, AppState>,
     song_id: String,
+    from_chunk: Option<u32>,
 ) -> Result<(), String> {
     let token = require_token(&state).await?;
-    let params = serde_json::json!({ "song_id": song_id });
+    let mut params = serde_json::json!({ "song_id": song_id });
+    if let Some(fc) = from_chunk {
+        if fc > 0 {
+            params["from_chunk"] = serde_json::json!(fc);
+        }
+    }
     ws::send(&app, &state.ws, &token, "music:request_song", params).await
 }
 

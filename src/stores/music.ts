@@ -146,10 +146,10 @@ export const useMusicStore = defineStore("music", () => {
   let lastChunkAt = 0;
   /** 听众侧：当前歌曲传输已重试次数（每次超时重新下载 +1，耗尽后降级"无这首歌"） */
   let transferRetry = 0;
-  /** 传输无进展超时阈值（ms）：卡住超过该时长即重新下载 */
-  const TRANSFER_TIMEOUT_MS = 12_000;
-  /** 传输最大重试次数：多次机会但每次阈值低，避免干等很久才报错 */
-  const TRANSFER_MAX_RETRY = 3;
+  /** 传输无进展超时阈值（ms）：卡住超过该时长立即断点续传（3s 足够判定"卡死"，越等越卡） */
+  const TRANSFER_TIMEOUT_MS = 3_000;
+  /** 传输最大续传次数：次数放宽（每次从已保存分片续传，成本低），耗尽后才降级"无这首歌" */
+  const TRANSFER_MAX_RETRY = 10;
   /**
    * 同步进度校准容忍度（秒）：|本地进度 - DJ 进度| 在该范围内不 seek。
    * 避免 DJ 广播 sync_state 较频繁时（切歌/传歌期间 5s 一次）反复 seek 导致
@@ -177,24 +177,26 @@ export const useMusicStore = defineStore("music", () => {
           : t.state === "downloading" && lastChunkAt > 0 && now - lastChunkAt > TRANSFER_TIMEOUT_MS;
       if (!stuck) return;
       if (transferRetry < TRANSFER_MAX_RETRY) {
-        // 超时自动重新下载：复位后重新发起请求（每次机会阈值低，避免干等很久）
+        // 超时自动续传：从已成功保存的分片序号继续请求（断点续传），
+        // 避免"完全重传"从 0 开始再次卡在同一位置（每次机会阈值低，不干等）
         transferRetry += 1;
         console.warn(
-          `[MusicStore] 传歌超时无进展，自动重新下载 ${transferRetry}/${TRANSFER_MAX_RETRY}:`,
+          `[MusicStore] 传歌卡住超时，从第 ${t.received} 片续传 ${transferRetry}/${TRANSFER_MAX_RETRY}:`,
           t.songName,
         );
         const songId = t.songName;
+        const fromChunk = t.received; // 已成功保存的分片数 = 续传起点
         lastChunkAt = 0;
         songTransfer.value = {
           state: "requesting",
           songName: songId,
-          received: 0,
+          received: fromChunk,
           total: 0,
           startedAt: now,
           retryCount: transferRetry,
         };
-        void musicSyncRequestSong(songId).catch((e) => {
-          console.warn("[MusicStore] 重新下载请求失败:", e);
+        void musicSyncRequestSong(songId, fromChunk).catch((e) => {
+          console.warn("[MusicStore] 续传请求失败:", e);
         });
       } else {
         // 重试耗尽 → 降级为"无这首歌"（不再卡住曲名）
@@ -205,7 +207,7 @@ export const useMusicStore = defineStore("music", () => {
         transferRetry = 0;
         if (songId) missingSongName.value = songId;
       }
-    }, 10_000);
+    }, 1_000);
   }
 
   function stopTransferWatch() {
@@ -455,14 +457,24 @@ export const useMusicStore = defineStore("music", () => {
 
   // ===== P2P 传歌（听众侧下载 / DJ 侧上传，服务器中转分片） =====
 
+  /** 中断当前 P2P 传输并复位全部传输状态（DJ 切歌/主动取消时调用） */
+  function abortCurrentTransfer(): void {
+    songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0 };
+    lastChunkAt = 0;
+    transferRetry = 0;
+  }
+
   /**
    * 听众侧：请求拉取 DJ 正在播放但本地缺失的歌曲
+   *
+   * @param fromChunk 断点续传：从该分片序号继续请求（0 = 从头传输）。
+   * 超时重试时传入已成功保存的分片数，避免"完全重传"再次卡在同一位置。
    *
    * 幂等：同一首歌的传输已在进行时不重复请求；
    * DJ 切歌后目标变了，若旧歌传输还挂着（中断/卡住），直接中断旧传输启动新歌下载，
    * 避免"DJ 切歌后这边没反应"。
    */
-  async function startSongTransfer(songId: string) {
+  async function startSongTransfer(songId: string, fromChunk = 0) {
     // 再次传输 = 视为本地暂时缺失（若之前合并过，先移除本地已有标记）
     localHasSongs.delete(songId);
     const t = songTransfer.value;
@@ -470,21 +482,19 @@ export const useMusicStore = defineStore("music", () => {
       if (t.songName === songId) return; // 同一首歌已在传输
       // 目标歌已变：中断旧传输（残留分片由 Rust finalize 清理，同名覆盖），启动新的
       console.warn("[MusicStore] DJ 已切歌，中断旧传输:", t.songName, "→", songId);
-      songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0 };
-      lastChunkAt = 0;
-      transferRetry = 0;
+      abortCurrentTransfer();
     }
     transferRetry = 0;
     songTransfer.value = {
       state: "requesting",
       songName: songId,
-      received: 0,
+      received: fromChunk,
       total: 0,
       startedAt: Date.now(),
       retryCount: 0,
     };
     try {
-      await musicSyncRequestSong(songId);
+      await musicSyncRequestSong(songId, fromChunk);
       // 等待服务器分配持有者并转发分片（music:song_chunk）
     } catch (e) {
       console.warn("[MusicStore] 请求传歌失败:", e);
@@ -588,7 +598,9 @@ export const useMusicStore = defineStore("music", () => {
     // 若不广播，听众的 pendingSyncPosition 停留在下载开始时（seek 会回到旧位置，表现为"从头播放"）
     const progressSync = setInterval(() => void broadcastSyncState(), 5000);
     try {
-      let idx = 0;
+      // 断点续传：服务器重试 request_song 时可能带 from_chunk（听众已保存的分片数），
+      // 从该片继续读取回传，避免完全重传（听众超时续传时使用）
+      let idx = Number(evt.from_chunk ?? 0);
       let totalChunks = 0;
       while (true) {
         const res = await musicReadSongChunk(songId, idx);
@@ -910,6 +922,11 @@ export const useMusicStore = defineStore("music", () => {
     if (action === "play") {
       const songId = evt.song_id;
       if (typeof songId === "string" && songId && songId !== trackName.value) {
+        // DJ 切歌：若正在 P2P 传输旧歌，立即中断（避免误触/快速切歌时旧歌继续下载并播出来）
+        if (songTransfer.value.state !== "idle" && songTransfer.value.songName !== songId) {
+          console.warn("[MusicStore] DJ 切歌，中断旧歌传输:", songTransfer.value.songName, "→", songId);
+          abortCurrentTransfer();
+        }
         // 本地歌单不含该歌 → 触发 P2P 拉取（服务器未支持时降级为"无这首歌"）
         if (!playlist.value.includes(songId) && !localHasSongs.has(songId)) {
           pendingSyncPosition = posSec;
@@ -961,6 +978,11 @@ export const useMusicStore = defineStore("music", () => {
     if (typeof songId === "string" && songId) {
       // DJ 切歌（本地当前歌曲不同）
       if (songId !== trackName.value) {
+        // DJ 切歌：若正在 P2P 传输旧歌，立即中断（避免误触/快速切歌时旧歌继续下载并播出来）
+        if (songTransfer.value.state !== "idle" && songTransfer.value.songName !== songId) {
+          console.warn("[MusicStore] DJ 切歌，中断旧歌传输:", songTransfer.value.songName, "→", songId);
+          abortCurrentTransfer();
+        }
         // 本地缺歌 → 触发 P2P 拉取；传输期间暂存 DJ 进度，合并完成后 seek
         if (!playlist.value.includes(songId) && !localHasSongs.has(songId)) {
           pendingSyncPosition = posSec;
