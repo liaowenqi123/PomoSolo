@@ -249,21 +249,49 @@ impl AudioPlayer {
     /// 获取歌曲时长（秒）
     ///
     /// 用 rodio::Decoder 解码后取 total_duration（与原 Python 实现一致）。
+    /// 分片 MP4（fMP4）等无 duration 信息的文件返回 0 时，回退到全文件解码计数估算。
     fn get_song_duration(&self, name: &str) -> u64 {
         let path = self.music_dir.join(name);
         match fs::File::open(&path) {
             Ok(file) => {
                 let source = Decoder::try_from(file);
                 match source {
-                    Ok(decoder) => decoder
-                        .total_duration()
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0),
+                    Ok(decoder) => {
+                        let d = decoder.total_duration().map(|d| d.as_secs()).unwrap_or(0);
+                        if d > 0 {
+                            d
+                        } else {
+                            self.scan_estimate_duration(&path)
+                        }
+                    }
                     Err(_) => 0,
                 }
             }
             Err(_) => 0,
         }
+    }
+
+    /// 全文件解码计数估算时长（用于 total_duration 缺失的分片 MP4）
+    ///
+    /// 重新打开文件并迭代全部样本，按 (总样本 / 声道数 / 采样率) 换算秒。
+    /// 仅当 total_duration 不可用时触发（普通 mp3/m4a 不受影响）。
+    fn scan_estimate_duration(&self, path: &std::path::Path) -> u64 {
+        let Ok(file) = fs::File::open(path) else {
+            return 0;
+        };
+        let Ok(mut source) = Decoder::try_from(file) else {
+            return 0;
+        };
+        let sample_rate = source.sample_rate() as u64;
+        let channels = source.channels() as u64;
+        if sample_rate == 0 || channels == 0 {
+            return 0;
+        }
+        let mut total_samples: u64 = 0;
+        for _ in source.by_ref() {
+            total_samples += 1;
+        }
+        (total_samples / channels / sample_rate) as u64
     }
 
     /// 播放指定歌曲
@@ -283,11 +311,16 @@ impl AudioPlayer {
         let source = Decoder::try_from(file)
             .map_err(|e| format!("解码失败: {}, 文件: {}", e, name))?;
 
-        // 获取总时长
+        // 获取总时长（fMP4 无 duration 信息时全文件扫描估算，保证进度条有最大值）
         let duration = source
             .total_duration()
             .map(|d| d.as_secs())
             .unwrap_or(0);
+        let duration = if duration > 0 {
+            duration
+        } else {
+            self.scan_estimate_duration(&path)
+        };
 
         // seek：用 skip_duration 跳过前 N 秒样本（始终调用以保持类型一致）
         let source = source.skip_duration(Duration::from_secs_f64(start_position.max(0.0)));

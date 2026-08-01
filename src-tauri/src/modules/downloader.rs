@@ -108,28 +108,12 @@ fn load_cookie_file(cookie_file: &Path) -> String {
     cookies.join("; ")
 }
 
-/// 查找 ffmpeg：优先系统 PATH，其次打包的 resource
+/// 查找 ffmpeg：仅查打包的 resource（v4.5.3 起禁用系统 PATH 检测，
+/// 避免下载/转码行为依赖用户机器环境；无打包资源时返回 None，走内置 shine-rs 转码）
 ///
-/// 返回 None 表示未找到 ffmpeg（调用方应回退到直接保存 m4a）
+/// 返回 None 表示未找到 ffmpeg（调用方应使用内置转码）
 fn find_ffmpeg(app: &AppHandle) -> Option<PathBuf> {
-    // 1. 尝试系统 PATH
-    let cmd = if cfg!(windows) { "where" } else { "which" };
-    if let Ok(output) = std::process::Command::new(cmd)
-        .arg("ffmpeg")
-        .output()
-    {
-        if output.status.success() {
-            let path_str = String::from_utf8_lossy(&output.stdout);
-            if let Some(first_line) = path_str.lines().next() {
-                let path = PathBuf::from(first_line.trim());
-                if path.exists() {
-                    return Some(path);
-                }
-            }
-        }
-    }
-
-    // 2. 尝试打包的 resource（debug 从 music-player/，release 从 resource_dir/）
+    // 打包的 resource（debug 从 music-player/，release 从 resource_dir/）
     let resource_path = if cfg!(debug_assertions) {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -147,6 +131,121 @@ fn find_ffmpeg(app: &AppHandle) -> Option<PathBuf> {
     }
 
     None
+}
+
+/// 内置 m4a → mp3 转码（不依赖系统 ffmpeg）
+///
+/// 流程：symphonia 解封装 MP4 + 解码 AAC → i16 交错 PCM → mp3lame-encoder（libmp3lame）编码。
+/// 采样率/声道取自解码器输出，码率固定 192kbps。
+fn convert_m4a_to_mp3_builtin(input: &Path, output: &Path) -> Result<(), String> {
+    use mp3lame_encoder::{Bitrate, Builder, FlushNoGap, InterleavedPcm};
+    use symphonia::core::audio::SampleBuffer;
+    use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+    use symphonia::core::formats::FormatOptions;
+    use symphonia::core::io::MediaSourceStream;
+    use symphonia::core::meta::MetadataOptions;
+    use symphonia::core::probe::Hint;
+
+    let file = fs::File::open(input).map_err(|e| format!("打开 m4a 失败: {}", e))?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    hint.with_extension("m4a");
+
+    let probed = symphonia::default::get_probe()
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+        .map_err(|e| format!("解析 m4a 失败: {:?}", e))?;
+    let mut format = probed.format;
+
+    // 选第一个可解码音轨
+    let track_id = format
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .ok_or_else(|| "m4a 中无可解码音轨".to_string())?
+        .id;
+    let track = format
+        .tracks()
+        .iter()
+        .find(|t| t.id == track_id)
+        .ok_or_else(|| "找不到音轨".to_string())?;
+
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &DecoderOptions::default())
+        .map_err(|e| format!("创建 AAC 解码器失败: {:?}", e))?;
+
+    let mut encoder: Option<mp3lame_encoder::Encoder> = None;
+    let mut mp3_bytes: Vec<u8> = Vec::new();
+    let mut out_buf: Vec<u8> = Vec::new();
+
+    loop {
+        let packet = match format.next_packet() {
+            Ok(p) => p,
+            Err(_) => break,
+        };
+        if packet.track_id() != track_id {
+            continue;
+        }
+        let decoded = match decoder.decode(&packet) {
+            Ok(d) => d,
+            Err(_) => continue, // 单帧解码失败跳过
+        };
+
+        // 首帧确认采样率/声道后初始化 LAME 编码器
+        if encoder.is_none() {
+            let spec = decoded.spec();
+            let channels = spec.channels.count() as u32;
+            let builder = Builder::new()
+                .ok_or_else(|| "初始化 LAME 失败".to_string())?
+                .with_num_channels(channels as u8)
+                .map_err(|e| format!("设置声道失败: {:?}", e))?
+                .with_sample_rate(spec.rate)
+                .map_err(|e| format!("设置采样率失败: {:?}", e))?
+                .with_brate(Bitrate::Kbps192)
+                .map_err(|e| format!("设置码率失败: {:?}", e))?;
+            // 单声道时无需设置 mode（LAME 自动判断）；立体声默认 joint stereo
+            encoder = Some(builder.build().map_err(|e| format!("构建 LAME 编码器失败: {:?}", e))?);
+        }
+
+        // 转 i16 交错 PCM 并编码
+        let mut buf = SampleBuffer::<i16>::new(decoded.capacity() as u64, *decoded.spec());
+        buf.copy_interleaved_ref(decoded);
+        let samples = buf.samples();
+        if let Some(enc) = encoder.as_mut() {
+            out_buf.clear();
+            out_buf.reserve(mp3lame_encoder::max_required_buffer_size(samples.len()));
+            let n = enc
+                .encode(
+                    InterleavedPcm(samples),
+                    out_buf.spare_capacity_mut(),
+                )
+                .map_err(|e| format!("MP3 编码失败: {:?}", e))?;
+            unsafe {
+                out_buf.set_len(n);
+            }
+            mp3_bytes.extend_from_slice(&out_buf);
+        }
+    }
+
+    // flush 收尾
+    if let Some(mut enc) = encoder {
+        out_buf.clear();
+        out_buf.reserve(8192);
+        let n = enc
+            .flush::<FlushNoGap>(out_buf.spare_capacity_mut())
+            .map_err(|e| format!("MP3 编码收尾失败: {:?}", e))?;
+        unsafe {
+            out_buf.set_len(n);
+        }
+        mp3_bytes.extend_from_slice(&out_buf);
+    }
+
+    fs::write(output, &mp3_bytes).map_err(|e| format!("写入 mp3 失败: {}", e))?;
+    Ok(())
 }
 
 /// 检查 music 目录是否已存在同名歌曲（.mp3 或 .m4a，文件名包含歌名即视为已存在）
@@ -632,11 +731,12 @@ pub async fn download_song(
         return Ok(DownloadResult::fail("failed", &e));
     }
 
-    // 7. 转码：有 ffmpeg 转 mp3，无 ffmpeg 或转码失败则保存 m4a
+    // 7. 转码为 mp3：优先打包 ffmpeg（已禁用系统 PATH 检测），否则内置 shine-rs 转码，
+    //    内置转码失败才回退保存 m4a（rodio 0.21 可直接播放 m4a）
     let ffmpeg_path = find_ffmpeg(app);
 
     if let Some(ffmpeg) = ffmpeg_path {
-        // 有 ffmpeg：尝试转码为 mp3
+        // 有打包 ffmpeg：尝试转码为 mp3
         let output_mp3 = music_dir.join(format!("{}.mp3", clean_name));
         match convert_to_mp3(&temp_m4a, &output_mp3, &ffmpeg).await {
             Ok(()) => {
@@ -659,14 +759,21 @@ pub async fn download_song(
             }
         }
     } else {
-        // 无 ffmpeg：直接重命名为 m4a
-        let output_m4a = music_dir.join(format!("{}.m4a", clean_name));
-        fs::rename(&temp_m4a, &output_m4a)
-            .map_err(|e| format!("重命名 m4a 失败: {}", e))?;
-        eprintln!(
-            "[Downloader] 未找到 ffmpeg，已保存为 m4a: {:?}",
-            output_m4a
-        );
+        // 无 ffmpeg：内置转码（shine-rs 纯 Rust），失败才回退 m4a
+        let output_mp3 = music_dir.join(format!("{}.mp3", clean_name));
+        match convert_m4a_to_mp3_builtin(&temp_m4a, &output_mp3) {
+            Ok(()) => {
+                let _ = fs::remove_file(&temp_m4a);
+                eprintln!("[Downloader] 内置转码成功: {:?}", output_mp3);
+            }
+            Err(e) => {
+                eprintln!("[Downloader] 内置转码失败，回退 m4a: {}", e);
+                let output_m4a = music_dir.join(format!("{}.m4a", clean_name));
+                fs::rename(&temp_m4a, &output_m4a)
+                    .map_err(|e| format!("重命名 m4a 失败: {}", e))?;
+                eprintln!("[Downloader] 已保存为 m4a: {:?}", output_m4a);
+            }
+        }
     }
 
     Ok(DownloadResult::ok("downloaded"))

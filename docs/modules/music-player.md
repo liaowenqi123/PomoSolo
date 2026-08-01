@@ -385,7 +385,25 @@
   - 0.21 是 breaking 大版本，`audio_player.rs` 适配：`OutputStream::try_default()` → `OutputStreamBuilder::open_default_stream()`；`OutputStreamHandle` 移除 → 存 `Mixer`（`stream.mixer()`），`Sink::try_new(&handle)` → `Sink::connect_new(&Mixer)`（不再返回 Result）；`Decoder::new(BufReader)` → `Decoder::try_from(file)`；样本输出 i16 → **f32**；设备切换 `OutputStreamBuilder::from_device(device).open_stream_or_fallback()`。
   - 下载器逻辑不变：有 ffmpeg（系统 PATH）仍转 mp3；无 ffmpeg 直接保留 m4a，播放器可原生播放。
 - **验证**：`cargo test --lib` 184 通过；升级后用三种 m4a（moov 前/moov 尾/fMP4）实测全部解码成功（48000Hz 双声道，时长/样本数正确）。
-- **遗留**：转码为 mp3 可减小体积、提高兼容性，但需打包 ffmpeg（体积大），暂不引入。
+- **遗留**：见 4.13 —— v4.5.3 起下载时**内置转码 m4a → mp3**（不依赖 ffmpeg），彻底规避 m4a 播放兼容性问题。
+
+---
+
+### 4.13 下载时内置 m4a → mp3 转码（v4.5.3，不依赖系统 ffmpeg）
+
+- **背景**：虽然 rodio 0.21 已能直接播放 m4a，但 m4a（尤其分片 MP4）仍有体验问题（部分流时长解析为 0、进度条无总长）。用户要求**下载时默认转成 mp3**，且**不借助 ffmpeg**。
+- **方案**：内置转码管线 `downloader.rs::convert_m4a_to_mp3_builtin`：
+  ```
+  B站 DASH 音频流 → temp.m4a
+      → symphonia 解封装 MP4 + 解码 AAC（i16 交错 PCM）
+      → mp3lame-encoder（libmp3lame，LGPL，静态链接进 exe，无需外挂 DLL）
+      → song.mp3（192kbps，采样率/声道取自解码器输出）
+  ```
+  - 转码成功：删除 temp.m4a；失败才回退保存 m4a（rodio 0.21 仍可播放）。
+  - 曾试过纯 Rust 的 `shine-rs 0.1.3`（基于 shine 移植），但 `quantization.rs` 存在真实 bug（debug 下 i16 取负 overflow、release 下也 panic），放弃改用工业级 lame。
+- **禁用系统 ffmpeg 检测**（v4.5.3）：`downloader.rs::find_ffmpeg` 不再查系统 PATH，仅查打包资源（当前未打包 → 恒返回 None），避免下载/转码行为依赖用户机器环境。未来若打包 ffmpeg 仍走原 ffmpeg 转码分支。
+- **m4a 播放时长兜底**（v4.5.3）：`audio_player.rs` 的 `get_song_duration` / `play_song` 在 `total_duration` 为 0（分片 MP4）时，调用 `scan_estimate_duration` 全文件解码计数估算时长，保证进度条有最大值。
+- **验证**：用真实下载的 `刚刚好.m4a`（10MB，B站 DASH）实测：内置转码出 6MB mp3（debug 模式 14s，release 更快），rodio 解码验证 sr=48000、时长 250.5s 正常。
 
 ---
 

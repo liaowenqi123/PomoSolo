@@ -1,6 +1,6 @@
 [package]
 name = "pomo-solo"
-version = "4.5.2"
+version = "4.5.3"
 description = "PomoSolo - 番茄钟应用"
 authors = ["liaowenqi123"]
 edition = "2021"
@@ -44,6 +44,10 @@ sha2 = "0.10"
 # 播放格式：mp3/wav/flac/vorbis/m4a（symphonia 解码，不依赖系统 ffmpeg）
 rodio = { version = "0.21", default-features = false, features = ["playback", "mp3", "wav", "flac", "vorbis", "mp4"] }
 cpal = "0.16"
+# 内置 m4a → mp3 转码（不依赖系统 ffmpeg）：
+#   symphonia 解码 AAC/MP4（i16 PCM），mp3lame-encoder（libmp3lame，LGPL）编码 MP3
+symphonia = { version = "0.5", features = ["aac", "isomp4"] }
+mp3lame-encoder = "0.2"
 # 自建服务器客户端（reqwest 调 REST API + tokio-tungstenite 走 WebSocket）
 # Windows API（前台检测）
 [target.'cfg(windows)'.dependencies]
