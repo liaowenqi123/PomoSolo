@@ -124,27 +124,38 @@ void listen<unknown>("ws-event", (e) => handleWsEvent(e.payload))
 let unlistenWsDisconnected: UnlistenFn | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnecting = false;
+/** 自动重连失败后的冷却截止时间（冷却期内不再自动重连，避免反复失败刷屏） */
+let reconnectCooldownUntil = 0;
+
+/** 自动重连：触发 WS 重连 + 重新 join 房间恢复成员关系（防抖：reconnecting 期间不重复） */
+async function autoReconnect(): Promise<void> {
+  if (reconnecting) return;
+  if (Date.now() < reconnectCooldownUntil) return;
+  const roomId = currentRoom.value?.id;
+  if (!roomId || view.value !== "room") return;
+  reconnecting = true;
+  showToast("连接断开，正在自动重连…");
+  try {
+    // 触发 Rust 端重新建立 WS 连接（ensure_connected 幂等）
+    await musicSyncRequestState();
+    await studyRoomJoin(roomId);
+    await refreshRoomData();
+    showToast("已重新连接");
+  } catch (err) {
+    console.warn("[StudyRoom] 自动重连失败:", err);
+    showToast("自动重连失败，请退出后重新进入");
+    reconnectCooldownUntil = Date.now() + 60_000;
+  } finally {
+    reconnecting = false;
+  }
+}
+
 void listen<unknown>("ws-disconnected", () => {
   if (!currentRoom.value || view.value !== "room") return;
   if (reconnecting) return;
-  reconnecting = true;
   showToast("网络连接断开，正在自动重连…");
-  reconnectTimer = setTimeout(async () => {
-    const roomId = currentRoom.value?.id;
-    try {
-      // 触发 Rust 端重新建立 WS 连接（ensure_connected 幂等）
-      await musicSyncRequestState();
-      if (roomId) {
-        await studyRoomJoin(roomId);
-        await refreshRoomData();
-      }
-      showToast("已重新连接");
-    } catch (err) {
-      console.warn("[StudyRoom] 自动重连失败:", err);
-      showToast("自动重连失败，请退出后重新进入");
-    } finally {
-      reconnecting = false;
-    }
+  reconnectTimer = setTimeout(() => {
+    void autoReconnect();
   }, 3000);
 })
   .then((fn) => {
@@ -244,9 +255,34 @@ watch(
   (v) => {
     if (!v) {
       stopRefresh();
+      return;
+    }
+    // 打开面板时主动检查"自己是否还在房间"（所见即所得：若已掉线立即自动重连）
+    if (currentRoom.value && view.value === "room") {
+      window.setTimeout(() => void checkRoomPresence(), 500);
     }
   },
 );
+
+/**
+ * 检查自己是否仍在房间成员列表（服务器视角）。
+ * 若服务器返回的成员列表不含自己 → 已掉线 → 自动重连（重新 join 恢复成员关系）。
+ * 列表为空时跳过（可能服务器未同步/刚加入，避免误判）。
+ */
+async function checkRoomPresence(): Promise<void> {
+  if (!currentRoom.value || view.value !== "room") return;
+  const me = authStore.session?.id;
+  if (!me) return;
+  try {
+    const m = await studyRoomGetMembers(currentRoom.value.id);
+    if (m.length > 0 && !m.some((x) => x.userId === me)) {
+      console.warn("[StudyRoom] 检测到自己不在房间成员列表，自动重连…");
+      void autoReconnect();
+    }
+  } catch (err) {
+    console.warn("[StudyRoom] 成员资格检查失败:", err);
+  }
+}
 
 function showToast(message: string): void {
   toast.value = message;
@@ -305,6 +341,13 @@ async function refreshRoomData(): Promise<void> {
     // REST 返回值非空才覆盖，避免推送先到后被空数组清空
     if (m.length > 0) members.value = m;
     ranking.value = r;
+    // 定时心跳：检测到自己已不在服务器成员列表 → 掉线 → 自动重连恢复成员关系
+    // （所见即所得：显示"在房间"但实际已掉线时自动拉回）
+    const me = authStore.session?.id;
+    if (m.length > 0 && me && !m.some((x) => x.userId === me)) {
+      console.warn("[StudyRoom] 心跳发现不在成员列表，自动重连…");
+      void autoReconnect();
+    }
   } catch (err) {
     // 后端未实现时会失败，静默处理
     console.warn("[StudyRoom] refreshRoomData failed:", err);

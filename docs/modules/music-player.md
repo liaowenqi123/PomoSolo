@@ -1,7 +1,7 @@
 # 音乐播放器模块文档
 
 > 本文档记录 Tauri 番茄钟应用"音乐播放器"模块的实现方案与踩坑历史。
-> 模块从 Electron 旧版（`electron/src/scripts/modules/musicPlayer.js` + `electron/src/styles/music-player.css`）迁移至 Tauri + Vue 3 + Pinia 架构，Python 子进程（`music-player/music.py` → `music.exe`）保留不变。
+> 模块从 Electron 旧版（`electron/src/scripts/modules/musicPlayer.js` + `electron/src/styles/music-player.css`）迁移至 Tauri + Vue 3 + Pinia 架构，**音频播放为 Rust 原生实现（rodio + cpal + symphonia），无 Python 子进程**（旧版 `music.py` 子进程方案已废弃）。
 
 ---
 
@@ -18,17 +18,18 @@
 - 播放列表：扫描 `music/` 目录、展示歌曲标签、点击切歌、删除歌曲、刷新
 - 标签管理：预设标签（学习/运动/休息）+ 自定义标签，标签带颜色
 - 收起/展开：底部播放器可收起为一条律动条 + 曲名
-- 快捷键：右 Ctrl + 右 Shift（暂停）、左/右（上/下一首）、上/下（音量），由 Python 端 `pynput` 监听
+- 快捷键：媒体键全局快捷键（播放/暂停、上一首、下一首），由 Rust 端 `tauri_plugin_global_shortcut` 注册（见 `commands/system.rs`）
 
-### 1.2 与 Python 子进程的通信协议
+### 1.2 音频引擎与事件架构（Rust 原生，无子进程）
 
-- **传输层**：Rust 启动 `music.exe` 子进程，通过 **stdin 写入 JSON 命令**、**stdout 读取 JSON 事件**，每行一条消息（以 `\n` 结尾）。
-- **编码**：UTF-8（`PYTHONIOENCODING=utf-8` + Python 内 `sys.stdin/stdout/stderr.reconfigure(encoding='utf-8')`）。
-- **工作目录**：`music.exe` 所在目录（`music-player/`），Python 脚本依赖此目录下的 `music/` 文件夹与 `music/tags.json`。
-- **方向 1（前端 → Python）**：前端 `invoke` → Rust `music_*` 命令 → `send_command` 写 stdin → Python `stdin_reader` 线程解析 → `process_command` 处理。
-- **方向 2（Python → 前端）**：Python `state.send_event(event_type, data)` 写 stdout → Rust `read_events` 任务读行解析 → 映射事件名 → `app.emit("music-xxx", data)` → 前端 `useTauriEvent` 监听 → Store `handle*` 方法更新状态。
-- **同步响应**：少数命令（`delete_song`、`get_custom_tags`、`add_custom_tag`、`delete_custom_tag`、`update_tag`）需要同步返回结果。Rust 端用 `oneshot::channel` + `pending: HashMap<String, oneshot::Sender<Value>>` 实现：发送命令前注册 sender，收到对应事件时唤醒等待者，5 秒超时。
-- **进程存活检测**：Python 端在播放循环中检查 `state.stdin_thread.is_alive()`，父进程（Rust）崩溃时 stdin 线程会死，Python 自动退出，避免僵尸进程。
+- **播放引擎**：`modules/audio_player.rs` 的 `AudioPlayer` 直接使用 **rodio**（基于 cpal 输出 + symphonia 解码）播放，支持 mp3/m4a/AAC/flac 等格式，自带解码无需外部 ffmpeg。
+- **音频输出**：rodio `OutputStream` + `Sink`（0.21 起经 `&Mixer` 创建），设备枚举/切换走 cpal（`AudioPlayer::list_devices`）。
+- **seek**：优先 rodio `Sink::try_seek`（不重建 sink、无音频重叠、`get_pos` 连续）；不支持时降级 `skip_duration` 重建 sink。
+- **方向 1（前端 → Rust）**：前端 `invoke` → Rust `music_*` 命令（`commands/music.rs`）→ `ensure_init` 懒初始化 `AudioPlayer` → 直接操作播放器。
+- **方向 2（Rust → 前端）**：Rust 层 `app.emit("music-xxx", data)`（`music-ready/status/track-change/progress/...`）→ 前端 `useTauriEvent` 监听 → Store `handle*` 方法更新状态。
+- **进度上报**：`spawn_progress_task`（tokio 任务，200ms 间隔）上报 `music-progress`，并检测歌曲自然结束自动切歌（`get_next_song` → `play_song`），失败时发 `music-song-missing` / `music-play-error`。
+- **同步响应**：需要同步返回结果的命令（`delete_song`、`get_custom_tags`、`add_custom_tag`、`delete_custom_tag`、`update_tag`、标签相关）由命令函数直接返回 `Result`，Tauri IPC 同步回给前端（无子进程、无 oneshot 中转）。
+- **全局快捷键**：`commands/system.rs` + `tauri_plugin_global_shortcut` 注册媒体键（PlayPause/PrevTrack/NextTrack），回调直接调对应命令。
 
 ---
 
@@ -61,66 +62,47 @@
 │  ┌──────────────────────────────────────────────────────────────┐ │
 │  │ commands/music.rs                                             │ │
 │  │ - #[tauri::command] music_toggle_play / music_next / ...      │ │
-│  │ - ensure_process(): 懒启动 music.exe 子进程                   │ │
-│  │ - send_command(cmd: Value): 写 stdin                          │ │
-│  │ - send_command_with_response(cmd, key): oneshot + 5s 超时     │ │
-│  │ - read_events(): tokio 任务读 stdout, emit 给前端             │ │
+│  │ - ensure_init(): 懒初始化 AudioPlayer（rodio）               │ │
+│  │ - spawn_progress_task(): 200ms 进度上报 + 自然结束自动切歌    │ │
 │  └──────────────────────────────┬───────────────────────────────┘ │
-│                                 │ stdin (JSON line)                │
+│                                 │ 直接操作（Mutex<AudioPlayer>）    │
 │                                 ▼                                  │
 │  ┌──────────────────────────────────────────────────────────────┐ │
 │  │ state.rs: MusicState                                          │ │
-│  │ - process: Arc<Mutex<Option<MusicProcess>>>                   │ │
-│  │ - pending: Arc<Mutex<HashMap<String, oneshot::Sender<Value>>>>│ │
+│  │ - initialized: AtomicBool                                     │ │
+│  │ - player: Arc<Mutex<AudioPlayer>>                             │ │
 │  └──────────────────────────────────────────────────────────────┘ │
 │  ┌──────────────────────────────────────────────────────────────┐ │
-│  │ modules/music_process.rs                                      │ │
-│  │ - MusicProcess struct (Child + ChildStdin)                    │ │
-│  │ - spawn / send_command / kill                                 │ │
-│  │ - 注：当前 commands/music.rs 已自带 ensure_process，          │ │
-│  │   music_process.rs 为早期实现，保留作为参考                   │ │
+│  │ modules/audio_player.rs（AudioPlayer）                        │ │
+│  │ - rodio::OutputStream + Sink（cpal 输出）                     │ │
+│  │ - symphonia 解码（mp3/m4a/AAC/flac，无需 ffmpeg）             │ │
+│  │ - 播放/暂停/seek(try_seek)/音量/模式/播放列表/标签            │ │
+│  │ - list_devices(): cpal 设备枚举                               │ │
 │  └──────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────┼───────────────────────────────────┘
-                                  │ stdin/stdout (JSON line, UTF-8)
-                                  ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│              Python 子进程 (music-player/music.py → music.exe)      │
-│                                                                     │
 │  ┌──────────────────────────────────────────────────────────────┐ │
-│  │ PlayerState (全局状态)                                        │ │
-│  │ - playing / pause_program / volume / track_name / ...         │ │
-│  │ - send_event(event, data): 写 stdout                          │ │
+│  │ commands/system.rs（全局快捷键）                              │ │
+│  │ - tauri_plugin_global_shortcut 注册媒体键 → 调对应命令        │ │
 │  └──────────────────────────────────────────────────────────────┘ │
-│  ┌────────────────────┐  ┌─────────────────┐  ┌────────────────┐ │
-│  │ stdin_reader 线程  │  │ Player 主循环    │  │ HotkeyManager  │ │
-│  │ - 解析 JSON 命令    │  │ - soundfile 读取 │  │ - pynput 监听  │ │
-│  │ - process_command │─►│ - sounddevice 播放│◄─│ - 全局快捷键    │ │
-│  └────────────────────┘  └─────────────────┘  └────────────────┘ │
-│  ┌────────────────────┐  ┌─────────────────┐                      │
-│  │ PlaylistManager    │  │ DeviceManager    │                      │
-│  │ - 扫描 music/      │  │ - sd.query_devices│                      │
-│  │ - 标签管理         │  │ - 切换输出设备    │                      │
-│  └────────────────────┘  └─────────────────┘                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+> 事件全部由 Rust 层直接 `app.emit("music-xxx")` 发出，**无子进程、无 stdin/stdout、无 Python**。
 
-### 事件名映射（Python event → Tauri event）
+### 事件名映射（Rust 事件 → Tauri 前端）
 
-| Python 事件       | Tauri 事件              | 触发时机                          |
+| 触发场景          | Tauri 事件              | 触发时机                          |
 | ----------------- | ----------------------- | --------------------------------- |
-| `ready`           | `music-ready`           | 子进程启动并加载首歌              |
-| `status`          | `music-status`          | `get_status` 命令 / 模式切换      |
-| `track_change`    | `music-track-change`    | 切歌（非首次）                    |
-| `play_state`      | `music-play-state`      | 播放/暂停切换                     |
-| `progress`        | `music-progress`        | 播放进度变化（每秒）              |
-| `devices`         | `music-devices`         | `get_devices` / `set_device`      |
-| `no_music`        | `music-no-music`        | `music/` 目录为空或歌曲消失       |
-| `play_error`      | `music-play-error`      | 播放异常 / 设备异常               |
-| `volume_change`   | `music-volume-change`   | 快捷键调音量                      |
-| `play_mode`       | `music-play-mode`       | `get_play_mode` 命令              |
-| `playlist`        | `music-playlist`        | `get_playlist` 命令               |
-| `song_missing`    | `music-song-missing`    | 歌曲文件消失                      |
-| `custom_tags` 等  | （由 Rust pending 拦截）| 同步返回，不再 emit               |
+| `music-ready`     | 播放器初始化并加载首曲     | `ensure_init` 首次调用            |
+| `music-status`    | 状态快照                 | `get_status` / 模式切换           |
+| `music-track-change` | 切歌（自然结束/手动）    | 新歌开始播放                      |
+| `music-play-state`| 播放/暂停切换             | `toggle_play`                     |
+| `music-progress`  | 播放进度                 | `spawn_progress_task`（200ms）    |
+| `music-devices`   | 设备列表                 | `get_devices` / `set_device`      |
+| `music-no-music`  | 无音乐可播               | `music/` 为空或全部消失           |
+| `music-play-error`| 播放异常                 | 播放/设备异常                     |
+| `music-volume-change` | 音量变化             | 音量调整（含快捷键）              |
+| `music-play-mode` | 播放模式                 | `set_play_mode` 后               |
+| `music-playlist`  | 播放列表                 | `get_playlist`                    |
+| `music-song-missing` | 歌曲文件消失          | 播放时检测文件不存在              |
 
 ---
 
@@ -133,19 +115,12 @@
 | `src/components/MusicPlayer.vue`                                        | L324–L904      | `<style scoped>`：所有样式与 z-index 层级         |
 | `src/stores/music.ts`                                                   | L59–L470       | Pinia store：state / getters / actions / handle*  |
 | `src/api/music.ts`                                                      | L21–L190       | `invoke` 封装与类型定义                           |
-| `src-tauri/src/commands/music.rs`                                       | L27–L50        | `get_music_exe_path`：开发/生产模式路径           |
-| `src-tauri/src/commands/music.rs`                                       | L61–L98        | `ensure_process`：懒启动子进程                    |
-| `src-tauri/src/commands/music.rs`                                       | L101–L165      | `read_events`：stdout 读取与事件映射              |
-| `src-tauri/src/commands/music.rs`                                       | L168–L218      | `send_command` / `send_command_with_response`     |
-| `src-tauri/src/commands/music.rs`                                       | L222–L396      | 所有 `#[tauri::command]` 函数                     |
-| `src-tauri/src/modules/music_process.rs`                                | L1–L87         | 早期 MusicProcess 封装（参考用，未启用）          |
-| `music-player/music.py`                                                 | L57–L133       | `PlayerState`：状态与事件发送                     |
-| `music-player/music.py`                                                 | L139–L198      | `DeviceManager`：设备枚举与切换                   |
-| `music-player/music.py`                                                 | L205–L558      | `PlaylistManager`：扫描/标签/历史表/上下首逻辑    |
-| `music-player/music.py`                                                 | L565–L732      | `HotkeyManager`：pynput 全局快捷键                |
-| `music-player/music.py`                                                 | L739–L956      | `Player.play`：主播放循环                         |
-| `music-player/music.py`                                                 | L963–L1163     | `process_command`：命令分发                       |
-| `music-player/music.py`                                                 | L1199–L1353    | `main`：启动流程                                  |
+| `src-tauri/src/commands/music.rs`                                       | L21–L42        | `get_music_dir`：开发/生产模式音乐目录            |
+| `src-tauri/src/commands/music.rs`                                       | L44–L86        | `ensure_init`：懒初始化 AudioPlayer                |
+| `src-tauri/src/commands/music.rs`                                       | L88–L161       | `spawn_progress_task`：进度上报 + 自然结束自动切歌 |
+| `src-tauri/src/commands/music.rs`                                       | L163–L500      | 所有 `#[tauri::command]` 函数                     |
+| `src-tauri/src/modules/audio_player.rs`                                 | L119–L460      | `AudioPlayer`：rodio 播放/seek/音量/模式/列表/标签 |
+| `src-tauri/src/commands/system.rs`                                      | L78–L110       | 媒体键全局快捷键注册（`global_shortcut`）          |
 | `electron/src/styles/music-player.css`                                  | 全文           | 旧版样式（对照参考）                              |
 | `electron/src/scripts/modules/musicPlayer.js`                           | 全文           | 旧版逻辑（对照参考）                              |
 
@@ -176,7 +151,7 @@
   - `src/api/music.ts` 中调用的 `invoke("music_toggle_play")` 等命令，必须在 Rust 端用 `#[tauri::command]` 标注并且在 `tauri::Builder::default().invoke_handler(tauri::generate_handler![...])` 中显式注册，缺一不可。
   - 早期迁移时只写了 `commands/music.rs` 中的 `#[tauri::command]` 函数，忘了在 `lib.rs` / `main.rs` 的 `invoke_handler` 列表里追加 `music::music_toggle_play`、`music::music_get_devices` 等。前端 invoke 直接报"command not found"，store 的 `requestStatus` / `requestDevices` 全部失败，UI 自然没有数据。
 - **错误尝试**：
-  1. 一开始以为是子进程没启动，加了日志发现 `ensure_process` 根本没被调用——因为 Rust 命令根本没注册成功，前端 invoke 在 IPC 层就被拒了。
+  1. 一开始以为是播放器未初始化，加了日志发现 `ensure_init` 根本没被调用——因为 Rust 命令根本没注册成功，前端 invoke 在 IPC 层就被拒了。
   2. 试图在 `MusicPlayer.vue` 的 `onMounted` 里加 retry 逻辑重试 `requestDevices`，毫无意义，因为命令名不存在，重试多少次都一样。
   3. 怀疑过 `MusicState` 没注入 `app.manage(MusicState::default())`，检查后发现已正确注入。
 - **正确方案**：
@@ -202,8 +177,8 @@
         // ... 其他模块命令
     ])
     ```
-  - 注册后重启 Tauri dev server（`npm run tauri dev`），前端 invoke 即可命中 Rust handler，子进程被懒启动，事件回流，UI 正常显示。
-- **验证**：打开 DevTools 控制台不再出现 `command not found`；点击播放按钮后 stderr 日志（`music.exe` 输出）出现 `toggle: 恢复播放`；设备列表弹框能列出系统音频设备。
+  - 注册后重启 Tauri dev server（`npm run tauri dev`），前端 invoke 即可命中 Rust handler，播放器被懒初始化（`ensure_init`），事件回流，UI 正常显示。
+- **验证**：打开 DevTools 控制台不再出现 `command not found`；点击播放按钮后 stderr 日志出现 `toggle: 恢复播放`；设备列表弹框能列出系统音频设备。
 
 ### 4.3 布局结构问题：三行结构与原版按钮位置
 
@@ -449,7 +424,7 @@
 
 v4.5.6 发布后用户实测仍有 2 个残留症状，根因与修法：
 
-1. **刚下载完的歌在 DJ 暂停时显示"获取歌曲中 2%"**：`handleTransferDone` 合并成功后 `void playSong(songId)`（fire-and-forget），若 `playSong` 因文件刚合并/音乐子进程未就绪而失败，旧逻辑 catch 分支自动 `startSongTransfer(songId)`，而 `startSongTransfer` 开头会 `localHasSongs.delete(songId)`（重新视为缺失）→ 重新发起下载；此时 DJ 暂停广播 sync_state 命中缺歌分支 → 显示"获取歌曲中 2%"。**修复**：`playSong` 失败不再自动触发 P2P 下载——缺歌场景本应由 sync_state 缺歌分支驱动 `startSongTransfer`，这里误触发只会删掉"本地已有"标记制造重复下载；播放失败保持已有标记，等下次 sync_state 驱动重播。
+1. **刚下载完的歌在 DJ 暂停时显示"获取歌曲中 2%"**：`handleTransferDone` 合并成功后 `void playSong(songId)`（fire-and-forget），若 `playSong` 因文件刚合并/播放器未就绪而失败，旧逻辑 catch 分支自动 `startSongTransfer(songId)`，而 `startSongTransfer` 开头会 `localHasSongs.delete(songId)`（重新视为缺失）→ 重新发起下载；此时 DJ 暂停广播 sync_state 命中缺歌分支 → 显示"获取歌曲中 2%"。**修复**：`playSong` 失败不再自动触发 P2P 下载——缺歌场景本应由 sync_state 缺歌分支驱动 `startSongTransfer`，这里误触发只会删掉"本地已有"标记制造重复下载；播放失败保持已有标记，等下次 sync_state 驱动重播。
 2. **本地已有的歌也触发下载**：`localHasSongs` 是内存集合，**应用重启后清空**；且歌单加载完成前（`handlePlaylist` 未执行）它一直为空。此时 DJ 播一首本地已有的歌 → `playlist` 空 + `localHasSongs` 空 → 误判缺歌 → 触发 P2P。**修复**：`handlePlaylist` 收到歌单时把**全部歌曲加入 `localHasSongs`**（歌单 = 本地真实存在的歌曲），应用重启后歌单一加载即恢复"本地已有"标记；配合 `deleteSong` 成功时移除，保证标记与本地文件一致。
 
 ### 4.19 传歌失败/重试可见性 + seek 校准容忍度 + WS 断开自动重连（v4.5.8 开发中）
@@ -545,75 +520,46 @@ v4.5.6 发布后用户实测仍有 2 个残留症状，根因与修法：
 
 ---
 
-## 6. 通信协议说明（JSON 命令格式）
+## 6. 命令与事件说明（Rust 原生）
 
 ### 6.1 前端 → Rust（Tauri invoke）
 
-| invoke 命令                | 参数                              | 返回                              | 对应 Python 命令                |
+| invoke 命令                | 参数                              | 返回                              | Rust 实现                       |
 | -------------------------- | --------------------------------- | --------------------------------- | ------------------------------- |
-| `music_toggle_play`        | 无                                | `void`                            | `{"command": "toggle"}`         |
-| `music_next`               | 无                                | `void`                            | `{"command": "next"}`           |
-| `music_prev`               | 无                                | `void`                            | `{"command": "prev"}`           |
-| `music_seek`               | `{ seconds: number }`             | `void`                            | `{"command": "seek", "position": seconds}` |
-| `music_set_volume`         | `{ volume: number }`（0-1）       | `void`                            | `{"command": "set_volume", "volume": volume}` |
-| `music_set_play_mode`      | `{ mode: "shuffle"\|"order"\|"loop" }` | `void`                            | `{"command": "set_play_mode", "mode": mode}` |
-| `music_get_status`         | 无                                | `void`（事件回传）                | `{"command": "get_status"}`     |
-| `music_get_playlist`       | 无                                | `void`（事件回传）                | `{"command": "get_playlist"}`   |
-| `music_get_devices`        | 无                                | `void`（事件回传）                | `{"command": "get_devices"}`    |
-| `music_set_device`         | `{ deviceId: number }`            | `void`                            | `{"command": "set_device", "device_id": deviceId}` |
-| `music_play_song`          | `{ songName: string }`            | `void`                            | `{"command": "play_song", "name": songName}` |
-| `music_delete_song`        | `{ songName: string }`            | `{ success, error? }`             | `{"command": "delete_song", "name": songName}` |
-| `music_get_custom_tags`    | 无                                | `{ success, customTags }`         | `{"command": "get_custom_tags"}` |
-| `music_add_custom_tag`     | `{ tagName, color }`              | `{ success, error? }`             | `{"command": "add_custom_tag", "name": tagName, "color": color}` |
-| `music_delete_custom_tag`  | `{ tagName }`                     | `{ success, error? }`             | `{"command": "delete_custom_tag", "name": tagName}` |
-| `music_update_tag`         | `{ songName, tag, color: string\|null }` | `{ success, error? }`             | `{"command": "update_tag", "name": songName, "tag": tag, "color": color}` |
+| `music_toggle_play`        | 无                                | `void`                            | `AudioPlayer::toggle_play`      |
+| `music_next`               | 无                                | `void`                            | `AudioPlayer::get_next_song`    |
+| `music_prev`               | 无                                | `void`                            | 历史表回溯                       |
+| `music_seek`               | `{ seconds: number }`             | `void`                            | `AudioPlayer::seek`（try_seek） |
+| `music_set_volume`         | `{ volume: number }`（0-1）       | `void`                            | `AudioPlayer::set_volume`       |
+| `music_set_play_mode`      | `{ mode: "shuffle"\|"order"\|"loop" }` | `void`                            | `AudioPlayer::set_play_mode`    |
+| `music_get_status`         | 无                                | `void`（事件回传）                | 快照 + `music-status`           |
+| `music_get_playlist`       | 无                                | `void`（事件回传）                | `refresh_playlist` + `music-playlist` |
+| `music_get_devices`        | 无                                | `void`（事件回传）                | `AudioPlayer::list_devices`     |
+| `music_set_device`         | `{ deviceId: number }`            | `void`                            | cpal 设备切换                    |
+| `music_play_song`          | `{ songName: string }`            | `void`                            | `AudioPlayer::play_song`        |
+| `music_delete_song`        | `{ songName: string }`            | `{ success, error? }`             | 删除文件 + 刷新列表              |
+| `music_get_custom_tags`    | 无                                | `{ success, customTags }`         | 读 `tags.json`                   |
+| `music_add_custom_tag`     | `{ tagName, color }`              | `{ success, error? }`             | 写 `tags.json`                   |
+| `music_delete_custom_tag`  | `{ tagName }`                     | `{ success, error? }`             | 写 `tags.json`                   |
+| `music_update_tag`         | `{ songName, tag, color: string\|null }` | `{ success, error? }`             | 写 `tags.json`                   |
 
-### 6.2 Rust → Python（stdin JSON 行）
+### 6.2 Rust 命令内部行为（无子进程，直接操作 AudioPlayer）
 
-每行一个 JSON 对象，以 `\n` 结尾。例：
+- `toggle_play`：翻转播放状态（rodio `Sink` pause/play），发 `music-play-state`
+- `next`/`prev`：`get_next_song`（shuffle 用 `choose` 随机）/ 历史表回溯，成功后发 `music-track-change`
+- `seek`：优先 `Sink::try_seek`（不重建 sink）；失败降级 `skip_duration` 重建，发进度
+- `set_volume`：更新音量（0-1 clamp）→ 音频流增益，发 `music-volume-change`
+- `set_play_mode`：更新模式，shuffle 重置随机历史，发 `music-play-mode`
+- `get_status` / `get_devices` / `get_playlist`：读当前状态/枚举 cpal 设备/扫描目录，发对应事件
+- `set_device`：切换 cpal 默认输出设备，失败发 `music-play-error`（提示重启）
+- `play_song`：`play_song(name, 0.0)`，解码失败返回 `song_missing` 错误
+- 标签类（`update_tag`/`add_custom_tag`/`delete_custom_tag`/`get_custom_tags`）：读写 `app_data_dir/music/tags.json`
 
-```json
-{"command":"toggle"}
-{"command":"seek","position":45}
-{"command":"set_volume","volume":0.8}
-{"command":"play_song","name":"song.mp3"}
-```
+### 6.3 进度上报与自动切歌（`spawn_progress_task`）
 
-### 6.3 Python → Rust（stdout JSON 行）
-
-每行一个 JSON 对象，结构为 `{"event": "<event_name>", "data": {...}}`，以 `\n` 结尾。例：
-
-```json
-{"event":"ready","data":{"name":"song.mp3","duration":180,"has_prev":true}}
-{"event":"progress","data":{"current":32,"duration":180}}
-{"event":"play_state","data":{"playing":true}}
-{"event":"devices","data":{"devices":[{"id":5,"name":"扬声器","hostapi":"MME","is_default":true}],"current":5}}
-{"event":"playlist","data":{"songs":[{"name":"a.mp3","tag":"学习","tagColor":"#64b4ff"}],"current_song":"a.mp3","current_index":0}}
-```
-
-### 6.4 同步响应机制（pending map）
-
-- Rust `send_command_with_response` 发命令前注册 `oneshot::Sender` 到 `pending: HashMap<String, oneshot::Sender<Value>>`，key 为响应事件标识：
-  - `delete_song` → 监听 `status` 事件且 `data.delete_result` 存在
-  - `get_custom_tags` → 监听 `custom_tags` 事件
-  - `add_custom_tag` → 监听 `custom_tag_added` 事件
-  - `delete_custom_tag` → 监听 `custom_tag_deleted` 事件
-  - `update_tag` → 监听 `tag_updated` 事件
-- 5 秒超时自动清理 pending 项，返回"等待响应超时"。
-- 收到对应事件时唤醒等待者，`read_events` 继续 emit 给前端（这些同步事件不再 emit 给前端，避免重复处理）。
-
-### 6.5 Python 端命令处理（`process_command`）
-
-- `toggle`：翻转 `pause_program`
-- `next`/`prev`：置 `next_one`/`prev_one` 标志，主循环检测后切歌
-- `seek`：置 `seek_position`，播放循环检测后跳帧
-- `set_volume`：直接更新 `state.volume`（0-1，clamp）
-- `set_play_mode`：更新 `play_mode`，shuffle 模式重置历史表
-- `get_status`/`get_devices`/`get_playlist`：立即 `send_event` 返回
-- `set_device`：调用 `DeviceManager.set_device`，成功后 `send_devices` 刷新
-- `play_song`：置 `jump_to_song` + `next_one`，主循环跳转到指定歌曲
-- `delete_song`：删除文件 + `refresh_playlist`，返回 `{"delete_result": "success"|"failed", "delete_error"?}`
-- `update_tag`/`add_custom_tag`/`delete_custom_tag`/`get_custom_tags`：读写 `music/tags.json`
+- tokio 后台任务，每 200ms：
+  - `Sink::get_pos()` → `music-progress`（带曲名，前端按名过滤过期事件）
+  - 检测 `is_song_ended() && is_playing()` → 自然结束 → `get_next_song(true)` 自动播下一首；失败按 `song_missing` / `play_error` / `no_music` 分发事件
 
 ---
 
@@ -624,13 +570,13 @@ v4.5.6 发布后用户实测仍有 2 个残留症状，根因与修法：
 - **检查**：`src-tauri/src/lib.rs` 的 `invoke_handler(tauri::generate_handler![...])` 是否列全了所有 `music_*` 命令。
 - **修复**：补全缺失的命令注册，重启 `npm run tauri dev`。
 
-### 7.2 播放器无任何反应、子进程未启动
+### 7.2 播放器无任何反应、播放器未初始化
 
 - **检查**：
-  1. `music-player/music.exe` 是否存在（开发模式路径：`<project_root>/music-player/music.exe`）。
-  2. `music/` 目录下是否有音频文件（支持 `.wav/.mp3/.flac/.ogg/.m4a`）。
-  3. Rust 日志是否有 `启动 music.exe 失败` 错误。
-- **修复**：重新打包 `music.py` 为 `music.exe`（PyInstaller），或放入音频文件。
+  1. `music/` 目录下是否有音频文件（支持 `.mp3/.m4a/.flac/.wav/.ogg`）。
+  2. Rust 日志是否有 `ensure_init` 失败（如输出设备不可用、解码器缺失）。
+  3. `MusicState.initialized` 是否已置位（首次 `ensure_init` 成功后）。
+- **修复**：放入音频文件；检查系统默认输出设备是否可用（被其他应用独占时 rodio 打开失败）。
 
 ### 7.3 设备列表弹框被裁剪
 
@@ -639,25 +585,25 @@ v4.5.6 发布后用户实测仍有 2 个残留症状，根因与修法：
 
 ### 7.4 播放错误："播放失败，请切换输出设备后重启番茄钟"
 
-- **根因**：Python 端 `Player.play` 检测到进度异常（`progress_error_count >= 3`，即 3 秒内进度没推进），返回 `device_error`。
+- **根因**：rodio 播放失败（输出流打开失败/解码异常），`music-play-error` 事件触发。
 - **修复**：
   1. 打开 🎧 设备列表，切换到另一个输出设备。
-  2. 重启番茄钟（让 `music.exe` 重新初始化）。
+  2. 重启番茄钟（重新初始化音频输出流）。
   3. 检查系统音频设备是否被占用（其他应用独占）。
 
 ### 7.5 歌曲消失提示
 
 - **现象**：播放器显示"⚠️ 原歌曲已消失"。
-- **根因**：`music/` 目录下的当前歌曲文件被外部删除，Python `PlaylistManager.song_exists` 返回 False，触发 `song_missing` 事件。
-- **修复**：Python 端 3 秒后自动随机跳转到下一首可用歌曲；如全部消失，触发 `no_music` 事件，前端显示"无音乐"。
+- **根因**：`music/` 目录下的当前歌曲文件被外部删除，`AudioPlayer::play_song` 解码失败返回 `song_missing`，`spawn_progress_task` 自动切到下一首可用歌曲。
+- **修复**：无需手动处理——自动跳转下一首；全部消失时发 `music-no-music`，前端显示"无音乐"。
 
 ### 7.6 音量调节无效果
 
 - **检查**：
-  1. 滑块值是否传到 Rust（DevTools Network/Console 看 invoke 调用）。
-  2. Rust `send_command` 是否成功写入 stdin（看 stderr 日志 `set_volume命令: 0.8`）。
+  1. 滑块值是否传到 Rust（DevTools Console 看 invoke 调用）。
+  2. Rust `set_volume` 是否更新音量（stderr 日志）。
   3. 系统混音器是否静音。
-- **修复**：重启 `music.exe`；检查 `sd.default.device` 是否指向有效设备。
+- **修复**：重启番茄钟；检查默认输出设备是否有效（rodio 增益作用于当前 Sink）。
 
 ### 7.7 收起/展开动画卡顿
 
@@ -667,30 +613,29 @@ v4.5.6 发布后用户实测仍有 2 个残留症状，根因与修法：
 ### 7.8 播放列表不刷新
 
 - **检查**：点击 🔄 刷新按钮是否触发 `store.requestPlaylist()`。
-- **修复**：Python 端 `get_playlist` 命令会调用 `PlaylistManager.refresh_playlist()` 重新扫描目录，确保 `music/` 目录有变更后再点刷新。
+- **修复**：`music_get_playlist` 命令调用 `AudioPlayer::refresh_playlist` 重新扫描目录，确保 `music/` 目录有变更后再点刷新。
 
 ### 7.9 标签颜色不生效
 
-- **检查**：`music/tags.json` 中歌曲条目是否为 `{"name": "学习", "color": "#64b4ff"}` 新格式；旧格式（纯字符串）需要 `PlaylistManager.get_song_tag` 兼容处理。
-- **修复**：通过 `music_update_tag` 命令重新设置标签，Python 端会写入新格式。
+- **检查**：`music/tags.json` 中歌曲条目是否为 `{"name": "学习", "color": "#64b4ff"}` 新格式；旧格式（纯字符串）由 Rust 端兼容处理。
+- **修复**：通过 `music_update_tag` 命令重新设置标签，Rust 端写入新格式。
 
 ### 7.10 快捷键冲突
 
-- **现象**：右 Ctrl + 方向键被番茄钟主界面拦截，无法调音量/切歌。
-- **根因**：前端某些组件监听了相同按键。
-- **修复**：Python 端 `pynput` 是全局快捷键，优先级高于前端；如仍冲突，检查前端是否有 `keydown` 监听拦截了 `Ctrl+Arrow`。
+- **现象**：媒体键（播放/暂停、上一首、下一首）与其他应用冲突。
+- **根因**：`tauri_plugin_global_shortcut` 注册的全局快捷键可能被系统/其他应用抢占。
+- **修复**：快捷键冲突时由系统裁决（不强制抢占），检查其他媒体控制软件（如播放器、语音助手）是否占用媒体键。
 
 ---
 
 ## 附录：迁移要点速查
 
-1. **保留 Python 子进程**：`music.py` 与 `music.exe` 不变，Rust 通过 stdin/stdout JSON 行通信。
-2. **前端只管 UI**：所有播放操作走 `invoke` → Rust → Python，前端不直接操作音频。
-3. **事件驱动**：前端通过 `useTauriEvent` 注册监听，Store 的 `handle*` 方法更新状态。
-4. **同步命令**：少数需要返回值的命令（删除/标签）用 `oneshot + pending map + 5s 超时`。
+1. **Rust 原生播放**：音频由 `modules/audio_player.rs`（rodio + cpal + symphonia）直接播放，无 Python 子进程、无 stdin/stdout。
+2. **前端只管 UI**：所有播放操作走 `invoke` → Rust `music_*` 命令 → 直接操作 `AudioPlayer`。
+3. **事件驱动**：前端通过 `useTauriEvent` 注册监听，Store 的 `handle*` 方法更新状态；事件全部由 Rust 层 `app.emit`。
+4. **同步命令**：需要返回值的命令（删除/标签）由命令函数直接返回 `Result`，Tauri IPC 同步回传。
 5. **样式对照旧版**：`electron/src/styles/music-player.css` 是权威参考，迁移时类名从 kebab-case 改为 BEM（`.music-device-list` → `.music-device__list`），但布局结构与尺寸完全对齐。
 6. **z-index 规划**：`.music-player` 200，内部弹层 9999，音量拨动条 1000，收起按钮 10。
 7. **三行结构**：信息行 → 进度条行 → 控制行，中间按钮居中，左右按钮绝对定位。
 8. **收起动画**：`max-height` 过渡 + `opacity/visibility` 配合，0.45s `cubic-bezier(0.5,0,0.5,1)`。
-9. **进程存活检测**：Python 端检查 `stdin_thread.is_alive()`，父进程崩溃时自动退出。
-10. **资源路径**：开发模式 `<project_root>/music-player/music.exe`，生产模式 `resource_dir/music.exe`。
+9. **音乐目录**：开发模式 `<project_root>/music-player/music/`，生产模式 `app_data_dir/music`（安装/更新不覆盖，见 4.1）。
