@@ -27,6 +27,8 @@ import type {
 } from "@/api/music";
 
 const store = useMusicStore();
+/** 传歌自动重试上限（与 music store 的 TRANSFER_MAX_RETRY 一致，仅用于展示"第 n/3 次重试"） */
+const TRANSFER_MAX_RETRY_HINT = 3;
 const settings = useSettingsStore();
 
 const emit = defineEmits<{
@@ -51,11 +53,12 @@ const trackDisplay = computed(() => {
   const transferActive =
     (transfer.state === "requesting" || transfer.state === "downloading") && !store.playing;
   if (transferActive) {
+    const retry = transfer.retryCount > 0 ? `（第 ${transfer.retryCount}/${TRANSFER_MAX_RETRY_HINT} 次重试）` : "";
     if (transfer.total > 0) {
       const pct = Math.floor((transfer.received / transfer.total) * 100);
-      return `⏳ 获取歌曲中… ${pct}%`;
+      return `⏳ 获取歌曲中… ${pct}%${retry}`;
     }
-    return `⏳ 获取歌曲中…《${transfer.songName}》`;
+    return `⏳ 获取歌曲中…《${transfer.songName}》${retry}`;
   }
   if (store.waitingForSongs) return "⏳ 等待其他用户下载歌曲…";
   if (store.missingSongName) return `⚠️ 无这首歌：《${store.missingSongName}》`;

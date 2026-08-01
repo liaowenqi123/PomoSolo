@@ -452,6 +452,15 @@ v4.5.6 发布后用户实测仍有 2 个残留症状，根因与修法：
 1. **刚下载完的歌在 DJ 暂停时显示"获取歌曲中 2%"**：`handleTransferDone` 合并成功后 `void playSong(songId)`（fire-and-forget），若 `playSong` 因文件刚合并/音乐子进程未就绪而失败，旧逻辑 catch 分支自动 `startSongTransfer(songId)`，而 `startSongTransfer` 开头会 `localHasSongs.delete(songId)`（重新视为缺失）→ 重新发起下载；此时 DJ 暂停广播 sync_state 命中缺歌分支 → 显示"获取歌曲中 2%"。**修复**：`playSong` 失败不再自动触发 P2P 下载——缺歌场景本应由 sync_state 缺歌分支驱动 `startSongTransfer`，这里误触发只会删掉"本地已有"标记制造重复下载；播放失败保持已有标记，等下次 sync_state 驱动重播。
 2. **本地已有的歌也触发下载**：`localHasSongs` 是内存集合，**应用重启后清空**；且歌单加载完成前（`handlePlaylist` 未执行）它一直为空。此时 DJ 播一首本地已有的歌 → `playlist` 空 + `localHasSongs` 空 → 误判缺歌 → 触发 P2P。**修复**：`handlePlaylist` 收到歌单时把**全部歌曲加入 `localHasSongs`**（歌单 = 本地真实存在的歌曲），应用重启后歌单一加载即恢复"本地已有"标记；配合 `deleteSong` 成功时移除，保证标记与本地文件一致。
 
+### 4.19 传歌失败/重试可见性 + seek 校准容忍度 + WS 断开自动重连（v4.5.8 开发中）
+
+用户实测反馈 4 个问题（前 2 个根因在服务器侧，已留言联调；后 2 个纯客户端修复）：
+
+1. **传歌失败三阶段（% → 《歌名》 → 无这首歌）且重试几乎不成功**：客户端侧改进——`songTransfer` 新增 `retryCount`，超时重试时写入并在 UI 显示"（第 n/3 次重试）"，用户能明确看到在自动重试而非卡死；重试时复位 `lastChunkAt`。**根因疑似服务器**（重复 request_song 被忽略 / 传输状态未清理 / transfer_failed 未及时转发），已留言协议文档，待服务器确认后闭环。
+2. **下载失败后从自习室掉出（其他客户端看到掉线，需退出重进）**：客户端侧防御——Rust `ws.rs` 连接断开时 emit `ws-disconnected`；`StudyRoom.vue` 监听后若在房间内，提示"连接断开，正在自动重连…"，3s 后自动：① `musicSyncRequestState()` 触发 Rust 重新建立 WS 连接；② 重新 `studyRoomJoin` 让服务器恢复成员关系；③ 刷新成员/排名。**根因疑似服务器**（P2P 传输失败触发未捕获异常断开用户 WS / 移除房间成员），已留言排查。
+3. **已有 DJ 的房间开启同步后显示"DJ 暂无"（能听歌但 djName 空）**：`djName` 只在 `music:dj_changed`（DJ 切换）时更新，加入已有 DJ 房间时服务器未补发。**纯服务器需求**：`room:join` / `music:request_state` 时补发 `music:dj_changed { dj_user_id, dj_username }`（客户端已能处理，无需改代码）。
+4. **DJ 切歌时听众听到 AABCD 重复开头（多次 seek 校准导致回跳）**：DJ 切歌/传歌期间广播 sync_state 较频繁（5s 一次），听众端每次收到都无条件 `seek(posSec)`，进度小偏差也被反复回跳。**修复**：新增 `SYNC_SEEK_TOLERANCE_S = 2` 容忍度与 `seekIfFar(target)`——`|本地进度 - 目标| ≤ 2s` 时不 seek，超过 2s 才校准；`applySyncState` / `applyMusicState` 的所有校准点（同歌分支、切歌后 800ms、pause/seek 动作）统一改用 `seekIfFar`。下载完成后的对齐（`pendingSyncPosition`）保持无条件 seek，不受容忍度影响。
+
 ---
 
 ## 5. 最终布局结构清单

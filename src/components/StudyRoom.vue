@@ -33,6 +33,7 @@ import {
 } from "@/api/studyRoom";
 import { useAuthStore } from "@/stores/auth";
 import { useMusicStore } from "@/stores/music";
+import { musicSyncRequestState } from "@/api/musicSync";
 
 interface Props {
   /** 是否显示 */
@@ -101,6 +102,8 @@ onUnmounted(() => {
   stopRefresh();
   if (toastTimer) clearTimeout(toastTimer);
   if (unlistenWs) unlistenWs();
+  if (unlistenWsDisconnected) unlistenWsDisconnected();
+  if (reconnectTimer) clearTimeout(reconnectTimer);
 });
 
 // ===== WebSocket 实时事件 =====
@@ -111,6 +114,41 @@ let unlistenWs: UnlistenFn | null = null;
 void listen<unknown>("ws-event", (e) => handleWsEvent(e.payload))
   .then((fn) => {
     unlistenWs = fn;
+  })
+  .catch(() => {
+    /* jsdom 测试环境无 Tauri，静默 */
+  });
+
+// WS 断开（Rust ws.rs 清理连接时 emit）：若正在房间内，提示并自动重连恢复
+// （先触发 WS 重连，再重新 join 让服务器恢复成员关系，避免"要退出重进才行"）
+let unlistenWsDisconnected: UnlistenFn | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnecting = false;
+void listen<unknown>("ws-disconnected", () => {
+  if (!currentRoom.value || view.value !== "room") return;
+  if (reconnecting) return;
+  reconnecting = true;
+  showToast("网络连接断开，正在自动重连…");
+  reconnectTimer = setTimeout(async () => {
+    const roomId = currentRoom.value?.id;
+    try {
+      // 触发 Rust 端重新建立 WS 连接（ensure_connected 幂等）
+      await musicSyncRequestState();
+      if (roomId) {
+        await studyRoomJoin(roomId);
+        await refreshRoomData();
+      }
+      showToast("已重新连接");
+    } catch (err) {
+      console.warn("[StudyRoom] 自动重连失败:", err);
+      showToast("自动重连失败，请退出后重新进入");
+    } finally {
+      reconnecting = false;
+    }
+  }, 3000);
+})
+  .then((fn) => {
+    unlistenWsDisconnected = fn;
   })
   .catch(() => {
     /* jsdom 测试环境无 Tauri，静默 */

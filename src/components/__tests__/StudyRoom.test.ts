@@ -623,16 +623,17 @@ describe("StudyRoom.vue", () => {
     expect(list.findAll(".room-list-item")).toHaveLength(2);
   });
 
-  it("组件卸载时取消 ws-event 监听", async () => {
+  it("组件卸载时取消 ws-event / ws-disconnected 监听", async () => {
     const unlistenSpy = vi.fn();
     eventListenMock.mockImplementation(() => Promise.resolve(unlistenSpy));
     const wrapper = mountComponent(true);
     await flushPromises();
-    // 组件挂载时注册了 ws-event 监听
+    // 组件挂载时注册了 ws-event + ws-disconnected 监听
     expect(eventListenMock).toHaveBeenCalledWith("ws-event", expect.any(Function));
+    expect(eventListenMock).toHaveBeenCalledWith("ws-disconnected", expect.any(Function));
     wrapper.unmount();
     await flushPromises();
-    // 卸载时应调用 unlisten 清理监听
-    expect(unlistenSpy).toHaveBeenCalledTimes(1);
+    // 卸载时应调用 unlisten 清理两个监听
+    expect(unlistenSpy).toHaveBeenCalledTimes(2);
   });
 });

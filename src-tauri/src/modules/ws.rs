@@ -115,6 +115,8 @@ pub async fn ensure_connected(
         }
         // 连接断开：清理状态
         connected_flag.store(false, Ordering::Relaxed);
+        // 通知前端（用于自习室等场景自动重连提示/重进房间）
+        let _ = handle.emit("ws-disconnected", ());
         {
             let mut guard = write_guard.lock().await;
             *guard = None;

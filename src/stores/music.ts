@@ -125,6 +125,8 @@ export const useMusicStore = defineStore("music", () => {
     total: number;
     /** 最近一次发出 request_song 的时间（用于超时重发） */
     startedAt: number;
+    /** 已自动重试次数（0 起，UI 展示"第 n/m 次重试"） */
+    retryCount: number;
   }
   const songTransfer = ref<SongTransferState>({
     state: "idle",
@@ -132,6 +134,7 @@ export const useMusicStore = defineStore("music", () => {
     received: 0,
     total: 0,
     startedAt: 0,
+    retryCount: 0,
   });
   /** 传歌期间暂存的 DJ 播放进度（秒），合并完成后用于立即 seek 校准 */
   let pendingSyncPosition = 0;
@@ -147,6 +150,12 @@ export const useMusicStore = defineStore("music", () => {
   const TRANSFER_TIMEOUT_MS = 12_000;
   /** 传输最大重试次数：多次机会但每次阈值低，避免干等很久才报错 */
   const TRANSFER_MAX_RETRY = 3;
+  /**
+   * 同步进度校准容忍度（秒）：|本地进度 - DJ 进度| 在该范围内不 seek。
+   * 避免 DJ 广播 sync_state 较频繁时（切歌/传歌期间 5s 一次）反复 seek 导致
+   * 播放"回跳"（听到 AABCD 重复开头）；超过 2s 才校准对齐。
+   */
+  const SYNC_SEEK_TOLERANCE_S = 2;
   /** 传输兜底检查定时器：requesting/downloading 超时无进展 → 自动重新下载（最多 N 次） */
   let transferWatchTimer: ReturnType<typeof setInterval> | null = null;
   /**
@@ -168,19 +177,21 @@ export const useMusicStore = defineStore("music", () => {
           : t.state === "downloading" && lastChunkAt > 0 && now - lastChunkAt > TRANSFER_TIMEOUT_MS;
       if (!stuck) return;
       if (transferRetry < TRANSFER_MAX_RETRY) {
-        // 超时自动重新下载：复位后重新发起请求
+        // 超时自动重新下载：复位后重新发起请求（每次机会阈值低，避免干等很久）
         transferRetry += 1;
         console.warn(
           `[MusicStore] 传歌超时无进展，自动重新下载 ${transferRetry}/${TRANSFER_MAX_RETRY}:`,
           t.songName,
         );
         const songId = t.songName;
+        lastChunkAt = 0;
         songTransfer.value = {
           state: "requesting",
           songName: songId,
           received: 0,
           total: 0,
           startedAt: now,
+          retryCount: transferRetry,
         };
         void musicSyncRequestSong(songId).catch((e) => {
           console.warn("[MusicStore] 重新下载请求失败:", e);
@@ -189,7 +200,7 @@ export const useMusicStore = defineStore("music", () => {
         // 重试耗尽 → 降级为"无这首歌"（不再卡住曲名）
         console.warn("[MusicStore] 传歌多次重试失败，降级为无这首歌:", t.songName);
         const songId = t.songName;
-        songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0 };
+        songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0 };
         lastChunkAt = 0;
         transferRetry = 0;
         if (songId) missingSongName.value = songId;
@@ -349,6 +360,17 @@ export const useMusicStore = defineStore("music", () => {
     }
   }
 
+  /**
+   * 同步校准 seek（带容忍度）：|本地进度 - 目标| 超过 SYNC_SEEK_TOLERANCE_S 才跳转。
+   * 用于听众端应用 DJ sync_state / music:state 时的进度对齐，
+   * 避免广播频繁时反复 seek 造成播放回跳（如听到 AABCD 重复开头）。
+   */
+  function seekIfFar(targetSec: number): void {
+    if (Math.abs(currentTime.value - targetSec) > SYNC_SEEK_TOLERANCE_S) {
+      void seek(targetSec);
+    }
+  }
+
   /** 设置音量（0-1） */
   async function setVolume(v: number) {
     volume.value = v;
@@ -448,7 +470,7 @@ export const useMusicStore = defineStore("music", () => {
       if (t.songName === songId) return; // 同一首歌已在传输
       // 目标歌已变：中断旧传输（残留分片由 Rust finalize 清理，同名覆盖），启动新的
       console.warn("[MusicStore] DJ 已切歌，中断旧传输:", t.songName, "→", songId);
-      songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0 };
+      songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0 };
       lastChunkAt = 0;
       transferRetry = 0;
     }
@@ -459,13 +481,14 @@ export const useMusicStore = defineStore("music", () => {
       received: 0,
       total: 0,
       startedAt: Date.now(),
+      retryCount: 0,
     };
     try {
       await musicSyncRequestSong(songId);
       // 等待服务器分配持有者并转发分片（music:song_chunk）
     } catch (e) {
       console.warn("[MusicStore] 请求传歌失败:", e);
-      songTransfer.value = { state: "failed", songName: songId, received: 0, total: 0, startedAt: 0 };
+      songTransfer.value = { state: "failed", songName: songId, received: 0, total: 0, startedAt: 0, retryCount: 0 };
     }
   }
 
@@ -507,7 +530,7 @@ export const useMusicStore = defineStore("music", () => {
       Number(evt.total_chunks) > 0
         ? Number(evt.total_chunks)
         : songTransfer.value.total;
-    songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0 };
+    songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0 };
     lastChunkAt = 0;
     try {
       const res = await musicFinalizeSong(songId, totalChunks);
@@ -549,7 +572,7 @@ export const useMusicStore = defineStore("music", () => {
   function handleTransferFailed(evt: Record<string, unknown>) {
     const songId = typeof evt.song_id === "string" ? evt.song_id : "";
     if (songTransfer.value.state !== "idle") {
-      songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0 };
+      songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0 };
     }
     if (songId) missingSongName.value = songId;
   }
@@ -791,7 +814,7 @@ export const useMusicStore = defineStore("music", () => {
     currentTime.value = 0;
     duration.value = 0;
     // 同步听歌无歌可播时复位 P2P 传输状态
-    songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0 };
+    songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0 };
   }
 
   function handlePlayError(payload: MusicPlayErrorPayload) {
@@ -857,7 +880,7 @@ export const useMusicStore = defineStore("music", () => {
       djName.value = "";
       djUserId.value = null;
       waitingForSongs.value = false;
-      songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0 };
+      songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0 };
       lastChunkAt = 0;
       stopTransferWatch();
     }
@@ -898,17 +921,17 @@ export const useMusicStore = defineStore("music", () => {
         pendingSyncPosition = 0;
         missingSongName.value = null;
         void playSong(songId);
-        // 播放器加载需要时间，稍后跳转到目标位置
-        window.setTimeout(() => void seek(posSec), 800);
+        // 播放器加载需要时间，稍后跳转到目标位置（带容忍度，避免小偏差回跳）
+        window.setTimeout(() => seekIfFar(posSec), 800);
       } else {
         if (!playing.value) void togglePlay();
-        void seek(posSec);
+        seekIfFar(posSec);
       }
     } else if (action === "pause") {
       if (playing.value) void togglePlay();
-      void seek(posSec);
+      seekIfFar(posSec);
     } else if (action === "seek") {
-      void seek(posSec);
+      seekIfFar(posSec);
     } else if (action === "next") {
       void next();
     }
@@ -956,13 +979,14 @@ export const useMusicStore = defineStore("music", () => {
             if (playing.value) void togglePlay();
           }, 900);
         }
-        window.setTimeout(() => void seek(posSec), 800);
+        // 稍后校准到 DJ 进度（带容忍度，避免反复 seek 回跳）
+        window.setTimeout(() => seekIfFar(posSec), 800);
       } else {
         // 同歌：校准播放状态 + 进度（DJ 开始播放，清除等待提示）
         waitingForSongs.value = false;
         if (djPlaying && !playing.value) void togglePlay();
         if (!djPlaying && playing.value) void togglePlay();
-        void seek(posSec);
+        seekIfFar(posSec);
       }
     } else {
       // DJ 无当前歌曲：仅同步播放状态
