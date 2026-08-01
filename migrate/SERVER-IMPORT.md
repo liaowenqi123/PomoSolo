@@ -1,22 +1,24 @@
 # 服务器部门：从 Supabase 拉取并导入数据
 
-> 本文件给服务器部门使用：**直接用 Supabase 凭据从 REST API 拉取老数据**，
-> 导入到自建服务器 PostgreSQL，无需经过客户端导出脚本。
-> 客户端侧的 `scripts/migrate-supabase.mjs` 只是另一种可选方式（导出 JSON 文件），两者等价。
+> **状态**: ✅ 已完成（2026-08-01）
+>
+> ⚠️ **凭据已移除**：本文件原包含 Supabase 项目 URL 和 API Key，因本项目即将公开到 GitHub，
+> 且迁移已全部完成，故凭据已从仓库中删除。Supabase 项目建议尽快关停（数据已全部迁移，
+> 继续保留存在数据泄露风险）。如需复跑迁移流程，请向管理员索取新的凭据后替换下方占位符。
 
 ---
 
-## 1. Supabase 凭据
+## 1. Supabase 凭据（已移除）
 
 | 项 | 值 |
 |----|----|
-| 项目 URL | `https://sjexeynibnfqxvwehnxk.supabase.co` |
-| API Key（anon/publishable） | `sb_publishable_NtzlEhTWwC4qpSY0DEvQ0Q_ER6yJoTz` |
-| REST 基地址 | `https://sjexeynibnfqxvwehnxk.supabase.co/rest/v1` |
+| 项目 URL | `<SUPABASE_URL>` |
+| API Key（anon/publishable） | `<ANON_KEY>` |
+| REST 基地址 | `<SUPABASE_URL>/rest/v1` |
 
-> 注意：anon key 是 Supabase 设计为公开的（权限由数据库 RLS 控制）。
-> 本项目的 users / feedback / study_rooms 表 RLS 均放行（`USING (true)`），
-> 因此该 key 可读全部数据。迁移完成后建议关停或删除该 Supabase 项目。
+> anon key 是 Supabase 设计为公开的（权限由数据库 RLS 控制），
+> 但本项目 users / feedback / study_rooms 表 RLS 均放行（`USING (true)`），
+> 任何拿到 key 的人可读全部数据。迁移完成后关停/删除 Supabase 项目是最安全的做法。
 
 ## 2. 拉取方式（curl 示例）
 
@@ -24,18 +26,18 @@
 
 ```bash
 H_AUTH=(
-  -H "apikey: sb_publishable_NtzlEhTWwC4qpSY0DEvQ0Q_ER6yJoTz"
-  -H "Authorization: Bearer sb_publishable_NtzlEhTWwC4qpSY0DEvQ0Q_ER6yJoTz"
+  -H "apikey: <ANON_KEY>"
+  -H "Authorization: Bearer <ANON_KEY>"
 )
 
 curl -s "${H_AUTH[@]}" \
-  "https://sjexeynibnfqxvwehnxk.supabase.co/rest/v1/users?select=*" -o users.json
+  "<SUPABASE_URL>/rest/v1/users?select=*" -o users.json
 
 curl -s "${H_AUTH[@]}" \
-  "https://sjexeynibnfqxvwehnxk.supabase.co/rest/v1/feedback?select=*" -o feedbacks.json
+  "<SUPABASE_URL>/rest/v1/feedback?select=*" -o feedbacks.json
 
 curl -s "${H_AUTH[@]}" \
-  "https://sjexeynibnfqxvwehnxk.supabase.co/rest/v1/study_rooms?select=*" -o study_rooms.json
+  "<SUPABASE_URL>/rest/v1/study_rooms?select=*" -o study_rooms.json
 ```
 
 如数据量大（>1000 行），加分页：`?select=*&offset=0&limit=1000` 循环拉取。
@@ -68,7 +70,7 @@ curl -s "${H_AUTH[@]}" \
 | `remark` | text | 备注，可空 |
 | `create_time` | timestamptz | 提交时间 |
 
-### study_rooms（自习室，可选迁移）
+### study_rooms（自习室）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -97,16 +99,7 @@ pbkdf2$100000$<salt>$<password_hash>
 
 即：`"pbkdf2$100000$" + salt + "$" + password_hash`（两段都是 hex，中间用 `$` 拼接）。
 
-示例：`salt = "a1b2...e0f1"`、`hash = "9f8e...abcd"` →
-
-```
-pbkdf2$100000$a1b2...e0f1$9f8e...abcd
-```
-
 服务器登录校验时按 `pbkdf2$100000$<salt>$<hash_hex>` 解析并重算比对（已实现，见 `server-planning/API-implementation.md`）。老用户无需改密码。
-
-> 若个别用户 `password_hash` 为空（如曾用 `--reset-passwords` 导出），
-> 置空后让用户走"忘记密码"流程。
 
 ### 4.2 users 导入
 
@@ -125,18 +118,12 @@ VALUES (
 ON CONFLICT (username) DO NOTHING;
 ```
 
-同时建立 **旧 id → 新 UUID 映射表**（供 feedback / study_rooms 关联转换）：
-
-```sql
-CREATE TEMP TABLE id_map (old_id integer PRIMARY KEY, new_id uuid);
--- 每条用户插入后记录映射
-INSERT INTO id_map VALUES (<old_id>, '<new_uuid>');
-```
+同时建立 **旧 id → 新 UUID 映射表**（供 feedback / study_rooms 关联转换）。
 
 ### 4.3 feedback 导入
 
 ```sql
-INSERT INTO feedbacks (id, user_id, content, status, remark, create_time)
+INSERT INTO feedbacks (user_id, feedback_content, feedback_status, remark, create_time)
 SELECT f.id,
        m.new_id,                 -- 旧 user_id → 新 UUID
        f.feedback_content,
@@ -147,7 +134,7 @@ FROM <拉取的 feedbacks 数据> f
 JOIN id_map m ON m.old_id = f.user_id;
 ```
 
-### 4.4 study_rooms 导入（可选）
+### 4.4 study_rooms 导入（仅迁移 is_active 房间）
 
 ```sql
 INSERT INTO study_rooms (id, name, description, owner_id, max_members, is_public, created_at)
@@ -158,7 +145,7 @@ JOIN id_map m ON m.old_id = r.creator_id;
 
 > 若房间 id 与服务器现有 UUID 无冲突，直接沿用旧 uuid；否则可重新 `gen_random_uuid()`。
 
-## 5. 验证
+## 5. 验证（迁移时已通过）
 
 ```bash
 # 用老账号登录新服务器（密码不变）
@@ -169,9 +156,10 @@ curl -X POST http://115.159.49.112/api/v1/auth/login \
 # 应返回 200 + access_token / refresh_token
 ```
 
-## 6. 检查清单
+## 6. 迁移结果（2026-08-01 已执行）
 
-- [ ] users 已导入，`username` 无冲突，密码哈希已按 `pbkdf2$100000$...` 组装
-- [ ] 老账号登录验证通过（至少 1-2 个账号实测）
-- [ ] feedback 的 user_id 已正确映射到新 UUID
-- [ ] （可选）study_rooms 已导入，creator 映射正确
+- ✅ 32 个老用户导入（username 无冲突，admin 标记保留）
+- ✅ 老账号实测登录通过（无需改密码）
+- ✅ 10 条反馈导入，user_id 正确映射到新 UUID
+- ✅ 5 个有效自习室导入（7 个无效测试房跳过）
+- ✅ 服务器容器内迁移数据已清理
