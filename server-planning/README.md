@@ -65,8 +65,9 @@
 -- 用户表（替代 Supabase Auth）
 CREATE TABLE users (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email         VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,          -- bcrypt
+    username      VARCHAR(100) UNIQUE NOT NULL,   -- 登录标识（客户端用用户名登录）
+    email         VARCHAR(255) UNIQUE,            -- 可选，未来找回密码用
+    password_hash VARCHAR(255) NOT NULL,          -- bcrypt（迁移脚本按 Supabase 的 PBKDF2-SHA512 格式导入）
     nickname      VARCHAR(100),
     avatar_url    TEXT,
     created_at    TIMESTAMPTZ DEFAULT NOW(),
@@ -176,38 +177,45 @@ CREATE TABLE room_members_history (
 ```
 Request:
 {
-  "email": "user@example.com",
-  "password": "********",
-  "nickname": "番茄侠"       // 可选
+  "username": "番茄侠",            // ← 登录标识，必填（客户端登录框是用户名）
+  "email": "user@example.com",     // 可选（未来找回密码用）
+  "password": "********"
 }
 
 Response 201:
 {
-  "user": { "id": "uuid", "email": "...", "nickname": "..." },
+  "user": { "id": "uuid", "username": "...", "email": "...", "nickname": "..." },
   "access_token": "eyJ...",
   "refresh_token": "r_..."
 }
 
-Response 409: { "error": "邮箱已注册" }
+Response 409: { "error": "用户名已注册" }
 ```
+
+> **⚠️ 重要说明（对服务器部门）**：客户端登录表单是**用户名 + 密码**，不是邮箱。
+> 请保证：
+> 1. `users` 表必须支持 `username` 字段作为唯一登录标识（当前表结构是 `email` 主登录，需新增 `username VARCHAR UNIQUE`）。
+> 2. `POST /auth/login` 同时接受 `username` 或 `email` 字段（兼容两端）。
+> 3. 返回的 `user` 对象里必须有 `username` 字段（客户端 Session 依赖）。
+> 4. 老数据迁移脚本会按 Supabase 的 `users` 表（id, username, password_hash, salt）导入。
 
 #### `POST /api/v1/auth/login`
 登录
 ```
 Request:
 {
-  "email": "user@example.com",
+  "username": "番茄侠",           // 或 "email"
   "password": "********"
 }
 
 Response 200:
 {
-  "user": { "id": "uuid", "email": "...", "nickname": "..." },
+  "user": { "id": "uuid", "username": "...", "email": "...", "nickname": "..." },
   "access_token": "eyJ...",
   "refresh_token": "r_..."
 }
 
-Response 401: { "error": "邮箱或密码错误" }
+Response 401: { "error": "用户名或密码错误" }
 ```
 
 #### `POST /api/v1/auth/refresh`

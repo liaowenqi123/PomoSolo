@@ -19,8 +19,8 @@ Access Token 有效期 15 分钟，过期后用 refresh token 换新的。
 
 | 方法 | 路径 | 认证 | 说明 |
 |------|------|------|------|
-| POST | `/auth/register` | 否 | 注册：email + password → user + tokens |
-| POST | `/auth/login` | 否 | 登录：email + password → user + tokens |
+| POST | `/auth/register` | 否 | 注册：**username** + password → user + tokens |
+| POST | `/auth/login` | 否 | 登录：**username** + password → user + tokens |
 | POST | `/auth/refresh` | 否 | 刷新：refresh_token → 新 tokens |
 | POST | `/auth/logout` | 是 | 登出：删除 refresh token |
 | GET  | `/auth/session` | 是 | 当前会话信息 |
@@ -29,6 +29,9 @@ Access Token 有效期 15 分钟，过期后用 refresh token 换新的。
 | POST | `/feedback` | 是 | 提交反馈 { content } |
 | GET  | `/feedback` | 是 | 获取我的反馈列表 |
 | DELETE | `/feedback/:id` | 是 | 删除我的反馈 |
+
+> **⚠️ 认证约定**：客户端用 **username**（不是 email）登录。`users` 表需含 `username UNIQUE`，
+> `/auth/login` 同时接受 `username` 或 `email`，返回的 `user` 必须含 `username` 字段。
 
 ### P1 - 近期需要（数据同步）
 
