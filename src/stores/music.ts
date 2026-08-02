@@ -171,6 +171,48 @@ export const useMusicStore = defineStore("music", () => {
    */
   let lastSyncTs = 0;
 
+  // ===== DJ 操作串行队列（"原子锁"） =====
+  //
+  // 所有"播放器副作用"（切歌 playSong / 播放暂停 togglePlay / 进度校准 seek）
+  // 统一经此队列串行执行，杜绝多条 DJ 信息同时进入时交错执行导致状态错乱：
+  // - 带时间戳：ts <= 已处理最新时间戳的操作直接丢弃（迟到的旧操作不执行）
+  // - 一次只做一个操作（锁）；执行中到达的新操作堆积为"最新操作"
+  //   （只保留 ts 最大的，中间操作舍去）
+  // - 执行完记录已完成时间戳：队列中若有更新操作（ts > 已处理）继续执行，否则整队丢弃
+  let djOpBusy = false;
+  let djOpQueued: { ts: number; run: () => Promise<void> | void } | null = null;
+  let djOpLastTs = 0;
+
+  function runDjOp(ts: number, run: () => Promise<void> | void): void {
+    // 旧操作（已被更新操作覆盖/已完成）：直接丢弃。ts<=0（如 -1 的 seek 校准）
+    // 不参与新旧判定，仅要求串行执行
+    if (ts > 0 && ts <= djOpLastTs) return;
+    if (djOpBusy) {
+      // 在途：堆积为最新操作（ts 大者覆盖，中间操作舍去；ts 相等时后到覆盖）
+      if (!djOpQueued || ts >= djOpQueued.ts) djOpQueued = { ts, run };
+      return;
+    }
+    djOpBusy = true;
+    if (ts > djOpLastTs) djOpLastTs = ts;
+    void (async () => {
+      try {
+        await run();
+      } catch (e) {
+        console.warn("[MusicStore] DJ 操作执行失败:", e);
+      } finally {
+        djOpBusy = false;
+        // 队列中最新操作比已完成的更新 → 继续执行，否则整队丢弃
+        if (djOpQueued && (djOpQueued.ts <= 0 || djOpQueued.ts > djOpLastTs)) {
+          const next = djOpQueued;
+          djOpQueued = null;
+          runDjOp(next.ts, next.run);
+        } else {
+          djOpQueued = null;
+        }
+      }
+    })();
+  }
+
   /**
    * 播放列表是否已加载完成（handlePlaylist 收到过歌单）。
    * 同步广播可能先于歌单加载到达：歌单未加载时 playlist 为空数组，
@@ -386,14 +428,22 @@ export const useMusicStore = defineStore("music", () => {
    * 同步校准 seek（带容忍度）：|本地进度 - 目标| 超过 SYNC_SEEK_TOLERANCE_S 才跳转。
    * 用于听众端应用 DJ sync_state / music:state 时的进度对齐，
    * 避免广播频繁时反复 seek 造成播放回跳（如听到 AABCD 重复开头）。
+   *
+   * 走 DJ 操作串行队列：校准 seek 与切歌/播放暂停互斥（一次只做一个播放器操作），
+   * 多条 DJ 信息同时进入时按"最新优先"串行执行，不会交错。
    */
   function seekIfFar(targetSec: number): void {
-    // 目标超界（DJ 位置超过当前歌曲时长）→ 视为旧歌信息覆盖新歌/信息堆积，
-    // 直接忽略不跳转（DJ 信息跳转的原子防护：新歌刚加载时旧广播不干扰）
-    if (duration.value > 0 && targetSec > duration.value) return;
-    if (Math.abs(currentTime.value - targetSec) > SYNC_SEEK_TOLERANCE_S) {
-      void seek(targetSec);
-    }
+    // ts=-1：只参与串行执行、不参与新旧判定——校准目标的新鲜度由调用方
+    // （applySyncState/applyMusicState 的 lastSyncTs 过滤 + DJ 操作 ts）保证，
+    // 避免本地 Date.now() 与服务器时间戳偏差导致 DJ 广播被误判为"旧操作"丢弃
+    runDjOp(-1, async () => {
+      // 目标超界（DJ 位置超过当前歌曲时长）→ 视为旧歌信息覆盖新歌/信息堆积，
+      // 直接忽略不跳转（DJ 信息跳转的原子防护：新歌刚加载时旧广播不干扰）
+      if (duration.value > 0 && targetSec > duration.value) return;
+      if (Math.abs(currentTime.value - targetSec) > SYNC_SEEK_TOLERANCE_S) {
+        await seek(targetSec);
+      }
+    });
   }
 
   /** 设置音量（0-1） */
@@ -585,17 +635,25 @@ export const useMusicStore = defineStore("music", () => {
           waitingForSongs.value = true;
           return;
         }
-        // immediate：合并后立即播放，seek 到 DJ 当前进度（开头缺几秒可接受）
-        void playSong(songId);
-        if (pendingSyncPosition > 0) {
-          const target = pendingSyncPosition;
-          pendingSyncPosition = 0;
-          // 播放器加载需要时间，稍后跳转到目标位置
-          window.setTimeout(() => void seek(target), 800);
-        }
-        // 兜底：请求服务器补发最新 sync_state，校准到 DJ 当前实际进度
-        // （下载耗时可能较长，下载开始时的 pendingSyncPosition 已过时；服务器实现后回发快照 → seek 校准）
+        // immediate：下载与播放分离——
+        // 合并完成后【不立即 playSong】（播放器保持暂停"无感"），请求 DJ 实时状态，
+        // 等 sync_state 回发后由 applySyncState 一次性切歌 + 校准。
+        // 旧实现"playSong 从头播 + 800ms 后 seek(pendingSyncPosition) + 又 seekIfFar"
+        // 多次驱动播放器：seek fallback 的 skip_duration 惰性跳过窗口内 sink 空缓冲
+        // 会被 is_song_ended 误判"播完"自动切歌 → 跳到 DJ 进度后又跳回 2s/3s 从头播下一首。
         void musicSyncRequestState().catch(() => {});
+        // 兜底：服务器长时间不回 state（旧版不支持）→ 本地直接播放 + 校准
+        window.setTimeout(() => {
+          if (trackName.value === songId) return; // 已由 DJ 状态驱动完成切歌
+          runDjOp(-1, async () => {
+            if (songId !== trackName.value) await playSong(songId);
+            if (pendingSyncPosition > 0) {
+              const target = pendingSyncPosition;
+              pendingSyncPosition = 0;
+              seekIfFar(target);
+            }
+          });
+        }, 3000);
       } else {
         missingSongName.value = songId;
       }
@@ -998,26 +1056,37 @@ export const useMusicStore = defineStore("music", () => {
         if (!playlist.value.includes(songId) && (!localHasSongs.has(songId) || transferring)) {
           pendingSyncPosition = posSec;
           missingSongName.value = songId;
+          // 下载与播放分离：缺歌期间播放器只收"暂停"信号（保持无感），
+          // 下载完成后由 handleTransferDone 请求 DJ 状态，一次性切歌 + 校准
           if (playing.value) void togglePlay();
           void startSongTransfer(songId);
           return;
         }
         pendingSyncPosition = 0;
         missingSongName.value = null;
-        void playSong(songId);
-        // 播放器加载需要时间，稍后跳转到目标位置（带容忍度，避免小偏差回跳）
-        window.setTimeout(() => seekIfFar(posSec), 800);
+        // 播放器副作用入队（串行）：切歌 → 稍后校准到 DJ 进度
+        runDjOp(ts, async () => {
+          await playSong(songId);
+          // 播放器加载需要时间，稍后跳转到目标位置（带容忍度，避免小偏差回跳）
+          window.setTimeout(() => seekIfFar(posSec), 800);
+        });
       } else {
-        if (!playing.value) void togglePlay();
-        seekIfFar(posSec);
+        runDjOp(ts, async () => {
+          if (!playing.value) await togglePlay();
+          seekIfFar(posSec);
+        });
       }
     } else if (action === "pause") {
-      if (playing.value) void togglePlay();
-      seekIfFar(posSec);
+      runDjOp(ts, async () => {
+        if (playing.value) await togglePlay();
+        seekIfFar(posSec);
+      });
     } else if (action === "seek") {
       seekIfFar(posSec);
     } else if (action === "next") {
-      void next();
+      runDjOp(ts, async () => {
+        await next();
+      });
     }
   }
 
@@ -1072,26 +1141,35 @@ export const useMusicStore = defineStore("music", () => {
         pendingSyncPosition = 0;
         missingSongName.value = null;
         waitingForSongs.value = false;
-        void playSong(songId);
-        // 尊重 DJ 播放状态：DJ 处于暂停时只切歌不播放（避免"DJ 没放、听众却放了"）
-        if (!djPlaying) {
-          window.setTimeout(() => {
-            if (playing.value) void togglePlay();
-          }, 900);
-        }
-        // 稍后校准到 DJ 进度（带容忍度，避免反复 seek 回跳）
-        window.setTimeout(() => seekIfFar(posSec), 800);
+        // 播放器副作用入队（串行）：切歌 → 按 DJ 播放状态暂停/恢复 → 稍后校准。
+        // 下载与播放分离：缺歌分支只发"暂停"信号，这里由 DJ 状态一次性驱动切歌，
+        // 避免"从头播 + 800ms 后 seek + 又 seekIfFar"多次驱动播放器（seek fallback
+        // 的 skip_duration 惰性跳过窗口会被误判"播完"自动切歌，跳回 2s/3s 从头播）
+        runDjOp(ts, async () => {
+          await playSong(songId);
+          // 尊重 DJ 播放状态：DJ 处于暂停时只切歌不播放（避免"DJ 没放、听众却放了"）
+          if (!djPlaying) {
+            await new Promise((r) => setTimeout(r, 900));
+            if (playing.value) await togglePlay();
+          }
+          // 稍后校准到 DJ 进度（带容忍度，避免反复 seek 回跳）
+          window.setTimeout(() => seekIfFar(posSec), 800);
+        });
       } else {
         // 同歌：校准播放状态 + 进度（DJ 开始播放，清除等待提示）
         waitingForSongs.value = false;
-        if (djPlaying && !playing.value) void togglePlay();
-        if (!djPlaying && playing.value) void togglePlay();
-        seekIfFar(posSec);
+        runDjOp(ts, async () => {
+          if (djPlaying && !playing.value) await togglePlay();
+          if (!djPlaying && playing.value) await togglePlay();
+          seekIfFar(posSec);
+        });
       }
     } else {
       // DJ 无当前歌曲：仅同步播放状态
-      if (djPlaying && !playing.value) void togglePlay();
-      if (!djPlaying && playing.value) void togglePlay();
+      runDjOp(ts, async () => {
+        if (djPlaying && !playing.value) await togglePlay();
+        if (!djPlaying && playing.value) await togglePlay();
+      });
     }
   }
 

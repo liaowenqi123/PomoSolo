@@ -6,6 +6,27 @@
 
 ## 2026-08-02
 
+### 7. 同步听歌：下载完成后跳回 2s/3s 从头播放（P2P 下载后偶发，v4.5.10 起）（v4.5.13）
+
+**问题描述：**
+- DJ 有歌在播（如 22s），A 用户没歌正在 P2P 下载；下载完成瞬间 A 正确跳到 DJ 进度（22s），但一小段时间后（约 200ms）A 又跳回 2s/3s"继续播放"
+
+**根因（两层，缺一不可）：**
+1. **播放器侧（Rust 误判"播完"自动切歌）**：`handleTransferDone` 下载完成立即 `playSong`（从头播）+ 800ms 后 `seek(22)` 校准 + 请求 DJ 状态后 `seekIfFar(22)` 再校准——播放器被多次驱动。而 Rust `AudioPlayer::seek` 的 `sink.try_seek` 对 `SkipDuration<Amplify<Decoder>>` 不支持 → fallback `play_song(name, 22)` 用 `skip_duration(22s)` **惰性**跳过（sink 拉取时逐帧解码丢弃前 22 秒样本）。**跳过期间 `sink.empty()` 为 true**，200ms 进度任务的 `is_song_ended()`（原实现就是 `sink.empty()`）误判"歌曲播完" → 自动 `play_song(next, 0)` 切到歌单下一首从头播 → 前端收到 track-change → 进度从 0 走到 2s/3s。
+   - **为什么"一定是 P2P 下载后"**：本地已有歌切歌时 seek 校准目标 ≈ 0-3s（skip 快，<200ms 不触发误判）；P2P 下载完成后校准目标是 DJ 当前进度（如 22s，skip 解码丢弃需 >200ms）→ 恰好落入误判窗口。且下载完成有两条校准路径几乎同时触发，连续两次 seek(22) 放大概率。
+2. **前端侧（动作堆积/多次驱动）**：下载完成的校准（800ms 定时 seek）+ DJ 回发 sync_state 的 seekIfFar + DJ 广播并发，无串行锁，多次 seek/playSong 交错驱动播放器。
+
+**解决方案：**
+1. **Rust `is_song_ended` 加位置保护**：`sink.empty()` 且播放位置已接近歌曲末尾（`>= duration - 2s`）才判定播完；`duration==0` 保持旧行为。skip_duration 惰性跳过窗口（位置=position_offset << duration）不再误判自动切歌。
+2. **下载与播放分离（前端 `handleTransferDone`）**：合并完成后**不立即 playSong**，播放器保持暂停"无感"；请求 DJ 实时状态，等 sync_state 回发后由 applySyncState **一次性**切歌 + 校准（3s 兜底定时器：服务器不回时本地播放 + 校准）。
+3. **DJ 操作串行队列（前端 `runDjOp`，用户要求的"原子锁"）**：所有播放器副作用（切歌 playSong / 播放暂停 togglePlay / 进度校准 seek）统一入队串行执行——带时间戳（ts <= 已处理最新 → 丢弃）；一次只做一个操作（锁）；执行中到达的新操作堆积为"最新操作"（ts 最大者，中间舍去）；执行完记录已完成时间戳，队列中更新操作继续执行，否则整队丢弃。seekIfFar 用 ts=-1（只串行不参与新旧判定，避免本地时间与服务器时间戳偏差误丢 DJ 广播）。
+
+**影响范围：**
+- `src-tauri/src/modules/audio_player.rs`、`src/stores/music.ts`、`src/stores/__tests__/music.test.ts`
+
+**测试：** Rust 新增 `test_is_song_ended_without_sink_returns_false`（190 passed）；前端新增 4 用例（下载与播放分离 ×2、队列最新优先 + 中间舍去、迟到旧广播过滤），全量 52 文件 962 用例通过。
+
+---
 ### 6. 音量记忆 UI 不一致：退出记忆的音量不显示在 UI（v4.5.12）
 
 **问题描述：**

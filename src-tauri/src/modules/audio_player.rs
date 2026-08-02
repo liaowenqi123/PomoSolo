@@ -583,7 +583,21 @@ impl AudioPlayer {
     /// 检查歌曲是否结束
     pub fn is_song_ended(&self) -> bool {
         if let Some(ref sink) = self.sink {
-            sink.empty()
+            // 先看缓冲：sink 还有数据 → 肯定没播完
+            if !sink.empty() {
+                return false;
+            }
+            // 缓冲空但播放位置还没接近歌曲末尾 → 不是"播完"，而是：
+            // seek fallback 用 skip_duration 惰性跳过 seek 目标期间，source 还在
+            // 解码丢弃前 N 秒样本，sink 缓冲暂时为空（真实位置 = position_offset）。
+            // 若此时判定"播完"会自动切歌——表现为下载完成后 seek 校准到 DJ 进度，
+            // 随后播放器突然从头播下一首（用户反馈"跳回 2s/3s 开始播放"）。
+            if self.duration == 0 {
+                // 时长未知：保持旧行为（缓冲空即视为结束）
+                return true;
+            }
+            // 容差 2s：位置已接近歌曲末尾才判定播完（避免时长估算误差导致不自动切歌）
+            self.get_position() >= self.duration.saturating_sub(2)
         } else {
             false
         }
@@ -1029,6 +1043,14 @@ mod tests {
         // 没有 sink 时，position 应等于 position_offset（默认 0）
         let player = AudioPlayer::new();
         assert_eq!(player.get_position(), 0);
+    }
+
+    #[test]
+    fn test_is_song_ended_without_sink_returns_false() {
+        // 没有 sink 时不应判定播放结束（避免 seek fallback 的 skip_duration
+        // 惰性跳过窗口被误判"播完"自动切歌的回归）
+        let player = AudioPlayer::new();
+        assert!(!player.is_song_ended(), "无 sink 时不应判定播放结束");
     }
 
     #[test]

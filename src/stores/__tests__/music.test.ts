@@ -74,6 +74,7 @@ describe("useMusicStore", () => {
     musicApi.musicGetDevices.mockResolvedValue({ devices: [], current: null });
     musicSyncApi.musicSyncRequestDj.mockResolvedValue(undefined);
     musicSyncApi.musicSyncRequestState.mockResolvedValue(undefined);
+    musicApi.musicUpdateTag.mockResolvedValue({ success: true });
     dataApi.readData.mockResolvedValue({});
     dataApi.writeData.mockResolvedValue(undefined);
   });
@@ -533,7 +534,7 @@ describe("useMusicStore", () => {
     expect(s.isDj).toBe(false);
   });
 
-  it("music:state play：听众端跟播（同曲目直接播放并跳转）", () => {
+  it("music:state play：听众端跟播（同曲目直接播放并跳转）", async () => {
     const s = useMusicStore();
     s.setSyncEnabled(true);
     s.isDj = false;
@@ -546,13 +547,15 @@ describe("useMusicStore", () => {
       timestamp_server: Date.now(),
       song_id: "a.mp3",
     });
+    // 播放器副作用经 DJ 操作串行队列异步执行，等待队列推进
+    await new Promise((r) => setTimeout(r, 0));
     expect(musicApi.musicTogglePlay).toHaveBeenCalled();
     expect(musicApi.musicSeek).toHaveBeenCalled();
     const seekArg = musicApi.musicSeek.mock.calls[0][0] as number;
     expect(seekArg).toBeGreaterThanOrEqual(15);
   });
 
-  it("music:state pause：听众端暂停并跳转", () => {
+  it("music:state pause：听众端暂停并跳转", async () => {
     const s = useMusicStore();
     s.setSyncEnabled(true);
     s.isDj = false;
@@ -563,11 +566,12 @@ describe("useMusicStore", () => {
       position_ms: 20000,
       timestamp_server: Date.now(),
     });
+    await new Promise((r) => setTimeout(r, 0));
     expect(musicApi.musicTogglePlay).toHaveBeenCalled();
     expect(musicApi.musicSeek).toHaveBeenCalled();
   });
 
-  it("music:state seek：直接跳转到目标位置", () => {
+  it("music:state seek：直接跳转到目标位置", async () => {
     const s = useMusicStore();
     s.setSyncEnabled(true);
     s.isDj = false;
@@ -577,14 +581,16 @@ describe("useMusicStore", () => {
       position_ms: 30000,
       timestamp_server: Date.now(),
     });
+    await new Promise((r) => setTimeout(r, 0));
     expect(musicApi.musicSeek).toHaveBeenCalled();
   });
 
-  it("music:state next：切歌", () => {
+  it("music:state next：切歌", async () => {
     const s = useMusicStore();
     s.setSyncEnabled(true);
     s.isDj = false;
     s.handleSyncWsEvent({ type: "music:state", action: "next" });
+    await new Promise((r) => setTimeout(r, 0));
     expect(musicApi.musicNext).toHaveBeenCalled();
   });
 
@@ -652,7 +658,7 @@ describe("useMusicStore", () => {
     expect(musicApi.musicPlaySong).not.toHaveBeenCalled();
   });
 
-  it("music:state play：本地歌单含该歌 → 正常播放且不设 missingSongName", () => {
+  it("music:state play：本地歌单含该歌 → 正常播放且不设 missingSongName", async () => {
     const s = useMusicStore();
     s.setSyncEnabled(true);
     s.isDj = false;
@@ -666,6 +672,7 @@ describe("useMusicStore", () => {
       timestamp_server: Date.now(),
       song_id: "a.mp3",
     });
+    await new Promise((r) => setTimeout(r, 0));
     expect(s.missingSongName).toBeNull();
     expect(musicApi.musicPlaySong).toHaveBeenCalledWith("a.mp3");
   });
@@ -810,19 +817,135 @@ describe("useMusicStore", () => {
     expect(s.songTransfer.state).toBe("downloading");
   });
 
-  it("handleTransferDone：正常完成 → 合并、标记本地已有并播放", async () => {
+  it("handleTransferDone：正常完成 → 合并、标记本地已有；下载与播放分离（不立即播放）", async () => {
     const s = useMusicStore();
     s.setSyncEnabled(true);
     s.songTransfer = { state: "downloading", songName: "a.mp3", received: 10, total: 10, startedAt: Date.now(), retryCount: 0 };
     s.djName = "bob";
     musicApi.musicFinalizeSong.mockResolvedValue({ success: true });
-    musicApi.musicPlaySong.mockResolvedValue(undefined);
     s.handleSyncWsEvent({ type: "music:transfer_done", song_id: "a.mp3", total_chunks: 10 });
     await new Promise((r) => setTimeout(r, 0));
     expect(musicApi.musicFinalizeSong).toHaveBeenCalledWith("a.mp3", 10);
-    expect(musicApi.musicPlaySong).toHaveBeenCalledWith("a.mp3");
     expect(s.missingSongName).toBeNull();
     expect(s.songTransfer.state).toBe("idle");
+    // 下载与播放分离：合并完成后不立即播放（播放器保持暂停"无感"），
+    // 请求 DJ 实时状态，等 sync_state 回发后由 applySyncState 一次性切歌 + 校准
+    expect(musicApi.musicPlaySong).not.toHaveBeenCalled();
+    expect(musicSyncApi.musicSyncRequestState).toHaveBeenCalled();
+  });
+
+  it("下载与播放分离：transfer_done 后 DJ sync_state 回发 → 一次性切歌 + 校准", async () => {
+    vi.useFakeTimers();
+    try {
+      const s = useMusicStore();
+      s.setSyncEnabled(true);
+      s.isDj = false;
+      s.songTransfer = { state: "downloading", songName: "a.mp3", received: 10, total: 10, startedAt: Date.now(), retryCount: 0 };
+      s.trackName = "old.mp3";
+      s.playing = false;
+      musicApi.musicFinalizeSong.mockResolvedValue({ success: true });
+      musicApi.musicPlaySong.mockResolvedValue(undefined);
+      musicApi.musicSeek.mockResolvedValue(undefined);
+      // 下载完成：不立即播放
+      s.handleSyncWsEvent({ type: "music:transfer_done", song_id: "a.mp3", total_chunks: 10 });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(musicApi.musicPlaySong).not.toHaveBeenCalled();
+      expect(musicSyncApi.musicSyncRequestState).toHaveBeenCalled();
+      // 歌单已含 a.mp3（finalize 后 requestPlaylist 已刷新）
+      s.handlePlaylist({ songs: ["a.mp3"] });
+      // DJ 回发 sync_state → 一次性切歌
+      s.handleSyncWsEvent({
+        type: "music:sync_state",
+        song_id: "a.mp3",
+        playing: true,
+        position_ms: 22000,
+        timestamp_server: Date.now(),
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(musicApi.musicPlaySong).toHaveBeenCalledWith("a.mp3");
+      // 800ms 后校准到 DJ 进度（seekIfFar 串行执行）
+      await vi.advanceTimersByTimeAsync(900);
+      expect(musicApi.musicSeek).toHaveBeenCalled();
+      const seekArg = musicApi.musicSeek.mock.calls[0][0] as number;
+      expect(seekArg).toBeGreaterThanOrEqual(22);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("DJ 操作串行队列：并发 sync_state 堆积舍去中间，只执行最新操作", async () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.trackName = "a.mp3";
+    s.playing = true;
+    s.duration = 200;
+    s.currentTime = 0;
+    const base = Date.now();
+    // 三条 DJ 广播几乎同时进入（同歌，位置 10s/30s/50s，ts 递增）：
+    // 第一条立即入队执行（在途），后两条堆积为"最新"（30s 被 50s 覆盖，中间舍去）
+    s.handleSyncWsEvent({ type: "music:sync_state", song_id: "a.mp3", playing: true, position_ms: 10000, timestamp_server: base });
+    s.handleSyncWsEvent({ type: "music:sync_state", song_id: "a.mp3", playing: true, position_ms: 30000, timestamp_server: base + 1000 });
+    s.handleSyncWsEvent({ type: "music:sync_state", song_id: "a.mp3", playing: true, position_ms: 50000, timestamp_server: base + 2000 });
+    // 等待队列推进：在途操作完成 → 只执行堆积中的最新（50s），10s/30s 被舍去
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(musicApi.musicSeek).toHaveBeenCalledTimes(1);
+    expect(musicApi.musicSeek.mock.calls[0][0]).toBeGreaterThanOrEqual(50);
+  });
+
+  it("DJ 操作串行队列：seek 在途时新广播只堆积，完成后才执行最新", async () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.trackName = "a.mp3";
+    s.playing = true;
+    s.duration = 200;
+    s.currentTime = 0;
+    // 第一次 seek 挂起（模拟播放器操作在途，队列上锁）；后续调用直接 resolve
+    let releaseSeek: () => void = () => {};
+    let seekCall = 0;
+    musicApi.musicSeek.mockImplementation(() => {
+      seekCall += 1;
+      if (seekCall === 1) return new Promise<void>((res) => { releaseSeek = res; });
+      return Promise.resolve();
+    });
+    const base = Date.now();
+    // 第一条广播触发 seek(10s) 在途挂起
+    s.handleSyncWsEvent({ type: "music:sync_state", song_id: "a.mp3", playing: true, position_ms: 10000, timestamp_server: base });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(musicApi.musicSeek).toHaveBeenCalledTimes(1);
+    // 在途期间新广播到达（30s/50s）→ 只堆积为最新（50s，覆盖 30s）
+    s.handleSyncWsEvent({ type: "music:sync_state", song_id: "a.mp3", playing: true, position_ms: 30000, timestamp_server: base + 1000 });
+    s.handleSyncWsEvent({ type: "music:sync_state", song_id: "a.mp3", playing: true, position_ms: 50000, timestamp_server: base + 2000 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(musicApi.musicSeek).toHaveBeenCalledTimes(1); // 仍在途，未执行堆积
+    // 释放 → 执行最新（50s），30s 中间操作被舍去
+    releaseSeek();
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(musicApi.musicSeek).toHaveBeenCalledTimes(2);
+    expect(musicApi.musicSeek.mock.calls[1][0]).toBeGreaterThanOrEqual(50);
+  });
+
+  it("DJ 操作串行队列：迟到的旧广播（ts 更小）不覆盖已应用的新状态", async () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.trackName = "a.mp3";
+    s.playing = true;
+    s.duration = 200;
+    s.currentTime = 0;
+    const base = Date.now();
+    // 先应用新广播（位置 50s）
+    s.handleSyncWsEvent({ type: "music:sync_state", song_id: "a.mp3", playing: true, position_ms: 50000, timestamp_server: base + 2000 });
+    await new Promise((r) => setTimeout(r, 0));
+    const firstCalls = musicApi.musicSeek.mock.calls.length;
+    expect(musicApi.musicSeek.mock.calls[firstCalls - 1][0]).toBeGreaterThanOrEqual(50);
+    // 迟到的旧广播（位置 10s，ts 更小）→ 队列/时间戳双重过滤，不执行
+    s.handleSyncWsEvent({ type: "music:sync_state", song_id: "a.mp3", playing: true, position_ms: 10000, timestamp_server: base });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(musicApi.musicSeek.mock.calls.length).toBe(firstCalls);
   });
 
   it("handleTransferFailed：旧歌的迟到失败事件不打断当前传输", () => {
