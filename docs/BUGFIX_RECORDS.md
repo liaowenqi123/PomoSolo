@@ -18,6 +18,7 @@
    - Generate latest.json 改为按版本号精确匹配 `installer/PomoSolo_${VERSION}_x64-setup.exe`，禁止 `ls|head -1`，并校验文件存在
    - Clean NSIS bundle dir 步骤**不要显式指定 `shell: powershell`**——conda 注入 $PROFILE 的初始化失败会导致步骤假失败（exit 1，虽实际清空了目录）；用默认 shell 正常
    - 构建前清空 NSIS bundle 目录，杜绝旧版本残留
+3. **手工上传 latest.json 必须用无 BOM 的 UTF-8**（`[System.Text.UTF8Encoding]::new($false)`）：PowerShell 默认 `[Text.Encoding]::UTF8` 写 BOM，tauri 的 serde_json 解析带 BOM 的 JSON 报 `error decoding response body`（v4.5.11 手工修复时踩过，线上已重传无 BOM 版）；CI 的 bash 写法无此问题
 
 **影响范围：**
 - `.github/workflows/ci.yml`
