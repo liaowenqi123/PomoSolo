@@ -89,8 +89,9 @@ jobs:
 
       # CARGO_TARGET_DIR 是共享本地目录，NSIS bundle 只增不清会残留旧版本安装包，
       # 导致 upload-artifact 的 *.exe 通配符把多个版本一起传上去。构建前清空。
+      # 注意：不要显式指定 shell（默认即可）——显式 powershell 5.1 会加载 conda
+      # 注入的 $PROFILE，conda 初始化失败会导致步骤假失败（exit 1）。
       - name: Clean NSIS bundle dir (shared local cache)
-        shell: powershell
         run: |
           if (Test-Path "$env:CARGO_TARGET_DIR\release\bundle\nsis") {
             Remove-Item "$env:CARGO_TARGET_DIR\release\bundle\nsis\*" -Recurse -Force
@@ -139,10 +140,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
-          EXE=$(ls installer/*.exe | head -1)
-          SIG=$(ls installer/*.sig | head -1)
-          BASENAME=$(basename "$EXE")
           VERSION="${TAG#v}"
+          # 按版本号精确匹配，禁止 ls|head -1：残留旧版本安装包会让字典序
+          # 排前面的旧 exe 被选中，导致 latest.json 的 url/signature 指向旧版本
+          # （v4.5.11 曾因此把 url 指向 4.5.10 的 exe → 自动更新 404）
+          EXE="installer/PomoSolo_${VERSION}_x64-setup.exe"
+          SIG="installer/PomoSolo_${VERSION}_x64-setup.exe.sig"
+          BASENAME=$(basename "$EXE")
+          [ -f "$EXE" ] || { echo "missing $EXE"; exit 1; }
+          [ -f "$SIG" ] || { echo "missing $SIG"; exit 1; }
           SIGNATURE=$(cat "$SIG")
           PUB_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           # 用 GitHub API 取 tag annotation message（比 git for-each-ref 在 shallow clone 下可靠）

@@ -550,7 +550,8 @@ npm start
   - 工具链与缓存全部放 D 盘（`D:\pomosolo-cache\{cargo,rustup,npm,target}`），避免占 C 盘；机器空间有限，注意定期清理 `D:\actions-runner\_work` 下历史 job 目录
 - 本地构建缓存不走 GitHub 缓存服务（v4.5.10 起）：build job 移除 `rust-cache`，新增 `CARGO_TARGET_DIR: D:\pomosolo-cache\target`——target 固定本地，依赖未变时增量编译，**零缓存上传/下载**（托管机才需要 GitHub 缓存，因为托管机不持久）；首次在本地跑会全量编译暖缓存。注意：自建 runner 同时只允许一个 build job（单 runner 串行），若未来加第二个本地 runner 需让两者用不同 target 目录或加锁，避免 cargo 文件锁互等
 - build job 产物路径（v4.5.11 起）：因 `CARGO_TARGET_DIR` 指向 `D:\pomosolo-cache\target`，NSIS 安装包生成在 `D:\pomosolo-cache\target\release\bundle\nsis\`（**不是** `src-tauri/target/...`），ci.yml 的 upload-artifact 路径已同步为 `${{ env.CARGO_TARGET_DIR }}/release/bundle/nsis/*`；改动 target 位置时务必同步此路径，否则 Release job 下载产物会 "Artifact not found"
-- build job 会在打包前清空 NSIS bundle 目录（"Clean NSIS bundle dir" 步骤）：`CARGO_TARGET_DIR` 是共享本地目录，不清理会残留旧版本安装包，upload-artifact 的 `*.exe` 通配符会把多个版本一起传上 GitHub Release（v4.5.11 曾因此把 4.5.10 的 exe 带进 release，已清理并根治）
+- build job 会在打包前清空 NSIS bundle 目录（"Clean NSIS bundle dir" 步骤）：`CARGO_TARGET_DIR` 是共享本地目录，不清理会残留旧版本安装包，upload-artifact 的 `*.exe` 通配符会把多个版本一起传上 GitHub Release（v4.5.11 曾因此把 4.5.10 的 exe 带进 release，已清理并根治）。**该步骤不要显式指定 `shell: powershell`**：runner 的 PowerShell 5.1 会加载 conda 注入的 $PROFILE，conda 初始化失败导致步骤假失败（exit 1）；用默认 shell 即可
+- Release job 生成 latest.json 必须**按版本号精确匹配**安装包/签名文件（`installer/PomoSolo_${VERSION}_x64-setup.exe`），禁止 `ls | head -1` 按字典序取第一个——残留旧版本时会把 url/signature 指到旧版本（v4.5.11 曾导致自动更新 404）
 
 ### 打包为可执行文件
 

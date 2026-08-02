@@ -6,6 +6,23 @@
 
 ## 2026-08-02
 
+### 4. 自动更新 404：latest.json 的 url 指向旧版本安装包（v4.5.11）
+
+**问题描述：**
+- 用户检查更新报 `Download request failed with status:404 Not Found`
+- 根因链：本地固定 `CARGO_TARGET_DIR` 共享目录里残留 v4.5.10 安装包 → upload-artifact 的 `*.exe` 通配符把 4.5.10/4.5.11 两个版本一起传进 artifact → Release job 里 `ls installer/*.exe | head -1` 按字典序取到 **4.5.10**（4.5.10 < 4.5.11）→ latest.json 的 `url`/`signature` 指向 4.5.10 → 清理多余 asset 后该 url 404
+
+**解决方案：**
+1. 手工修复 v4.5.11 release 的 latest.json（url/signature 改回 4.5.11）
+2. ci.yml 根治：
+   - Generate latest.json 改为按版本号精确匹配 `installer/PomoSolo_${VERSION}_x64-setup.exe`，禁止 `ls|head -1`，并校验文件存在
+   - Clean NSIS bundle dir 步骤**不要显式指定 `shell: powershell`**——conda 注入 $PROFILE 的初始化失败会导致步骤假失败（exit 1，虽实际清空了目录）；用默认 shell 正常
+   - 构建前清空 NSIS bundle 目录，杜绝旧版本残留
+
+**影响范围：**
+- `.github/workflows/ci.yml`
+
+---
 ### 3. 🎲 随机按钮 hover 旋转导致左右横向滚动条（v4.5.11）
 
 **问题描述：**
