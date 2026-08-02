@@ -78,9 +78,18 @@ tauri::Builder::default()
         commands::garden::{garden_read, garden_plant, ...},
         commands::foreground::{foreground_start, foreground_stop, ...},
     ])
-    .setup(|_app| { /* 开发模式打开 DevTools */ Ok(()) })
+    .setup(|app| {
+        disable_windows_rounding(app);          // Windows 11 DWM 圆角（cfg(windows)）
+        merge_builtin_music(app);               // 合并内置歌曲到用户音乐目录
+        sync_autostart(app);                    // 设置 autoStart → 系统登录项
+        register_media_shortcuts(app.handle()); // 媒体键全局快捷键
+        intercept_close_to_exit_mini_mode(app); // 迷你模式拦截关闭事件
+        Ok(())
+    })
     .run(tauri::generate_context!())
 ```
+
+> setup 中的初始化步骤拆分为独立函数（`disable_windows_rounding` / `merge_builtin_music` / `sync_autostart` / `intercept_close_to_exit_mini_mode`），`run()` 仅保留插件注册与命令注册（2026-08-03 重构）。
 
 ### 2.2 Commands 层（前端入口）
 

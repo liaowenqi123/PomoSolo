@@ -170,22 +170,36 @@ fn build_headers(token: Option<&str>) -> HeaderMap {
     headers
 }
 
-/// 通用 GET 请求（带 token，无 token 时匿名请求）
-///
-/// 返回 `(状态码, 响应体文本)`。
-pub async fn get(path: &str, token: Option<&str>) -> Result<(u16, String), String> {
+/// 统一 HTTP 请求实现：构造客户端 + 发送 + 读取状态码/响应体
+async fn request(
+    method: reqwest::Method,
+    path: &str,
+    body: Option<&serde_json::Value>,
+    token: Option<&str>,
+) -> Result<(u16, String), String> {
     let client = reqwest::Client::new();
     let url = format!("{}{}", SERVER_URL, path);
-    let resp = client
-        .get(&url)
+    let mut req = client
+        .request(method, &url)
         .headers(build_headers(token))
-        .timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(15));
+    if let Some(b) = body {
+        req = req.json(b);
+    }
+    let resp = req
         .send()
         .await
         .map_err(|e| format!("请求失败: {}", e))?;
     let status = resp.status().as_u16();
     let body = resp.text().await.unwrap_or_default();
     Ok((status, body))
+}
+
+/// 通用 GET 请求（带 token，无 token 时匿名请求）
+///
+/// 返回 `(状态码, 响应体文本)`。
+pub async fn get(path: &str, token: Option<&str>) -> Result<(u16, String), String> {
+    request(reqwest::Method::GET, path, None, token).await
 }
 
 /// 通用 POST 请求（JSON body）
@@ -194,19 +208,7 @@ pub async fn post(
     body: &serde_json::Value,
     token: Option<&str>,
 ) -> Result<(u16, String), String> {
-    let client = reqwest::Client::new();
-    let url = format!("{}{}", SERVER_URL, path);
-    let resp = client
-        .post(&url)
-        .headers(build_headers(token))
-        .json(body)
-        .timeout(std::time::Duration::from_secs(15))
-        .send()
-        .await
-        .map_err(|e| format!("请求失败: {}", e))?;
-    let status = resp.status().as_u16();
-    let body = resp.text().await.unwrap_or_default();
-    Ok((status, body))
+    request(reqwest::Method::POST, path, Some(body), token).await
 }
 
 /// 通用 PUT 请求（JSON body）
@@ -215,19 +217,7 @@ pub async fn put(
     body: &serde_json::Value,
     token: Option<&str>,
 ) -> Result<(u16, String), String> {
-    let client = reqwest::Client::new();
-    let url = format!("{}{}", SERVER_URL, path);
-    let resp = client
-        .put(&url)
-        .headers(build_headers(token))
-        .json(body)
-        .timeout(std::time::Duration::from_secs(15))
-        .send()
-        .await
-        .map_err(|e| format!("请求失败: {}", e))?;
-    let status = resp.status().as_u16();
-    let body = resp.text().await.unwrap_or_default();
-    Ok((status, body))
+    request(reqwest::Method::PUT, path, Some(body), token).await
 }
 
 /// 通用 DELETE 请求
@@ -235,18 +225,7 @@ pub async fn delete(
     path: &str,
     token: Option<&str>,
 ) -> Result<(u16, String), String> {
-    let client = reqwest::Client::new();
-    let url = format!("{}{}", SERVER_URL, path);
-    let resp = client
-        .delete(&url)
-        .headers(build_headers(token))
-        .timeout(std::time::Duration::from_secs(15))
-        .send()
-        .await
-        .map_err(|e| format!("请求失败: {}", e))?;
-    let status = resp.status().as_u16();
-    let body = resp.text().await.unwrap_or_default();
-    Ok((status, body))
+    request(reqwest::Method::DELETE, path, None, token).await
 }
 
 /// 从响应体中解析 JSON 值（失败返回错误信息）

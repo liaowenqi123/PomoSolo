@@ -5,6 +5,58 @@ mod state;
 use state::{AppState, ChartsState, MusicState};
 use tauri::{Manager, Emitter};
 
+/// Windows 11：禁用 DWM 系统级窗口圆角，避免与 CSS 圆角形成双层圆角。
+/// 系统边框（细线阴影）由 tauri.conf.json 的 `shadow: false` 配置移除，
+/// 不要在此处修改窗口样式（WS_THICKFRAME 等），否则 DWM 会回退到老式边框渲染。
+#[cfg(windows)]
+fn disable_windows_rounding(app: &tauri::App) {
+    if let Some(main_window) = app.get_webview_window("main") {
+        commands::window::disable_window_rounding(&main_window);
+    }
+    if let Some(garden_window) = app.get_webview_window("garden") {
+        commands::window::disable_window_rounding(&garden_window);
+    }
+}
+
+/// 合并内置歌曲/历史备份到用户音乐目录（app_data_dir/music，不覆盖已有）
+fn merge_builtin_music(app: &tauri::App) {
+    if let Err(e) = commands::update::merge_music_dir(app.handle()) {
+        eprintln!("[setup] 合并音乐目录失败: {}", e);
+    }
+}
+
+/// 同步开机自启状态：从 settings.json 读取 autoStart，同步到系统登录项
+fn sync_autostart(app: &tauri::App) {
+    let autostart_enabled = modules::data_manager::read_settings(app.handle())
+        .ok()
+        .and_then(|s| s.get("autoStart").and_then(|v| v.as_bool()))
+        .unwrap_or(false);
+    commands::system::sync_autostart_with_settings(app.handle(), autostart_enabled);
+}
+
+/// 迷你模式激活时拦截窗口关闭事件 → 退出迷你模式而非退出应用
+fn intercept_close_to_exit_mini_mode(app: &tauri::App) {
+    let handle = app.handle().clone();
+    let main_window = match app.get_webview_window("main") {
+        Some(w) => w,
+        None => return,
+    };
+    main_window.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { .. } = event {
+            let state = handle.state::<crate::state::AppState>();
+            if *state.mini_mode_active.lock().unwrap() {
+                // 在迷你模式下：退出迷你模式 + 前端同步关闭页面
+                let h = handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    commands::window::exit_mini_mode(h).await;
+                });
+                // 通过事件通知前端退出迷你模式
+                handle.emit("exit-mini-mode-from-close", ()).ok();
+            }
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -156,61 +208,31 @@ pub fn run() {
             commands::system::autostart_enable,
             commands::system::autostart_is_enabled,
         ])
-        .setup(|_app| {
-            // Windows 11：禁用 DWM 系统级窗口圆角，避免与 CSS 圆角形成双层圆角。
-            // 系统边框（细线阴影）由 tauri.conf.json 的 `shadow: false` 配置移除，
-            // 不要在此处修改窗口样式（WS_THICKFRAME 等），否则 DWM 会回退到老式边框渲染。
+        .setup(|app| {
+            // Windows 11：禁用 DWM 系统级窗口圆角，避免与 CSS 圆角形成双层圆角
             #[cfg(windows)]
-            {
-                if let Some(main_window) = _app.get_webview_window("main") {
-                    commands::window::disable_window_rounding(&main_window);
-                }
-                if let Some(garden_window) = _app.get_webview_window("garden") {
-                    commands::window::disable_window_rounding(&garden_window);
-                }
-            }
+            disable_windows_rounding(app);
 
-            // 合并内置歌曲/历史备份到用户音乐目录（app_data_dir/music，不覆盖已有）
-            if let Err(e) = commands::update::merge_music_dir(&_app.handle()) {
-                eprintln!("[setup] 合并音乐目录失败: {}", e);
-            }
+            // 合并内置歌曲/历史备份到用户音乐目录（不覆盖已有）
+            merge_builtin_music(app);
 
             // 系统托盘：对照旧版 Electron 的行为，仅在迷你模式下创建/销毁。
             // 不再在 setup 中创建持久托盘，避免迷你模式下出现两个托盘图标。
             // 迷你模式托盘创建逻辑见 commands::window::enter_mini_mode。
 
             // 同步开机自启状态：从 settings.json 读取 autoStart，同步到系统登录项
-            let autostart_enabled = modules::data_manager::read_settings(&_app.handle())
-                .ok()
-                .and_then(|s| s.get("autoStart").and_then(|v| v.as_bool()))
-                .unwrap_or(false);
-            commands::system::sync_autostart_with_settings(&_app.handle(), autostart_enabled);
+            sync_autostart(app);
 
             // 注册媒体键全局快捷键（播放/暂停、上一首、下一首）
-            commands::system::register_media_shortcuts(&_app.handle());
+            commands::system::register_media_shortcuts(app.handle());
 
             // 迷你模式激活时拦截窗口关闭事件 → 退出迷你模式而非退出应用
-            let handle = _app.handle().clone();
-            let main_window = _app.get_webview_window("main").unwrap();
-            main_window.on_window_event(move |event| {
-                if let tauri::WindowEvent::CloseRequested { .. } = event {
-                    let state = handle.state::<crate::state::AppState>();
-                    if *state.mini_mode_active.lock().unwrap() {
-                        // 在迷你模式下：退出迷你模式 + 前端同步关闭页面
-                        let h = handle.clone();
-                        tauri::async_runtime::spawn(async move {
-                            commands::window::exit_mini_mode(h).await;
-                        });
-                        // 通过事件通知前端退出迷你模式
-                        handle.emit("exit-mini-mode-from-close", ()).ok();
-                    }
-                }
-            });
+            intercept_close_to_exit_mini_mode(app);
 
             #[cfg(debug_assertions)]
             {
                 // 开发模式下打开 DevTools
-                let main_window = _app.get_webview_window("main").unwrap();
+                let main_window = app.get_webview_window("main").unwrap();
                 main_window.open_devtools();
             }
             Ok(())

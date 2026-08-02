@@ -108,31 +108,7 @@ fn spawn_progress_task(app: AppHandle) {
                 {
                     let mut player = music_state.player.lock().await;
                     if let Some(next_song) = player.get_next_song(true) {
-                        match player.play_song(&next_song, 0.0) {
-                            Ok(()) => {
-                                let _ = app.emit(
-                                    "music-track-change",
-                                    json!({
-                                        "name": next_song,
-                                        "duration": player.current_duration(),
-                                        "has_prev": true
-                                    }),
-                                );
-                                let _ = app.emit("music-play-state", json!({ "playing": true }));
-                            }
-                            Err(e) if e == "song_missing" => {
-                                let _ = app.emit(
-                                    "music-song-missing",
-                                    json!({ "name": next_song, "message": "原歌曲已消失" }),
-                                );
-                            }
-                            Err(e) => {
-                                let _ = app.emit(
-                                    "music-play-error",
-                                    json!({ "message": format!("播放失败: {}", e) }),
-                                );
-                            }
-                        }
+                        play_song_and_emit(&app, &mut player, &next_song).await;
                     } else {
                         let _ = app.emit(
                             "music-no-music",
@@ -161,6 +137,37 @@ fn spawn_progress_task(app: AppHandle) {
 }
 
 // ===== 播放控制命令 =====
+
+/// 播放歌曲并推送前端事件（track-change / play-state / song-missing / play-error）
+///
+/// 多个命令共用（next/prev/play_song/自然结束切歌），统一错误处理与事件格式。
+async fn play_song_and_emit(app: &AppHandle, player: &mut AudioPlayer, song_name: &str) {
+    match player.play_song(song_name, 0.0) {
+        Ok(()) => {
+            let _ = app.emit(
+                "music-track-change",
+                json!({
+                    "name": song_name,
+                    "duration": player.current_duration(),
+                    "has_prev": true
+                }),
+            );
+            let _ = app.emit("music-play-state", json!({ "playing": true }));
+        }
+        Err(e) if e == "song_missing" => {
+            let _ = app.emit(
+                "music-song-missing",
+                json!({ "name": song_name, "message": "原歌曲已消失" }),
+            );
+        }
+        Err(e) => {
+            let _ = app.emit(
+                "music-play-error",
+                json!({ "message": format!("播放失败: {}", e) }),
+            );
+        }
+    }
+}
 
 #[tauri::command]
 pub async fn music_toggle_play(app: AppHandle) -> Result<(), String> {
@@ -225,34 +232,11 @@ pub async fn music_next(app: AppHandle) -> Result<(), String> {
     let music_state = app.state::<MusicState>();
     let mut player = music_state.player.lock().await;
 
-    if let Some(next_song) = player.get_next_song(false) {
-        match player.play_song(&next_song, 0.0) {
-            Ok(()) => {
-                let _ = app.emit(
-                    "music-track-change",
-                    json!({
-                        "name": next_song,
-                        "duration": player.current_duration(),
-                        "has_prev": true
-                    }),
-                );
-                let _ = app.emit("music-play-state", json!({ "playing": true }));
-            }
-            Err(e) if e == "song_missing" => {
-                let _ = app.emit(
-                    "music-song-missing",
-                    json!({ "name": next_song, "message": "原歌曲已消失" }),
-                );
-            }
-            Err(e) => {
-                let _ = app.emit(
-                    "music-play-error",
-                    json!({ "message": format!("播放失败: {}", e) }),
-                );
-            }
+    match player.get_next_song(false) {
+        Some(next_song) => play_song_and_emit(&app, &mut player, &next_song).await,
+        None => {
+            let _ = app.emit("music-no-music", json!({ "message": "没有可播放的音乐" }));
         }
-    } else {
-        let _ = app.emit("music-no-music", json!({ "message": "没有可播放的音乐" }));
     }
 
     Ok(())
@@ -264,34 +248,11 @@ pub async fn music_prev(app: AppHandle) -> Result<(), String> {
     let music_state = app.state::<MusicState>();
     let mut player = music_state.player.lock().await;
 
-    if let Some(prev_song) = player.get_prev_song() {
-        match player.play_song(&prev_song, 0.0) {
-            Ok(()) => {
-                let _ = app.emit(
-                    "music-track-change",
-                    json!({
-                        "name": prev_song,
-                        "duration": player.current_duration(),
-                        "has_prev": true
-                    }),
-                );
-                let _ = app.emit("music-play-state", json!({ "playing": true }));
-            }
-            Err(e) if e == "song_missing" => {
-                let _ = app.emit(
-                    "music-song-missing",
-                    json!({ "name": prev_song, "message": "原歌曲已消失" }),
-                );
-            }
-            Err(e) => {
-                let _ = app.emit(
-                    "music-play-error",
-                    json!({ "message": format!("播放失败: {}", e) }),
-                );
-            }
+    match player.get_prev_song() {
+        Some(prev_song) => play_song_and_emit(&app, &mut player, &prev_song).await,
+        None => {
+            let _ = app.emit("music-no-music", json!({ "message": "没有可播放的音乐" }));
         }
-    } else {
-        let _ = app.emit("music-no-music", json!({ "message": "没有可播放的音乐" }));
     }
 
     Ok(())
@@ -420,31 +381,7 @@ pub async fn music_play_song(app: AppHandle, song_name: String) -> Result<(), St
     // 刷新播放列表确保歌曲存在
     player.refresh_playlist();
 
-    match player.play_song(&song_name, 0.0) {
-        Ok(()) => {
-            let _ = app.emit(
-                "music-track-change",
-                json!({
-                    "name": song_name,
-                    "duration": player.current_duration(),
-                    "has_prev": true
-                }),
-            );
-            let _ = app.emit("music-play-state", json!({ "playing": true }));
-        }
-        Err(e) if e == "song_missing" => {
-            let _ = app.emit(
-                "music-song-missing",
-                json!({ "name": song_name, "message": "原歌曲已消失" }),
-            );
-        }
-        Err(e) => {
-            let _ = app.emit(
-                "music-play-error",
-                json!({ "message": format!("播放失败: {}", e) }),
-            );
-        }
-    }
+    play_song_and_emit(&app, &mut player, &song_name).await;
 
     Ok(())
 }

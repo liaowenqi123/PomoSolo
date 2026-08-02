@@ -43,24 +43,89 @@ async fn fetch_text(url: &str, referer: &str) -> Result<String, String> {
         .map_err(|e| format!("读取响应失败: {}", e))
 }
 
+// ===== 通用解析辅助 =====
+
+/// 按 key 顺序取第一个字符串字段值；都缺失时返回默认值
+fn first_string(song: &Value, keys: &[&str], default: &str) -> String {
+    for key in keys {
+        if let Some(v) = song.get(*key).and_then(|v| v.as_str()) {
+            return v.to_string();
+        }
+    }
+    default.to_string()
+}
+
+/// 提取歌手名：优先 artists/singer 数组（join " / "），兜底 authorName 字符串
+fn extract_artist(song: &Value) -> String {
+    for key in ["artists", "singer"] {
+        if let Some(arr) = song.get(key).and_then(|v| v.as_array()) {
+            let names: Vec<&str> = arr
+                .iter()
+                .filter_map(|a| a.get("name").and_then(|n| n.as_str()))
+                .collect();
+            if !names.is_empty() {
+                return names.join(" / ");
+            }
+        }
+    }
+    first_string(song, &["authorName"], "")
+}
+
+/// 提取专辑名：优先 album.name（嵌套），兜底 albumname/albumName 字符串
+fn extract_album(song: &Value) -> String {
+    if let Some(n) = song
+        .get("album")
+        .and_then(|v| v.get("name"))
+        .and_then(|v| v.as_str())
+    {
+        return n.to_string();
+    }
+    first_string(song, &["albumname", "albumName"], "")
+}
+
+/// 歌曲列表 → 榜单条目（前 10 首）。兼容各接口字段差异：
+/// 网易云（name/artists/album.name）、QQ（songname|title/singer/albumname）。
+fn to_chart_songs(songs: &[Value]) -> Vec<Value> {
+    songs
+        .iter()
+        .take(10)
+        .enumerate()
+        .map(|(i, item)| {
+            let song = item.get("data").unwrap_or(item);
+            json!({
+                "rank": i + 1,
+                "title": first_string(song, &["name", "title", "songname"], "未知歌曲"),
+                "artist": extract_artist(song),
+                "album": extract_album(song),
+            })
+        })
+        .collect()
+}
+
+/// 主接口失败 → 备用接口的降级抓取（打日志，都失败返回空列表）
+async fn fetch_with_fallback(
+    primary: impl std::future::Future<Output = Result<Vec<Value>, String>>,
+    backup: impl std::future::Future<Output = Result<Vec<Value>, String>>,
+    label: &str,
+) -> Vec<Value> {
+    match primary.await {
+        Ok(songs) => return songs,
+        Err(e) => eprintln!("[Charts] {}主接口失败: {}", label, e),
+    }
+    match backup.await {
+        Ok(songs) => songs,
+        Err(e) => {
+            eprintln!("[Charts] {}备用接口失败: {}", label, e);
+            Vec::new()
+        }
+    }
+}
+
 // ===== 网易云热歌榜 =====
 
 /// 抓取网易云音乐热歌榜（榜单 ID: 3778678）
 async fn fetch_netease_hot() -> Vec<Value> {
-    match fetch_netease_primary().await {
-        Ok(songs) => return songs,
-        Err(e) => {
-            eprintln!("[Charts] 网易云主接口失败: {}", e);
-        }
-    }
-    // 备用接口
-    match fetch_netease_backup().await {
-        Ok(songs) => songs,
-        Err(e) => {
-            eprintln!("[Charts] 网易云备用接口失败: {}", e);
-            Vec::new()
-        }
-    }
+    fetch_with_fallback(fetch_netease_primary(), fetch_netease_backup(), "网易云").await
 }
 
 async fn fetch_netease_primary() -> Result<Vec<Value>, String> {
@@ -73,43 +138,10 @@ async fn fetch_netease_primary() -> Result<Vec<Value>, String> {
         .get("result")
         .and_then(|v| v.get("tracks"))
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().take(10).cloned().collect::<Vec<_>>())
+        .cloned()
         .unwrap_or_default();
 
-    Ok(tracks
-        .iter()
-        .enumerate()
-        .map(|(i, track)| {
-            let title = track
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("未知歌曲")
-                .to_string();
-            let artist = track
-                .get("artists")
-                .and_then(|v| v.as_array())
-                .map(|artists| {
-                    artists
-                        .iter()
-                        .filter_map(|a| a.get("name").and_then(|n| n.as_str()))
-                        .collect::<Vec<_>>()
-                        .join(" / ")
-                })
-                .unwrap_or_default();
-            let album = track
-                .get("album")
-                .and_then(|v| v.get("name"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            json!({
-                "rank": i + 1,
-                "title": title,
-                "artist": artist,
-                "album": album,
-            })
-        })
-        .collect())
+    Ok(to_chart_songs(&tracks))
 }
 
 async fn fetch_netease_backup() -> Result<Vec<Value>, String> {
@@ -124,51 +156,7 @@ async fn fetch_netease_backup() -> Result<Vec<Value>, String> {
                 let raw = &rest[..end];
                 let decoded = urldecode(raw);
                 if let Ok(songs) = serde_json::from_str::<Vec<Value>>(&decoded) {
-                    return Ok(songs
-                        .iter()
-                        .take(10)
-                        .enumerate()
-                        .map(|(i, song)| {
-                            let title = song
-                                .get("name")
-                                .or_else(|| song.get("title"))
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("未知歌曲")
-                                .to_string();
-                            let artist = song
-                                .get("artists")
-                                .and_then(|v| v.as_array())
-                                .map(|artists| {
-                                    artists
-                                        .iter()
-                                        .filter_map(|a| a.get("name").and_then(|n| n.as_str()))
-                                        .collect::<Vec<_>>()
-                                        .join(" / ")
-                                })
-                                .unwrap_or_else(|| {
-                                    song.get("authorName")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("")
-                                        .to_string()
-                                });
-                            let album = song
-                                .get("album")
-                                .and_then(|v| v.get("name"))
-                                .and_then(|v| v.as_str())
-                                .or_else(|| {
-                                    song.get("albumName")
-                                        .and_then(|v| v.as_str())
-                                })
-                                .unwrap_or("")
-                                .to_string();
-                            json!({
-                                "rank": i + 1,
-                                "title": title,
-                                "artist": artist,
-                                "album": album,
-                            })
-                        })
-                        .collect());
+                    return Ok(to_chart_songs(&songs));
                 }
             }
         }
@@ -206,19 +194,7 @@ fn urldecode(s: &str) -> String {
 // ===== QQ音乐热歌榜 =====
 
 async fn fetch_qq_hot() -> Vec<Value> {
-    match fetch_qq_primary().await {
-        Ok(songs) => return songs,
-        Err(e) => {
-            eprintln!("[Charts] QQ主接口失败: {}", e);
-        }
-    }
-    match fetch_qq_backup().await {
-        Ok(songs) => songs,
-        Err(e) => {
-            eprintln!("[Charts] QQ备用接口失败: {}", e);
-            Vec::new()
-        }
-    }
+    fetch_with_fallback(fetch_qq_primary(), fetch_qq_backup(), "QQ").await
 }
 
 async fn fetch_qq_primary() -> Result<Vec<Value>, String> {
@@ -230,49 +206,10 @@ async fn fetch_qq_primary() -> Result<Vec<Value>, String> {
     let songs = json
         .get("songlist")
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().take(10).cloned().collect::<Vec<_>>())
+        .cloned()
         .unwrap_or_default();
 
-    Ok(songs
-        .iter()
-        .enumerate()
-        .map(|(i, item)| {
-            let song_info = item.get("data").unwrap_or(item);
-            let title = song_info
-                .get("songname")
-                .or_else(|| song_info.get("name"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("未知歌曲")
-                .to_string();
-            let artist = song_info
-                .get("singer")
-                .and_then(|v| v.as_array())
-                .map(|singers| {
-                    singers
-                        .iter()
-                        .filter_map(|s| s.get("name").and_then(|n| n.as_str()))
-                        .collect::<Vec<_>>()
-                        .join(" / ")
-                })
-                .unwrap_or_default();
-            let album = song_info
-                .get("albumname")
-                .or_else(|| {
-                    song_info
-                        .get("album")
-                        .and_then(|v| v.get("name"))
-                })
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            json!({
-                "rank": i + 1,
-                "title": title,
-                "artist": artist,
-                "album": album,
-            })
-        })
-        .collect())
+    Ok(to_chart_songs(&songs))
 }
 
 async fn fetch_qq_backup() -> Result<Vec<Value>, String> {
@@ -287,45 +224,10 @@ async fn fetch_qq_backup() -> Result<Vec<Value>, String> {
         .and_then(|v| v.get("data"))
         .and_then(|v| v.get("songInfoList"))
         .and_then(|v| v.as_array())
-        .map(|a| a.iter().take(10).cloned().collect::<Vec<_>>())
+        .cloned()
         .unwrap_or_default();
 
-    Ok(songs
-        .iter()
-        .enumerate()
-        .map(|(i, song)| {
-            let title = song
-                .get("title")
-                .or_else(|| song.get("name"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("未知歌曲")
-                .to_string();
-            let artist = song
-                .get("singer")
-                .and_then(|v| v.as_array())
-                .map(|singers| {
-                    singers
-                        .iter()
-                        .filter_map(|s| s.get("name").and_then(|n| n.as_str()))
-                        .collect::<Vec<_>>()
-                        .join(" / ")
-                })
-                .unwrap_or_default();
-            let album = song
-                .get("album")
-                .and_then(|v| v.get("name"))
-                .or_else(|| song.get("albumName"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            json!({
-                "rank": i + 1,
-                "title": title,
-                "artist": artist,
-                "album": album,
-            })
-        })
-        .collect())
+    Ok(to_chart_songs(&songs))
 }
 
 // ===== Tauri Commands =====
