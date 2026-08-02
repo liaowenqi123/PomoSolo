@@ -305,12 +305,14 @@ pub async fn music_seek(app: AppHandle, seconds: f64) -> Result<(), String> {
 
     player.seek(seconds)?;
 
-    // seek 完成后立即推送进度，前端无需等 200ms 进度任务
+    // seek 完成后立即推送进度，前端无需等 200ms 进度任务。
+    // current 用播放器真实位置：seek 目标会被钳制到时长内，若直接回传传入
+    // 的 seconds 会得到越界值（进度条超出最大值）
     let _ = app.emit(
         "music-progress",
         json!({
             "name": player.current_track(),
-            "current": seconds as u64,
+            "current": player.get_position(),
             "duration": player.current_duration()
         }),
     );

@@ -6,6 +6,35 @@
 
 ## 2026-08-02
 
+### 6. 音量记忆 UI 不一致：退出记忆的音量不显示在 UI（v4.5.12）
+
+**问题描述：**
+- 上次退出时的音量会被记忆（Rust 端播放器 `volume` 持久化生效），但重启后 UI 音量条仍显示满格
+- 根因：前端 `volume` 是本地持久化值，与实际播放音量脱钩——status 事件从未携带音量字段，前端无法感知真实音量
+
+**解决方案：**
+- Rust `PlayerSnapshot` 新增 `volume: f32`（实际播放音量），随 `music_status` 下发
+- 前端 `handleStatus` 收到 `payload.volume` 即同步音量（status 作为音量真相源）
+
+**影响范围：**
+- `src-tauri/src/modules/audio_player.rs`、`src-tauri/src/commands/music.rs`、`src/api/music.ts`、`src/stores/music.ts`
+
+---
+### 5. 进度条超出最大值（4.5.10 起偶发，新歌 P2P 下载后多见）（v4.5.12）
+
+**问题描述：**
+- 进度条当前时间超过歌曲时长（>100%），怀疑新歌加载与 DJ 广播时序错位 + 多条 DJ 信息同时进入（DJ 操作过快或 P2P 下载期间旧信息堆积）
+
+**解决方案（多防线钳制，DJ 信息跳转"原子锁"替代方案）：**
+- `seekIfFar`：目标超当前歌曲时长 → 忽略不跳转（旧 DJ 信息不干扰新歌）
+- `seek`：目标钳制 `[0, duration]`（前端 + Rust 双侧）
+- `handleProgress`：`currentTime > duration` 钳制回 duration；`progress` getter 钳制 100% 兜底
+- `music_seek` 命令 emit 的 `current` 改用 `player.get_position()` 真实位置（seek 目标钳制后回传传入参数会得越界值）
+
+**影响范围：**
+- `src/stores/music.ts`、`src-tauri/src/modules/audio_player.rs`、`src-tauri/src/commands/music.rs`
+
+---
 ### 4. 自动更新 404：latest.json 的 url 指向旧版本安装包（v4.5.11）
 
 **问题描述：**

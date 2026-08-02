@@ -74,6 +74,9 @@ pub struct PlayerSnapshot {
     pub duration: u64,
     pub has_prev: bool,
     pub play_mode: String,
+    /// 实际播放音量（0.0-1.0）：前端启动后以 status 为准同步 UI，
+    /// 避免前端持久化丢失/被覆盖时音量 UI 与实际播放音量不一致
+    pub volume: f32,
 }
 
 /// 音频播放器
@@ -394,9 +397,13 @@ impl AudioPlayer {
         if self.track_name.is_empty() {
             return Err("没有正在播放的歌曲".to_string());
         }
+        // 钳制到 [0, 当前歌曲时长]：DJ 广播/下载校准的 seek 目标可能超出
+        // 当前歌曲时长（旧歌信息覆盖新歌/信息堆积），超界 seek 会让播放器
+        // 位置超过时长，进度条出现超出最大值
+        let target = seconds.clamp(0.0, self.duration as f64);
         // 优先用 rodio 原生 try_seek（不重建 sink，无音频重叠、无 get_pos 断裂）
         if let Some(ref sink) = self.sink {
-            let pos = Duration::from_secs_f64(seconds.max(0.0));
+            let pos = Duration::from_secs_f64(target);
             if sink.try_seek(pos).is_ok() {
                 // try_seek 成功后 get_pos 反映 seek 后的真实位置，清除 offset
                 self.position_offset = 0;
@@ -405,7 +412,7 @@ impl AudioPlayer {
         }
         // fallback：没有 sink 或 try_seek 不支持，重建 sink + skip_duration
         let name = self.track_name.clone();
-        self.play_song(&name, seconds)
+        self.play_song(&name, target)
     }
 
     /// 设置音量
@@ -603,6 +610,7 @@ impl AudioPlayer {
             duration: self.duration,
             has_prev: true,
             play_mode: self.play_mode.as_str().to_string(),
+            volume: self.volume,
         }
     }
 
@@ -1032,5 +1040,14 @@ mod tests {
         assert_eq!(snap.duration, 0);
         assert_eq!(snap.play_mode, "shuffle");
         assert!(snap.has_prev, "has_prev 应始终为 true（与前端兼容）");
+        assert_eq!(snap.volume, 1.0, "新建 player 默认音量 1.0");
+    }
+
+    #[test]
+    fn test_snapshot_volume_reflects_set_volume() {
+        let mut player = AudioPlayer::new();
+        player.set_volume(0.3);
+        let snap = player.snapshot();
+        assert!((snap.volume - 0.3).abs() < f32::EPSILON, "快照音量应反映 set_volume");
     }
 }

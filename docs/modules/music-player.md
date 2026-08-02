@@ -485,6 +485,25 @@ v4.5.8 在 `server-planning/API-implementation.md` 留言的三项服务器需�
 
 **测试**：music.test.ts 更新"歌单未加载时缺歌 → 不再触发 P2P"用例；新增 sync_state 未加载守卫、setSyncEnabled 预加载、handlePlaylist 首次重取、transfer_done/transfer_failed 旧歌迟到事件特判共 8 个用例（全量 52 文件 950 用例通过）。
 
+### 4.24 音量记忆 UI 不一致 + 进度条超出最大值（v4.5.12）
+
+用户反馈两个小 bug：
+
+1. **音量记忆 UI 不一致**：退出时音量会被记忆（Rust 端 `AudioPlayer::volume` 持久化生效），但重启后 UI 音量条仍显示满格。根因——前端 `volume` 是持久化的本地值，**与实际播放音量脱钩**：历史版本里前端持久化丢了/被覆盖，而 status 事件从未携带音量字段，前端无法感知真实音量，只能显示初始值 `1.0`。**修复**：
+   - Rust `PlayerSnapshot` 新增 `volume: f32`（实际播放音量 0.0-1.0），`music_status` 事件随 status 一起下发。
+   - 前端 `handleStatus` 收到 `payload.volume` 即同步 `volume.value`（status 作为音量真相源）；`MusicStatus` 接口补 `volume?: number`。
+   - 配套测试：Rust `test_snapshot_volume_reflects_set_volume`；前端 handleStatus 带/不带 volume 两用例。
+
+2. **进度条超出最大值**（4.5.10 起偶发，多见于新歌 P2P 下载之后）：进度条当前时间超过歌曲时长（>100%）。怀疑链：新歌加载与 DJ 广播时序错位（加载歌曲与 DJ 报告歌曲不一致）+ 多条 DJ 信息同时进入（DJ 操作过快或 P2P 下载期间旧信息堆积）→ 刚加载好新歌时旧 DJ 的 seek/进度覆盖新歌，跳到越界位置。**修复（DJ 信息跳转的"原子锁"替代方案，多防线覆盖）**：
+   - `seekIfFar`：目标超过当前歌曲时长 → 直接忽略不跳转（旧 DJ 信息不干扰新歌）。
+   - `seek()`：目标钳制到 `[0, duration]`（前端 + Rust `AudioPlayer::seek` 双侧钳制）。
+   - `handleProgress`：`currentTime > duration` 防御性钳制回 `duration`。
+   - `progress` getter：钳制到 100%（最后一层兜底）。
+   - `music_seek` 命令 seek 完成后 emit 的 `current` 改为 `player.get_position()`（真实位置）——seek 目标被钳制后若回传传入参数会得到越界值（进度条超界的直接触发点之一）。
+   - 歌曲切换路径本就带 `songId` 匹配（v4.5.10）+ `timestamp_server` 新旧判定（v4.5.9），配合超界忽略形成闭环；无需真正的互斥锁，状态机语义已覆盖。
+
+**测试**：music.test.ts 新增 7 用例（handleStatus 音量同步 ×2、seek 钳制 ×2、seek 时长内透传、applySyncState DJ 越界位置忽略、handleProgress 钳制、progress getter 钳制 100%）；Rust 新增 snapshot 音量用例。前端全量 958 用例通过。
+
 ---
 
 ## 5. 最终布局结构清单

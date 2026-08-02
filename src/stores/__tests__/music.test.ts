@@ -843,4 +843,68 @@ describe("useMusicStore", () => {
     expect(s.songTransfer.state).toBe("idle");
     expect(s.missingSongName).toBe("a.mp3");
   });
+
+  // ===== Bug 修复（v4.5.12）：音量 UI 跟随实际音量 + 进度条超界防护 =====
+
+  it("handleStatus 携带 volume → 音量 UI 跟随播放器实际音量", () => {
+    const s = useMusicStore();
+    s.volume = 1.0;
+    s.handleStatus({ playing: false, name: "x.mp3", current: 0, duration: 100, volume: 0.3 });
+    expect(s.volume).toBe(0.3);
+  });
+
+  it("handleStatus 无 volume 字段 → 不覆盖当前音量", () => {
+    const s = useMusicStore();
+    s.volume = 0.3;
+    s.handleStatus({ playing: false, name: "x.mp3", current: 0, duration: 100 });
+    expect(s.volume).toBe(0.3);
+  });
+
+  it("seek 目标超过当前歌曲时长 → 钳制到时长（防进度条超界）", async () => {
+    const s = useMusicStore();
+    s.duration = 120;
+    await s.seek(500);
+    expect(musicApi.musicSeek).toHaveBeenCalledWith(120);
+    await s.seek(-5);
+    expect(musicApi.musicSeek).toHaveBeenCalledWith(0);
+  });
+
+  it("seek 目标在时长内 → 原样透传", async () => {
+    const s = useMusicStore();
+    s.duration = 120;
+    await s.seek(60);
+    expect(musicApi.musicSeek).toHaveBeenCalledWith(60);
+  });
+
+  it("applySyncState：DJ 位置超过当前歌曲时长 → 忽略不跳转（旧 DJ 信息不干扰新歌）", () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.duration = 60;
+    s.trackName = "a.mp3";
+    s.playing = true;
+    // DJ 广播位置 120s > 当前歌曲 60s（旧歌信息覆盖/堆积）
+    s.handleSyncWsEvent({
+      type: "music:sync_state",
+      song_id: "a.mp3",
+      playing: true,
+      position_ms: 120000,
+      timestamp_server: Date.now(),
+    });
+    expect(musicApi.musicSeek).not.toHaveBeenCalled();
+  });
+
+  it("handleProgress 上报位置超过时长 → 钳制到时长", () => {
+    const s = useMusicStore();
+    s.duration = 100;
+    s.handleProgress({ current: 150, duration: 100 });
+    expect(s.currentTime).toBe(100);
+  });
+
+  it("progress getter：currentTime 超过 duration 时钳制为 100%", () => {
+    const s = useMusicStore();
+    s.duration = 100;
+    s.currentTime = 150;
+    expect(s.progress).toBe(100);
+  });
 });

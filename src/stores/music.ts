@@ -233,7 +233,8 @@ export const useMusicStore = defineStore("music", () => {
   // ===== Getters =====
   const progress = computed(() => {
     if (duration.value <= 0) return 0;
-    return (currentTime.value / duration.value) * 100;
+    // 钳制到 100：currentTime 防御性 clamp 后仍可能有极小越界（浮点/上报顺序）
+    return Math.min(100, (currentTime.value / duration.value) * 100);
   });
 
   const currentTimeText = computed(() => formatTime(currentTime.value));
@@ -365,6 +366,12 @@ export const useMusicStore = defineStore("music", () => {
 
   /** 跳转到指定时间 */
   async function seek(seconds: number) {
+    // 目标钳制到 [0, 当前歌曲时长]：DJ 广播/下载校准的目标可能超出当前歌曲
+    // 时长（旧歌信息覆盖新歌/信息堆积），超界 seek 会导致进度条超出最大值
+    const dur = duration.value;
+    if (dur > 0) {
+      seconds = Math.min(Math.max(seconds, 0), dur);
+    }
     try {
       await musicSeek(seconds);
       if (syncEnabled.value && isDj.value) {
@@ -381,6 +388,9 @@ export const useMusicStore = defineStore("music", () => {
    * 避免广播频繁时反复 seek 造成播放回跳（如听到 AABCD 重复开头）。
    */
   function seekIfFar(targetSec: number): void {
+    // 目标超界（DJ 位置超过当前歌曲时长）→ 视为旧歌信息覆盖新歌/信息堆积，
+    // 直接忽略不跳转（DJ 信息跳转的原子防护：新歌刚加载时旧广播不干扰）
+    if (duration.value > 0 && targetSec > duration.value) return;
     if (Math.abs(currentTime.value - targetSec) > SYNC_SEEK_TOLERANCE_S) {
       void seek(targetSec);
     }
@@ -801,6 +811,9 @@ export const useMusicStore = defineStore("music", () => {
     duration.value = payload.duration;
     if (payload.has_prev !== undefined) hasPrev.value = payload.has_prev;
     if (payload.play_mode !== undefined) playMode.value = payload.play_mode;
+    // 音量 UI 跟随播放器实际音量：status 是真相源，避免前端持久化
+    // 丢失/被覆盖时出现"实际音量是上次的、UI 却显示满格"不一致
+    if (payload.volume !== undefined) volume.value = payload.volume;
     playError.value = null;
     missingSongName.value = null;
   }
@@ -821,6 +834,10 @@ export const useMusicStore = defineStore("music", () => {
     }
     currentTime.value = payload.current;
     duration.value = payload.duration;
+    // 防御：播放位置不应超过当前歌曲时长（seek 乱序/旧信息堆积时可能越界）
+    if (duration.value > 0 && currentTime.value > duration.value) {
+      currentTime.value = duration.value;
+    }
   }
 
   function handleDevices(payload: MusicDevicesPayload) {

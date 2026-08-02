@@ -38,6 +38,8 @@ export interface MusicStatus {
   duration: number;
   has_prev?: boolean;
   play_mode?: PlayMode;
+  /** 实际播放音量（0.0-1.0），前端启动后以此同步音量 UI */
+  volume?: number;
 }
 
 export interface PlaylistSong {
