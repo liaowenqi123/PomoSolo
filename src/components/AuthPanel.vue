@@ -57,6 +57,8 @@ const showApiKey = ref(false);
 
 // 表单错误信息（注册密码不匹配/空值等本地校验）
 const errorMsg = ref<string | null>(null);
+// 表单成功信息（注册成功提示）
+const successMsg = ref<string | null>(null);
 
 // 待确认的模式切换（用于确认弹窗）
 const pendingMode = ref<"cloud" | "local" | null>(null);
@@ -156,7 +158,31 @@ async function handleRegister(): Promise<void> {
     return;
   }
   errorMsg.value = null;
-  await auth.register(username.trim(), password);
+  successMsg.value = null;
+  const ok = await auth.register(username.trim(), password);
+  if (!ok) {
+    errorMsg.value = auth.lastError ?? "注册失败";
+    return;
+  }
+  // 注册成功 → 提示 + 自动登录（记住密码 + 开启自动登录）
+  successMsg.value = "注册成功，正在自动登录...";
+  const autoLoginOk = await auth.login(username.trim(), password, true, true);
+  if (autoLoginOk) {
+    // 自动登录成功 → 关闭面板
+    successMsg.value = "注册成功，已自动登录";
+    emit("logged-in");
+    emit("update:visible", false);
+  } else {
+    // 自动登录失败兜底：切回登录 Tab 并自动填写刚注册的账号密码
+    successMsg.value = "注册成功！请登录";
+    activeTab.value = "login";
+    loginForm.value = {
+      username: username.trim(),
+      password,
+      rememberPassword: true,
+      autoLogin: true,
+    };
+  }
 }
 
 /** 保存本地 API Key */
@@ -372,8 +398,9 @@ function onLocalKeyEnter(e: KeyboardEvent): void {
     </div>
 
     <!-- 错误信息 -->
-    <p v-if="auth.lastError" class="auth-message error">{{ auth.lastError }}</p>
+    <p v-if="auth.lastError && !errorMsg" class="auth-message error">{{ auth.lastError }}</p>
     <p v-else-if="errorMsg" class="auth-message error">{{ errorMsg }}</p>
+    <p v-else-if="successMsg" class="auth-message success">{{ successMsg }}</p>
 
     <!-- 模式切换确认弹窗 -->
     <Modal
@@ -617,6 +644,11 @@ function onLocalKeyEnter(e: KeyboardEvent): void {
 .auth-message.error {
   color: #e94560;
   background: rgba(233, 69, 96, 0.1);
+}
+
+.auth-message.success {
+  color: #81c784;
+  background: rgba(76, 175, 80, 0.12);
 }
 
 .confirm-message {

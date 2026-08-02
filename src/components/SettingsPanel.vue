@@ -26,6 +26,9 @@ import {
   type FeedbackItem,
 } from "@/api/feedback";
 import { autostartEnable } from "@/api/system";
+import { gardenUnlockEasteregg } from "@/api/garden";
+import { useGardenStore } from "../stores/garden";
+import SpaceTravel from "./SpaceTravel.vue";
 
 const props = defineProps<{
   visible: boolean;
@@ -37,9 +40,102 @@ const emit = defineEmits<{
 }>();
 
 const settings = useSettingsStore();
+const garden = useGardenStore();
 
 // 本地编辑副本——只在面板可见时同步，避免直接修改 store 导致中途自动保存
 const local = computed(() => settings.settings);
+
+// ===== 隐藏彩蛋（连续点击版本号 5 次触发）=====
+// 参照旧版 electron/src/scripts/modules/settings.js 的 handleVersionClick：
+// 5 次点击间隔 < 1.5s 即触发彩蛋（粒子效果 + 解锁 easteregg 成就 + 太空旅行）。
+const EASTER_EGG_REQUIRED_CLICKS = 5;
+const EASTER_EGG_CLICK_INTERVAL_MS = 1500;
+const EASTER_EGG_PARTICLE_COUNT = 20;
+
+let easterEggClickCount = 0;
+let easterEggLastClickTime = 0;
+/** 太空旅行动画是否显示 */
+const spaceTravelVisible = ref(false);
+/** 彩蛋粒子（固定定位，动画后自动移除） */
+const easterEggParticles = ref<Array<{ id: number; left: string; top: string; dx: string; dy: string; color: string }>>([]);
+let particleIdCounter = 0;
+
+/** 处理版本号点击（彩蛋入口） */
+function handleVersionClick(e: MouseEvent): void {
+  const now = Date.now();
+  const timeSinceLastClick = now - easterEggLastClickTime;
+
+  // 间隔超过阈值则重置计数
+  if (easterEggLastClickTime !== 0 && timeSinceLastClick > EASTER_EGG_CLICK_INTERVAL_MS) {
+    easterEggClickCount = 0;
+  }
+  easterEggLastClickTime = now;
+  easterEggClickCount++;
+
+  // 轻微缩放动画反馈
+  const el = e.currentTarget as HTMLElement;
+  el.style.transition = "transform 0.1s ease";
+  el.style.transform = "scale(1.15)";
+  setTimeout(() => {
+    el.style.transform = "scale(1)";
+  }, 100);
+
+  // 达到 5 次触发彩蛋
+  if (easterEggClickCount >= EASTER_EGG_REQUIRED_CLICKS) {
+    easterEggClickCount = 0;
+    easterEggLastClickTime = 0;
+    void triggerEasterEgg();
+  }
+}
+
+/** 触发彩蛋：粒子效果 + 解锁成就 + 太空旅行 */
+async function triggerEasterEgg(): Promise<void> {
+  createParticleEffect();
+
+  // 解锁隐藏成就（幂等）
+  try {
+    const result = await gardenUnlockEasteregg();
+    if (result.success) {
+      // 新解锁：刷新菜园子数据（成就 UI 同步）
+      await garden.load();
+    }
+  } catch (e) {
+    console.warn("[Settings] 解锁彩蛋成就失败:", e);
+  }
+
+  // 延迟启动太空旅行（让粒子效果先播放）
+  setTimeout(() => {
+    emit("close");
+    spaceTravelVisible.value = true;
+  }, 800);
+}
+
+/** 创建粒子效果（在版本号位置向四周飞散） */
+function createParticleEffect(): void {
+  const rect = document.querySelector(".version-text")?.getBoundingClientRect();
+  const centerX = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
+  const centerY = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
+  const colors = ["#ff6b6b", "#ffd93d", "#6bcb77", "#4ecdc4", "#a29bfe", "#ff7675"];
+
+  const particles = Array.from({ length: EASTER_EGG_PARTICLE_COUNT }, () => {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 40 + Math.random() * 70;
+    return {
+      id: particleIdCounter++,
+      left: `${centerX}px`,
+      top: `${centerY}px`,
+      dx: `${Math.cos(angle) * dist}px`,
+      dy: `${Math.sin(angle) * dist}px`,
+      color: colors[Math.floor(Math.random() * colors.length)],
+    };
+  });
+  easterEggParticles.value = particles;
+
+  // 动画结束后清空粒子
+  setTimeout(() => {
+    easterEggParticles.value = [];
+  }, 900);
+}
 
 // ===== 自动更新状态 =====
 const appVersion = ref("...");
@@ -604,7 +700,7 @@ function statusLabel(status: number): string {
             </div>
             <div class="settings-row">
               <label class="settings-row__label">版本</label>
-              <span class="version-text">v{{ appVersion }}</span>
+              <span class="version-text" @click="handleVersionClick">v{{ appVersion }}</span>
             </div>
           </section>
         </div>
@@ -726,6 +822,22 @@ function statusLabel(status: number): string {
           </div>
         </Transition>
       </div>
+
+      <!-- 彩蛋粒子效果（版本号点击 5 次触发，向四周飞散） -->
+      <div v-if="easterEggParticles.length > 0" class="easter-egg-particle-layer">
+        <span
+          v-for="p in easterEggParticles"
+          :key="p.id"
+          class="easter-egg-particle"
+          :style="{ left: p.left, top: p.top, '--dx': p.dx, '--dy': p.dy, background: p.color }"
+        ></span>
+      </div>
+
+      <!-- 隐藏彩蛋：太空旅行动画 -->
+      <SpaceTravel
+        :visible="spaceTravelVisible"
+        @update:visible="spaceTravelVisible = $event"
+      />
     </div>
   </Transition>
 </template>
@@ -1003,6 +1115,41 @@ function statusLabel(status: number): string {
 .version-text {
   font-size: 13px;
   color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  user-select: none;
+  display: inline-block;
+}
+
+/* 彩蛋粒子层 */
+.easter-egg-particle-layer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 99998;
+  pointer-events: none;
+}
+
+.easter-egg-particle {
+  position: fixed;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: easterEggFly 0.9s ease-out forwards;
+  box-shadow: 0 0 6px currentColor;
+}
+
+@keyframes easterEggFly {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.3);
+  }
 }
 
 /* Scrollbar */

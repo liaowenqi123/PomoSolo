@@ -388,52 +388,41 @@ export const useGardenStore = defineStore("garden", () => {
     }
   }
 
-  /** 在指定土地种植种子 */
-  async function plant(plotIndex: number, seedId: string): Promise<boolean> {
+  /**
+   * 通用菜园子操作封装：消除 plant/harvest/buySeed 等 action 的重复 try/catch 模式。
+   * 统一执行操作 → 应用结果 → 失败记录错误。
+   */
+  async function runGardenOp<T extends GardenOperationResult>(
+    op: () => Promise<T>,
+  ): Promise<boolean> {
     try {
-      const result = await gardenPlant(plotIndex, seedId);
+      const result = await op();
       applyResult(result);
       return result.success;
     } catch (e) {
       lastError.value = e instanceof Error ? e.message : String(e);
       return false;
     }
+  }
+
+  /** 在指定土地种植种子 */
+  function plant(plotIndex: number, seedId: string): Promise<boolean> {
+    return runGardenOp(() => gardenPlant(plotIndex, seedId));
   }
 
   /** 收获指定土地上的作物 */
-  async function harvest(plotIndex: number): Promise<boolean> {
-    try {
-      const result = await gardenHarvest(plotIndex);
-      applyResult(result);
-      return result.success;
-    } catch (e) {
-      lastError.value = e instanceof Error ? e.message : String(e);
-      return false;
-    }
+  function harvest(plotIndex: number): Promise<boolean> {
+    return runGardenOp(() => gardenHarvest(plotIndex));
   }
 
   /** 购买种子 */
-  async function buySeed(seedId: string, quantity: number): Promise<boolean> {
-    try {
-      const result = await gardenBuySeed(seedId, quantity);
-      applyResult(result);
-      return result.success;
-    } catch (e) {
-      lastError.value = e instanceof Error ? e.message : String(e);
-      return false;
-    }
+  function buySeed(seedId: string, quantity: number): Promise<boolean> {
+    return runGardenOp(() => gardenBuySeed(seedId, quantity));
   }
 
   /** 出售作物 */
-  async function sellCrop(cropId: string, quantity: number): Promise<boolean> {
-    try {
-      const result = await gardenSellCrop(cropId, quantity);
-      applyResult(result);
-      return result.success;
-    } catch (e) {
-      lastError.value = e instanceof Error ? e.message : String(e);
-      return false;
-    }
+  function sellCrop(cropId: string, quantity: number): Promise<boolean> {
+    return runGardenOp(() => gardenSellCrop(cropId, quantity));
   }
 
   /** 一键出售所有作物，返回 {totalCoins, totalItems} 或 null */
@@ -455,39 +444,18 @@ export const useGardenStore = defineStore("garden", () => {
   }
 
   /** 解锁土地 */
-  async function unlockPlot(plotIndex: number): Promise<boolean> {
-    try {
-      const result = await gardenUnlockPlot(plotIndex);
-      applyResult(result);
-      return result.success;
-    } catch (e) {
-      lastError.value = e instanceof Error ? e.message : String(e);
-      return false;
-    }
+  function unlockPlot(plotIndex: number): Promise<boolean> {
+    return runGardenOp(() => gardenUnlockPlot(plotIndex));
   }
 
   /** 每日签到 */
-  async function signIn(): Promise<boolean> {
-    try {
-      const result = await gardenSignin();
-      applyResult(result);
-      return result.success;
-    } catch (e) {
-      lastError.value = e instanceof Error ? e.message : String(e);
-      return false;
-    }
+  function signIn(): Promise<boolean> {
+    return runGardenOp(() => gardenSignin());
   }
 
   /** 累加专注时间（触发对应成就） */
-  async function addFocus(minutes: number): Promise<boolean> {
-    try {
-      const result = await gardenUpdateFocus(minutes);
-      applyResult(result);
-      return result.success;
-    } catch (e) {
-      lastError.value = e instanceof Error ? e.message : String(e);
-      return false;
-    }
+  function addFocus(minutes: number): Promise<boolean> {
+    return runGardenOp(() => gardenUpdateFocus(minutes));
   }
 
   /** 执行惩罚（前台检测到娱乐应用时调用） */

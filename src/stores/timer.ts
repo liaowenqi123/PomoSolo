@@ -23,6 +23,11 @@ export const useTimerStore = defineStore("timer", () => {
   const lastCompletedMinutes = ref(0);
   /** 完成事件自增信号，每次工作番茄钟完成 +1，供外部 watch */
   const completionId = ref(0);
+  /**
+   * 计划模式步骤信号：计划模式下任意一项（work/break）完成 +1。
+   * 供 App.vue 监听以自动进入下一计划项（单次模式不递增）。
+   */
+  const planStepId = ref(0);
 
   let tickTimer: ReturnType<typeof setInterval> | null = null;
   let lastTickTime = 0;
@@ -144,6 +149,11 @@ export const useTimerStore = defineStore("timer", () => {
     }
     phase.value = "finished";
 
+    // 计划模式下任意一项完成都推进步骤（供计划自动进入下一项）
+    if (appMode.value === "plan") {
+      planStepId.value++;
+    }
+
     if (mode.value === "work") {
       const minutes = Math.round(totalMs.value / 60000);
       // Bug 1: 移除 todayCount/totalMinutes 累加，统计由 stats store 负责
@@ -158,6 +168,14 @@ export const useTimerStore = defineStore("timer", () => {
     // Bug 8: 移除 saveStats 调用，统计持久化由 stats store 负责
   }
 
+  /** 设置计时时长（分钟）并回到 ready（对应旧版 Timer.setTime；运行中忽略） */
+  function setTime(minutes: number): void {
+    if (phase.value === "running") return;
+    totalMs.value = minutes * 60 * 1000;
+    remainingMs.value = totalMs.value;
+    phase.value = "ready";
+  }
+
   return {
     phase,
     mode,
@@ -168,6 +186,7 @@ export const useTimerStore = defineStore("timer", () => {
     totalMinutes,
     lastCompletedMinutes,
     completionId,
+    planStepId,
     progress,
     displayTime,
     isRunning,
@@ -175,6 +194,7 @@ export const useTimerStore = defineStore("timer", () => {
     setMode,
     setModeKeepTime,
     setAppMode,
+    setTime,
     start,
     pause,
     toggle,

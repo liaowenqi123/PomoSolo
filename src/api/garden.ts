@@ -51,18 +51,27 @@ export interface Achievement {
   icon?: string;
 }
 
-/** 惩罚结果 */
+/** 单株枯萎作物明细（与 Rust garden_punishment 返回的 loss 结构一致） */
+export interface PunishmentLoss {
+  /** 作物 key */
+  crop: string;
+  /** 作物中文名 */
+  name: string;
+  /** 作物 emoji 图标 */
+  icon: string;
+  /** 已生长分钟数 */
+  progress: number;
+  /** 该作物总生长分钟数 */
+  growTime: number;
+}
+
+/** 惩罚结果（对应 Rust garden_punishment 返回值） */
 export interface PunishmentResult {
   /** 是否发生损失 */
   hasLoss: boolean;
-  /** 各项损失明细 */
-  losses: Array<{
-    /** 损失类型描述 */
-    type: string;
-    /** 损失数量 */
-    amount: number;
-  }>;
-  /** 总损失分钟数 */
+  /** 枯萎的作物明细列表 */
+  losses: PunishmentLoss[];
+  /** 总损失专注分钟数（= 各枯萎作物 progress 之和） */
   totalMinutes: number;
 }
 
@@ -224,4 +233,17 @@ export function gardenPunishment(
  */
 export function gardenGrow(minutes: number): Promise<GardenOperationResult> {
   return invoke<unknown>("garden_grow", { minutes }).then(wrapResult);
+}
+
+/**
+ * 解锁隐藏彩蛋成就（设置面板连续点击版本号 5 次触发）。
+ * 后端：`garden_unlock_easteregg() -> { success, alreadyUnlocked, gardenData, unlockedAchievements }`
+ * 幂等：已解锁时 success=false 且 alreadyUnlocked=true，不重复发放奖励。
+ */
+export function gardenUnlockEasteregg(): Promise<
+  GardenOperationResult & { alreadyUnlocked?: boolean }
+> {
+  return invoke<GardenOperationResult & { alreadyUnlocked?: boolean }>(
+    "garden_unlock_easteregg",
+  );
 }

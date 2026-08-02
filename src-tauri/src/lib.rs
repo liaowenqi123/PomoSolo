@@ -81,6 +81,7 @@ pub fn run() {
             commands::garden::garden_update_focus,
             commands::garden::garden_punishment,
             commands::garden::garden_grow,
+            commands::garden::garden_unlock_easteregg,
             // AI 规划助手
             commands::ai::ai_generate_plan,
             // 自习室

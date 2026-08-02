@@ -32,8 +32,15 @@ const systemApi = vi.hoisted(() => ({
 }));
 vi.mock("@/api/system", () => systemApi);
 
+// Mock @/api/garden 模块（彩蛋触发时调用 gardenUnlockEasteregg）
+const gardenApi = vi.hoisted(() => ({
+  gardenUnlockEasteregg: vi.fn(),
+}));
+vi.mock("@/api/garden", () => gardenApi);
+
 import SettingsPanel from "../SettingsPanel.vue";
 import { useSettingsStore, DEFAULT_SETTINGS } from "../../stores/settings";
+import { useGardenStore } from "../../stores/garden";
 
 describe("SettingsPanel.vue", () => {
   beforeEach(() => {
@@ -46,10 +53,24 @@ describe("SettingsPanel.vue", () => {
     systemApi.autostartIsEnabled.mockReset();
     // autostartEnable 默认返回与请求一致的状态（不触发回写）
     systemApi.autostartEnable.mockResolvedValue(true);
+    gardenApi.gardenUnlockEasteregg.mockReset();
+    gardenApi.gardenUnlockEasteregg.mockResolvedValue({
+      success: true,
+      alreadyUnlocked: false,
+      gardenData: {},
+      unlockedAchievements: [],
+    });
   });
 
   const mountComponent = (visible = true) =>
-    mount(SettingsPanel, { props: { visible } });
+    mount(SettingsPanel, {
+      props: { visible },
+      global: {
+        stubs: {
+          SpaceTravel: true,
+        },
+      },
+    });
 
   // ===== 可见性 =====
 
@@ -339,5 +360,79 @@ describe("SettingsPanel.vue", () => {
     await lightBtn.trigger("click");
 
     expect(dataApi.writeSettings).toHaveBeenCalled();
+  });
+
+  // ===== 隐藏彩蛋（版本号点击 5 次）=====
+
+  async function clickVersionTimes(wrapper: ReturnType<typeof mountComponent>, times: number) {
+    const versionText = wrapper.find(".version-text");
+    for (let i = 0; i < times; i++) {
+      await versionText.trigger("click");
+    }
+  }
+
+  it("点击版本号 5 次应触发彩蛋（解锁成就 + 关闭面板 + 显示太空旅行）", async () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = mountComponent();
+      await clickVersionTimes(wrapper, 5);
+      await flushPromises();
+      // 解锁 API 被调用
+      expect(gardenApi.gardenUnlockEasteregg).toHaveBeenCalledTimes(1);
+      // 太空旅行在 800ms 延迟后显示（面板先关闭）
+      await vi.advanceTimersByTimeAsync(800);
+      const vm = wrapper.vm as unknown as { spaceTravelVisible: boolean };
+      expect(vm.spaceTravelVisible).toBe(true);
+      expect(wrapper.emitted("close")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("点击版本号少于 5 次不应触发彩蛋", async () => {
+    const wrapper = mountComponent();
+    await clickVersionTimes(wrapper, 3);
+    await flushPromises();
+    expect(gardenApi.gardenUnlockEasteregg).not.toHaveBeenCalled();
+    const vm = wrapper.vm as unknown as { spaceTravelVisible: boolean };
+    expect(vm.spaceTravelVisible).toBe(false);
+  });
+
+  it("点击间隔超过 1.5 秒应重置计数（不触发彩蛋）", async () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = mountComponent();
+      await clickVersionTimes(wrapper, 3);
+      // 等待超过间隔阈值
+      await vi.advanceTimersByTimeAsync(1600);
+      await clickVersionTimes(wrapper, 2);
+      await flushPromises();
+      // 总点击 5 次但跨间隔，计数被重置，不应触发
+      expect(gardenApi.gardenUnlockEasteregg).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("彩蛋已解锁时重复触发不重复发放奖励（不刷新菜园子）", async () => {
+    vi.useFakeTimers();
+    try {
+      gardenApi.gardenUnlockEasteregg.mockResolvedValue({
+        success: false,
+        alreadyUnlocked: true,
+        gardenData: {},
+        unlockedAchievements: [],
+      });
+      const wrapper = mountComponent();
+      const gardenStore = useGardenStore();
+      const loadSpy = vi.spyOn(gardenStore, "load");
+      await clickVersionTimes(wrapper, 5);
+      await flushPromises();
+      expect(gardenApi.gardenUnlockEasteregg).toHaveBeenCalledTimes(1);
+      // alreadyUnlocked 时不刷新数据
+      expect(loadSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

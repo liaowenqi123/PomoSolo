@@ -42,6 +42,54 @@ describe("ForegroundWarning.vue", () => {
     expect(eventNames).toContain("foreground-entertainment-detected");
   });
 
+  // ===== active prop（奖惩机制激活状态）=====
+
+  it("active=false 时收到娱乐事件不应弹窗（迟到广播忽略）", async () => {
+    const wrapper = mountComponent({ visible: false, active: false });
+    await flushPromises();
+
+    const detectedHandler = listenMock.mock.calls.find(
+      (c) => c[0] === "foreground-entertainment-detected",
+    )?.[1] as ((e: { payload: DetectionResult }) => void) | undefined;
+
+    detectedHandler?.({
+      payload: {
+        windowTitle: "bilibili - 在线视频",
+        isEntertainment: true,
+        source: "ai",
+        keyword: "",
+      },
+    });
+    await flushPromises();
+
+    // 不应 emit update:visible(true)
+    const updates = wrapper.emitted("update:visible");
+    expect(updates).toBeFalsy();
+  });
+
+  it("active=true 时收到娱乐事件应弹窗", async () => {
+    const wrapper = mountComponent({ visible: false, active: true });
+    await flushPromises();
+
+    const detectedHandler = listenMock.mock.calls.find(
+      (c) => c[0] === "foreground-entertainment-detected",
+    )?.[1] as ((e: { payload: DetectionResult }) => void) | undefined;
+
+    detectedHandler?.({
+      payload: {
+        windowTitle: "原神",
+        isEntertainment: true,
+        source: "blacklist",
+        keyword: "原神",
+      },
+    });
+    await flushPromises();
+
+    const updates = wrapper.emitted("update:visible");
+    expect(updates).toBeTruthy();
+    expect(updates?.[0]?.[0]).toBe(true);
+  });
+
   it("挂载时应注册 foreground-api-key-invalid 事件监听", async () => {
     mountComponent();
     await flushPromises();

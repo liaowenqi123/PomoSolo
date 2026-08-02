@@ -39,11 +39,12 @@ import AuthPanel from "./components/AuthPanel.vue";
 import StudyRoom from "./components/StudyRoom.vue";
 import Charts from "./components/Charts.vue";
 import ForegroundWarning from "./components/ForegroundWarning.vue";
+import PunishmentResultModal from "./components/PunishmentResultModal.vue";
 import TutorialModal from "./components/TutorialModal.vue";
 import LoadingOverlay from "./components/LoadingOverlay.vue";
 import { showGardenWindow, enterMiniMode as enterMiniModeApi, exitMiniMode as exitMiniModeApi } from "./api/window";
 import { listen } from "@tauri-apps/api/event";
-import { useTimerStore } from "./stores/timer";
+import { useTimerStore, type TimerMode } from "./stores/timer";
 import { useSettingsStore } from "./stores/settings";
 import { useStatsStore } from "./stores/stats";
 import { useGardenStore } from "./stores/garden";
@@ -55,6 +56,7 @@ import {
   foregroundMoveBlacklistToWhitelist,
   type DetectionResult,
 } from "./api/foreground";
+import type { PunishmentResult } from "./api/garden";
 import type { AiPlanItem } from "./api/ai";
 
 const timer = useTimerStore();
@@ -112,9 +114,77 @@ function planClearAll() {
   planList.value = [];
 }
 
+/**
+ * 当前"即将开始/正在进行"的计划项类型（work/break），用于容器整体颜色联动。
+ * 参照旧版 planMode.js + AppState.updateContainerColor：
+ * - 计划运行中 → 当前项（planCurrentIndex）类型
+ * - 计划未开始 → 第一项类型（进入计划模式即按第一项着色）
+ */
+const currentPlanType = computed<TimerMode>(() => {
+  if (planRunning.value && planCurrentIndex.value >= 0) {
+    return planList.value[planCurrentIndex.value]?.type ?? "work";
+  }
+  return planList.value[0]?.type ?? "work";
+});
+
+/** 当前模式（单次模式用 timer.mode，计划模式用当前计划项类型） */
+const displayMode = computed<TimerMode>(() =>
+  timer.appMode === "plan" ? currentPlanType.value : timer.mode,
+);
+
+/** 应用计划项到计时器（类型 + 时长，参照旧版 Timer.setTime + updateContainerColor） */
+function applyPlanItem(item: PlanItem): void {
+  timer.setMode(item.type);
+  timer.setTime(item.minutes);
+}
+
+/** 开始执行计划（从第一项） */
+function startPlan(): void {
+  if (planList.value.length === 0) return;
+  planRunning.value = true;
+  planCurrentIndex.value = 0;
+  applyPlanItem(planList.value[0]);
+  timer.start();
+}
+
+/** 进入下一个计划项（1s 后自动开始，参照旧版 handlePlanModeComplete） */
+function nextPlanItem(): void {
+  planCurrentIndex.value++;
+  if (planCurrentIndex.value < planList.value.length) {
+    applyPlanItem(planList.value[planCurrentIndex.value]);
+    setTimeout(() => {
+      if (planRunning.value && timer.phase === "ready") {
+        timer.start();
+      }
+    }, 1000);
+  } else {
+    // 计划全部完成
+    planRunning.value = false;
+    planCurrentIndex.value = -1;
+  }
+}
+
+/** 停止计划 */
+function stopPlan(): void {
+  planRunning.value = false;
+  planCurrentIndex.value = -1;
+}
+
+// 离开计划模式时停止计划状态
+watch(
+  () => timer.appMode,
+  (mode) => {
+    if (mode !== "plan") {
+      stopPlan();
+    }
+  },
+);
+
 // ===== container 上的 class =====
 const themeClass = computed(() => (settings.isDark ? "dark-theme" : ""));
-const modeClass = computed(() => (timer.mode === "break" ? "break-mode" : ""));
+const modeClass = computed(() =>
+  displayMode.value === "break" ? "break-mode" : "",
+);
 const appModeClass = computed(() => {
   if (timer.appMode === "plan") return "plan-mode";
   if (timer.appMode === "stopwatch") return "stopwatch-mode";
@@ -175,11 +245,21 @@ watch(
   },
 );
 
+// ===== 计划模式：完成任意一项 → 自动进入下一项 =====
+watch(
+  () => timer.planStepId,
+  (id, prevId) => {
+    if (id > prevId && planRunning.value) {
+      nextPlanItem();
+    }
+  },
+);
+
 // ===== 键盘快捷键 =====
 function handleKeydown(e: KeyboardEvent) {
   if (e.code === "Space" && e.target === document.body) {
     e.preventDefault();
-    timer.toggle();
+    onToggleClick();
   }
   if (e.key === "Escape") {
     showSettings.value = false;
@@ -196,41 +276,139 @@ function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value;
 }
 
-// ===== 专注模式 =====
+// ===== 专注模式（奖惩机制核心）=====
+// 专注模式 = 奖惩开关：开启后番茄钟运行中不可暂停、不可轻易重置（重置=中断=惩罚），
+// 菜园子每分钟成长（garden.grow），前台检测启动（work 模式）；
+// 关闭（警告 3 次 / 运行中重置 / 手动关闭开关）→ 花园未成熟作物枯萎 + 损失弹窗。
 const focusModeEnabled = ref(false);
 
-function onFocusModeToggle(active: boolean) {
-  focusModeEnabled.value = active;
-  // 联动前台检测：专注模式开启 + 计时器运行中 + 工作模式 → 启动检测
-  if (active && timer.isRunning && timer.mode === "work") {
-    void foregroundStart().catch((e) => console.warn("[foreground] start failed:", e));
-  } else {
-    void foregroundStop().catch((e) => console.warn("[foreground] stop failed:", e));
+/** 本次专注模式会话起始时的完成信号（用于判断本会话是否完成过番茄钟） */
+const focusSessionBaseId = ref(0);
+
+/** 惩罚结果弹窗 */
+const showPunishmentResult = ref(false);
+const punishmentResult = ref<PunishmentResult | null>(null);
+
+/** 每分钟菜园成长定时器（仅专注模式开启且计时器运行中） */
+let growTimer: ReturnType<typeof setInterval> | null = null;
+function stopGrowTimer(): void {
+  if (growTimer) {
+    clearInterval(growTimer);
+    growTimer = null;
   }
 }
+function startGrowTimer(): void {
+  if (growTimer) return;
+  growTimer = setInterval(() => {
+    // 仅当仍处于专注模式运行中才继续成长，防止迟到 tick
+    if (focusModeEnabled.value && timer.phase === "running") {
+      void garden.grow(1).catch(() => {});
+    } else {
+      stopGrowTimer();
+    }
+  }, 60000);
+}
 
-// 联动：计时器 start/pause/complete 时启停前台检测
+/** 专注模式联动：前台检测启停 + 每分钟菜园成长 */
 watch(
-  () => timer.phase,
-  (phase) => {
-    if (!focusModeEnabled.value) return;
-    if (phase === "running" && timer.mode === "work") {
+  () => [focusModeEnabled.value, timer.phase, timer.mode] as const,
+  ([enabled, phase, mode]) => {
+    // 前台检测：专注模式 + running + work 模式才检测
+    if (enabled && phase === "running" && mode === "work") {
       void foregroundStart().catch((e) => console.warn("[foreground] start failed:", e));
     } else {
       void foregroundStop().catch((e) => console.warn("[foreground] stop failed:", e));
     }
-  },
-);
-
-// 联动：计时器完成时作物成长（仅工作模式）
-watch(
-  () => timer.completionId,
-  (id) => {
-    if (id > 0 && timer.lastCompletedMinutes > 0) {
-      void garden.grow(timer.lastCompletedMinutes);
+    // 菜园成长：专注模式 + running 期间每分钟成长（work/break 都成长，与旧版一致）
+    if (enabled && phase === "running") {
+      startGrowTimer();
+    } else {
+      stopGrowTimer();
     }
   },
 );
+
+/**
+ * 执行惩罚（专注模式被中断的统一入口）
+ * - 停止前台检测与成长
+ * - 花园未成熟作物枯萎，取得损失明细
+ * - 重置计时器
+ * - 关闭专注模式
+ * - 弹出损失提示
+ */
+async function runPunishment(): Promise<void> {
+  stopGrowTimer();
+  void foregroundStop().catch(() => {});
+  // 花园枯萎（Rust 清空所有未成熟作物并返回损失明细）
+  const result = await garden.punish(0);
+  punishmentResult.value = result;
+  showPunishmentResult.value = true;
+  // 计划模式下中断 → 停止整个计划
+  if (timer.appMode === "plan") {
+    stopPlan();
+  }
+  // 重置计时器（若运行中则中断；非运行中无效果）
+  timer.reset();
+  // 关闭专注模式
+  focusModeEnabled.value = false;
+}
+
+/**
+ * 专注模式开关切换
+ * - 开启：进入奖惩机制，记录本会话起始 completionId；若计时器正在运行则立即启动成长/检测
+ * - 关闭：手动关闭 = 放弃专注承诺 → 触发惩罚；
+ *   例外：本会话已完成过番茄钟（completionId 有增长）→ 仅关闭开关，不惩罚（承诺已兑现）
+ */
+async function onFocusModeToggle(active: boolean): Promise<void> {
+  if (active) {
+    focusModeEnabled.value = true;
+    focusSessionBaseId.value = timer.completionId;
+    if (timer.phase === "running") {
+      startGrowTimer();
+      if (timer.mode === "work") {
+        void foregroundStart().catch((e) => console.warn("[foreground] start failed:", e));
+      }
+    }
+    return;
+  }
+  // 手动关闭
+  if (timer.completionId > focusSessionBaseId.value) {
+    // 本会话已完成过番茄钟（专注承诺已兑现）→ 仅关闭开关，不惩罚
+    focusModeEnabled.value = false;
+    stopGrowTimer();
+    void foregroundStop().catch(() => {});
+    return;
+  }
+  await runPunishment();
+}
+
+/** 开始/暂停按钮：专注模式运行中禁止暂停（奖惩机制）；计划模式下未运行时点击开始整个计划 */
+function onToggleClick(): void {
+  // 计划模式：未运行时开始计划（从第一项）；运行中走常规暂停/继续
+  if (timer.appMode === "plan" && !planRunning.value) {
+    startPlan();
+    return;
+  }
+  if (focusModeEnabled.value && timer.phase === "running") return;
+  timer.toggle();
+}
+
+/** 重置按钮：专注模式运行中重置 = 中断专注 → 惩罚；计划模式运行中重置 = 停止整个计划 */
+function onResetClick(): void {
+  if (focusModeEnabled.value && timer.phase === "running") {
+    void runPunishment();
+    return;
+  }
+  if (timer.appMode === "plan" && planRunning.value) {
+    stopPlan();
+  }
+  timer.reset();
+}
+
+// ===== 前台娱乐检测惩罚（三次警告 → 断掉专注模式）=====
+async function onPunishment(): Promise<void> {
+  await runPunishment();
+}
 
 // ===== 模式切换动画 =====
 // 拨杆切换 appMode 时，给 .main-content 临时加 mode-animating class，
@@ -294,18 +472,6 @@ function onApplyAiPlan(plan: AiPlanItem[]): void {
   }));
   // 切换到计划模式
   timer.setAppMode("plan");
-}
-
-// ===== 前台娱乐检测惩罚 =====
-async function onPunishment(): Promise<void> {
-  // 1. 停止前台检测
-  void foregroundStop().catch(() => {});
-  // 2. 调用菜园子惩罚（清空未成熟作物）
-  await garden.punish(10);
-  // 3. 重置计时器
-  timer.reset();
-  // 4. 关闭专注模式
-  focusModeEnabled.value = false;
 }
 
 // ===== “不是娱乐”误判纠正（对齐旧版 foregroundDetection.js 的 handleNotEntertainment） =====
@@ -467,23 +633,26 @@ watch(
           <FocusModeSwitch
             v-if="timer.appMode !== 'stopwatch'"
             :disabled="timer.phase !== 'ready'"
+            v-model="focusModeEnabled"
             @toggle="onFocusModeToggle"
           />
 
           <div class="buttons">
-            <button class="btn btn-start" @click="timer.toggle()">
+            <button class="btn btn-start" @click="onToggleClick">
               {{ timer.isRunning ? "暂停" : "开始" }}
             </button>
-            <button class="btn btn-reset" @click="timer.reset()">重置</button>
+            <button class="btn btn-reset" @click="onResetClick">重置</button>
           </div>
 
           <p class="status">
             {{
               timer.phase === "running"
-                ? timer.mode === "work"
+                ? displayMode === "work"
                   ? "专注中..."
                   : "休息中..."
-                : "准备开始专注工作"
+                : timer.appMode === "plan"
+                  ? "准备开始计划"
+                  : "准备开始专注工作"
             }}
           </p>
         </div>
@@ -506,9 +675,15 @@ watch(
       <ForegroundWarning
         ref="fgWarningRef"
         :visible="showForegroundWarning"
+        :active="focusModeEnabled && timer.phase === 'running'"
         @update:visible="showForegroundWarning = $event"
         @punishment="onPunishment"
         @not-entertainment="onNotEntertainment"
+      />
+      <PunishmentResultModal
+        :visible="showPunishmentResult"
+        :result="punishmentResult"
+        @update:visible="showPunishmentResult = $event"
       />
       <TutorialModal :visible="showTutorial" @close="showTutorial = false" />
     </div>

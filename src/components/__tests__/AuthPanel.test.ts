@@ -299,6 +299,70 @@ describe("AuthPanel.vue", () => {
     expect(mockStore.register).toHaveBeenCalledWith("bob", "password123");
   });
 
+  it("注册成功后应自动登录（记住密码 + 自动登录）并关闭面板", async () => {
+    mockStore.mode = "cloud";
+    mockStore.register.mockResolvedValue(true);
+    mockStore.login.mockResolvedValue(true);
+    const wrapper = mountComponent();
+
+    await wrapper.findAll(".login-tab")[1].trigger("click");
+    const inputs = wrapper.findAll(".login-form .form-input");
+    await inputs[0].setValue("bob");
+    await inputs[1].setValue("password123");
+    await inputs[2].setValue("password123");
+    await wrapper.find(".btn-primary").trigger("click");
+
+    // 自动登录使用刚注册的账号密码，并开启记住密码 + 自动登录
+    expect(mockStore.login).toHaveBeenCalledWith("bob", "password123", true, true);
+    // 关闭面板 + 通知登录成功
+    expect(wrapper.emitted("logged-in")).toBeTruthy();
+    expect(wrapper.emitted("update:visible")?.at(-1)?.[0]).toBe(false);
+  });
+
+  it("注册成功但自动登录失败时应切回登录 Tab 并自动填写账号密码", async () => {
+    mockStore.mode = "cloud";
+    mockStore.register.mockResolvedValue(true);
+    mockStore.login.mockResolvedValue(false);
+    const wrapper = mountComponent();
+
+    await wrapper.findAll(".login-tab")[1].trigger("click");
+    const inputs = wrapper.findAll(".login-form .form-input");
+    await inputs[0].setValue("bob");
+    await inputs[1].setValue("password123");
+    await inputs[2].setValue("password123");
+    await wrapper.find(".btn-primary").trigger("click");
+    await nextTick();
+
+    // 显示注册成功提示
+    expect(wrapper.find(".auth-message.success").text()).toContain("注册成功");
+    // 切回登录 Tab，账号密码已自动填充
+    expect(wrapper.findAll(".login-tab")[0].classes()).toContain("active");
+    const loginInputs = wrapper.findAll(".login-form .form-input");
+    expect((loginInputs[0].element as HTMLInputElement).value).toBe("bob");
+    expect((loginInputs[1].element as HTMLInputElement).value).toBe("password123");
+    // 不关闭面板
+    expect(wrapper.emitted("update:visible")?.at(-1)?.[0]).not.toBe(false);
+  });
+
+  it("注册失败时应显示错误提示且不自动登录", async () => {
+    mockStore.mode = "cloud";
+    mockStore.register.mockResolvedValue(false);
+    mockStore.lastError = "用户名已存在";
+    const wrapper = mountComponent();
+
+    await wrapper.findAll(".login-tab")[1].trigger("click");
+    const inputs = wrapper.findAll(".login-form .form-input");
+    await inputs[0].setValue("bob");
+    await inputs[1].setValue("password123");
+    await inputs[2].setValue("password123");
+    await wrapper.find(".btn-primary").trigger("click");
+    await nextTick();
+
+    expect(mockStore.login).not.toHaveBeenCalled();
+    expect(wrapper.find(".auth-message.error").text()).toContain("用户名已存在");
+    expect(wrapper.emitted("update:visible")).toBeFalsy();
+  });
+
   // ===== 已登录状态 =====
 
   it("已登录时应显示欢迎信息 + 用户名", () => {

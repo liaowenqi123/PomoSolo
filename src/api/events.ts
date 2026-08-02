@@ -21,6 +21,14 @@ import {
 export { listen, once, emit, emitTo, TauriEvent };
 export type { Event, EventCallback, UnlistenFn, Options };
 
+/** 调用取消监听函数并返回 null（消除各 composable 中重复的 unlisten 清理逻辑） */
+function unlistenAndClear(fn: UnlistenFn | null): UnlistenFn | null {
+  if (fn) {
+    fn();
+  }
+  return null;
+}
+
 /**
  * useTauriEvent 选项
  */
@@ -81,10 +89,7 @@ export function useTauriEvent<T>(
   };
 
   const stop = (): void => {
-    if (unlistenFn) {
-      unlistenFn();
-      unlistenFn = null;
-    }
+    unlistenFn = unlistenAndClear(unlistenFn);
     started = false;
   };
 
@@ -139,10 +144,7 @@ export function useTauriEventOnce<T>(
   })();
 
   const stop = (): void => {
-    if (unlistenFn) {
-      unlistenFn();
-      unlistenFn = null;
-    }
+    unlistenFn = unlistenAndClear(unlistenFn);
   };
 
   onScopeDispose(stop);

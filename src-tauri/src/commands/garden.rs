@@ -213,6 +213,8 @@ pub const ACHIEVEMENT_CONFIG: &[AchievementCfg] = &[
     AchievementCfg { id: "signin7",   category: "persist", name: "坚持一周", description: "连续签到 7 天",  target: 7,   icon: "📅", reward_seeds: &[("sunflower", 1)], reward_coins: 0 },
     AchievementCfg { id: "signin30",  category: "persist", name: "坚持一月", description: "连续签到 30 天", target: 30,  icon: "📅", reward_seeds: &[("rose", 1)],      reward_coins: 0 },
     AchievementCfg { id: "signin100", category: "persist", name: "坚持百日", description: "连续签到 100 天",target: 100, icon: "👑", reward_seeds: &[("osmanthus", 2)], reward_coins: 0 },
+    // 隐藏成就（1个，彩蛋：仅通过点击设置面板版本号 5 次解锁）
+    AchievementCfg { id: "easteregg", category: "hidden", name: "发现彩蛋", description: "？？？", target: 1, icon: "🥚", reward_seeds: &[("osmanthus", 1)], reward_coins: 50 },
 ];
 
 // ===== achievementStats / 成就检查纯函数 =====
@@ -1013,18 +1015,25 @@ pub async fn garden_update_focus(app: AppHandle, minutes: u32) -> Result<Value, 
     }))
 }
 
-/// 执行惩罚并返回损失结果（由前台检测调用）
+/// 惩罚核心逻辑（纯函数，便于单元测试）
+///
 /// 参照旧版 handleGardenPunishment：
 /// - 只清空未成熟作物（progress < growTime）
 /// - 不扣金币/种子/crops 背包
 /// - 累计 totalMinutes += progress
 /// - 不触发成就检查
-#[tauri::command]
-pub async fn garden_punishment(app: AppHandle, loss_amount: u32) -> Result<Value, String> {
-    let _ = loss_amount;
-
-    let mut data = data_manager::read_garden_data(&app)?;
-    let obj = data.as_object_mut().ok_or("garden data 不是对象")?;
+/// 返回 { hasLoss, losses, totalMinutes }。
+pub fn apply_punishment(data: &mut Value) -> Value {
+    let obj = match data.as_object_mut() {
+        Some(o) => o,
+        None => {
+            return json!({
+                "hasLoss": false,
+                "losses": [],
+                "totalMinutes": 0
+            })
+        }
+    };
 
     let mut losses: Vec<Value> = Vec::new();
     let mut total_minutes: u64 = 0;
@@ -1078,13 +1087,120 @@ pub async fn garden_punishment(app: AppHandle, loss_amount: u32) -> Result<Value
             "totalLosses".to_string(),
             Value::from(total_losses + losses.len() as u64),
         );
-        data_manager::write_garden_data(&app, &data)?;
     }
 
-    Ok(json!({
+    json!({
         "hasLoss": has_loss,
         "losses": losses,
         "totalMinutes": total_minutes
+    })
+}
+
+/// 执行惩罚并返回损失结果（由前台检测 / 专注模式中断调用）
+/// 参照旧版 handleGardenPunishment：
+/// - 只清空未成熟作物（progress < growTime）
+/// - 不扣金币/种子/crops 背包
+/// - 累计 totalMinutes += progress
+/// - 不触发成就检查
+#[tauri::command]
+pub async fn garden_punishment(app: AppHandle, loss_amount: u32) -> Result<Value, String> {
+    let _ = loss_amount;
+
+    let mut data = data_manager::read_garden_data(&app)?;
+
+    let result = apply_punishment(&mut data);
+
+    let has_loss = result.get("hasLoss").and_then(|v| v.as_bool()).unwrap_or(false);
+    if has_loss {
+        data_manager::write_garden_data(&app, &data)?;
+    }
+
+    Ok(result)
+}
+
+/// 解锁隐藏彩蛋成就（幂等，纯函数，便于单元测试）
+///
+/// 彩蛋入口：设置面板连续点击版本号 5 次（间隔 < 1.5s）。
+/// - 已解锁：返回 false（不重复发放奖励）
+/// - 未解锁：写入 achievements.easteregg + 奖励 osmanthus 种子×1 + 金币×50，返回 true
+pub fn try_unlock_easteregg(data: &mut Value) -> bool {
+    let obj = match data.as_object_mut() {
+        Some(o) => o,
+        None => return false,
+    };
+
+    // 已解锁则幂等返回
+    let already = obj
+        .get("achievements")
+        .and_then(|a| a.get("easteregg"))
+        .and_then(|v| v.get("unlocked"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if already {
+        return false;
+    }
+
+    // 解锁成就
+    let achievements = obj
+        .entry("achievements".to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    if let Some(ach_obj) = achievements.as_object_mut() {
+        ach_obj.insert(
+            "easteregg".to_string(),
+            json!({
+                "unlocked": true,
+                "unlockedAt": now_iso_utc()
+            }),
+        );
+    }
+
+    // 发放奖励：osmanthus 种子 ×1
+    let seeds = obj
+        .entry("seeds".to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    if let Some(seeds_obj) = seeds.as_object_mut() {
+        let prev = seeds_obj
+            .get("osmanthus")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        seeds_obj.insert("osmanthus".to_string(), Value::from(prev + 1));
+    }
+    // 金币 +50
+    let prev_coins = obj.get("coins").and_then(|v| v.as_u64()).unwrap_or(0);
+    obj.insert("coins".to_string(), Value::from(prev_coins + 50));
+
+    true
+}
+
+/// 解锁隐藏彩蛋成就（设置面板点击版本号 5 次触发）
+/// 返回 { success, alreadyUnlocked, gardenData, unlockedAchievements }
+#[tauri::command]
+pub async fn garden_unlock_easteregg(app: AppHandle) -> Result<Value, String> {
+    let mut data = data_manager::read_garden_data(&app)?;
+
+    let newly_unlocked = try_unlock_easteregg(&mut data);
+
+    if newly_unlocked {
+        data_manager::write_garden_data(&app, &data)?;
+    }
+
+    let cfg = ACHIEVEMENT_CONFIG
+        .iter()
+        .find(|c| c.id == "easteregg")
+        .map(|c| achievement_to_json(c));
+
+    Ok(json!({
+        "success": newly_unlocked,
+        "alreadyUnlocked": !newly_unlocked,
+        "gardenData": data,
+        "unlockedAchievements": if newly_unlocked {
+            match cfg {
+                Some(c) => vec![c],
+                None => vec![],
+            }
+        } else {
+            vec![]
+        }
     }))
 }
 
@@ -1377,9 +1493,21 @@ mod tests {
     // ===== 成就表完整性 =====
 
     #[test]
-    fn achievement_config_has_25_entries() {
-        // 5 focus + 5 harvest + 5 plant + 3 collect + 4 wealth + 3 persist = 25
-        assert_eq!(ACHIEVEMENT_CONFIG.len(), 25);
+    fn achievement_config_has_26_entries() {
+        // 5 focus + 5 harvest + 5 plant + 3 collect + 4 wealth + 3 persist + 1 hidden = 26
+        assert_eq!(ACHIEVEMENT_CONFIG.len(), 26);
+    }
+
+    #[test]
+    fn achievement_config_includes_hidden_easteregg() {
+        let cfg = ACHIEVEMENT_CONFIG
+            .iter()
+            .find(|c| c.id == "easteregg")
+            .expect("应包含 easteregg 隐藏成就");
+        assert_eq!(cfg.category, "hidden");
+        assert_eq!(cfg.target, 1);
+        assert_eq!(cfg.reward_seeds, &[("osmanthus", 1)]);
+        assert_eq!(cfg.reward_coins, 50);
     }
 
     #[test]
@@ -1400,5 +1528,200 @@ mod tests {
                 cfg.category
             );
         }
+    }
+
+    // ===== apply_punishment（专注模式中断 → 作物枯萎）=====
+
+    /// 构造带作物的花园数据：
+    /// - 0: 未成熟胡萝卜（progress 10 / grow 25）
+    /// - 1: 已成熟番茄（progress 50 / grow 50，不应枯萎）
+    /// - 2: 未成熟向日葵（progress 30 / grow 90）
+    /// - 6: 锁定的未成熟玫瑰（不应被清空）
+    fn punish_garden() -> Value {
+        json!({
+            "coins": 100,
+            "seeds": { "carrot": 1, "tomato": 1, "sunflower": 1, "rose": 1 },
+            "crops": {},
+            "plots": [
+                { "id": 0, "crop": "carrot", "progress": 10, "plantedAt": "2026-08-02T00:00:00Z", "locked": false },
+                { "id": 1, "crop": "tomato", "progress": 50, "plantedAt": "2026-08-02T00:00:00Z", "locked": false },
+                { "id": 2, "crop": "sunflower", "progress": 30, "plantedAt": "2026-08-02T00:00:00Z", "locked": false },
+                { "id": 6, "crop": "rose", "progress": 20, "plantedAt": "2026-08-02T00:00:00Z", "locked": true }
+            ],
+            "signIn": { "lastDate": null, "continuousDays": 0, "totalDays": 0, "weekRecords": [false,false,false,false,false,false,false] },
+            "achievements": {},
+            "achievementStats": {
+                "totalFocusMinutes": 0,
+                "totalHarvestCount": 0,
+                "totalPlantCount": 0,
+                "totalCoinsEarned": 0,
+                "cropTypesCollected": []
+            }
+        })
+    }
+
+    #[test]
+    fn punishment_clears_immature_keeps_mature() {
+        let mut g = punish_garden();
+        let result = apply_punishment(&mut g);
+
+        // hasLoss = true
+        assert_eq!(result["hasLoss"], json!(true));
+        // 2 株枯萎（胡萝卜 + 向日葵），成熟的番茄保留
+        let losses = result["losses"].as_array().unwrap();
+        assert_eq!(losses.len(), 2);
+
+        // 损失明细结构
+        let carrot_loss = losses.iter().find(|l| l["crop"] == "carrot").unwrap();
+        assert_eq!(carrot_loss["name"], json!("胡萝卜"));
+        assert_eq!(carrot_loss["icon"], json!("🥕"));
+        assert_eq!(carrot_loss["progress"], json!(10));
+        assert_eq!(carrot_loss["growTime"], json!(25));
+
+        // totalMinutes = 10 + 30 = 40
+        assert_eq!(result["totalMinutes"], json!(40));
+
+        // 数据被清空：未成熟作物 → 空地，成熟作物保留，锁定土地保留
+        let plots = g["plots"].as_array().unwrap();
+        assert_eq!(plots[0]["crop"], json!(null));
+        assert_eq!(plots[0]["progress"], json!(0));
+        assert_eq!(plots[1]["crop"], json!("tomato"));
+        assert_eq!(plots[1]["progress"], json!(50));
+        assert_eq!(plots[2]["crop"], json!(null));
+        // 锁定的玫瑰不受影响
+        assert_eq!(plots[3]["crop"], json!("rose"));
+        assert_eq!(plots[3]["progress"], json!(20));
+
+        // totalLosses 累计 2
+        assert_eq!(g["totalLosses"], json!(2));
+    }
+
+    #[test]
+    fn punishment_no_crops_returns_no_loss() {
+        let mut g = base_garden();
+        // base_garden 无作物（0 空地、6 锁定空地）
+        let result = apply_punishment(&mut g);
+        assert_eq!(result["hasLoss"], json!(false));
+        assert_eq!(result["losses"].as_array().unwrap().len(), 0);
+        assert_eq!(result["totalMinutes"], json!(0));
+        // 不写 totalLosses
+        assert!(g.get("totalLosses").is_none());
+    }
+
+    #[test]
+    fn punishment_only_clears_unlocked_plots() {
+        // 锁定的土地上即使有未成熟作物也不清空
+        let mut g = base_garden();
+        g["plots"][1] = json!({
+            "id": 6, "crop": "carrot", "progress": 10, "plantedAt": "2026-08-02T00:00:00Z", "locked": true
+        });
+        let result = apply_punishment(&mut g);
+        assert_eq!(result["hasLoss"], json!(false));
+        let plots = g["plots"].as_array().unwrap();
+        assert_eq!(plots[1]["crop"], json!("carrot"));
+    }
+
+    #[test]
+    fn punishment_total_losses_accumulates() {
+        let mut g = punish_garden();
+        g["totalLosses"] = json!(5);
+        apply_punishment(&mut g);
+        // 5 + 2 = 7
+        assert_eq!(g["totalLosses"], json!(7));
+    }
+
+    #[test]
+    fn punishment_non_object_data_returns_empty() {
+        let mut g = Value::Null;
+        let result = apply_punishment(&mut g);
+        assert_eq!(result["hasLoss"], json!(false));
+        assert_eq!(result["totalMinutes"], json!(0));
+    }
+
+    #[test]
+    fn punishment_all_immature_cleared() {
+        // 全部未成熟 → 全部枯萎，土地全部变空地
+        let mut g = json!({
+            "coins": 0,
+            "plots": [
+                { "id": 0, "crop": "carrot", "progress": 1, "plantedAt": null, "locked": false },
+                { "id": 1, "crop": "carrot", "progress": 5, "plantedAt": null, "locked": false }
+            ]
+        });
+        let result = apply_punishment(&mut g);
+        assert_eq!(result["hasLoss"], json!(true));
+        assert_eq!(result["losses"].as_array().unwrap().len(), 2);
+        assert_eq!(result["totalMinutes"], json!(6));
+        for plot in g["plots"].as_array().unwrap() {
+            assert_eq!(plot["crop"], json!(null));
+            assert_eq!(plot["progress"], json!(0));
+            assert_eq!(plot["plantedAt"], json!(null));
+        }
+    }
+
+    #[test]
+    fn punishment_unknown_crop_skipped() {
+        // 未知作物类型：跳过（不枯萎、不报错）
+        let mut g = json!({
+            "coins": 0,
+            "plots": [
+                { "id": 0, "crop": "unknown_crop", "progress": 5, "plantedAt": null, "locked": false }
+            ]
+        });
+        let result = apply_punishment(&mut g);
+        assert_eq!(result["hasLoss"], json!(false));
+        assert_eq!(result["losses"].as_array().unwrap().len(), 0);
+        // 数据原样保留
+        assert_eq!(g["plots"][0]["crop"], json!("unknown_crop"));
+    }
+
+    // ===== try_unlock_easteregg（隐藏彩蛋成就）=====
+
+    #[test]
+    fn unlock_easteregg_grants_achievement_and_rewards() {
+        let mut g = base_garden();
+        assert!(try_unlock_easteregg(&mut g));
+
+        // 成就已解锁
+        assert_eq!(g["achievements"]["easteregg"]["unlocked"], json!(true));
+        // 奖励：osmanthus +1，金币 +50（base 100 → 150）
+        assert_eq!(g["seeds"]["osmanthus"], json!(1));
+        assert_eq!(g["coins"], json!(150));
+    }
+
+    #[test]
+    fn unlock_easteregg_idempotent() {
+        let mut g = base_garden();
+        assert!(try_unlock_easteregg(&mut g));
+        // 第二次调用返回 false，不重复发放奖励
+        assert!(!try_unlock_easteregg(&mut g));
+        assert_eq!(g["seeds"]["osmanthus"], json!(1));
+        assert_eq!(g["coins"], json!(150));
+    }
+
+    #[test]
+    fn unlock_easteregg_accumulates_on_existing_seeds() {
+        let mut g = base_garden();
+        g["seeds"]["osmanthus"] = json!(2);
+        try_unlock_easteregg(&mut g);
+        // 2 + 1 = 3
+        assert_eq!(g["seeds"]["osmanthus"], json!(3));
+    }
+
+    #[test]
+    fn unlock_easteregg_non_object_returns_false() {
+        let mut g = Value::Null;
+        assert!(!try_unlock_easteregg(&mut g));
+    }
+
+    #[test]
+    fn unlock_easteregg_sets_unlocked_at() {
+        let mut g = base_garden();
+        try_unlock_easteregg(&mut g);
+        let unlocked_at = g["achievements"]["easteregg"]["unlockedAt"]
+            .as_str()
+            .unwrap_or("");
+        assert!(!unlocked_at.is_empty(), "unlockedAt 应为时间戳");
+        assert!(unlocked_at.ends_with('Z'), "应为 UTC 时间");
     }
 }

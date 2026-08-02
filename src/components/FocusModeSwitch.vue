@@ -5,34 +5,27 @@
  * 参照原 Electron 版 .focus-mode-container / .focus-mode-switch 样式：
  *   胶囊开关，激活时绿色背景，滑块右移。
  *   仅在 READY 阶段可切换，运行中禁用。
+ *
+ * 受控组件（v-model）：active 状态由父组件持有，
+ * 保证惩罚流程（三次警告 / 运行中重置 / 手动关闭）关闭专注模式后滑块同步归位。
  */
-import { ref, watch } from "vue";
-
 const props = defineProps<{
+  /** 当前是否开启（v-model） */
+  modelValue: boolean;
   disabled?: boolean;
 }>();
 
 const emit = defineEmits<{
-  toggle: [active: boolean];
+  (e: "update:modelValue", value: boolean): void;
+  (e: "toggle", active: boolean): void;
 }>();
-
-const active = ref(false);
 
 function toggle() {
   if (props.disabled) return;
-  active.value = !active.value;
-  emit("toggle", active.value);
+  const next = !props.modelValue;
+  emit("update:modelValue", next);
+  emit("toggle", next);
 }
-
-// 外部可重置
-watch(
-  () => props.disabled,
-  (disabled) => {
-    if (disabled && active.value) {
-      // 运行中不自动关闭，只是禁止切换
-    }
-  },
-);
 </script>
 
 <template>
@@ -40,13 +33,13 @@ watch(
     <span class="focus-mode-label">专注模式</span>
     <div
       class="focus-mode-switch"
-      :class="{ active }"
+      :class="{ active: modelValue }"
       @click="toggle"
     >
       <div class="focus-mode-slider"></div>
     </div>
-    <span class="focus-mode-status" :class="{ active }">
-      {{ active ? "开启" : "关闭" }}
+    <span class="focus-mode-status" :class="{ active: modelValue }">
+      {{ modelValue ? "开启" : "关闭" }}
     </span>
   </div>
 </template>

@@ -165,4 +165,49 @@ describe("useTimerStore", () => {
     // reset 只重置时间和 phase，不影响计数
     expect(timer.todayCount).toBe(5);
   });
+
+  it("setTime 应设置计时时长并回到 ready", () => {
+    const timer = useTimerStore();
+    timer.setTime(15);
+    expect(timer.totalMs).toBe(15 * 60 * 1000);
+    expect(timer.remainingMs).toBe(15 * 60 * 1000);
+    expect(timer.phase).toBe("ready");
+    expect(timer.displayTime).toBe("15:00");
+  });
+
+  it("setTime 在 running 时应被忽略", () => {
+    const timer = useTimerStore();
+    timer.start();
+    timer.setTime(10);
+    // running 中不生效
+    expect(timer.totalMs).toBe(25 * 60 * 1000);
+    expect(timer.remainingMs).toBe(25 * 60 * 1000);
+    timer.reset();
+  });
+
+  it("计划模式下完成任意一项都应递增 planStepId", () => {
+    const timer = useTimerStore();
+    timer.setAppMode("plan");
+    expect(timer.planStepId).toBe(0);
+    // 完成 work 项
+    timer.start();
+    vi.advanceTimersByTime(25 * 60 * 1000 + 1000);
+    expect(timer.planStepId).toBe(1);
+    expect(timer.completionId).toBe(1);
+    // 完成 break 项（先按下一项时长设置 5 分钟，模拟计划项推进）
+    timer.setTime(5);
+    timer.start();
+    vi.advanceTimersByTime(5 * 60 * 1000 + 1000);
+    // break 项完成：planStepId +1，但 completionId 不增（统计只记 work）
+    expect(timer.planStepId).toBe(2);
+    expect(timer.completionId).toBe(1);
+  });
+
+  it("单次模式完成项不应递增 planStepId", () => {
+    const timer = useTimerStore();
+    timer.start();
+    vi.advanceTimersByTime(25 * 60 * 1000 + 1000);
+    expect(timer.planStepId).toBe(0);
+    expect(timer.completionId).toBe(1);
+  });
 });

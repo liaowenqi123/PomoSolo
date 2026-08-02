@@ -26,10 +26,16 @@ interface Props {
   visible: boolean;
   /** 最大警告次数（达到后触发惩罚） */
   maxWarnings?: number;
+  /**
+   * 奖惩机制是否激活（专注模式开启且计时器运行中）。
+   * false 时忽略检测到娱乐窗口的事件，防止停止检测后迟到的广播再弹窗。
+   */
+  active?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   maxWarnings: 3,
+  active: true,
 });
 
 const emit = defineEmits<{
@@ -90,6 +96,8 @@ function teardownListeners(): void {
 
 /** 处理检测到娱乐前台的事件 */
 function handleEntertainmentDetected(result: DetectionResult): void {
+  // 奖惩机制未激活（专注模式关闭 / 计时器未运行）时忽略，防迟到广播误弹窗
+  if (!props.active) return;
   // 如果弹窗已显示，不重复弹出
   if (props.visible) return;
   lastResult.value = result;
