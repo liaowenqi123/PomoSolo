@@ -2,16 +2,21 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { setActivePinia, createPinia } from "pinia";
 
-// Mock @tauri-apps/api/core（update API 间接依赖 invoke）
+// Mock @tauri-apps/api/core（update API 间接依赖 invoke；可控制返回值）
+const invokeMock = vi.hoisted(() =>
+  vi.fn<(cmd: string) => Promise<unknown>>(() => Promise.resolve()),
+);
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(() => Promise.resolve()),
+  invoke: invokeMock,
 }));
 
-// Mock @tauri-apps/api/event（useTauriEvent 间接依赖 listen）
-vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(() => Promise.resolve(() => {})),
+// Mock @tauri-apps/api/event（useTauriEvent 间接依赖 listen；捕获 handler 供测试触发事件）
+const eventHandlers = vi.hoisted(() => new Map<string, (e: { payload: unknown }) => void>());
+const eventApi = vi.hoisted(() => ({
+  listen: vi.fn(),
   emit: vi.fn(() => Promise.resolve()),
 }));
+vi.mock("@tauri-apps/api/event", () => eventApi);
 
 // Mock @tauri-apps/api/app（getVersion 调用 invoke）
 vi.mock("@tauri-apps/api/app", () => ({
@@ -38,14 +43,47 @@ const gardenApi = vi.hoisted(() => ({
 }));
 vi.mock("@/api/garden", () => gardenApi);
 
+// Mock @/api/seed（Phase 2 种子查询）
+const seedApi = vi.hoisted(() => ({
+  seedRegister: vi.fn(),
+  seedHeartbeat: vi.fn(),
+  seedUnregister: vi.fn(),
+  seedList: vi.fn(),
+}));
+vi.mock("@/api/seed", () => seedApi);
+
+// Mock @/seed（Phase 2 种子管理器）
+const seedManagerApi = vi.hoisted(() => ({
+  startSeedSharing: vi.fn(),
+  stopSeedSharing: vi.fn(),
+}));
+vi.mock("@/seed", () => seedManagerApi);
+
+// Mock @/p2p（Phase 2 P2P 接收，jsdom 无 RTCPeerConnection）
+const p2pApi = vi.hoisted(() => ({
+  p2pReceive: vi.fn(),
+  p2pSend: vi.fn(),
+}));
+vi.mock("@/p2p", () => p2pApi);
+
 import SettingsPanel from "../SettingsPanel.vue";
 import { useSettingsStore, DEFAULT_SETTINGS } from "../../stores/settings";
 import { useGardenStore } from "../../stores/garden";
+import { checkUpdate, downloadAndInstall } from "@/api/update";
 
 describe("SettingsPanel.vue", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     localStorage.clear();
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue(undefined);
+    eventHandlers.clear();
+    eventApi.listen.mockReset();
+    // 捕获事件 handler 供测试触发（模拟后端 emit update-status）
+    eventApi.listen.mockImplementation((_name: string, handler: (e: { payload: unknown }) => void) => {
+      eventHandlers.set(_name, handler);
+      return Promise.resolve(() => {});
+    });
     dataApi.readSettings.mockReset();
     dataApi.writeSettings.mockReset();
     dataApi.writeSettings.mockResolvedValue(undefined);
@@ -60,6 +98,14 @@ describe("SettingsPanel.vue", () => {
       gardenData: {},
       unlockedAchievements: [],
     });
+    seedApi.seedList.mockReset();
+    seedApi.seedList.mockResolvedValue([]);
+    seedManagerApi.startSeedSharing.mockReset();
+    seedManagerApi.startSeedSharing.mockResolvedValue(undefined);
+    seedManagerApi.stopSeedSharing.mockReset();
+    seedManagerApi.stopSeedSharing.mockResolvedValue(undefined);
+    p2pApi.p2pReceive.mockReset();
+    p2pApi.p2pSend.mockReset();
   });
 
   const mountComponent = (visible = true) =>
@@ -231,10 +277,10 @@ describe("SettingsPanel.vue", () => {
 
   // ===== 界面显示开关 =====
 
-  it("应渲染所有开关（外观2+功能按钮5+导航2+音乐3+种植1+系统1=14）", () => {
+  it("应渲染所有开关（外观2+功能按钮5+导航2+音乐3+种植1+系统1+分享1=15）", () => {
     const wrapper = mountComponent();
     const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
-    expect(toggles).toHaveLength(14);
+    expect(toggles).toHaveLength(15);
   });
 
   it("显示菜园子按钮开关默认应为 checked", () => {
@@ -300,8 +346,8 @@ describe("SettingsPanel.vue", () => {
   it("开机自启动开关默认应为 unchecked", () => {
     const wrapper = mountComponent();
     const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
-    // 最后一个开关：开机自启动
-    const autoStartToggle = toggles[toggles.length - 1];
+    // 索引 13：开机自启动（索引 14 是分享安装包）
+    const autoStartToggle = toggles[13];
     expect((autoStartToggle.element as HTMLInputElement).checked).toBe(
       DEFAULT_SETTINGS.autoStart,
     );
@@ -313,7 +359,7 @@ describe("SettingsPanel.vue", () => {
     const updateSpy = vi.spyOn(store, "update");
 
     const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
-    const autoStartToggle = toggles[toggles.length - 1];
+    const autoStartToggle = toggles[13];
     await autoStartToggle.setValue(true);
     await flushPromises();
 
@@ -464,5 +510,177 @@ describe("SettingsPanel.vue", () => {
     const btns = wrapper.findAll(".update-source-seg__btn");
     expect(btns[1].classes()).toContain("update-source-seg__btn--active");
     expect(btns[0].classes()).not.toContain("update-source-seg__btn--active");
+  });
+
+  // ===== Phase 2：分享安装包（P2P 种子）=====
+
+  /** 分享安装包开关（toggle 列表最后一个） */
+  const shareToggle = (wrapper: ReturnType<typeof mountComponent>) =>
+    wrapper.findAll('.settings-row--toggle input[type="checkbox"]')[14];
+
+  it("开启分享安装包：已登录时应注册种子并持久化开关", async () => {
+    // cloud_get_session 返回登录会话（invoke 返回 Session 对象）
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "cloud_get_session") return Promise.resolve({ id: "u1", username: "test", admin: false });
+      return Promise.resolve(undefined);
+    });
+    const store = useSettingsStore();
+    const wrapper = mountComponent();
+    await shareToggle(wrapper).setValue(true);
+    await flushPromises();
+
+    expect(seedManagerApi.startSeedSharing).toHaveBeenCalledTimes(1);
+    expect(seedManagerApi.startSeedSharing).toHaveBeenCalledWith("0.0.0");
+    expect(store.settings.shareInstaller).toBe(true);
+    expect(wrapper.text()).toContain("分享中（本机作为 P2P 种子）");
+  });
+
+  it("开启分享安装包：未登录时应回滚开关并提示需登录", async () => {
+    const store = useSettingsStore();
+    const wrapper = mountComponent();
+    await shareToggle(wrapper).setValue(true);
+    await flushPromises();
+
+    expect(seedManagerApi.startSeedSharing).not.toHaveBeenCalled();
+    expect(store.settings.shareInstaller).toBe(false);
+    expect(wrapper.text()).toContain("分享安装包需先登录");
+  });
+
+  it("关闭分享安装包应注销种子并回滚开关", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "cloud_get_session") return Promise.resolve({ id: "u1", username: "test", admin: false });
+      return Promise.resolve(undefined);
+    });
+    const store = useSettingsStore();
+    const wrapper = mountComponent();
+    await shareToggle(wrapper).setValue(true);
+    await flushPromises();
+    expect(store.settings.shareInstaller).toBe(true);
+
+    await shareToggle(wrapper).setValue(false);
+    await flushPromises();
+    expect(seedManagerApi.stopSeedSharing).toHaveBeenCalledTimes(1);
+    expect(store.settings.shareInstaller).toBe(false);
+  });
+
+  // ===== Phase 2：更新下载走 P2P 种子优先 =====
+
+  /** 检查更新按钮（"提交反馈"按钮同 class，索引 1 才是检查更新） */
+  const updateBtn = (wrapper: ReturnType<typeof mountComponent>) =>
+    wrapper.findAll(".update-btn")[1];
+
+  /** 模拟完整更新流程：检查（返回带签名信息）→ available 事件 → 点击下载按钮 */
+  async function setupAvailableDownload(wrapper: ReturnType<typeof mountComponent>): Promise<void> {
+    await updateBtn(wrapper).trigger("click"); // 检查更新
+    await flushPromises();
+    // 后端 emit available（按钮切为下载）
+    const handler = eventHandlers.get("update-status")!;
+    handler({ payload: { status: "available", version: "4.6.0-beta.0" } });
+    await flushPromises();
+    expect(updateBtn(wrapper).text()).toBe("下载更新");
+  }
+
+  it("有在线种子时下载应走 P2P 并成功（不触发 downloadAndInstall）", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "check_update") {
+        return Promise.resolve({
+          version: "4.6.0-beta.0",
+          notes: "beta",
+          date: null,
+          signature: "dW50cnVzdGVk...",
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+    seedApi.seedList.mockResolvedValue(["peer-uuid"]);
+    let receiveOpts: Record<string, unknown> | null = null;
+    p2pApi.p2pReceive.mockImplementation((opts: Record<string, unknown>) => {
+      receiveOpts = opts;
+      return { close: vi.fn() };
+    });
+    const wrapper = mountComponent();
+    await setupAvailableDownload(wrapper);
+
+    await updateBtn(wrapper).trigger("click"); // 下载
+    await flushPromises();
+
+    // 查种子 → 初始化 P2P 接收
+    expect(seedApi.seedList).toHaveBeenCalledWith("4.6.0-beta.0");
+    expect(receiveOpts).not.toBeNull();
+    expect(receiveOpts!.peerId).toBe("peer-uuid");
+    expect(receiveOpts!.role).toBe("answerer");
+
+    // 分片到达 → 逐片调 Rust 落盘
+    const onChunk = receiveOpts!.onChunk as (chunk: Uint8Array, index: number, total: number) => Promise<void>;
+    await onChunk(new Uint8Array([1, 2, 3]), 0, 2);
+    expect(invokeMock).toHaveBeenCalledWith("update_seed_download_chunk", {
+      chunk: [1, 2, 3],
+      chunkIndex: 0,
+      totalChunks: 2,
+    });
+
+    // P2P 完成 → 不触发 downloadAndInstall
+    const callbacks = receiveOpts!.callbacks as { onComplete: () => void };
+    callbacks.onComplete();
+    await flushPromises();
+    expect(invokeMock).not.toHaveBeenCalledWith("download_and_install", expect.anything());
+    expect(wrapper.text()).toContain("P2P 下载完成");
+  });
+
+  it("无在线种子时下载应回退 downloadAndInstall", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "check_update") {
+        return Promise.resolve({
+          version: "4.6.0-beta.0",
+          notes: "beta",
+          date: null,
+          signature: "dW50cnVzdGVk...",
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+    seedApi.seedList.mockResolvedValue([]);
+    const wrapper = mountComponent();
+    await setupAvailableDownload(wrapper);
+
+    await updateBtn(wrapper).trigger("click");
+    await flushPromises();
+
+    expect(seedApi.seedList).toHaveBeenCalledWith("4.6.0-beta.0");
+    expect(invokeMock).toHaveBeenCalledWith("download_and_install", { source: "github" });
+    expect(p2pApi.p2pReceive).not.toHaveBeenCalled();
+  });
+
+  it("P2P 建连失败应中止并回退 downloadAndInstall", async () => {
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "check_update") {
+        return Promise.resolve({
+          version: "4.6.0-beta.0",
+          notes: "beta",
+          date: null,
+          signature: "dW50cnVzdGVk...",
+        });
+      }
+      return Promise.resolve(undefined);
+    });
+    seedApi.seedList.mockResolvedValue(["peer-uuid"]);
+    let receiveOpts: Record<string, unknown> | null = null;
+    p2pApi.p2pReceive.mockImplementation((opts: Record<string, unknown>) => {
+      receiveOpts = opts;
+      return { close: vi.fn() };
+    });
+    const wrapper = mountComponent();
+    await setupAvailableDownload(wrapper);
+
+    await updateBtn(wrapper).trigger("click");
+    await flushPromises();
+
+    const callbacks = receiveOpts!.callbacks as { onError: (err: string) => void };
+    callbacks.onError("NAT 打洞失败");
+    await flushPromises();
+
+    // 中止种子会话 + 回退服务器/GitHub
+    expect(invokeMock).toHaveBeenCalledWith("update_seed_download_abort");
+    expect(invokeMock).toHaveBeenCalledWith("download_and_install", { source: "github" });
   });
 });

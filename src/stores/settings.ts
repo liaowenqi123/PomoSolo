@@ -47,6 +47,8 @@ export interface AppSettings {
   syncTransferMode: SyncTransferMode;
   // 更新
   updateSource: UpdateSource;
+  /** P2P 分享安装包（Phase 2）：开启后本机作为种子，其他客户端可直连下载 */
+  shareInstaller: boolean;
   // 系统
   autoStart: boolean;
   // 主题
@@ -72,6 +74,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   advancedColorCustomization: false,
   syncTransferMode: "immediate",
   updateSource: "github",
+  shareInstaller: false,
   autoStart: false,
   theme: "light",
 };

@@ -190,6 +190,9 @@ pub fn run() {
             commands::music::music_read_song_chunk,
             commands::music::music_receive_song_chunk,
             commands::music::music_finalize_song,
+            // P2P 传歌（WebRTC 直连二进制分片，Phase 1）
+            commands::music::music_read_song_chunk_bin,
+            commands::music::music_receive_song_chunk_bin,
             // 音乐榜单 / 下载
             commands::charts::charts_fetch,
             commands::charts::download_song,
@@ -214,6 +217,16 @@ pub fn run() {
             // 自动更新
             commands::update::check_update,
             commands::update::download_and_install,
+            commands::update::update_seed_download_begin,
+            commands::update::update_seed_download_chunk,
+            commands::update::update_seed_download_abort,
+            // P2P 信令（WebRTC 牵线）
+            commands::p2p::p2p_signal,
+            // P2P 安装包种子（Phase 2：注册/心跳/注销/查询）
+            commands::p2p::p2p_seed_register,
+            commands::p2p::p2p_seed_heartbeat,
+            commands::p2p::p2p_seed_unregister,
+            commands::p2p::p2p_seed_list,
             // 系统集成（开机自启）
             commands::system::autostart_enable,
             commands::system::autostart_is_enabled,

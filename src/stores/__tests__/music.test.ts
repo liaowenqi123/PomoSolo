@@ -50,8 +50,19 @@ const musicSyncApi = vi.hoisted(() => ({
   musicSyncTransferFailed: vi.fn(),
   musicSyncSetConfig: vi.fn(),
   musicSyncRequestState: vi.fn(),
+  // Phase 1 WebRTC 直传二进制分片
+  musicReadSongChunkBin: vi.fn(),
+  musicReceiveSongChunkBin: vi.fn(),
 }));
 vi.mock("@/api/musicSync", () => musicSyncApi);
+
+// Mock p2p 模块（WebRTC 直连）
+const p2pApi = vi.hoisted(() => ({
+  handlePeerSignal: vi.fn(),
+  p2pReceive: vi.fn<any>(() => ({ close: vi.fn() })),
+  p2pSend: vi.fn<any>(() => ({ close: vi.fn() })),
+}));
+vi.mock("@/p2p", () => p2pApi);
 
 // Mock auth store（DJ 身份判断用当前用户 id）
 vi.mock("@/stores/auth", () => ({
@@ -60,6 +71,21 @@ vi.mock("@/stores/auth", () => ({
 
 import { useMusicStore } from "../music";
 
+// Phase 1 P2P 直连传歌：p2pReceive/p2pSend 选项类型（测试断言用）
+interface P2PReceiveOpts {
+  peerId: string;
+  role: string;
+  onChunk: (chunk: Uint8Array, index: number, totalChunks: number) => Promise<void>;
+  callbacks: { onComplete: () => void; onError: (err: string) => void };
+}
+interface P2PSendOpts {
+  peerId: string;
+  role: string;
+  totalBytes: number;
+  sendChunk: (index: number, totalChunks: number) => Promise<Uint8Array>;
+  callbacks: { onComplete: () => void; onError: (err: string) => void };
+}
+
 describe("useMusicStore", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
@@ -67,6 +93,9 @@ describe("useMusicStore", () => {
     Object.values(musicApi).forEach((fn) => fn.mockReset());
     Object.values(dataApi).forEach((fn) => fn.mockReset());
     Object.values(musicSyncApi).forEach((fn) => fn.mockReset());
+    Object.values(p2pApi).forEach((fn) => fn.mockReset());
+    p2pApi.p2pReceive.mockReturnValue({ close: vi.fn() });
+    p2pApi.p2pSend.mockReturnValue({ close: vi.fn() });
     // 默认 resolve 成功
     musicApi.musicDeleteSong.mockResolvedValue({ success: true });
     musicApi.musicGetCustomTags.mockResolvedValue({ success: false });
@@ -1064,5 +1093,125 @@ describe("useMusicStore", () => {
     s.duration = 100;
     s.currentTime = 150;
     expect(s.progress).toBe(100);
+  });
+
+  // ===== Phase 1：WebRTC 直连传歌 =====
+
+  it("startSongTransfer：知道 DJ 身份且首次传输 → 挂起 P2P 接收 + 请求带 p2p 标志", async () => {
+    const s = useMusicStore();
+    s.djUserId = "dj-1";
+    musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+    await s.startSongTransfer("song-x", 0);
+    expect(p2pApi.p2pReceive).toHaveBeenCalledTimes(1);
+    const opts = p2pApi.p2pReceive.mock.calls[0][0] as P2PReceiveOpts;
+    expect(opts.peerId).toBe("dj-1");
+    expect(opts.role).toBe("answerer");
+    expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("song-x", 0, true);
+  });
+
+  it("startSongTransfer：不知道 DJ 身份 → 不挂 P2P + 不带 p2p 标志", async () => {
+    const s = useMusicStore();
+    s.djUserId = null;
+    musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+    await s.startSongTransfer("song-x", 0);
+    expect(p2pApi.p2pReceive).not.toHaveBeenCalled();
+    expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("song-x", 0, false);
+  });
+
+  it("startSongTransfer：断点续传（fromChunk>0）不走 P2P（续传走成熟的服务器中转）", async () => {
+    const s = useMusicStore();
+    s.djUserId = "dj-1";
+    musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+    await s.startSongTransfer("song-x", 5);
+    expect(p2pApi.p2pReceive).not.toHaveBeenCalled();
+    expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("song-x", 5, false);
+  });
+
+  it("听众 P2P 分片落盘 + 收齐 → 直接合并（不经服务器 transfer_done）", async () => {
+    const s = useMusicStore();
+    s.djUserId = "dj-1";
+    musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+    musicApi.musicFinalizeSong.mockResolvedValue({ success: true });
+    musicApi.musicGetPlaylist.mockResolvedValue({ songs: [] });
+    musicSyncApi.musicSyncRequestState.mockResolvedValue(undefined);
+    musicSyncApi.musicReceiveSongChunkBin.mockResolvedValue({ success: true });
+    await s.startSongTransfer("song-x", 0);
+    const opts = p2pApi.p2pReceive.mock.calls[0][0] as P2PReceiveOpts;
+    // 模拟 3 片收齐
+    await opts.onChunk(new Uint8Array([1]), 0, 3);
+    await opts.onChunk(new Uint8Array([2]), 1, 3);
+    await opts.onChunk(new Uint8Array([3]), 2, 3);
+    expect(musicSyncApi.musicReceiveSongChunkBin).toHaveBeenCalledTimes(3);
+    expect(s.songTransfer.received).toBe(3);
+    expect(s.songTransfer.total).toBe(3);
+    opts.callbacks.onComplete();
+    await vi.waitFor(() => {
+      expect(musicApi.musicFinalizeSong).toHaveBeenCalledWith("song-x", 3);
+    });
+    expect(s.songTransfer.state).toBe("idle");
+    expect(musicSyncApi.musicSyncTransferDone).not.toHaveBeenCalled(); // 不经服务器
+  });
+
+  it("听众 P2P 失败 → 挂起关闭，服务器中转路径继续（不中断请求状态）", async () => {
+    const s = useMusicStore();
+    s.djUserId = "dj-1";
+    musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+    await s.startSongTransfer("song-x", 0);
+    const opts = p2pApi.p2pReceive.mock.calls[0][0] as P2PReceiveOpts;
+    opts.callbacks.onError("P2P 建连超时");
+    // 请求已在途：状态保持 requesting，等服务器 song_chunk 继续下载
+    expect(s.songTransfer.state).toBe("requesting");
+  });
+
+  it("DJ 收到带 p2p+requester_user_id 的请求 → 先 P2P 直传，完成通知服务器清理", async () => {
+    const s = useMusicStore();
+    s.trackName = "song-x";
+    musicSyncApi.musicReadSongChunkBin.mockResolvedValue({ success: true, total_chunks: 2, chunk_size: 1024, data: [1] });
+    musicSyncApi.musicSyncTransferDone.mockResolvedValue(undefined);
+    s.handleSyncWsEvent({ type: "music:song_requested", song_id: "song-x", requester_user_id: "listener-1", p2p: true });
+    await vi.waitFor(() => {
+      expect(p2pApi.p2pSend).toHaveBeenCalledTimes(1);
+    });
+    const sendOpts = p2pApi.p2pSend.mock.calls[0][0] as P2PSendOpts;
+    expect(sendOpts.peerId).toBe("listener-1");
+    expect(sendOpts.role).toBe("offerer");
+    expect(sendOpts.totalBytes).toBe(2048);
+    // 直传完成 → transfer_done 清理服务器传输状态（含 wait_all 检查）
+    sendOpts.callbacks.onComplete();
+    await vi.waitFor(() => {
+      expect(musicSyncApi.musicSyncTransferDone).toHaveBeenCalledWith("song-x");
+    });
+    // 媒体数据不经服务器中转
+    expect(musicSyncApi.musicSyncOfferSong).not.toHaveBeenCalled();
+  });
+
+  it("DJ P2P 直传失败 → 自动回退服务器中转分片循环", async () => {
+    const s = useMusicStore();
+    s.trackName = "song-x";
+    musicSyncApi.musicReadSongChunkBin.mockResolvedValue({ success: true, total_chunks: 1, chunk_size: 10, data: [1] });
+    musicApi.musicReadSongChunk.mockResolvedValue({ success: true, total_chunks: 1, chunk_size: 10, data_base64: "AQ==" });
+    musicSyncApi.musicSyncOfferSong.mockResolvedValue(undefined);
+    musicSyncApi.musicSyncTransferDone.mockResolvedValue(undefined);
+    s.handleSyncWsEvent({ type: "music:song_requested", song_id: "song-x", requester_user_id: "listener-1", p2p: true });
+    await vi.waitFor(() => expect(p2pApi.p2pSend).toHaveBeenCalledTimes(1));
+    // P2P 失败 → 回退服务器中转（musicSyncOfferSong 开始回传分片）
+    const sendOpts = p2pApi.p2pSend.mock.calls[0][0] as P2PSendOpts;
+    sendOpts.callbacks.onError("P2P 建连超时");
+    await vi.waitFor(() => {
+      expect(musicSyncApi.musicSyncOfferSong).toHaveBeenCalled();
+    });
+  });
+
+  it("DJ 收到无 p2p 标志的请求（老客户端）→ 直接服务器中转，不尝试 P2P", async () => {
+    const s = useMusicStore();
+    s.trackName = "song-x";
+    musicApi.musicReadSongChunk.mockResolvedValue({ success: true, total_chunks: 1, chunk_size: 10, data_base64: "AQ==" });
+    musicSyncApi.musicSyncOfferSong.mockResolvedValue(undefined);
+    musicSyncApi.musicSyncTransferDone.mockResolvedValue(undefined);
+    s.handleSyncWsEvent({ type: "music:song_requested", song_id: "song-x" });
+    await vi.waitFor(() => {
+      expect(musicSyncApi.musicSyncOfferSong).toHaveBeenCalled();
+    });
+    expect(p2pApi.p2pSend).not.toHaveBeenCalled();
   });
 });

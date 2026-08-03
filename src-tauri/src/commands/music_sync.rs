@@ -153,6 +153,7 @@ pub async fn music_sync_request_song(
     state: State<'_, AppState>,
     song_id: String,
     from_chunk: Option<u32>,
+    p2p: Option<bool>,
 ) -> Result<(), String> {
     let token = require_token(&state).await?;
     let mut params = serde_json::json!({ "song_id": song_id });
@@ -160,6 +161,11 @@ pub async fn music_sync_request_song(
         if fc > 0 {
             params["from_chunk"] = serde_json::json!(fc);
         }
+    }
+    // Phase 1：客户端支持 WebRTC 直连时带上 p2p 标志，服务器透传给持有者，
+    // 持有者优先尝试 P2P 直传，失败回退服务器中转（老客户端/老持有者无感降级）。
+    if p2p == Some(true) {
+        params["p2p"] = serde_json::json!(true);
     }
     ws::send(&app, &state.ws, &token, "music:request_song", params).await
 }

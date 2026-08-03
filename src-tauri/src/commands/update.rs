@@ -113,6 +113,8 @@ pub struct UpdateInfo {
     pub version: String,
     pub notes: String,
     pub date: Option<String>,
+    /// 安装包 Ed25519 签名（来自 latest.json，供 P2P 种子下载收齐后校验）
+    pub signature: String,
 }
 
 /// 拉取指定更新源的 latest.json
@@ -135,22 +137,26 @@ async fn fetch_latest_json(source: UpdateSource) -> Result<LatestJson, String> {
 
 /// 版本号比较：latest > current 时有更新
 ///
-/// 段内取数字前缀（"15-beta" → 15），非数字段视为 0，支持变长版本号。
+/// 段内取数字前缀（"15-beta" → 15），支持变长版本号与 prerelease：
+/// - 同数字但带 prerelease 后缀的版本**更旧**（"4.6.0-beta.0" < "4.6.0"，语义化版本规则）
+/// - 数字大的段胜出（"4.6.0-beta.0" > "4.5.17"，新 minor 的 beta 仍比旧 release 新）
 fn is_newer(latest: &str, current: &str) -> bool {
-    let parse_seg = |s: &str| -> u64 {
+    let parse_seg = |s: &str| -> (u64, bool) {
         let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
-        digits.parse().unwrap_or(0)
+        // has_suffix：该段带非数字后缀（prerelease 标记，如 "0-beta"、"15-alpha"）
+        (digits.parse().unwrap_or(0), digits.len() != s.len())
     };
-    let l: Vec<u64> = latest.split('.').map(parse_seg).collect();
-    let c: Vec<u64> = current.split('.').map(parse_seg).collect();
+    let l: Vec<(u64, bool)> = latest.split('.').map(parse_seg).collect();
+    let c: Vec<(u64, bool)> = current.split('.').map(parse_seg).collect();
     for i in 0..l.len().max(c.len()) {
-        let a = l.get(i).copied().unwrap_or(0);
-        let b = c.get(i).copied().unwrap_or(0);
-        if a > b {
-            return true;
+        let a = l.get(i).copied().unwrap_or((0, false));
+        let b = c.get(i).copied().unwrap_or((0, false));
+        if a.0 != b.0 {
+            return a.0 > b.0;
         }
-        if a < b {
-            return false;
+        if a.1 != b.1 {
+            // 数字相同：带 prerelease 后缀的版本更旧（正式版 > 同版本 beta）
+            return !a.1;
         }
     }
     false
@@ -286,10 +292,21 @@ pub async fn check_update(
         return Ok(None);
     }
 
+    // 签名来自 latest.json（公开数据），前端拿去做 P2P 种子下载收齐后的校验
+    let platform = latest.windows_platform().map_err(|e| {
+        let msg = format!("检查更新失败: {}", e);
+        let _ = app.emit("update-status", serde_json::json!({
+            "status": "error",
+            "message": msg,
+        }));
+        msg
+    })?;
+
     let info = UpdateInfo {
         version: latest.version.clone(),
         notes: latest.notes.clone().unwrap_or_default(),
         date: latest.pub_date.clone(),
+        signature: platform.signature.clone(),
     };
     let _ = app.emit(
         "update-status",
@@ -371,6 +388,157 @@ pub async fn download_and_install(
         serde_json::json!({ "status": "downloaded" }),
     );
     std::process::Command::new(&dest)
+        .spawn()
+        .map_err(|e| format!("启动安装器失败: {}", e))?;
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    app.exit(0);
+    Ok(())
+}
+
+// ── Phase 2：P2P 种子下载安装包 ──
+//
+// 前端（WebView2 原生 WebRTC）从在线种子拉取安装包分片后，经本命令逐片落盘；
+// 收齐后校验 Ed25519 签名（复用 download_and_install 的 verify_installer），
+// 通过则启动安装器并退出。失败/无种子由前端回退服务器/GitHub 下载。
+//
+// 全局单会话：同一时间只允许一个种子下载（更新流程串行）。
+
+/// 种子下载会话
+struct SeedDownload {
+    dest: PathBuf,
+    /// 总片数（首片到达时由 meta 确定；未知为 0）
+    total_chunks: u32,
+    /// 已收片数（DataChannel ordered，顺序到达，取 max 防重）
+    received_chunks: u32,
+    /// 已收字节数（进度上报用）
+    received_bytes: u64,
+    /// 安装包 Ed25519 签名（来自 latest.json）
+    signature: String,
+}
+
+fn seed_download_mutex() -> &'static tokio::sync::Mutex<Option<SeedDownload>> {
+    static M: std::sync::OnceLock<tokio::sync::Mutex<Option<SeedDownload>>> =
+        std::sync::OnceLock::new();
+    M.get_or_init(|| tokio::sync::Mutex::new(None))
+}
+
+/// 记录一片到达，返回是否收齐（顺序到达：index+1 >= total 即收齐）
+///
+/// 纯函数，便于单测。total 未知（0）时只累计，不判定收齐。
+fn chunk_received(sd: &mut SeedDownload, chunk_index: u32, total_chunks: u32) -> bool {
+    if sd.total_chunks == 0 && total_chunks > 0 {
+        sd.total_chunks = total_chunks;
+    }
+    if chunk_index + 1 > sd.received_chunks {
+        sd.received_chunks = chunk_index + 1;
+    }
+    sd.total_chunks > 0 && sd.received_chunks >= sd.total_chunks
+}
+
+/// 开始种子下载：预创建临时文件并初始化会话
+///
+/// - `version`: 目标版本（决定临时文件名）
+/// - `signature`: latest.json 中的安装包签名（收齐后校验）
+#[tauri::command]
+pub async fn update_seed_download_begin(
+    version: String,
+    signature: String,
+) -> Result<(), String> {
+    if cfg!(debug_assertions) {
+        return Err("开发模式不支持安装更新".to_string());
+    }
+    if version.is_empty() || signature.is_empty() {
+        return Err("种子下载参数不完整".to_string());
+    }
+    let dest = temp_dest_path(&version);
+    // 预创建空文件（清掉上次残留），同时校验临时目录可写
+    tokio::fs::File::create(&dest)
+        .await
+        .map_err(|e| format!("创建临时文件失败: {}", e))?;
+    let mut guard = seed_download_mutex().lock().await;
+    *guard = Some(SeedDownload {
+        dest,
+        total_chunks: 0,
+        received_chunks: 0,
+        received_bytes: 0,
+        signature,
+    });
+    Ok(())
+}
+
+/// 写入一片（前端 WebRTC 收到分片后调用）。收齐后自动校验签名并启动安装器。
+#[tauri::command]
+pub async fn update_seed_download_chunk(
+    app: AppHandle,
+    chunk: Vec<u8>,
+    chunk_index: u32,
+    total_chunks: u32,
+) -> Result<(), String> {
+    let mut guard = seed_download_mutex().lock().await;
+    let sd = guard
+        .as_mut()
+        .ok_or_else(|| "更新种子下载未初始化".to_string())?;
+    let mut file = tokio::fs::OpenOptions::new()
+        .append(true)
+        .open(&sd.dest)
+        .await
+        .map_err(|e| format!("打开临时文件失败: {}", e))?;
+    file.write_all(&chunk)
+        .await
+        .map_err(|e| format!("写入临时文件失败: {}", e))?;
+    drop(file);
+    sd.received_bytes = sd.received_bytes.saturating_add(chunk.len() as u64);
+    let complete = chunk_received(sd, chunk_index, total_chunks);
+    let percent = if sd.total_chunks > 0 {
+        (sd.received_chunks as f64 / sd.total_chunks as f64 * 100.0).round() as u64
+    } else {
+        0
+    };
+    let _ = app.emit(
+        "update-status",
+        serde_json::json!({
+            "status": "downloading",
+            "percent": percent,
+            "transferred": sd.received_bytes,
+        }),
+    );
+    if complete {
+        let dest = sd.dest.clone();
+        let signature = sd.signature.clone();
+        *guard = None; // 收齐后清会话
+        drop(guard);
+        finish_seed_install(&app, &dest, &signature).await?;
+    }
+    Ok(())
+}
+
+/// 中止种子下载（前端 P2P 失败回退时调用）：清会话 + 删除残留临时文件
+#[tauri::command]
+pub async fn update_seed_download_abort() -> Result<(), String> {
+    let mut guard = seed_download_mutex().lock().await;
+    if let Some(sd) = guard.take() {
+        let _ = fs::remove_file(&sd.dest);
+    }
+    Ok(())
+}
+
+/// 种子下载收齐后的收尾：校验签名 → 启动安装器 → 退出应用
+async fn finish_seed_install(app: &AppHandle, dest: &PathBuf, signature: &str) -> Result<(), String> {
+    let pubkey = get_update_pubkey(app)?;
+    let exe_bytes = fs::read(dest).map_err(|e| format!("读取安装包失败: {}", e))?;
+    if !verify_installer(&exe_bytes, signature, &pubkey) {
+        let msg = "安装包签名验证失败，已拒绝安装".to_string();
+        let _ = app.emit("update-status", serde_json::json!({
+            "status": "error",
+            "message": msg,
+        }));
+        return Err(msg);
+    }
+    let _ = app.emit(
+        "update-status",
+        serde_json::json!({ "status": "downloaded" }),
+    );
+    std::process::Command::new(dest)
         .spawn()
         .map_err(|e| format!("启动安装器失败: {}", e))?;
     std::thread::sleep(std::time::Duration::from_millis(500));
@@ -515,6 +683,19 @@ mod tests {
     }
 
     #[test]
+    fn test_is_newer_prerelease_beta_versus_release() {
+        // 语义化版本：4.6.0-beta.0 < 4.6.0（正式版发布后 beta 用户能升到正式版）
+        assert!(is_newer("4.6.0", "4.6.0-beta.0"));
+        assert!(!is_newer("4.6.0-beta.0", "4.6.0"));
+        // beta 递增
+        assert!(is_newer("4.6.0-beta.1", "4.6.0-beta.0"));
+        assert!(!is_newer("4.6.0-beta.0", "4.6.0-beta.1"));
+        // 新 minor 的 beta 仍比旧 release 新
+        assert!(is_newer("4.6.0-beta.0", "4.5.17"));
+        assert!(!is_newer("4.5.17", "4.6.0-beta.0"));
+    }
+
+    #[test]
     fn test_parse_pubkey_extracts_32_bytes() {
         // 使用 tauri.conf.json 中的真实公钥配置
         let pubkey = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcwRUZERjE5RURCNTIxRkIKUldUN0liWHRHZC92Y0U1NnoxUXBGWFl1aG5BdVkwY2c4eHBEN1h5dm1qQlVLSzdmQWRWQmdqS3MK";
@@ -579,6 +760,72 @@ mod tests {
         )
         .unwrap();
         assert!(j2.windows_platform().is_err());
+    }
+
+    fn new_seed_download() -> SeedDownload {
+        SeedDownload {
+            dest: PathBuf::from("C:\\tmp\\test.exe"),
+            total_chunks: 0,
+            received_chunks: 0,
+            received_bytes: 0,
+            signature: "sig".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_chunk_received_sets_total_from_first_chunk() {
+        let mut sd = new_seed_download();
+        assert!(!chunk_received(&mut sd, 0, 10));
+        assert_eq!(sd.total_chunks, 10);
+        assert_eq!(sd.received_chunks, 1);
+    }
+
+    #[test]
+    fn test_chunk_received_completes_at_last_chunk() {
+        let mut sd = new_seed_download();
+        // 前 8 片未收齐
+        for i in 0..8 {
+            assert!(!chunk_received(&mut sd, i, 9));
+        }
+        // 第 9 片（index=8）到达 → 收齐
+        assert!(chunk_received(&mut sd, 8, 9));
+    }
+
+    #[test]
+    fn test_chunk_received_unknown_total_never_completes() {
+        let mut sd = new_seed_download();
+        // total=0（meta 未到）：只累计，不判定收齐
+        assert!(!chunk_received(&mut sd, 0, 0));
+        assert_eq!(sd.received_chunks, 1);
+        assert!(!chunk_received(&mut sd, 1, 0));
+        assert_eq!(sd.received_chunks, 2);
+    }
+
+    #[test]
+    fn test_chunk_received_takes_max_of_received() {
+        let mut sd = new_seed_download();
+        // 乱序/重片：received_chunks 取 max（index+1），不倒退
+        assert!(!chunk_received(&mut sd, 5, 10));
+        assert_eq!(sd.received_chunks, 6);
+        assert!(!chunk_received(&mut sd, 3, 10));
+        assert_eq!(sd.received_chunks, 6);
+        // 最后一片（index=9）到达 → 收齐
+        assert!(chunk_received(&mut sd, 9, 10));
+        assert_eq!(sd.received_chunks, 10);
+    }
+
+    #[test]
+    fn test_update_info_serializes_signature() {
+        // Phase 2：签名随 UpdateInfo 下发，前端种子下载收齐后校验
+        let info = UpdateInfo {
+            version: "4.6.0-beta.0".to_string(),
+            notes: "test".to_string(),
+            date: None,
+            signature: "dW50cnVzdGVk...".to_string(),
+        };
+        let json = serde_json::to_value(&info).unwrap();
+        assert_eq!(json["signature"], "dW50cnVzdGVk...");
+        assert_eq!(json["version"], "4.6.0-beta.0");
     }
 }
 

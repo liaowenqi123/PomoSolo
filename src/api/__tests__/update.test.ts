@@ -8,6 +8,9 @@ vi.mock("@tauri-apps/api/core", () => ({
 import {
   checkUpdate,
   downloadAndInstall,
+  updateSeedDownloadBegin,
+  updateSeedDownloadChunk,
+  updateSeedDownloadAbort,
 } from "../update";
 import type { UpdateInfo, UpdateStatus, UpdateStatusPayload } from "../update";
 
@@ -132,16 +135,60 @@ describe("api/update", () => {
     expect(payload.total).toBe(2048);
   });
 
+  // ===== updateSeedDownloadBegin / Chunk / Abort（Phase 2 种子下载） =====
+
+  it("updateSeedDownloadBegin 应调用 invoke('update_seed_download_begin')", async () => {
+    invokeMock.mockResolvedValue(undefined);
+
+    await updateSeedDownloadBegin("4.6.0-beta.0", "dW50cnVzdGVk...");
+
+    expect(invokeMock).toHaveBeenCalledWith("update_seed_download_begin", {
+      version: "4.6.0-beta.0",
+      signature: "dW50cnVzdGVk...",
+    });
+  });
+
+  it("updateSeedDownloadChunk 应透传分片数据与序号", async () => {
+    invokeMock.mockResolvedValue(undefined);
+
+    await updateSeedDownloadChunk([1, 2, 3], 7, 20);
+
+    expect(invokeMock).toHaveBeenCalledWith("update_seed_download_chunk", {
+      chunk: [1, 2, 3],
+      chunkIndex: 7,
+      totalChunks: 20,
+    });
+  });
+
+  it("updateSeedDownloadAbort 应调用 invoke('update_seed_download_abort')", async () => {
+    invokeMock.mockResolvedValue(undefined);
+
+    await updateSeedDownloadAbort();
+
+    expect(invokeMock).toHaveBeenCalledWith("update_seed_download_abort");
+  });
+
   // ===== 命令名互不相同 =====
 
-  it("两个命令名应互不相同", async () => {
+  it("命令名应互不相同", async () => {
     invokeMock.mockResolvedValue(undefined);
     await checkUpdate();
     await downloadAndInstall();
+    await updateSeedDownloadBegin("4.6.0-beta.0", "sig");
+    await updateSeedDownloadChunk([1], 0, 1);
+    await updateSeedDownloadAbort();
 
     const names = invokeMock.mock.calls.map((c) => c[0]);
     const unique = new Set(names);
     expect(unique.size).toBe(names.length);
-    expect(unique).toEqual(new Set(["check_update", "download_and_install"]));
+    expect(unique).toEqual(
+      new Set([
+        "check_update",
+        "download_and_install",
+        "update_seed_download_begin",
+        "update_seed_download_chunk",
+        "update_seed_download_abort",
+      ]),
+    );
   });
 });

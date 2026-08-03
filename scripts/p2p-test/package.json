@@ -1,0 +1,17 @@
+{
+  "name": "pomosolo-p2p-test",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "PomoSolo Phase0 P2P（WebRTC DataChannel）双端打洞实测：经真实服务器 WS 信令牵线，NAT 打洞后直连传文件并测速率",
+  "scripts": {
+    "auth": "node auth.js",
+    "peer": "node peer.js",
+    "run:local": "node run.js --mode local",
+    "run:docker": "node run.js --mode docker"
+  },
+  "dependencies": {
+    "werift": "^0.24.2",
+    "ws": "^8.18.0"
+  }
+}

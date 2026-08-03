@@ -741,3 +741,44 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 > - **服务器部门无需再做任何事**；后续若有新版本发布，由客户端部门自行同步即可
 
 > 请提供 `/updates/` 目录并在下方回复确认 URL 可访问即可；后续每次发版客户端会从本机 scp 同步文件上去，无需服务器再操作。
+
+---
+
+## 【已部署，请知悉】Phase 0/1：P2P 直连改造（2026-08-04）
+
+> 服务器 ws_server.py 已更新并部署（`sudo docker restart frontend-web`），**无需服务器部门操作**，仅知悉：
+>
+> **1. `peer:*` 信令定向转发（Phase 0 打洞牵线，已随 v4.6.0-beta 实测）**
+> - 客户端 WebRTC 直连（音乐传歌/安装包种子）前，经服务器交换 SDP/ICE 候选（KB 级），媒体数据点对点**不经服务器**
+> - `handle_peer_signal`：校验 `type`/`to_user_id` 白名单 → 附加 `from_user_id` → `send_to_user` 定向转发，对端不在线/解析失败静默默弃
+> - 支持 `peer:offer` / `peer:answer` / `peer:ice` / `peer:bye` 四种类型；客户端通过 `p2p_signal` 命令复用现有 WS 通道发送
+>
+> **2. `music:request_song` 透传 `p2p` 标志（Phase 1 音乐传歌直连）**
+> - 听众请求传歌时带 `p2p:true`，服务器原样透传给持有者（`music:song_requested.p2p`）
+> - 持有者优先尝试 WebRTC 直传（媒体不经服务器，**省服务器带宽**），失败自动回退现有服务器中转分片
+> - 老客户端/老持有者无 `p2p` 标志 → 行为与之前完全一致（服务器中转）
+>
+> ⚠️ 回退方法：若发现 `p2p` 标志导致异常，删掉 `handle_music_request_song` 里 `if msg.get("p2p")` 两行即可，不影响其他逻辑。
+
+## 【已部署 + 客户端已实现】Phase 2：安装包 P2P 种子（2026-08-04）
+
+> 用户本机带宽充裕，开启"分享安装包"后，其他客户端更新时优先从在线种子 **P2P 直连**下载（不经服务器，也不走 GitHub）。
+>
+> **服务器侧（已部署，无需再操作）**：`ws_server.py` 增加 4 个消息，维护内存种子表
+> `p2p_seeds: user_id -> {version, file, size, last_seen}`，60s 无心跳自动清理，断连自动注销：
+> - `p2p:seed_register`：种子注册（version/file/size，重复注册覆盖）
+> - `p2p:seed_heartbeat`：心跳保活（客户端每 30s）
+> - `p2p:seed_unregister`：主动注销
+> - `p2p:seed_list`：查在线种子（按 version 过滤、排除自己、返回 user_id 数组；**带 id 回显支持
+>   ws::request 请求-响应匹配**，客户端 `p2p_seed_list` 命令即用它）
+>
+> 服务器只做"谁在线、谁有哪个版本"的**目录服务**，不存文件、不中转数据（文件走 WebRTC 直连）。
+>
+> **客户端侧（已实现，随 v4.6.0-beta.0 发版）**：
+> 1. 种子端：设置面板"分享安装包（P2P）"开关（需登录）→ `p2p_seed_register` 注册 → 30s 心跳 → 关闭注销
+> 2. 下载端：`check_update` 返回的 UpdateInfo 新增 `signature` → 下载前 `p2p_seed_list(version)` 查种子 →
+>    前端 WebRTC 收片（DataChannel 分片）→ 逐片调 `update_seed_download_chunk` 落盘 → 收齐校验 Ed25519 签名 →
+>    启动安装器；无种子/失败自动回退服务器/GitHub
+>
+> ⚠️ 回退方法：若种子功能导致异常，服务器删掉 `handle_p2p_seed_*` 4 个 handler 的注册（ws_server.py 231-234 行）即可，
+> 客户端会自动走无种子回退路径（下载行为与 v4.5.x 完全一致）。

@@ -13,6 +13,9 @@ import {
   musicSyncVolume,
   musicSyncAddSong,
   musicSyncRequestDj,
+  musicSyncRequestSong,
+  musicReadSongChunkBin,
+  musicReceiveSongChunkBin,
 } from "../musicSync";
 
 describe("api/musicSync", () => {
@@ -66,6 +69,47 @@ describe("api/musicSync", () => {
     invokeMock.mockResolvedValue(undefined);
     await musicSyncRequestDj();
     expect(invokeMock).toHaveBeenCalledWith("music_sync_request_dj");
+  });
+
+  it("musicSyncRequestSong 默认不带 p2p 标志（老客户端无感）", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await musicSyncRequestSong("song-1");
+    expect(invokeMock).toHaveBeenCalledWith("music_sync_request_song", {
+      songId: "song-1",
+      fromChunk: 0,
+      p2p: false,
+    });
+  });
+
+  it("musicSyncRequestSong 带 p2p=true 与 fromChunk（Phase 1 直连标志）", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await musicSyncRequestSong("song-1", 3, true);
+    expect(invokeMock).toHaveBeenCalledWith("music_sync_request_song", {
+      songId: "song-1",
+      fromChunk: 3,
+      p2p: true,
+    });
+  });
+
+  it("musicReadSongChunkBin 应调用 invoke('music_read_song_chunk_bin')", async () => {
+    invokeMock.mockResolvedValue({ success: true, total_chunks: 2, chunk_size: 131072, data: [1, 2, 3] });
+    const res = await musicReadSongChunkBin("song-1", 0);
+    expect(invokeMock).toHaveBeenCalledWith("music_read_song_chunk_bin", { songName: "song-1", chunkIndex: 0 });
+    expect(res.total_chunks).toBe(2);
+    expect(res.data).toEqual([1, 2, 3]);
+  });
+
+  it("musicReceiveSongChunkBin 应调用 invoke('music_receive_song_chunk_bin') 并透传二进制数组", async () => {
+    invokeMock.mockResolvedValue({ success: true });
+    const bytes = [104, 101, 108, 108, 111];
+    const res = await musicReceiveSongChunkBin("song-1", 0, 5, bytes);
+    expect(invokeMock).toHaveBeenCalledWith("music_receive_song_chunk_bin", {
+      songName: "song-1",
+      chunkIndex: 0,
+      totalChunks: 5,
+      data: bytes,
+    });
+    expect(res.success).toBe(true);
   });
 
   it("invoke 抛错时应向上传播", async () => {
