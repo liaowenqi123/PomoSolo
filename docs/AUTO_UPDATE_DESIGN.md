@@ -13,6 +13,11 @@
 > 检查/下载/安装。它的 `plugins.updater.endpoints` 配置在**插件初始化时**校验，**非 https 端点（如 `http://115.159.49.112/...`）
 > 会直接 panic → 应用启动即闪退**（v4.5.15 曾踩坑，进程起来几秒消失 / WebView2 报 localhost 拒绝连接）。
 > 因此该配置只保留 https 占位地址（GitHub），两个真实更新源地址硬编码在 `update.rs` 中，运行时切换与插件配置无关。
+>
+> ⚠️ **latest.json 解析必须按 tauri 规范（v4.5.17 修复）**：`update.rs` 的 `LatestJson` 从 `platforms.windows-x86_64.{url,signature}`
+> 提取下载信息（v4.5.15/4.5.16 曾把 `url`/`signature` 定义在顶层 → 全链报 `missing field 'url'`）。已用真实发布物
+> 做夹具回归测试（`test_parse_real_github_latest_json` / `test_parse_real_server_latest_json`），改更新解析逻辑
+> 必须先更新夹具再跑测试。
 
 ## 一、概述
 

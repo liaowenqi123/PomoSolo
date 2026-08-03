@@ -707,6 +707,8 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 > 客户端 v4.5.15 起自动更新支持**用户可选更新源**（GitHub 默认 / 服务器备选），需要服务器部门提供一个静态托管目录。**若目录 404，客户端会提示更新检查失败，不影响现有功能**（服务器部门从 GitHub 拉取很慢）。
 >
 > ⚠️ **v4.5.16 闪退修复教训（2026-08-03）**：v4.5.15 曾把服务器 http 地址写进 `tauri.conf.json` 的 `plugins.updater.endpoints`，而 `tauri-plugin-updater` 初始化强制要求 endpoints 必须 `https`，**非 https 端点直接 panic → 应用启动即闪退**（现象：进程起来几秒就消失 / WebView2 显示 localhost 拒绝连接）。插件仅保留注册、实际不参与检查/下载/安装，其 endpoints 配置必须只含 https 占位地址；运行时源切换由自实现更新器（`src-tauri/src/commands/update.rs`）硬编码的地址完成，与插件配置无关。
+>
+> ⚠️ **v4.5.17 更新解析修复教训（2026-08-03）**：v4.5.15 起自实现更新器的 `LatestJson` 结构体把 `url`/`signature` 定义在**顶层**，但 tauri updater 规范是嵌套在 `platforms.windows-x86_64` 下 → 检查/下载全链报 `解析更新信息失败: missing field 'url'`（v4.5.16 能启动后首次暴露）。已改为按规范从 `platforms.windows-x86_64` 提取，并新增**真实发布物夹具测试**（GitHub/服务器各一份实际 latest.json 内容，字节级核对线上文件后入库），发版前必须过该解析回归测试。更新链路（解析→版本比较→下载→验签）任何改动都必须配真实数据测试，不得只凭肉眼核对 JSON。
 
 **1. 静态目录 `/updates/`（本次需要服务器做的事）**
 

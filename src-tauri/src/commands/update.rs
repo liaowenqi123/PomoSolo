@@ -63,15 +63,37 @@ impl UpdateSource {
     }
 }
 
+/// 平台下载信息（tauri updater 规范：嵌套在 `platforms.<os>` 下）
+#[derive(Debug, Deserialize)]
+struct PlatformInfo {
+    url: String,
+    signature: String,
+}
+
 /// 服务器 latest.json 结构（tauri updater 规范）
+///
+/// ```json
+/// {"version":"4.5.16","notes":"...","pub_date":"...","platforms":{"windows-x86_64":{"url":"...","signature":"..."}}}
+/// ```
+///
+/// ⚠️ v4.5.16 曾把 `url`/`signature` 定义在顶层导致 `missing field 'url'` 解析失败
+/// （检查/下载全链崩），v4.5.17 改为按规范从 `platforms.windows-x86_64` 提取。
 #[derive(Debug, Deserialize)]
 struct LatestJson {
     version: String,
     notes: Option<String>,
-    url: String,
-    signature: String,
     #[serde(rename = "pub_date")]
     pub_date: Option<String>,
+    platforms: std::collections::HashMap<String, PlatformInfo>,
+}
+
+impl LatestJson {
+    /// 取 windows-x86_64 平台的下载信息（下载地址 + 签名）
+    fn windows_platform(&self) -> Result<&PlatformInfo, String> {
+        self.platforms
+            .get("windows-x86_64")
+            .ok_or_else(|| "更新信息缺少 windows-x86_64 平台配置".to_string())
+    }
 }
 
 /// 获取备份数据目录（与 data.json 同级：app_data_dir/PomoSolo/）
@@ -313,8 +335,16 @@ pub async fn download_and_install(
         })?;
 
     // 3. 下载安装包
+    let platform = latest.windows_platform().map_err(|e| {
+        let msg = format!("获取更新信息失败: {}", e);
+        let _ = app.emit("update-status", serde_json::json!({
+            "status": "error",
+            "message": msg,
+        }));
+        msg
+    })?;
     let dest = temp_dest_path(&latest.version);
-    if let Err(e) = download_installer(&app, &latest.url, &dest).await {
+    if let Err(e) = download_installer(&app, &platform.url, &dest).await {
         let msg = format!("下载更新失败: {}", e);
         let _ = app.emit("update-status", serde_json::json!({
             "status": "error",
@@ -326,7 +356,7 @@ pub async fn download_and_install(
     // 4. 验证 Ed25519 签名（防篡改，失败拒绝安装）
     let pubkey = get_update_pubkey(&app)?;
     let exe_bytes = fs::read(&dest).map_err(|e| format!("读取安装包失败: {}", e))?;
-    if !verify_installer(&exe_bytes, &latest.signature, &pubkey) {
+    if !verify_installer(&exe_bytes, &platform.signature, &pubkey) {
         let msg = "安装包签名验证失败，已拒绝安装".to_string();
         let _ = app.emit("update-status", serde_json::json!({
             "status": "error",
@@ -508,6 +538,47 @@ mod tests {
         assert!(!verify_installer(b"fake exe bytes", fake_sig, pubkey));
         // 非法 base64 签名
         assert!(!verify_installer(b"fake", "not-base64", pubkey));
+    }
+
+    /// v4.5.16 实际发布到 GitHub Release 的 latest.json（真实内容，防解析回归）。
+    /// v4.5.16 的 `missing field 'url'` 崩溃就是解析不了这种 platforms 嵌套格式。
+    const REAL_GITHUB_LATEST_JSON: &str = r#"{"version":"4.5.16","notes":"v4.5.16 紧急修复：v4.5.15 更新器插件 endpoints 含 http 端点导致应用启动即闪退（tauri-plugin-updater 初始化强制 https）。移除 http 端点、仅保留 https 占位，运行时更新源切换（GitHub/服务器）不受影响。","pub_date":"2026-08-03T14:39:15Z","platforms":{"windows-x86_64":{"url":"https://github.com/liaowenqi123/PomoSolo/releases/download/v4.5.16/PomoSolo_4.5.16_x64-setup.exe","signature":"dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUN0liWHRHZC92Y09tQU9sTEJjVWtyeWVXdW9yMFA2N3pZZzNBTFRiSVRNTGlvYkpCcFZVTGJyMkZ0bmx2Qm9xQ2lkeTJENUM2NURNWU42eFJhbnNYQXBodkxLTjJBbkFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1NzY3OTE5CWZpbGU6UG9tb1NvbG9fNC41LjE2X3g2NC1zZXR1cC5leGUKcllQa3BtaGsrMlhwV0ttN1dJK1RXM3RQUzF3OG9iUkorRk13bDJCMjZFTmJieEFFTzlucS82RTU1QkxRVU8vTjhaRnlreC9Qa3NNY2dDKzZXaHlHRFE9PQo="}}}"#;
+
+    /// v4.5.16 实际发布到服务器 /updates/ 的 latest.json（url 指向服务器）
+    const REAL_SERVER_LATEST_JSON: &str = r#"{"version":"4.5.16","notes":"v4.5.16 紧急修复：v4.5.15 更新器插件 endpoints 含 http 端点导致应用启动即闪退（tauri-plugin-updater 初始化强制 https）。移除 http 端点、仅保留 https 占位，运行时更新源切换（GitHub/服务器）不受影响。","pub_date":"2026-08-03T14:39:15Z","platforms":{"windows-x86_64":{"url":"http://115.159.49.112/updates/PomoSolo_4.5.16_x64-setup.exe","signature":"dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUN0liWHRHZC92Y09tQU9sTEJjVWtyeWVXdW9yMFA2N3pZZzNBTFRiSVRNTGlvYkpCcFZVTGJyMkZ0bmx2Qm9xQ2lkeTJENUM2NURNWU42eFJhbnNYQXBodkxLTjJBbkFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzg1NzY3OTE5CWZpbGU6UG9tb1NvbG9fNC41LjE2X3g2NC1zZXR1cC5leGUKcllQa3BtaGsrMlhwV0ttN1dJK1RXM3RQUzF3OG9iUkorRk13bDJCMjZFTmJieEFFTzlucS82RTU1QkxRVU8vTjhaRnlreC9Qa3NNY2dDKzZXaHlHRFE9PQo="}}}"#;
+
+    #[test]
+    fn test_parse_real_github_latest_json() {
+        let j: LatestJson = serde_json::from_str(REAL_GITHUB_LATEST_JSON)
+            .expect("真实 GitHub latest.json 必须能解析（v4.5.16 曾在此崩溃）");
+        assert_eq!(j.version, "4.5.16");
+        let p = j.windows_platform().expect("windows-x86_64 平台必须存在");
+        assert!(p.url.starts_with("https://github.com/"));
+        assert!(!p.signature.is_empty());
+        assert_eq!(p.signature.len(), 420);
+    }
+
+    #[test]
+    fn test_parse_real_server_latest_json() {
+        let j: LatestJson = serde_json::from_str(REAL_SERVER_LATEST_JSON)
+            .expect("真实服务器 latest.json 必须能解析");
+        assert_eq!(j.version, "4.5.16");
+        let p = j.windows_platform().unwrap();
+        assert!(p.url.starts_with("http://115.159.49.112/updates/"));
+        assert_eq!(p.signature.len(), 420);
+    }
+
+    #[test]
+    fn test_windows_platform_missing_returns_error() {
+        // platforms 为空或只有其他平台时，必须给出明确错误而不是 panic
+        let j: LatestJson =
+            serde_json::from_str(r#"{"version":"1.0.0","platforms":{}}"#).unwrap();
+        assert!(j.windows_platform().is_err());
+        let j2: LatestJson = serde_json::from_str(
+            r#"{"version":"1.0.0","platforms":{"linux-x86_64":{"url":"u","signature":"s"}}}"#,
+        )
+        .unwrap();
+        assert!(j2.windows_platform().is_err());
     }
 }
 
