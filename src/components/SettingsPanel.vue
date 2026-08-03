@@ -28,7 +28,6 @@ import {
 import { autostartEnable } from "@/api/system";
 import { gardenUnlockEasteregg } from "@/api/garden";
 import { useGardenStore } from "../stores/garden";
-import SpaceTravel from "./SpaceTravel.vue";
 
 const props = defineProps<{
   visible: boolean;
@@ -37,6 +36,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "open-auth"): void;
+  /** 彩蛋触发完成（由父组件接管全屏太空旅行，面板关闭后彩蛋仍在） */
+  (e: "easter-egg"): void;
 }>();
 
 const settings = useSettingsStore();
@@ -54,8 +55,6 @@ const EASTER_EGG_PARTICLE_COUNT = 20;
 
 let easterEggClickCount = 0;
 let easterEggLastClickTime = 0;
-/** 太空旅行动画是否显示 */
-const spaceTravelVisible = ref(false);
 /** 彩蛋粒子（固定定位，动画后自动移除） */
 const easterEggParticles = ref<Array<{ id: number; left: string; top: string; dx: string; dy: string; color: string }>>([]);
 let particleIdCounter = 0;
@@ -103,10 +102,11 @@ async function triggerEasterEgg(): Promise<void> {
     console.warn("[Settings] 解锁彩蛋成就失败:", e);
   }
 
-  // 延迟启动太空旅行（让粒子效果先播放）
+  // 延迟启动太空旅行（让粒子效果先播放）。
+  // 彩蛋画面由 App.vue 顶层的 SpaceTravel 播放（emit close 关闭面板后组件依然存活）。
   setTimeout(() => {
+    emit("easter-egg");
     emit("close");
-    spaceTravelVisible.value = true;
   }, 800);
 }
 
@@ -832,12 +832,6 @@ function statusLabel(status: number): string {
           :style="{ left: p.left, top: p.top, '--dx': p.dx, '--dy': p.dy, background: p.color }"
         ></span>
       </div>
-
-      <!-- 隐藏彩蛋：太空旅行动画 -->
-      <SpaceTravel
-        :visible="spaceTravelVisible"
-        @update:visible="spaceTravelVisible = $event"
-      />
     </div>
   </Transition>
 </template>

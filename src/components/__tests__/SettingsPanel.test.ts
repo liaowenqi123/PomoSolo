@@ -67,7 +67,7 @@ describe("SettingsPanel.vue", () => {
       props: { visible },
       global: {
         stubs: {
-          SpaceTravel: true,
+          // SpaceTravel 已上移到 App.vue 顶层，此处无需 stub
         },
       },
     });
@@ -371,7 +371,7 @@ describe("SettingsPanel.vue", () => {
     }
   }
 
-  it("点击版本号 5 次应触发彩蛋（解锁成就 + 关闭面板 + 显示太空旅行）", async () => {
+  it("点击版本号 5 次应触发彩蛋（解锁成就 + emit easter-egg + 关闭面板）", async () => {
     vi.useFakeTimers();
     try {
       const wrapper = mountComponent();
@@ -379,10 +379,9 @@ describe("SettingsPanel.vue", () => {
       await flushPromises();
       // 解锁 API 被调用
       expect(gardenApi.gardenUnlockEasteregg).toHaveBeenCalledTimes(1);
-      // 太空旅行在 800ms 延迟后显示（面板先关闭）
+      // 800ms 延迟后：发出 easter-egg（父组件播放太空旅行）+ close（关闭面板）
       await vi.advanceTimersByTimeAsync(800);
-      const vm = wrapper.vm as unknown as { spaceTravelVisible: boolean };
-      expect(vm.spaceTravelVisible).toBe(true);
+      expect(wrapper.emitted("easter-egg")).toBeTruthy();
       expect(wrapper.emitted("close")).toBeTruthy();
     } finally {
       vi.useRealTimers();
@@ -394,8 +393,7 @@ describe("SettingsPanel.vue", () => {
     await clickVersionTimes(wrapper, 3);
     await flushPromises();
     expect(gardenApi.gardenUnlockEasteregg).not.toHaveBeenCalled();
-    const vm = wrapper.vm as unknown as { spaceTravelVisible: boolean };
-    expect(vm.spaceTravelVisible).toBe(false);
+    expect(wrapper.emitted("easter-egg")).toBeFalsy();
   });
 
   it("点击间隔超过 1.5 秒应重置计数（不触发彩蛋）", async () => {

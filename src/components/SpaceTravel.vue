@@ -24,6 +24,8 @@ const emit = defineEmits<{
 const exitReady = ref(false);
 /** 是否正在退出（淡出动画） */
 const exiting = ref(false);
+/** 未到退出时间就点击时的提示（短暂显示，避免"点击没反应"的困惑） */
+const earlyHintVisible = ref(false);
 
 /** 随机生成的星星 */
 const stars = ref<Array<{ left: string; top: string; delay: string; duration: string }>>([]);
@@ -31,8 +33,10 @@ const stars = ref<Array<{ left: string; top: string; delay: string; duration: st
 const STAR_COUNT = 50;
 const EXIT_DELAY_MS = 8000;
 const EXIT_ANIMATION_MS = 500;
+const EARLY_HINT_MS = 1200;
 
 let exitTimer: ReturnType<typeof setTimeout> | null = null;
+let earlyHintTimer: ReturnType<typeof setTimeout> | null = null;
 let cleanup: (() => void) | null = null;
 
 function generateStars(): void {
@@ -44,8 +48,21 @@ function generateStars(): void {
   }));
 }
 
+/** 未到退出时间：短暂提示，让用户知道点击已被接收 */
+function showEarlyHint(): void {
+  earlyHintVisible.value = true;
+  if (earlyHintTimer) clearTimeout(earlyHintTimer);
+  earlyHintTimer = setTimeout(() => {
+    earlyHintVisible.value = false;
+  }, EARLY_HINT_MS);
+}
+
 function exitSpaceTravel(): void {
-  if (exiting.value || !exitReady.value) return;
+  if (exiting.value) return;
+  if (!exitReady.value) {
+    showEarlyHint();
+    return;
+  }
   exiting.value = true;
   emit("update:visible", false);
   // 动画结束后彻底重置（下次触发可重新显示）
@@ -73,6 +90,7 @@ watch(
     if (v) {
       exitReady.value = false;
       exiting.value = false;
+      earlyHintVisible.value = false;
       generateStars();
       if (exitTimer) clearTimeout(exitTimer);
       exitTimer = setTimeout(() => {
@@ -81,6 +99,7 @@ watch(
       document.addEventListener("keydown", onKeydown);
     } else {
       if (exitTimer) clearTimeout(exitTimer);
+      if (earlyHintTimer) clearTimeout(earlyHintTimer);
       document.removeEventListener("keydown", onKeydown);
     }
   },
@@ -89,6 +108,7 @@ watch(
 
 onBeforeUnmount(() => {
   if (exitTimer) clearTimeout(exitTimer);
+  if (earlyHintTimer) clearTimeout(earlyHintTimer);
   document.removeEventListener("keydown", onKeydown);
 });
 </script>
@@ -125,6 +145,8 @@ onBeforeUnmount(() => {
       <div v-if="exitReady" class="message-hint">点击任意处或按 ESC 返回</div>
     </div>
     <div v-if="exitReady" class="skip-hint">点击任意处或按 ESC 返回</div>
+    <!-- 未到退出时间的点击反馈（短暂提示，避免"点击没反应"） -->
+    <div v-if="earlyHintVisible" class="early-hint">彩蛋播放中，稍等片刻即可退出…</div>
   </div>
 </template>
 
@@ -360,6 +382,27 @@ onBeforeUnmount(() => {
   opacity: 0;
   animation: fadeInHint 1s ease-out 8s forwards;
   pointer-events: none;
+}
+
+/* 未到退出时间的点击反馈 */
+.early-hint {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  padding: 6px 16px;
+  pointer-events: none;
+  animation: earlyHintPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes earlyHintPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
 }
 
 @keyframes fadeInHint {

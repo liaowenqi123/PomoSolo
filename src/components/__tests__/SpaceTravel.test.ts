@@ -31,13 +31,18 @@ describe("SpaceTravel.vue", () => {
     expect(wrapper.findAll(".star").length).toBe(50);
   });
 
-  it("初始不可退出（无 exit-ready class，点击不退出）", async () => {
+  it("初始不可退出（无 exit-ready class，点击不退出但显示提示反馈）", async () => {
     vi.useFakeTimers();
     const wrapper = mountComponent(true);
     expect(wrapper.find(".space-travel-container").classes()).not.toContain("exit-ready");
     // 未到 8 秒前点击不应退出
     await wrapper.trigger("click");
     expect(wrapper.emitted("update:visible")).toBeFalsy();
+    // 但点击有反馈：显示"稍等片刻"提示（避免"点击没反应"的困惑）
+    expect(wrapper.find(".early-hint").exists()).toBe(true);
+    // 提示在 1.2s 后自动消失
+    await vi.advanceTimersByTimeAsync(1200);
+    expect(wrapper.find(".early-hint").exists()).toBe(false);
   });
 
   it("8 秒后出现 exit-ready 并可点击退出", async () => {

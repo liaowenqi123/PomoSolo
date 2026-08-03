@@ -42,6 +42,7 @@ import ForegroundWarning from "./components/ForegroundWarning.vue";
 import PunishmentResultModal from "./components/PunishmentResultModal.vue";
 import TutorialModal from "./components/TutorialModal.vue";
 import LoadingOverlay from "./components/LoadingOverlay.vue";
+import SpaceTravel from "./components/SpaceTravel.vue";
 import { showGardenWindow, enterMiniMode as enterMiniModeApi, exitMiniMode as exitMiniModeApi } from "./api/window";
 import { listen } from "@tauri-apps/api/event";
 import { useTimerStore, type TimerMode } from "./stores/timer";
@@ -80,6 +81,8 @@ const showStudyRoom = ref(false);
 const showCharts = ref(false);
 const showForegroundWarning = ref(false);
 const showTutorial = ref(false);
+/** 隐藏彩蛋：太空旅行（设置面板版本号点击 5 次触发，面板关闭后全屏播放） */
+const spaceTravelVisible = ref(false);
 
 // ===== 侧边栏收起 =====
 const sidebarCollapsed = ref(false);
@@ -667,6 +670,7 @@ watch(
         :visible="showSettings"
         @close="showSettings = false"
         @open-auth="showSettings = false; showAuth = true"
+        @easter-egg="showSettings = false; spaceTravelVisible = true"
       />
       <AIHelper :visible="showAi" @close="showAi = false" @apply="onApplyAiPlan" />
       <AuthPanel :visible="showAuth" @update:visible="showAuth = $event" />
@@ -686,6 +690,11 @@ watch(
         @update:visible="showPunishmentResult = $event"
       />
       <TutorialModal :visible="showTutorial" @close="showTutorial = false" />
+      <!-- 隐藏彩蛋：太空旅行（全屏最顶层，设置面板关闭后依然播放） -->
+      <SpaceTravel
+        :visible="spaceTravelVisible"
+        @update:visible="spaceTravelVisible = $event"
+      />
     </div>
   </div>
 </template>
