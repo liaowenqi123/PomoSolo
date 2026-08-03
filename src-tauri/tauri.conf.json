@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "PomoSolo",
-  "version": "4.5.15",
+  "version": "4.5.16",
   "identifier": "com.pomosolo.app",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:1430",
+    "devUrl": "http://localhost:1431",
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build"
   },
@@ -75,7 +75,6 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcwRUZERjE5RURCNTIxRkIKUldUN0liWHRHZC92Y0U1NnoxUXBGWFl1aG5BdVkwY2c4eHBEN1h5dm1qQlVLSzdmQWRWQmdqS3MK",
       "endpoints": [
-        "http://115.159.49.112/updates/latest.json",
         "https://github.com/liaowenqi123/PomoSolo/releases/latest/download/latest.json"
       ]
     }

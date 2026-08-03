@@ -8,6 +8,11 @@
 > 流程：请求所选源 `latest.json`（version/url/signature）→ 版本比较 → 下载安装包（进度事件
 > `update-status: downloading`）→ 校验 Ed25519 签名（公钥来自 `tauri.conf.json` plugins.updater.pubkey）
 > → 启动安装器并退出应用。`tauri-plugin-updater` 的 endpoints 编译期固定无法运行时切换，故未复用其检查/安装路径。
+>
+> ⚠️ **插件 endpoints 必须只含 https（v4.5.16 闪退修复）**：`tauri-plugin-updater` 仍注册在 `lib.rs` 但完全不参与
+> 检查/下载/安装。它的 `plugins.updater.endpoints` 配置在**插件初始化时**校验，**非 https 端点（如 `http://115.159.49.112/...`）
+> 会直接 panic → 应用启动即闪退**（v4.5.15 曾踩坑，进程起来几秒消失 / WebView2 报 localhost 拒绝连接）。
+> 因此该配置只保留 https 占位地址（GitHub），两个真实更新源地址硬编码在 `update.rs` 中，运行时切换与插件配置无关。
 
 ## 一、概述
 

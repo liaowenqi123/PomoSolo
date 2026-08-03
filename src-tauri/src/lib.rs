@@ -59,6 +59,15 @@ fn intercept_close_to_exit_mini_mode(app: &tauri::App) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 临时调试：panic 写日志定位闪退（定位后移除）
+    std::panic::set_hook(Box::new(|info| {
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        let path = std::env::temp_dir().join("pomosolo-panic.log");
+        let _ = std::fs::write(
+            path,
+            format!("PANIC: {}\nBACKTRACE:\n{}\n", info, backtrace),
+        );
+    }));
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::Builder::new().build())
