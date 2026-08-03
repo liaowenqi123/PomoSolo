@@ -480,6 +480,15 @@ docker run -d \
 > WebSocket 走 80 端口 `/ws` 路径（主服务器接管），无需额外代理配置。
 > 所有时间统一东八区 (Asia/Shanghai)。
 
+### 应用更新静态托管（v4.5.15 起）
+
+客户端自动更新源优先走服务器：`http://115.159.49.112/updates/latest.json`（80 端口，无需 HTTPS）。
+
+- 目录：宿主机 `/home/ubuntu/frontend/updates/`（已 bind mount 到容器 `/app/updates`，ro 挂载不影响宿主机写）
+- 文件：`latest.json` + 安装包（`.exe`/`.sig`），由**客户端发版时从本机 scp 同步**（不经过 GitHub，下载更快）
+- 已放占位 `latest.json` 验证访问（本机 + 公网均 200），客户端首次 scp 后覆盖即可
+- latest.json 格式（Tauri updater 标准）：`{"version":"x.y.z","notes":"...","pub_date":"...","platforms":{"windows-x86_64":{"url":"http://115.159.49.112/updates/xxx.exe","signature":"..."}}}`
+
 ---
 
 ## 客户端迁移指南
