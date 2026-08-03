@@ -1,22 +1,72 @@
 //! 自动更新 commands
 //!
-//! 基于 tauri-plugin-updater 实现检查更新 / 下载安装。
+//! 自实现更新器（支持运行时选择更新源）：
+//!   tauri-plugin-updater 的 endpoints 编译期固定（tauri.conf.json），无法运行时切换，
+//!   因此检查 / 下载 / 安装全部自实现，仅复用其签名（Ed25519）与安装包规范。
+//!
+//! 更新源：
+//!   github —— 默认。下载快但国内可能不稳定（https 加密）。
+//!   server —— 用户自己的服务器（http://115.159.49.112/updates/），稳定但只有 3Mbps，慢。
+//!
 //! 兼容原 Electron 版（electron-updater）的事件协议：
 //!   emit("update-status", { status, version, ... })
 //!
 //! 状态机：
 //!   checking → available | not-available | error
-//!   available → (用户点击下载) → downloading → downloaded → (自动安装重启)
+//!   available → (用户点击下载) → downloading → downloaded → (启动安装器并退出)
 //!
 //! 用户数据备份：
 //!   运行时音乐目录 = app_data_dir/music（用户数据区，安装/更新不覆盖）。
 //!   安装包内置歌曲在 resource_dir/music，启动时由 merge_music_dir 合并到用户目录
 //!   （不覆盖已有文件）；更新前备份 resource_dir/music 中老版本残留的用户歌曲。
 
-use serde::Serialize;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use futures_util::StreamExt;
+use serde::{Deserialize, Serialize};
 use std::fs;
+use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_updater::UpdaterExt;
+use tokio::io::AsyncWriteExt;
+
+/// 更新源
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateSource {
+    Github,
+    Server,
+}
+
+impl UpdateSource {
+    /// 解析前端传入的源名（默认 github）
+    fn parse(source: Option<String>) -> Self {
+        match source.as_deref() {
+            Some("server") => Self::Server,
+            _ => Self::Github,
+        }
+    }
+
+    /// 各更新源的 latest.json 地址
+    fn latest_json_url(&self) -> &'static str {
+        match self {
+            Self::Github => {
+                "https://github.com/liaowenqi123/PomoSolo/releases/latest/download/latest.json"
+            }
+            Self::Server => "http://115.159.49.112/updates/latest.json",
+        }
+    }
+}
+
+/// 服务器 latest.json 结构（tauri updater 规范）
+#[derive(Debug, Deserialize)]
+struct LatestJson {
+    version: String,
+    notes: Option<String>,
+    url: String,
+    signature: String,
+    #[serde(rename = "pub_date")]
+    pub_date: Option<String>,
+}
 
 /// 获取备份数据目录（与 data.json 同级：app_data_dir/PomoSolo/）
 fn get_backup_base_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -37,36 +87,159 @@ pub struct UpdateInfo {
     pub date: Option<String>,
 }
 
+/// 拉取指定更新源的 latest.json
+async fn fetch_latest_json(source: UpdateSource) -> Result<LatestJson, String> {
+    let resp = reqwest::Client::new()
+        .get(source.latest_json_url())
+        .timeout(std::time::Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(|e| format!("请求更新信息失败: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("更新源返回 HTTP {}", resp.status()));
+    }
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("读取更新信息失败: {}", e))?;
+    serde_json::from_str(&text).map_err(|e| format!("解析更新信息失败: {}", e))
+}
+
+/// 版本号比较：latest > current 时有更新
+///
+/// 段内取数字前缀（"15-beta" → 15），非数字段视为 0，支持变长版本号。
+fn is_newer(latest: &str, current: &str) -> bool {
+    let parse_seg = |s: &str| -> u64 {
+        let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
+        digits.parse().unwrap_or(0)
+    };
+    let l: Vec<u64> = latest.split('.').map(parse_seg).collect();
+    let c: Vec<u64> = current.split('.').map(parse_seg).collect();
+    for i in 0..l.len().max(c.len()) {
+        let a = l.get(i).copied().unwrap_or(0);
+        let b = c.get(i).copied().unwrap_or(0);
+        if a > b {
+            return true;
+        }
+        if a < b {
+            return false;
+        }
+    }
+    false
+}
+
+/// 解析 tauri.conf.json 中 updater.pubkey（minisign 公钥文本的 base64）
+///
+/// 配置格式：base64( "untrusted comment: minisign public key: XXXX\nRWT<base64>" )，
+/// 其中第二行 base64 解码后为 "Ed" + 签名算法(0x21) + 32 字节 Ed25519 公钥。
+fn parse_pubkey(pubkey_b64: &str) -> Option<[u8; 32]> {
+    let text = B64.decode(pubkey_b64).ok()?;
+    let text = String::from_utf8(text).ok()?;
+    let line = text.lines().find(|l| l.trim().starts_with("RWT"))?;
+    let bytes = B64.decode(line.trim()).ok()?;
+    bytes.get(3..35)?.try_into().ok()
+}
+
+/// 校验安装包 Ed25519 签名（signature 是对安装包文件内容的签名，base64）
+fn verify_installer(data: &[u8], signature_b64: &str, pubkey_b64: &str) -> bool {
+    let Some(pk) = parse_pubkey(pubkey_b64) else {
+        return false;
+    };
+    let Ok(vk) = VerifyingKey::from_bytes(&pk) else {
+        return false;
+    };
+    let Ok(sig_bytes) = B64.decode(signature_b64) else {
+        return false;
+    };
+    let Ok(sig_bytes) = <[u8; 64]>::try_from(sig_bytes.as_slice()) else {
+        return false;
+    };
+    let sig = Signature::from_bytes(&sig_bytes);
+    vk.verify(data, &sig).is_ok()
+}
+
+/// 读取 tauri.conf.json 配置中的更新公钥（plugins.updater.pubkey）
+fn get_update_pubkey(app: &AppHandle) -> Result<String, String> {
+    let config = serde_json::to_value(app.config().clone())
+        .map_err(|e| format!("读取更新配置失败: {}", e))?;
+    config
+        .get("plugins")
+        .and_then(|p| p.get("updater"))
+        .and_then(|u| u.get("pubkey"))
+        .and_then(|p| p.as_str())
+        .map(String::from)
+        .ok_or_else(|| "缺少更新公钥配置".to_string())
+}
+
+/// 安装包临时保存路径（系统临时目录，按版本命名避免冲突）
+fn temp_dest_path(version: &str) -> PathBuf {
+    let mut p = std::env::temp_dir();
+    p.push(format!("pomosolo_update_{version}.exe"));
+    p
+}
+
+/// 下载安装包到本地，通过 "update-status" 事件上报进度
+async fn download_installer(
+    app: &AppHandle,
+    url: &str,
+    dest: &PathBuf,
+) -> Result<(), String> {
+    let resp = reqwest::Client::new()
+        .get(url)
+        .timeout(std::time::Duration::from_secs(600))
+        .send()
+        .await
+        .map_err(|e| format!("下载更新失败: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("下载更新返回 HTTP {}", resp.status()));
+    }
+    let total = resp.content_length();
+    let mut stream = resp.bytes_stream();
+    let mut file = tokio::fs::File::create(dest)
+        .await
+        .map_err(|e| format!("创建临时文件失败: {}", e))?;
+    let mut transferred: u64 = 0;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("下载中断: {}", e))?;
+        file.write_all(&chunk)
+            .await
+            .map_err(|e| format!("写入临时文件失败: {}", e))?;
+        transferred = transferred.saturating_add(chunk.len() as u64);
+        let percent = match total {
+            Some(t) if t > 0 => (transferred as f64 / t as f64 * 100.0).round() as u64,
+            _ => 0,
+        };
+        let _ = app.emit(
+            "update-status",
+            serde_json::json!({
+                "status": "downloading",
+                "percent": percent,
+                "transferred": transferred,
+                "total": total,
+            }),
+        );
+    }
+    Ok(())
+}
+
 /// 检查更新
 ///
 /// 返回 Ok(Some(info)) 表示有更新，Ok(None) 表示已是最新。
 /// 同时 emit "update-status" 事件（status: available / not-available / error）。
 #[tauri::command]
-pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> {
-    // dev 模式跳过（updater 在 dev 下无法工作）
+pub async fn check_update(
+    app: AppHandle,
+    source: Option<String>,
+) -> Result<Option<UpdateInfo>, String> {
+    // dev 模式跳过（无打包安装环境，避免误报）
     if cfg!(debug_assertions) {
         return Ok(None);
     }
-
+    let source = UpdateSource::parse(source);
     let _ = app.emit("update-status", serde_json::json!({ "status": "checking" }));
 
-    let updater = app.updater().map_err(|e| {
-        let msg = format!("初始化更新器失败: {}", e);
-        let _ = app.emit("update-status", serde_json::json!({
-            "status": "error",
-            "message": msg,
-        }));
-        msg
-    })?;
-
-    let update = match updater.check().await {
-        Ok(Some(u)) => u,
-        Ok(None) => {
-            let _ = app.emit("update-status", serde_json::json!({
-                "status": "not-available",
-            }));
-            return Ok(None);
-        }
+    let latest = match fetch_latest_json(source).await {
+        Ok(l) => l,
         Err(e) => {
             let msg = format!("检查更新失败: {}", e);
             let _ = app.emit("update-status", serde_json::json!({
@@ -77,12 +250,19 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> 
         }
     };
 
-    let info = UpdateInfo {
-        version: update.version.clone(),
-        notes: update.body.clone().unwrap_or_default(),
-        date: update.date.map(|d| d.to_string()),
-    };
+    let current = env!("CARGO_PKG_VERSION");
+    if !is_newer(&latest.version, current) {
+        let _ = app.emit("update-status", serde_json::json!({
+            "status": "not-available",
+        }));
+        return Ok(None);
+    }
 
+    let info = UpdateInfo {
+        version: latest.version.clone(),
+        notes: latest.notes.clone().unwrap_or_default(),
+        date: latest.pub_date.clone(),
+    };
     let _ = app.emit(
         "update-status",
         serde_json::json!({
@@ -91,19 +271,22 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> 
             "releaseDate": &info.date,
         }),
     );
-
     Ok(Some(info))
 }
 
 /// 下载并安装更新
 ///
-/// 流程：备份用户数据 → 下载 → 安装 → 应用退出重启。
+/// 流程：备份用户数据 → 拉取 latest.json → 下载安装包 → 验证 Ed25519 签名 → 启动安装器并退出。
 /// 通过 "update-status" 事件报告下载进度（status: downloading / downloaded / error）。
 #[tauri::command]
-pub async fn download_and_install(app: AppHandle) -> Result<(), String> {
+pub async fn download_and_install(
+    app: AppHandle,
+    source: Option<String>,
+) -> Result<(), String> {
     if cfg!(debug_assertions) {
         return Err("开发模式不支持安装更新".to_string());
     }
+    let source = UpdateSource::parse(source);
 
     // 1. 备份用户下载的歌曲（避免被安装包覆盖）
     if let Err(e) = backup_music_dir(&app) {
@@ -111,48 +294,11 @@ pub async fn download_and_install(app: AppHandle) -> Result<(), String> {
         // 备份失败不阻塞更新，继续
     }
 
-    let updater = app.updater().map_err(|e| format!("初始化更新器失败: {}", e))?;
-
-    let update = updater
-        .check()
-        .await
-        .map_err(|e| format!("检查更新失败: {}", e))?
-        .ok_or_else(|| "没有可用更新".to_string())?;
-
-    let app_for_progress = app.clone();
-    let mut transferred: u64 = 0;
-
-    // 2. 下载并安装（安装后应用会自动退出重启）
-    update
-        .download_and_install(
-            move |chunk_len: usize, total: Option<u64>| {
-                transferred = transferred.saturating_add(chunk_len as u64);
-                let percent = if let Some(total) = total {
-                    if total > 0 {
-                        (transferred as f64 / total as f64 * 100.0).round() as u64
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                };
-                let _ = app_for_progress.emit(
-                    "update-status",
-                    serde_json::json!({
-                        "status": "downloading",
-                        "percent": percent,
-                        "transferred": transferred,
-                        "total": total,
-                    }),
-                );
-            },
-            || {
-                // 下载完成回调（即将安装）
-            },
-        )
+    // 2. 拉取更新信息（下载地址 + 签名）
+    let latest = fetch_latest_json(source)
         .await
         .map_err(|e| {
-            let msg = format!("下载/安装更新失败: {}", e);
+            let msg = format!("获取更新信息失败: {}", e);
             let _ = app.emit("update-status", serde_json::json!({
                 "status": "error",
                 "message": msg,
@@ -160,12 +306,39 @@ pub async fn download_and_install(app: AppHandle) -> Result<(), String> {
             msg
         })?;
 
-    // 安装完成后应用会退出，这里通常不会执行到
+    // 3. 下载安装包
+    let dest = temp_dest_path(&latest.version);
+    if let Err(e) = download_installer(&app, &latest.url, &dest).await {
+        let msg = format!("下载更新失败: {}", e);
+        let _ = app.emit("update-status", serde_json::json!({
+            "status": "error",
+            "message": msg,
+        }));
+        return Err(msg);
+    }
+
+    // 4. 验证 Ed25519 签名（防篡改，失败拒绝安装）
+    let pubkey = get_update_pubkey(&app)?;
+    let exe_bytes = fs::read(&dest).map_err(|e| format!("读取安装包失败: {}", e))?;
+    if !verify_installer(&exe_bytes, &latest.signature, &pubkey) {
+        let msg = "安装包签名验证失败，已拒绝安装".to_string();
+        let _ = app.emit("update-status", serde_json::json!({
+            "status": "error",
+            "message": msg,
+        }));
+        return Err(msg);
+    }
+
+    // 5. 启动安装器并退出应用（安装器完成安装后应用重启）
     let _ = app.emit(
         "update-status",
         serde_json::json!({ "status": "downloaded" }),
     );
-
+    std::process::Command::new(&dest)
+        .spawn()
+        .map_err(|e| format!("启动安装器失败: {}", e))?;
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    app.exit(0);
     Ok(())
 }
 
@@ -258,6 +431,77 @@ mod tests {
         // 文件名检查大小写敏感（与旧版行为一致）
         assert!(!is_builtin_song("钢琴曲 - 番茄钟.MP3"));
         assert!(!is_builtin_song("钢琴曲 - 番茄钟.Mp3"));
+    }
+
+    #[test]
+    fn test_update_source_parse_defaults_to_github() {
+        assert_eq!(UpdateSource::parse(None), UpdateSource::Github);
+        assert_eq!(UpdateSource::parse(Some("".into())), UpdateSource::Github);
+        assert_eq!(UpdateSource::parse(Some("unknown".into())), UpdateSource::Github);
+    }
+
+    #[test]
+    fn test_update_source_parse_server() {
+        assert_eq!(UpdateSource::parse(Some("server".into())), UpdateSource::Server);
+    }
+
+    #[test]
+    fn test_update_source_latest_json_url() {
+        assert!(UpdateSource::Github
+            .latest_json_url()
+            .starts_with("https://github.com/"));
+        assert!(UpdateSource::Server
+            .latest_json_url()
+            .starts_with("http://115.159.49.112/"));
+    }
+
+    #[test]
+    fn test_is_newer_true_cases() {
+        assert!(is_newer("4.5.15", "4.5.14"));
+        assert!(is_newer("4.6.0", "4.5.99"));
+        assert!(is_newer("5.0.0", "4.9.9"));
+        assert!(is_newer("4.5.14.1", "4.5.14"));
+    }
+
+    #[test]
+    fn test_is_newer_false_cases() {
+        assert!(!is_newer("4.5.14", "4.5.15"));
+        assert!(!is_newer("4.5.14", "4.5.14"));
+        assert!(!is_newer("4.5.0", "4.6.0"));
+        assert!(!is_newer("4.5", "4.5.1"));
+    }
+
+    #[test]
+    fn test_is_newer_ignores_non_numeric() {
+        // 前缀相同，非数字段忽略（按可解析数字逐位比较）
+        assert!(is_newer("4.5.15-beta", "4.5.14"));
+        assert!(!is_newer("4.5.14-beta", "4.5.14"));
+    }
+
+    #[test]
+    fn test_parse_pubkey_extracts_32_bytes() {
+        // 使用 tauri.conf.json 中的真实公钥配置
+        let pubkey = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcwRUZERjE5RURCNTIxRkIKUldUN0liWHRHZC92Y0U1NnoxUXBGWFl1aG5BdVkwY2c4eHBEN1h5dm1qQlVLSzdmQWRWQmdqS3MK";
+        let pk = parse_pubkey(pubkey).expect("应能解析出公钥");
+        assert_eq!(pk.len(), 32);
+    }
+
+    #[test]
+    fn test_parse_pubkey_rejects_invalid() {
+        assert!(parse_pubkey("not base64 !!!").is_none());
+        assert!(parse_pubkey("").is_none());
+        // base64 有效但不是 minisign 文本
+        assert!(parse_pubkey("aGVsbG8gd29ybGQ=").is_none());
+    }
+
+    #[test]
+    fn test_verify_installer_rejects_tampered_data() {
+        // 用真实公钥 + 伪造签名 → 必须验证失败（无真实私钥不可能通过）
+        let pubkey = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcwRUZERjE5RURCNTIxRkIKUldUN0liWHRHZC92Y0U1NnoxUXBGWFl1aG5BdVkwY2c4eHBEN1h5dm1qQlVLSzdmQWRWQmdqS3MK";
+        let fake_sig = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
+        assert!(!verify_installer(b"fake exe bytes", fake_sig, pubkey));
+        // 非法 base64 签名
+        assert!(!verify_installer(b"fake", "not-base64", pubkey));
     }
 }
 

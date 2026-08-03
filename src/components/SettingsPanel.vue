@@ -14,8 +14,13 @@ import {
   type MinimizeBehavior,
   type MiniExitMode,
   type Theme,
+  type UpdateSource,
 } from "../stores/settings";
-import { checkUpdate, downloadAndInstall, type UpdateStatusPayload } from "@/api/update";
+import {
+  checkUpdate,
+  downloadAndInstall,
+  type UpdateStatusPayload,
+} from "@/api/update";
 import { useTauriEvent } from "@/api/events";
 import { cloudGetSession, type Session } from "@/api/auth";
 import {
@@ -213,12 +218,17 @@ void getVersion().then((v) => {
 
 async function handleUpdateBtnClick(): Promise<void> {
   if (updateBtnAction.value === "check") {
-    await checkUpdate();
+    await checkUpdate(local.value.updateSource);
   } else {
     updateBtnDisabled.value = true;
     updateBtnText.value = "准备下载...";
-    await downloadAndInstall();
+    await downloadAndInstall(local.value.updateSource);
   }
+}
+
+/** 切换更新源（github 快但可能不稳定 / server 稳定但慢），持久化设置 */
+async function onUpdateSourceChange(value: UpdateSource): Promise<void> {
+  await settings.update("updateSource", value);
 }
 
 async function onThemeChange(value: Theme): Promise<void> {
@@ -672,6 +682,28 @@ function statusLabel(status: number): string {
                 提交反馈
               </button>
             </div>
+            <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">更新源</label>
+              <div class="update-source-seg">
+                <button
+                  class="update-source-seg__btn"
+                  :class="{ 'update-source-seg__btn--active': local.updateSource === 'github' }"
+                  @click="onUpdateSourceChange('github')"
+                >
+                  GitHub
+                </button>
+                <button
+                  class="update-source-seg__btn"
+                  :class="{ 'update-source-seg__btn--active': local.updateSource === 'server' }"
+                  @click="onUpdateSourceChange('server')"
+                >
+                  服务器
+                </button>
+              </div>
+            </div>
+            <p class="update-source-hint">
+              GitHub 下载快但可能不稳定；服务器稳定但较慢。若更新下载中断，可切换更新源后重试。
+            </p>
             <div class="settings-row">
               <label class="settings-row__label">检查更新</label>
               <button
@@ -1061,6 +1093,40 @@ function statusLabel(status: number): string {
 .update-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 更新源分段选择（GitHub / 服务器） */
+.update-source-seg {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.update-source-seg__btn {
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  transition: all 0.15s ease;
+}
+
+.update-source-seg__btn:hover {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.update-source-seg__btn--active {
+  background: var(--accent, #e94560);
+  color: #fff;
+}
+
+/* 更新源提示文案 */
+.update-source-hint {
+  margin: 2px 0 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.55);
 }
 
 .update-progress {

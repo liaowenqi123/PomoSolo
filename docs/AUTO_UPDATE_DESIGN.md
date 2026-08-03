@@ -1,7 +1,13 @@
 # Electron 应用自动更新技术文档
 
-> **状态**：历史设计文档（Electron + Supabase 时代）。Tauri 版自动更新已改用
-> Tauri updater 插件 + GitHub Releases（见 `src-tauri/tauri.conf.json` plugins.updater）。
+> **状态**：历史设计文档（Electron + Supabase 时代）。Tauri 版自动更新从 v4.5.15 起
+> 改为**客户端自实现更新器**（`src-tauri/src/commands/update.rs`），支持在设置中选择更新源：
+> - GitHub（默认）：`https://github.com/liaowenqi123/PomoSolo/releases/latest/download/latest.json`，下载快但国内可能不稳定
+> - 服务器：`http://115.159.49.112/updates/latest.json`，稳定但仅 3Mbps 较慢
+>
+> 流程：请求所选源 `latest.json`（version/url/signature）→ 版本比较 → 下载安装包（进度事件
+> `update-status: downloading`）→ 校验 Ed25519 签名（公钥来自 `tauri.conf.json` plugins.updater.pubkey）
+> → 启动安装器并退出应用。`tauri-plugin-updater` 的 endpoints 编译期固定无法运行时切换，故未复用其检查/安装路径。
 
 ## 一、概述
 

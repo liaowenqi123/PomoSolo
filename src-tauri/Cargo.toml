@@ -1,6 +1,6 @@
 [package]
 name = "pomo-solo"
-version = "4.5.14"
+version = "4.5.15"
 description = "PomoSolo - 番茄钟应用"
 authors = ["liaowenqi123"]
 edition = "2021"
@@ -25,8 +25,10 @@ aes-gcm = "0.10"
 # 密码哈希
 pbkdf2 = { version = "0.12", features = ["simple"] }
 rand = "0.8"
-# HTTP 客户端（替代 axios + DeepSeek API）
-reqwest = { version = "0.12", features = ["json"] }
+# HTTP 客户端（替代 axios + DeepSeek API + 更新下载）
+reqwest = { version = "0.12", features = ["json", "stream"] }
+# Ed25519 签名验证（自实现更新器校验安装包签名）
+ed25519-dalek = "2"
 # WebSocket 客户端（自习室实时 + 同步听歌）
 tokio-tungstenite = "0.24"
 futures-util = "0.3"

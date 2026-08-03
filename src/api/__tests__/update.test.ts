@@ -18,7 +18,7 @@ describe("api/update", () => {
 
   // ===== checkUpdate =====
 
-  it("checkUpdate 应调用 invoke('check_update') 无参数", async () => {
+  it("checkUpdate 应调用 invoke('check_update', { source: 'github' })（默认源）", async () => {
     const fakeInfo: UpdateInfo = {
       version: "4.2.0",
       notes: "修复若干 bug",
@@ -29,8 +29,16 @@ describe("api/update", () => {
     const result = await checkUpdate();
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
-    expect(invokeMock).toHaveBeenCalledWith("check_update");
+    expect(invokeMock).toHaveBeenCalledWith("check_update", { source: "github" });
     expect(result).toEqual(fakeInfo);
+  });
+
+  it("checkUpdate 应传递指定更新源 server", async () => {
+    invokeMock.mockResolvedValue(null);
+
+    await checkUpdate("server");
+
+    expect(invokeMock).toHaveBeenCalledWith("check_update", { source: "server" });
   });
 
   it("checkUpdate 无更新时应返回 null", async () => {
@@ -62,13 +70,21 @@ describe("api/update", () => {
 
   // ===== downloadAndInstall =====
 
-  it("downloadAndInstall 应调用 invoke('download_and_install') 无参数", async () => {
+  it("downloadAndInstall 应调用 invoke('download_and_install', { source: 'github' })（默认源）", async () => {
     invokeMock.mockResolvedValue(undefined);
 
     await downloadAndInstall();
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
-    expect(invokeMock).toHaveBeenCalledWith("download_and_install");
+    expect(invokeMock).toHaveBeenCalledWith("download_and_install", { source: "github" });
+  });
+
+  it("downloadAndInstall 应传递指定更新源 server", async () => {
+    invokeMock.mockResolvedValue(undefined);
+
+    await downloadAndInstall("server");
+
+    expect(invokeMock).toHaveBeenCalledWith("download_and_install", { source: "server" });
   });
 
   it("downloadAndInstall invoke 抛错时应向上传播", async () => {

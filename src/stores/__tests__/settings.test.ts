@@ -141,6 +141,7 @@ describe("useSettingsStore", () => {
     expect(keys).toContain("miniExitMode");
     expect(keys).toContain("showGardenBtn");
     expect(keys).toContain("showAiBtn");
+    expect(keys).toContain("updateSource");
   });
 
   it("mergeSettings 应忽略非法类型并保留默认", async () => {

@@ -8,6 +8,9 @@ import { defineStore, acceptHMRUpdate } from "pinia";
 import { ref, computed } from "vue";
 import { readSettings, writeSettings, type JsonObject } from "../api/data";
 
+/** 更新源：github（默认，快但可能不稳定）/ server（稳定但慢） */
+export type UpdateSource = "github" | "server";
+
 /** 最小化行为 */
 export type MinimizeBehavior = "tray" | "minimize";
 
@@ -42,6 +45,8 @@ export interface AppSettings {
   advancedColorCustomization: boolean;
   // 同步听歌（DJ 生效）
   syncTransferMode: SyncTransferMode;
+  // 更新
+  updateSource: UpdateSource;
   // 系统
   autoStart: boolean;
   // 主题
@@ -66,6 +71,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showChartsBtn: true,
   advancedColorCustomization: false,
   syncTransferMode: "immediate",
+  updateSource: "github",
   autoStart: false,
   theme: "light",
 };

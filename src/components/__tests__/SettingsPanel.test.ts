@@ -433,4 +433,36 @@ describe("SettingsPanel.vue", () => {
       vi.useRealTimers();
     }
   });
+
+  // ===== 更新源选择 =====
+
+  it("默认更新源为 github（GitHub 按钮激活）", () => {
+    const wrapper = mountComponent();
+    const btns = wrapper.findAll(".update-source-seg__btn");
+    expect(btns.length).toBe(2);
+    expect(btns[0].text()).toBe("GitHub");
+    expect(btns[0].classes()).toContain("update-source-seg__btn--active");
+    expect(btns[1].text()).toBe("服务器");
+    expect(btns[1].classes()).not.toContain("update-source-seg__btn--active");
+  });
+
+  it("应显示更新源提示文案（断连可切换）", () => {
+    const wrapper = mountComponent();
+    const hint = wrapper.find(".update-source-hint");
+    expect(hint.exists()).toBe(true);
+    expect(hint.text()).toContain("切换更新源后重试");
+  });
+
+  it("点击『服务器』应调用 settings.update('updateSource', 'server') 并切换激活态", async () => {
+    const store = useSettingsStore();
+    const updateSpy = vi.spyOn(store, "update");
+    const wrapper = mountComponent();
+    const serverBtn = wrapper.findAll(".update-source-seg__btn")[1];
+    await serverBtn.trigger("click");
+    await flushPromises();
+    expect(updateSpy).toHaveBeenCalledWith("updateSource", "server");
+    const btns = wrapper.findAll(".update-source-seg__btn");
+    expect(btns[1].classes()).toContain("update-source-seg__btn--active");
+    expect(btns[0].classes()).not.toContain("update-source-seg__btn--active");
+  });
 });
