@@ -49,7 +49,6 @@ import {
   musicSyncPause,
   musicSyncSeek,
   musicSyncNext,
-  musicSyncVolume,
   musicSyncRequestDj,
   musicSyncState,
   musicSyncRequestSong,
@@ -305,7 +304,7 @@ export const useMusicStore = defineStore("music", () => {
 
   /** DJ 模式：把播放动作广播到房间（仅 DJ 且已开启同步时生效） */
   async function broadcastDjAction(
-    action: "play" | "pause" | "seek" | "next" | "volume",
+    action: "play" | "pause" | "seek" | "next",
     params: Record<string, unknown> = {},
   ) {
     if (!syncEnabled.value || !isDj.value) return;
@@ -322,9 +321,6 @@ export const useMusicStore = defineStore("music", () => {
           break;
         case "next":
           await musicSyncNext(String(params.songId ?? ""));
-          break;
-        case "volume":
-          await musicSyncVolume(Number(params.volume ?? 0));
           break;
       }
     } catch (e) {
@@ -446,15 +442,12 @@ export const useMusicStore = defineStore("music", () => {
     });
   }
 
-  /** 设置音量（0-1） */
+  /** 设置音量（0-1）。音量纯本地，不同步到房间（DJ 不控制听众音量） */
   async function setVolume(v: number) {
     volume.value = v;
     try {
       await musicSetVolume(v);
       await saveVolume(v);
-      if (syncEnabled.value && isDj.value) {
-        await broadcastDjAction("volume", { volume: v });
-      }
     } catch (e) {
       console.error("[MusicStore] setVolume error:", e);
     }
@@ -1106,10 +1099,7 @@ export const useMusicStore = defineStore("music", () => {
     if (ts > 0 && ts < lastSyncTs) return;
     if (ts > lastSyncTs) lastSyncTs = ts;
 
-    // 音量同步（DJ 音量为 0 时不覆盖听众本地音量，避免误静音）
-    if (typeof evt.volume === "number" && evt.volume > 0) {
-      volume.value = evt.volume;
-    }
+    // 音量不同步：DJ 不控制听众音量，sync_state 里的 volume 字段忽略（音量纯本地）
     // 传歌方案同步
     if (evt.transfer_mode === "immediate" || evt.transfer_mode === "wait_all") {
       transferMode.value = evt.transfer_mode;
@@ -1225,9 +1215,7 @@ export const useMusicStore = defineStore("music", () => {
         break;
       }
       case "music:volume": {
-        if (!syncEnabled.value || isDj.value) return;
-        const v = evt.volume;
-        if (typeof v === "number") void setVolume(v);
+        // 音量本地化：DJ 不控制听众音量，忽略服务器转发的音量广播
         break;
       }
       case "music:playlist_updated": {

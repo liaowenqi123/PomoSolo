@@ -481,7 +481,7 @@ describe("useMusicStore", () => {
     expect(musicSyncApi.musicSyncState).not.toHaveBeenCalled();
   });
 
-  it("DJ 模式 next/seek/playSong 广播全量状态；setVolume 广播音量", async () => {
+  it("DJ 模式 next/seek/playSong 广播全量状态；setVolume 不广播音量（音量本地化）", async () => {
     vi.useFakeTimers();
     try {
       const s = useMusicStore();
@@ -498,7 +498,8 @@ describe("useMusicStore", () => {
       expect(musicSyncApi.musicSyncState).toHaveBeenCalledTimes(2);
 
       await s.setVolume(0.5);
-      expect(musicSyncApi.musicSyncVolume).toHaveBeenCalledWith(0.5);
+      // 音量纯本地：DJ 不广播音量，听众不会被控制
+      expect(musicSyncApi.musicSyncVolume).not.toHaveBeenCalled();
 
       s.trackName = "old.mp3";
       musicApi.musicPlaySong.mockResolvedValue(undefined);
@@ -615,13 +616,15 @@ describe("useMusicStore", () => {
     expect(musicApi.musicPlaySong).not.toHaveBeenCalled();
   });
 
-  it("music:volume：听众端同步音量", async () => {
+  it("music:volume：听众端忽略音量广播（音量本地化）", async () => {
     const s = useMusicStore();
     s.setSyncEnabled(true);
     s.isDj = false;
+    s.volume = 0.8;
     s.handleSyncWsEvent({ type: "music:volume", volume: 0.4 });
-    expect(s.volume).toBe(0.4);
-    expect(musicApi.musicSetVolume).toHaveBeenCalledWith(0.4);
+    // DJ 不控制听众音量：本地音量保持不变，也不调用后端
+    expect(s.volume).toBe(0.8);
+    expect(musicApi.musicSetVolume).not.toHaveBeenCalled();
   });
 
   it("music:playlist_updated：刷新播放列表", async () => {

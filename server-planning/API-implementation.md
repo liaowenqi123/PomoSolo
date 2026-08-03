@@ -690,3 +690,33 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 
 **2. 心跳频率确认 — 无需改动**
 - 服务器 `recv` 无超时、**不主动断开任何频率的心跳连接**：客户端 5s 业务心跳 + 10s 协议 Ping 均兼容，高频心跳不会被误踢，低频用户也不会被过早清理（无空闲超时逻辑）
+
+---
+
+### 【加急】v4.5.15 新增需求：应用更新静态托管（客户端已实现，待服务器配合）
+
+> 客户端 v4.5.15 已把自动更新源改为**服务器优先、GitHub 兜底**（`tauri.conf.json` updater endpoints 第一项指向服务器），需要服务器部门提供一个静态托管目录。**若目录 404，更新检查会按序落到 GitHub，不影响现有功能，但用户下载会慢**（服务器部门从 GitHub 拉取很慢）。
+
+**1. 静态目录 `/updates/`（本次需要服务器做的事）**
+
+- 在服务器上开放一个静态目录，使以下 URL 可访问（80 端口即可，无需 HTTPS——安装包下载有签名校验，防篡改由签名保证）：
+  - `http://115.159.49.112/updates/latest.json`
+  - `http://115.159.49.112/updates/PomoSolo_<version>_x64-setup.exe`
+  - `http://115.159.49.112/updates/PomoSolo_<version>_x64-setup.exe.sig`
+- 建议目录：`/home/ubuntu/frontend/updates/`（与 server.py 同目录，server.py 静态文件服务或 nginx 指过去都行）
+- 文件由**客户端部门每次发版时从本机同步**上去（scp 上传 exe + sig + latest.json），服务器不需要去 GitHub 拉取（就是慢才改走本机直传）
+
+**2. `latest.json` 格式**（与 GitHub Release 完全一致，仅 `url` 指向服务器本机）
+
+```json
+{"version":"4.5.14","notes":"...","pub_date":"2026-08-02T14:26:57Z","platforms":{"windows-x86_64":{"url":"http://115.159.49.112/updates/PomoSolo_4.5.14_x64-setup.exe","signature":"<sig 内容>"}}}
+```
+
+- 注意：**文件必须无 BOM**（tauri serde_json 解析 BOM 会失败，此前 GitHub 上踩过坑）
+- `version` / `url` 必须与客户端版本精确匹配（残留旧文件会让 latest.json 指向旧包 → 更新 404）
+
+**3. 客户端行为**（已实现，无需服务器代码配合，供知悉）
+- 更新检查按 endpoints 顺序：先请求服务器 `latest.json`，**超时/失败/404 自动降级到 GitHub**（tauri-plugin-updater 内建多 endpoint 兜底）
+- 若服务器目录尚未就绪：客户端仍走 GitHub，功能不受影响，仅下载慢
+
+> 请提供 `/updates/` 目录并在下方回复确认 URL 可访问即可；后续每次发版客户端会从本机 scp 同步文件上去，无需服务器再操作。

@@ -382,8 +382,9 @@
 
 ### 4.14 同步听歌：DJ 全量状态同步 + P2P 传歌（v4.5.4）
 
-- **DJ 状态同步改造**：DJ 播放操作（播放/暂停/切歌/上一首/进度/自然切歌）统一改发 `music:sync_state` 全量快照（`{ song_id, playing, position_ms, volume, transfer_mode }`），取代旧动作消息（play/pause/seek/next 兼容保留）。听众端 `applySyncState` 应用完整状态（切歌 + 播放状态 + 进度校准 + 音量 + 传歌方案），解决"DJ 只同步动作、不同步状态"与"新听众加入不知道 DJ 在播什么"的问题。
-- **非 DJ 禁控**：同步听歌开启且非 DJ 时，`MusicPlayer.vue` 的 `controlsDisabled` 禁用全部控制按钮（歌单/上下首/播放暂停/进度/音量/模式），样式置灰。
+- **DJ 状态同步改造**：DJ 播放操作（播放/暂停/切歌/上一首/进度/自然切歌）统一改发 `music:sync_state` 全量快照（`{ song_id, playing, position_ms, volume, transfer_mode }`），取代旧动作消息（play/pause/seek/next 兼容保留）。听众端 `applySyncState` 应用完整状态（切歌 + 播放状态 + 进度校准 + 传歌方案），解决"DJ 只同步动作、不同步状态"与"新听众加入不知道 DJ 在播什么"的问题。**音量除外（v4.5.15 起本地化）**：sync_state 协议仍携带 volume 字段（Rust 命令签名必填），但听众端忽略，不覆盖本地音量。
+- **音量本地化（v4.5.15）**：音量是纯本地输出，**DJ 不控制听众音量**——DJ `setVolume` 不再广播 `music:volume`，听众端忽略 `music:volume` 与 `sync_state.volume`（协议字段保留、接收端忽略）。学习应用各用户各自控制音量。
+- **非 DJ 禁控**：同步听歌开启且非 DJ 时，`MusicPlayer.vue` 的 `controlsDisabled` 禁用全部控制按钮（歌单/上下首/播放暂停/进度/模式；音量例外——本地输出始终可调），样式置灰。
 - **P2P 传歌（服务器中转分片）**：听众缺歌 → `music:request_song` → 服务器选持有者（优先 DJ）→ `music:song_requested` → 持有者 Rust `music_read_song_chunk` 分片（128KB）→ `music:offer_song` → 服务器 `music:song_chunk` 转发 → 听众 `music_receive_song_chunk` 落盘 `app_data_dir/.transfer/` → `music:transfer_done` → `music_finalize_song` 合并进 `app_data_dir/music` 并刷新歌单。
 - **两种传歌方案（DJ 面板切换，`settings.syncTransferMode` 持久化）**：
   - `immediate`（默认）：下完即播，seek 到 DJ 当前进度（开头可能缺几秒）
@@ -396,7 +397,7 @@
 实测发现并修复的 4 个问题：
 
 1. **DJ 播放中不传歌、只显示"无这首歌"**：缺歌判断原为 `playlist.length > 0 && !includes(songId)`，听众刚进房间歌单未加载（length=0）时误走 `playSong` 失败分支，只设 `missingSongName` 不触发 P2P；等 DJ 暂停再广播时歌单已加载才传。**修复**：缺歌判断改为 `!playlist.includes(songId)`（空歌单也走 P2P 分支），且 `playSong` 失败兜底时也触发 `startSongTransfer`。
-2. **非 DJ 不能调音量**：`controlsDisabled` 连音量一起禁用。**修复**：音量是本地输出，不受同步控制（DJ 调音量才广播），音量按钮/滑块/`handleVolumeInput` 移出禁用。
+2. **非 DJ 不能调音量**：`controlsDisabled` 连音量一起禁用。**修复**：音量是本地输出，不受同步控制（v4.5.15 起 DJ 也不再广播音量，完全本地化），音量按钮/滑块/`handleVolumeInput` 移出禁用。
 3. **DJ 上台瞬间所有听众的歌都开始放（而 DJ 暂停中）**：`applySyncState` 切歌分支无条件 `playSong` 播放，未尊重 DJ 的 `playing` 状态。**修复**：DJ 处于暂停（`playing=false`）时，听众切歌后 900ms 内自动暂停，只切歌不播放。
 4. **传歌卡在"获取歌曲中 x%"**：三处加固——① `handleSongChunk` 单片保存失败自动重试一次；② `startSongTransfer` 请求发出 6s 无分片自动重发 `request_song`（幂等）；③ DJ 侧 `handleSongRequested` 加 `activeTransfers` 并发守卫（服务器"一传多"可能重复收到请求）+ 每片 15ms 节流，避免 170KB×N 消息瞬时堆积。
 5. **传完/本地已有后曲名仍锁定显示"获取歌曲中 2%"**：`songTransfer` 状态因中断/未复位而残留时，曲名位置被传输提示永久占住（切到别的歌也如此）。**修复**：① `trackDisplay` 传输提示只在"当前没有歌在播放"（`!playing`）时占位——一旦有歌在播放（传完自动播放 / 手动切歌），曲名立即恢复正常显示，不被锁定；② store 增加传输兜底定时器（`ensureTransferWatch`）：requesting 超 20s / downloading 30s 无进展自动复位 `songTransfer`，避免永久占用（同步开启时启动、关闭时停止）。
