@@ -8,6 +8,7 @@ const musicApi = vi.hoisted(() => ({
   musicPrev: vi.fn(),
   musicSeek: vi.fn(),
   musicSetVolume: vi.fn(),
+  musicSetAutoNext: vi.fn(),
   musicSetPlayMode: vi.fn(),
   musicGetStatus: vi.fn(),
   musicGetPlaylist: vi.fn(),
@@ -72,6 +73,7 @@ describe("useMusicStore", () => {
     musicApi.musicGetStatus.mockResolvedValue(undefined);
     musicApi.musicGetPlaylist.mockResolvedValue({ songs: [] });
     musicApi.musicGetDevices.mockResolvedValue({ devices: [], current: null });
+    musicApi.musicSetAutoNext.mockResolvedValue(undefined);
     musicSyncApi.musicSyncRequestDj.mockResolvedValue(undefined);
     musicSyncApi.musicSyncRequestState.mockResolvedValue(undefined);
     musicApi.musicUpdateTag.mockResolvedValue({ success: true });
@@ -434,6 +436,36 @@ describe("useMusicStore", () => {
     expect(s.isDj).toBe(false);
     expect(s.djName).toBe("");
     expect(s.djUserId).toBeNull();
+  });
+
+  it("自动切歌开关：开启同步（听众）禁用，关闭同步恢复", async () => {
+    const s = useMusicStore();
+    musicApi.musicSetAutoNext.mockResolvedValue(undefined);
+    // 默认（未开同步）：自动切歌开启
+    await s.applyAutoNext();
+    expect(musicApi.musicSetAutoNext).toHaveBeenLastCalledWith(true);
+    // 开启同步且非 DJ（听众）：禁用自动切歌，播完等待 DJ 信号
+    s.isDj = false;
+    s.setSyncEnabled(true);
+    expect(musicApi.musicSetAutoNext).toHaveBeenLastCalledWith(false);
+    // 关闭同步：恢复自动切歌
+    s.setSyncEnabled(false);
+    expect(musicApi.musicSetAutoNext).toHaveBeenLastCalledWith(true);
+  });
+
+  it("自动切歌开关：同步中成为 DJ 恢复自动切歌；退为听众再禁用", async () => {
+    const s = useMusicStore();
+    musicApi.musicSetAutoNext.mockResolvedValue(undefined);
+    s.setSyncEnabled(true);
+    expect(musicApi.musicSetAutoNext).toHaveBeenLastCalledWith(false);
+    // 成为 DJ：恢复自动切歌（DJ 需要自然切歌并广播）
+    s.handleSyncWsEvent({ type: "music:dj_changed", dj_user_id: "me-1", dj_username: "me" });
+    expect(s.isDj).toBe(true);
+    expect(musicApi.musicSetAutoNext).toHaveBeenLastCalledWith(true);
+    // DJ 切换为他人：退为听众，禁用自动切歌
+    s.handleSyncWsEvent({ type: "music:dj_changed", dj_user_id: "other-1", dj_username: "bob" });
+    expect(s.isDj).toBe(false);
+    expect(musicApi.musicSetAutoNext).toHaveBeenLastCalledWith(false);
   });
 
   it("requestDj 调用 musicSyncRequestDj", async () => {

@@ -522,6 +522,24 @@ v4.5.8 在 `server-planning/API-implementation.md` 留言的三项服务器需�
 
 **测试**：Rust 新增 `test_is_song_ended_without_sink_returns_false`（190 passed）；前端新增 4 用例（下载与播放分离 ×2、队列最新优先 + 中间舍去、迟到旧广播过滤），全量 52 文件 962 用例通过。
 
+### 4.26 同步听歌听众端接管"自动下一首"：播完保持等待 DJ 信号（v4.5.15）
+
+**现象**：同步听歌跟 DJ 时，DJ 进下一曲的瞬间，本地**先自动切到自己的下一首**，随后收到 DJ 的 sync_state 再跳回 DJ 的歌——短暂闪切（播了别人的歌又跳走）。
+
+**根因**：自动切歌在 Rust 层 `spawn_progress_task`（200ms tick）：`is_song_ended() && is_playing()` 成立即 `play_song_and_emit` 切本地下一首。听众端无法拦截，DJ 信号到达前本地已切歌。
+
+**修复（Rust auto_next 开关 + 前端联动）**：
+1. **Rust**：`MusicState` 新增 `auto_next: AtomicBool`（默认 true）。`spawn_progress_task` 播完分支先检查：`auto_next=false` 时保持"播完"状态（drop 锁后 continue，进度照常停在结尾），不自动切歌，等 DJ 的 sync_state 驱动 `playSong`。新增命令 `music_set_auto_next(enabled)`（lib.rs 注册）。
+2. **前端**（music.ts）：`applyAutoNext()` 计算开关——`enabled = !(syncEnabled && !isDj)`，即**同步听歌听众端禁用自动切歌，DJ / 未开同步保持自动切歌**；在 `setSyncEnabled`（开启/关闭）与 `music:dj_changed`（DJ 身份变化）时联动调用。
+3. **状态转换安全**（用户强调的坑）：
+   - 听众播完等待 → **退出同步**（`setSyncEnabled(false)`）→ 恢复 auto_next → Rust 200ms 内检测到"播完"自动切本地下一首，无缝接续，不会卡死
+   - 听众播完等待 → **成为 DJ**（dj_changed 自己）→ 恢复 auto_next（DJ 需要自然切歌并广播）
+   - **DJ → 听众**（dj_changed 他人/空）→ 禁用 auto_next，回归等待
+   - 听众播完等待 → DJ 信号到达 → `playSong` 显式切歌（不受 auto_next 影响）
+   - 注意：tokio Mutex 不可重入，auto_next=false 分支必须先 `drop(player)` 再 `continue`，否则死锁
+
+**测试**：Rust 203 全过（无新增，逻辑在 state.rs + music.rs）；前端 music.test.ts +2（开启同步听众禁用/关闭恢复、同步中 DJ 切换联动），全量 1012 用例通过。
+
 ---
 
 ## 5. 最终布局结构清单

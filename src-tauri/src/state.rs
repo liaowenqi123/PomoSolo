@@ -10,6 +10,11 @@ use crate::modules::foreground_inspection::DetectionState;
 pub struct MusicState {
     pub player: tokio::sync::Mutex<AudioPlayer>,
     pub initialized: std::sync::atomic::AtomicBool,
+    /// 歌曲自然结束后是否自动切下一首（默认 true）
+    ///
+    /// 同步听歌听众端置 false：播完保持等待，由 DJ 的 sync_state 驱动切歌，
+    /// 避免"DJ 进下一曲前本地先自动切到自己的下一首"的闪切。退出同步后恢复 true。
+    pub auto_next: std::sync::atomic::AtomicBool,
 }
 
 impl MusicState {
@@ -17,6 +22,7 @@ impl MusicState {
         Self {
             player: tokio::sync::Mutex::new(AudioPlayer::new()),
             initialized: std::sync::atomic::AtomicBool::new(false),
+            auto_next: std::sync::atomic::AtomicBool::new(true),
         }
     }
 }

@@ -103,6 +103,13 @@ fn spawn_progress_task(app: AppHandle) {
 
             // 检查歌曲是否结束
             if player.is_song_ended() && player.is_playing() {
+                // 同步听歌听众端：auto_next=false（播完保持等待，等 DJ 信号切歌）
+                if !music_state.auto_next.load(Ordering::Relaxed) {
+                    // 保持"播完"状态：进度照常上报（停在结尾），不自动切歌。
+                    // 恢复 auto_next（退出同步）或 DJ 切歌信号到来后自然前进。
+                    drop(player);
+                    continue;
+                }
                 // 歌曲自然结束，播放下一首
                 drop(player);
                 {
@@ -291,6 +298,14 @@ pub async fn music_set_volume(app: AppHandle, volume: f32) -> Result<(), String>
 
     let _ = app.emit("music-volume-change", json!({ "volume": volume }));
 
+    Ok(())
+}
+
+/// 设置歌曲自然结束后是否自动切下一首（同步听歌听众端置 false，播完等待 DJ 信号）
+#[tauri::command]
+pub async fn music_set_auto_next(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let music_state = app.state::<MusicState>();
+    music_state.auto_next.store(enabled, Ordering::Relaxed);
     Ok(())
 }
 
