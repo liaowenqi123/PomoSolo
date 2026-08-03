@@ -165,6 +165,7 @@ pub fn run() {
             commands::music::music_prev,
             commands::music::music_seek,
             commands::music::music_set_volume,
+            commands::music::music_set_auto_next,
             commands::music::music_set_play_mode,
             commands::music::music_get_status,
             commands::music::music_get_playlist,

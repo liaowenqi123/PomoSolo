@@ -16,6 +16,7 @@ import {
   musicPrev,
   musicSeek,
   musicSetVolume,
+  musicSetAutoNext,
   musicSetPlayMode,
   musicGetStatus,
   musicGetPlaylist,
@@ -974,6 +975,21 @@ export const useMusicStore = defineStore("music", () => {
 
   // ===== 同步听歌 =====
 
+  /**
+   * 应用"自动切歌"开关：同步听歌听众端（syncEnabled && !isDj）禁用——
+   * 播完保持等待，由 DJ 的 sync_state 驱动切歌；DJ / 未开同步保持自动切歌。
+   *
+   * 状态转换安全说明：
+   * - 听众播完等待中 → 退出同步（setSyncEnabled(false)）→ 恢复自动切歌，
+   *   Rust 进度任务 200ms 内检测到"播完"自动切本地下一首，无缝接续
+   * - 听众播完等待中 → 成为 DJ（dj_changed）→ 恢复自动切歌（DJ 需要自然切歌并广播）
+   * - DJ → 听众（dj_changed 他人/空）→ 禁用自动切歌，回归等待
+   */
+  function applyAutoNext() {
+    const enabled = !(syncEnabled.value && !isDj.value);
+    void musicSetAutoNext(enabled).catch(() => {});
+  }
+
   /** 开启/关闭同步听歌（由自习室面板控制） */
   function setSyncEnabled(enabled: boolean) {
     syncEnabled.value = enabled;
@@ -1003,6 +1019,8 @@ export const useMusicStore = defineStore("music", () => {
       lastChunkAt = 0;
       stopTransferWatch();
     }
+    // 自动切歌开关跟随同步状态：开启=听众等待 DJ；关闭=恢复本地自动播放
+    applyAutoNext();
   }
 
   /** 申请成为 DJ */
@@ -1176,6 +1194,8 @@ export const useMusicStore = defineStore("music", () => {
         const me = useAuthStore().session?.id ?? null;
         const wasDj = isDj.value;
         isDj.value = !!uid && !!me && uid === me;
+        // 自动切歌跟随 DJ 身份：成为 DJ 恢复自动切歌；退为听众则播完等待 DJ 信号
+        applyAutoNext();
         // 我成为 DJ → 立即广播当前全量状态，让听众对齐
         if (isDj.value && !wasDj) {
           window.setTimeout(() => void broadcastSyncState(), 300);
@@ -1315,6 +1335,7 @@ export const useMusicStore = defineStore("music", () => {
     loadSavedVolume,
     // 同步听歌 actions
     setSyncEnabled,
+    applyAutoNext,
     requestDj,
     broadcastSyncState,
     setTransferMode,

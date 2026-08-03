@@ -118,6 +118,11 @@ export function musicSetVolume(volume: number): Promise<void> {
   return invoke<void>("music_set_volume", { volume });
 }
 
+/** 设置歌曲自然结束后是否自动切下一首（同步听歌听众端传 false：播完等待 DJ 信号） */
+export function musicSetAutoNext(enabled: boolean): Promise<void> {
+  return invoke<void>("music_set_auto_next", { enabled });
+}
+
 /** 设置播放模式 */
 export function musicSetPlayMode(mode: PlayMode): Promise<void> {
   return invoke<void>("music_set_play_mode", { mode });
