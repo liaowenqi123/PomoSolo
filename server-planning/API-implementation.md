@@ -489,6 +489,15 @@ docker run -d \
 - 已放占位 `latest.json` 验证访问（本机 + 公网均 200），客户端首次 scp 后覆盖即可
 - latest.json 格式（Tauri updater 标准）：`{"version":"x.y.z","notes":"...","pub_date":"...","platforms":{"windows-x86_64":{"url":"http://115.159.49.112/updates/xxx.exe","signature":"..."}}}`
 
+### HTTPS（443 端口，2026-08-04 起）
+
+容器新增 `-p 443:443`，443 上提供 TLS（`https://115.159.49.112/updates/latest.json` 等）。
+
+- 证书：自签（`/home/ubuntu/frontend/certs/cert.pem` + `key.pem`，CN=115.159.49.112，有效期 10 年），`server.py` 检测到证书自动启动 HTTPS
+- 同一 Handler：HTTPS 上静态文件 / API / WS 全部可用（WS 为 wss 需客户端适配，当前客户端仍走 ws://80）
+- **注意**：自签证书不受系统信任——浏览器访问会提示"不安全"，Tauri 自动更新器（reqwest 验证链）访问 https 会失败，除非客户端忽略证书验证或导入信任。如需浏览器/更新器零告警，需正式证书（Let's Encrypt 需域名，有域名后随时可换）
+- 已实测：https:// 访问 200、HTTP 80 正常、API 登录 200
+
 ---
 
 ## 客户端迁移指南
