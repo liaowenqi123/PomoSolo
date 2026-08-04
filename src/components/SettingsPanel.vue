@@ -173,8 +173,16 @@ useTauriEvent<UpdateStatusPayload>("update-status", (e) => {
       updateProgressVisible.value = false;
       break;
     case "not-available":
-      updateStatusText.value = "已是最新版本";
-      updateStatusType.value = "success";
+      // v4.5.18：最新版本是 Beta 且未开启接收 → 提示存在 Beta，引导用户开开关
+      if (payload.betaOnly) {
+        updateStatusText.value = payload.betaVersion
+          ? `正式版已是最新；存在 Beta 版 v${payload.betaVersion}，可在下方开启接收`
+          : "正式版已是最新；存在 Beta 版本，可在下方开启接收";
+        updateStatusType.value = "info";
+      } else {
+        updateStatusText.value = "已是最新版本";
+        updateStatusType.value = "success";
+      }
       updateBtnText.value = "检查更新";
       updateBtnAction.value = "check";
       updateBtnDisabled.value = false;
@@ -182,7 +190,7 @@ useTauriEvent<UpdateStatusPayload>("update-status", (e) => {
       if (statusTimer) clearTimeout(statusTimer);
       statusTimer = setTimeout(() => {
         updateStatusText.value = "";
-      }, 3000);
+      }, 5000);
       break;
     case "downloading":
       updateProgressVisible.value = true;
@@ -218,7 +226,7 @@ void getVersion().then((v) => {
 
 async function handleUpdateBtnClick(): Promise<void> {
   if (updateBtnAction.value === "check") {
-    await checkUpdate(local.value.updateSource);
+    await checkUpdate(local.value.updateSource, local.value.allowBetaUpdates);
   } else {
     updateBtnDisabled.value = true;
     updateBtnText.value = "准备下载...";
@@ -229,6 +237,11 @@ async function handleUpdateBtnClick(): Promise<void> {
 /** 切换更新源（github 快但可能不稳定 / server 稳定但慢），持久化设置 */
 async function onUpdateSourceChange(value: UpdateSource): Promise<void> {
   await settings.update("updateSource", value);
+}
+
+/** 切换是否接收 Beta 版本更新（v4.5.18），持久化设置 */
+async function onAllowBetaUpdatesChange(value: boolean): Promise<void> {
+  await settings.update("allowBetaUpdates", value);
 }
 
 async function onThemeChange(value: Theme): Promise<void> {
@@ -703,6 +716,22 @@ function statusLabel(status: number): string {
             </div>
             <p class="update-source-hint">
               GitHub 下载快但可能不稳定；服务器稳定但较慢。若更新下载中断，可切换更新源后重试。
+            </p>
+            <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">接收 Beta 版本更新</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="local.allowBetaUpdates"
+                  @change="
+                    onAllowBetaUpdatesChange(($event.target as HTMLInputElement).checked)
+                  "
+                />
+                <span class="toggle__slider"></span>
+              </label>
+            </div>
+            <p class="update-source-hint">
+              默认只推送正式版本；开启后可接收 Beta/测试版（如 4.6.0-beta），Beta 版本可能有未修复的问题。
             </p>
             <div class="settings-row">
               <label class="settings-row__label">检查更新</label>

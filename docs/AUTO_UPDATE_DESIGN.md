@@ -18,6 +18,14 @@
 > 提取下载信息（v4.5.15/4.5.16 曾把 `url`/`signature` 定义在顶层 → 全链报 `missing field 'url'`）。已用真实发布物
 > 做夹具回归测试（`test_parse_real_github_latest_json` / `test_parse_real_server_latest_json`），改更新解析逻辑
 > 必须先更新夹具再跑测试。
+>
+> ⚠️ **版本号识别语义化（v4.5.18 修复）**：此前 `is_newer` 把 "4.6.0-beta.0" 与 "4.6.0" 当作同一版本，
+> 无法区分正式版与 beta → 会漏推正式版更新。v4.5.18 重写为语义化比较：
+> - `is_newer` 每段解析为 `(数字, 有无 prerelease 后缀)` 二元组，同数字带后缀的**更旧**（"4.6.0-beta.0" < "4.6.0"）
+> - 新增 `is_prerelease`：任一数字段带非数字后缀（beta/alpha/rc）即 prerelease
+> - `check_update` 新增 `allow_beta` 参数（默认 false）：正式渠道遇到 prerelease 时 emit
+>   `not-available + betaOnly:true + betaVersion`，不打扰正式用户；设置面板新增"接收 Beta 版本更新"开关（默认关），
+>   开启后 `allow_beta=true` 才会把 beta 当可更新项提示。
 
 ## 一、概述
 

@@ -37,6 +37,10 @@ export interface UpdateStatusPayload {
   transferred?: number;
   total?: number;
   message?: string;
+  /** 最新版本是 prerelease（beta/alpha/rc）且用户未开启 Beta 接收（v4.5.18） */
+  betaOnly?: boolean;
+  /** 被跳过的 beta 版本号 */
+  betaVersion?: string;
 }
 
 // ===== API =====
@@ -46,11 +50,18 @@ export interface UpdateStatusPayload {
  *
  * 后端会 emit "update-status" 事件（available / not-available / error）。
  * 返回 UpdateInfo 表示有更新，null 表示已是最新。
+ *
+ * @param source 更新源
+ * @param allowBeta 是否接收 Beta 版本（默认 false：正式渠道跳过 prerelease）
  */
 export async function checkUpdate(
   source: UpdateSource = "github",
+  allowBeta: boolean = false,
 ): Promise<UpdateInfo | null> {
-  return await invoke<UpdateInfo | null>("check_update", { source });
+  return await invoke<UpdateInfo | null>("check_update", {
+    source,
+    allowBeta,
+  });
 }
 
 /**

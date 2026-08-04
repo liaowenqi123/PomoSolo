@@ -18,7 +18,7 @@ describe("api/update", () => {
 
   // ===== checkUpdate =====
 
-  it("checkUpdate 应调用 invoke('check_update', { source: 'github' })（默认源）", async () => {
+  it("checkUpdate 应调用 invoke('check_update', { source: 'github', allowBeta: false })（默认源+默认不接收 Beta）", async () => {
     const fakeInfo: UpdateInfo = {
       version: "4.2.0",
       notes: "修复若干 bug",
@@ -29,7 +29,10 @@ describe("api/update", () => {
     const result = await checkUpdate();
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
-    expect(invokeMock).toHaveBeenCalledWith("check_update", { source: "github" });
+    expect(invokeMock).toHaveBeenCalledWith("check_update", {
+      source: "github",
+      allowBeta: false,
+    });
     expect(result).toEqual(fakeInfo);
   });
 
@@ -38,7 +41,21 @@ describe("api/update", () => {
 
     await checkUpdate("server");
 
-    expect(invokeMock).toHaveBeenCalledWith("check_update", { source: "server" });
+    expect(invokeMock).toHaveBeenCalledWith("check_update", {
+      source: "server",
+      allowBeta: false,
+    });
+  });
+
+  it("checkUpdate 应透传 allowBeta=true（接收 Beta 版本）", async () => {
+    invokeMock.mockResolvedValue(null);
+
+    await checkUpdate("server", true);
+
+    expect(invokeMock).toHaveBeenCalledWith("check_update", {
+      source: "server",
+      allowBeta: true,
+    });
   });
 
   it("checkUpdate 无更新时应返回 null", async () => {

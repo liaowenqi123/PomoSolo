@@ -47,6 +47,8 @@ export interface AppSettings {
   syncTransferMode: SyncTransferMode;
   // 更新
   updateSource: UpdateSource;
+  /** 是否接收 Beta 版本更新（v4.5.18，默认 false：正式渠道跳过 prerelease） */
+  allowBetaUpdates: boolean;
   // 系统
   autoStart: boolean;
   // 主题
@@ -72,6 +74,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   advancedColorCustomization: false,
   syncTransferMode: "immediate",
   updateSource: "github",
+  allowBetaUpdates: false,
   autoStart: false,
   theme: "light",
 };

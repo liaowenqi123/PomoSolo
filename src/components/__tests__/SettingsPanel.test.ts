@@ -2,9 +2,12 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { setActivePinia, createPinia } from "pinia";
 
-// Mock @tauri-apps/api/core（update API 间接依赖 invoke）
+// Mock @tauri-apps/api/core（update API 间接依赖 invoke；可控制返回值）
+const invokeMock = vi.hoisted(() =>
+  vi.fn<(cmd: string) => Promise<unknown>>(() => Promise.resolve()),
+);
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(() => Promise.resolve()),
+  invoke: invokeMock,
 }));
 
 // Mock @tauri-apps/api/event（useTauriEvent 间接依赖 listen）
@@ -46,6 +49,8 @@ describe("SettingsPanel.vue", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     localStorage.clear();
+    invokeMock.mockReset();
+    invokeMock.mockResolvedValue(undefined);
     dataApi.readSettings.mockReset();
     dataApi.writeSettings.mockReset();
     dataApi.writeSettings.mockResolvedValue(undefined);
@@ -231,10 +236,10 @@ describe("SettingsPanel.vue", () => {
 
   // ===== 界面显示开关 =====
 
-  it("应渲染所有开关（外观2+功能按钮5+导航2+音乐3+种植1+系统1=14）", () => {
+  it("应渲染所有开关（外观2+功能按钮5+导航2+音乐3+种植1+系统1+Beta1=15）", () => {
     const wrapper = mountComponent();
     const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
-    expect(toggles).toHaveLength(14);
+    expect(toggles).toHaveLength(15);
   });
 
   it("显示菜园子按钮开关默认应为 checked", () => {
@@ -300,8 +305,8 @@ describe("SettingsPanel.vue", () => {
   it("开机自启动开关默认应为 unchecked", () => {
     const wrapper = mountComponent();
     const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
-    // 最后一个开关：开机自启动
-    const autoStartToggle = toggles[toggles.length - 1];
+    // 索引 13：开机自启动（索引 14 是接收 Beta 版本更新）
+    const autoStartToggle = toggles[13];
     expect((autoStartToggle.element as HTMLInputElement).checked).toBe(
       DEFAULT_SETTINGS.autoStart,
     );
@@ -313,7 +318,7 @@ describe("SettingsPanel.vue", () => {
     const updateSpy = vi.spyOn(store, "update");
 
     const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
-    const autoStartToggle = toggles[toggles.length - 1];
+    const autoStartToggle = toggles[13];
     await autoStartToggle.setValue(true);
     await flushPromises();
 
@@ -464,5 +469,62 @@ describe("SettingsPanel.vue", () => {
     const btns = wrapper.findAll(".update-source-seg__btn");
     expect(btns[1].classes()).toContain("update-source-seg__btn--active");
     expect(btns[0].classes()).not.toContain("update-source-seg__btn--active");
+  });
+
+  // ===== 接收 Beta 版本更新（v4.5.18）=====
+
+  it("接收 Beta 开关默认应为 unchecked（正式渠道默认跳过 Beta）", () => {
+    const wrapper = mountComponent();
+    const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
+    // 索引 14：接收 Beta 版本更新
+    expect((toggles[14].element as HTMLInputElement).checked).toBe(
+      DEFAULT_SETTINGS.allowBetaUpdates,
+    );
+    expect(DEFAULT_SETTINGS.allowBetaUpdates).toBe(false);
+  });
+
+  it("切换『接收 Beta 版本更新』应调用 settings.update('allowBetaUpdates', true)", async () => {
+    const store = useSettingsStore();
+    const updateSpy = vi.spyOn(store, "update");
+    const wrapper = mountComponent();
+    const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
+    await toggles[14].setValue(true);
+    await flushPromises();
+    expect(updateSpy).toHaveBeenCalledWith("allowBetaUpdates", true);
+    expect(store.settings.allowBetaUpdates).toBe(true);
+  });
+
+  it("检查更新默认传 allowBeta=false（不接收 Beta）", async () => {
+    const wrapper = mountComponent();
+    const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
+    await toggles[14].setValue(false); // 默认关，确保状态
+    await flushPromises();
+    invokeMock.mockClear();
+
+    // 点击"检查更新"按钮（第一个 update-btn 是意见反馈，第二个是检查更新）
+    const updateBtn = wrapper.findAll(".update-btn")[1];
+    await updateBtn.trigger("click");
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledWith("check_update", {
+      source: "github",
+      allowBeta: false,
+    });
+  });
+
+  it("开启 Beta 接收后检查更新应传 allowBeta=true", async () => {
+    const store = useSettingsStore();
+    await store.update("allowBetaUpdates", true);
+    const wrapper = mountComponent();
+    invokeMock.mockClear();
+
+    const updateBtn = wrapper.findAll(".update-btn")[1];
+    await updateBtn.trigger("click");
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledWith("check_update", {
+      source: "github",
+      allowBeta: true,
+    });
   });
 });

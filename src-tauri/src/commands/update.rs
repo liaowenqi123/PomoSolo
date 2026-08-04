@@ -135,25 +135,40 @@ async fn fetch_latest_json(source: UpdateSource) -> Result<LatestJson, String> {
 
 /// 版本号比较：latest > current 时有更新
 ///
-/// 段内取数字前缀（"15-beta" → 15），非数字段视为 0，支持变长版本号。
+/// 段内取数字前缀（"15-beta" → 15），支持变长版本号与 prerelease（v4.5.18 修复）：
+/// - 同数字但带 prerelease 后缀的版本**更旧**（"4.6.0-beta.0" < "4.6.0"，语义化版本规则）
+/// - 数字大的段胜出（"4.6.0-beta.0" > "4.5.17"，新 minor 的 beta 仍比旧 release 新）
 fn is_newer(latest: &str, current: &str) -> bool {
-    let parse_seg = |s: &str| -> u64 {
+    let parse_seg = |s: &str| -> (u64, bool) {
         let digits: String = s.chars().take_while(|c| c.is_ascii_digit()).collect();
-        digits.parse().unwrap_or(0)
+        // has_suffix：该段带非数字后缀（prerelease 标记，如 "0-beta"、"15-alpha"）
+        (digits.parse().unwrap_or(0), digits.len() != s.len())
     };
-    let l: Vec<u64> = latest.split('.').map(parse_seg).collect();
-    let c: Vec<u64> = current.split('.').map(parse_seg).collect();
+    let l: Vec<(u64, bool)> = latest.split('.').map(parse_seg).collect();
+    let c: Vec<(u64, bool)> = current.split('.').map(parse_seg).collect();
     for i in 0..l.len().max(c.len()) {
-        let a = l.get(i).copied().unwrap_or(0);
-        let b = c.get(i).copied().unwrap_or(0);
-        if a > b {
-            return true;
+        let a = l.get(i).copied().unwrap_or((0, false));
+        let b = c.get(i).copied().unwrap_or((0, false));
+        if a.0 != b.0 {
+            return a.0 > b.0;
         }
-        if a < b {
-            return false;
+        if a.1 != b.1 {
+            // 数字相同：带 prerelease 后缀的版本更旧（正式版 > 同版本 beta）
+            return !a.1;
         }
     }
     false
+}
+
+/// 判断版本号是否为 prerelease（beta/alpha/rc 等，v4.5.18 新增）
+///
+/// 语义化版本：prerelease 以 `-` 后缀形式出现在某段数字之后（如 "0-beta"）。
+/// 正式渠道默认跳过 prerelease，避免把 beta 当作正式更新推给用户。
+fn is_prerelease(version: &str) -> bool {
+    version.split('.').any(|seg| {
+        let digits: String = seg.chars().take_while(|c| c.is_ascii_digit()).collect();
+        !digits.is_empty() && digits.len() != seg.len()
+    })
 }
 
 /// 解析 tauri.conf.json 中 updater.pubkey（minisign 公钥文本的 base64）
@@ -254,16 +269,23 @@ async fn download_installer(
 ///
 /// 返回 Ok(Some(info)) 表示有更新，Ok(None) 表示已是最新。
 /// 同时 emit "update-status" 事件（status: available / not-available / error）。
+///
+/// - `source`: 更新源（github / server）
+/// - `allow_beta`: 是否接收 prerelease（beta/alpha/rc）版本。默认 false：
+///   正式渠道跳过 prerelease，latest.json 里只有 beta 时视为"无更新"（emit
+///   not-available + betaOnly:true，前端提示可开启 Beta 接收）。
 #[tauri::command]
 pub async fn check_update(
     app: AppHandle,
     source: Option<String>,
+    allow_beta: Option<bool>,
 ) -> Result<Option<UpdateInfo>, String> {
     // dev 模式跳过（无打包安装环境，避免误报）
     if cfg!(debug_assertions) {
         return Ok(None);
     }
     let source = UpdateSource::parse(source);
+    let allow_beta = allow_beta.unwrap_or(false);
     let _ = app.emit("update-status", serde_json::json!({ "status": "checking" }));
 
     let latest = match fetch_latest_json(source).await {
@@ -279,6 +301,16 @@ pub async fn check_update(
     };
 
     let current = env!("CARGO_PKG_VERSION");
+    // 正式渠道识别问题修复（v4.5.18）：latest 是 beta/alpha/rc（prerelease）时，
+    // 只有用户开启"接收 Beta 版本"才提示更新；否则不打扰正式版用户。
+    if !allow_beta && is_prerelease(&latest.version) {
+        let _ = app.emit("update-status", serde_json::json!({
+            "status": "not-available",
+            "betaOnly": true,
+            "betaVersion": &latest.version,
+        }));
+        return Ok(None);
+    }
     if !is_newer(&latest.version, current) {
         let _ = app.emit("update-status", serde_json::json!({
             "status": "not-available",
@@ -512,6 +544,39 @@ mod tests {
         // 前缀相同，非数字段忽略（按可解析数字逐位比较）
         assert!(is_newer("4.5.15-beta", "4.5.14"));
         assert!(!is_newer("4.5.14-beta", "4.5.14"));
+    }
+
+    #[test]
+    fn test_is_newer_prerelease_beta_versus_release() {
+        // v4.5.18 修复的语义化版本规则：
+        // 4.6.0-beta.0 < 4.6.0（正式版发布后 beta 用户能升到正式版）
+        assert!(is_newer("4.6.0", "4.6.0-beta.0"));
+        assert!(!is_newer("4.6.0-beta.0", "4.6.0"));
+        // beta 递增
+        assert!(is_newer("4.6.0-beta.1", "4.6.0-beta.0"));
+        assert!(!is_newer("4.6.0-beta.0", "4.6.0-beta.1"));
+        // 新 minor 的 beta 仍比旧 release 新
+        assert!(is_newer("4.6.0-beta.0", "4.5.17"));
+        assert!(!is_newer("4.5.17", "4.6.0-beta.0"));
+        // rc 同理
+        assert!(is_newer("4.6.0-rc.1", "4.6.0-beta.0"));
+        assert!(!is_newer("4.6.0-rc.1", "4.6.0"));
+    }
+
+    #[test]
+    fn test_is_prerelease_detects_beta_alpha_rc() {
+        assert!(is_prerelease("4.6.0-beta.0"));
+        assert!(is_prerelease("4.6.0-beta.1"));
+        assert!(is_prerelease("4.6.0-rc.1"));
+        assert!(is_prerelease("4.6.0-alpha"));
+    }
+
+    #[test]
+    fn test_is_prerelease_rejects_release_versions() {
+        assert!(!is_prerelease("4.5.17"));
+        assert!(!is_prerelease("4.6.0"));
+        assert!(!is_prerelease("4.6.0.1"));
+        assert!(!is_prerelease(""));
     }
 
     #[test]

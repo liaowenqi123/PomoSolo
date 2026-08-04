@@ -709,6 +709,8 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 > ⚠️ **v4.5.16 闪退修复教训（2026-08-03）**：v4.5.15 曾把服务器 http 地址写进 `tauri.conf.json` 的 `plugins.updater.endpoints`，而 `tauri-plugin-updater` 初始化强制要求 endpoints 必须 `https`，**非 https 端点直接 panic → 应用启动即闪退**（现象：进程起来几秒就消失 / WebView2 显示 localhost 拒绝连接）。插件仅保留注册、实际不参与检查/下载/安装，其 endpoints 配置必须只含 https 占位地址；运行时源切换由自实现更新器（`src-tauri/src/commands/update.rs`）硬编码的地址完成，与插件配置无关。
 >
 > ⚠️ **v4.5.17 更新解析修复教训（2026-08-03）**：v4.5.15 起自实现更新器的 `LatestJson` 结构体把 `url`/`signature` 定义在**顶层**，但 tauri updater 规范是嵌套在 `platforms.windows-x86_64` 下 → 检查/下载全链报 `解析更新信息失败: missing field 'url'`（v4.5.16 能启动后首次暴露）。已改为按规范从 `platforms.windows-x86_64` 提取，并新增**真实发布物夹具测试**（GitHub/服务器各一份实际 latest.json 内容，字节级核对线上文件后入库），发版前必须过该解析回归测试。更新链路（解析→版本比较→下载→验签）任何改动都必须配真实数据测试，不得只凭肉眼核对 JSON。
+>
+> ⚠️ **v4.5.18 版本号识别语义化 + Beta 开关（2026-08-04）**：此前 `is_newer` 无法区分 "4.6.0-beta.0" 与 "4.6.0"（视为同版本）→ 正式版用户可能漏推正式更新。v4.5.18 起：语义化比较（同数字带 prerelease 后缀更旧）、`is_prerelease` 识别 beta/alpha/rc、`check_update` 默认跳过 prerelease（emit `not-available + betaOnly`），设置面板新增"接收 Beta 版本更新"开关（默认关）。**服务器 latest.json 无需改动**；GitHub Release 侧要求 beta 必须勾选 prerelease 标记（4.6.0-beta.0 已补标），避免 tauri 规范的 releases/latest 误指 beta。
 
 **1. 静态目录 `/updates/`（本次需要服务器做的事）**
 
