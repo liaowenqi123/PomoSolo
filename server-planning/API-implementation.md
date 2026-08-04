@@ -491,12 +491,15 @@ docker run -d \
 
 ### HTTPS（443 端口，2026-08-04 起）
 
-容器新增 `-p 443:443`，443 上提供 TLS（`https://115.159.49.112/updates/latest.json` 等）。
+容器 `-p 443:443`，443 上提供 TLS。
 
-- 证书：自签（`/home/ubuntu/frontend/certs/cert.pem` + `key.pem`，CN=115.159.49.112，有效期 10 年），`server.py` 检测到证书自动启动 HTTPS
-- 同一 Handler：HTTPS 上静态文件 / API / WS 全部可用（WS 为 wss 需客户端适配，当前客户端仍走 ws://80）
-- **注意**：自签证书不受系统信任——浏览器访问会提示"不安全"，Tauri 自动更新器（reqwest 验证链）访问 https 会失败，除非客户端忽略证书验证或导入信任。如需浏览器/更新器零告警，需正式证书（Let's Encrypt 需域名，有域名后随时可换）
-- 已实测：https:// 访问 200、HTTP 80 正常、API 登录 200
+- **正式证书（Let's Encrypt，2026-08-04 配置）**：域名 `pomogrow.top`，`/home/ubuntu/frontend/certs/fullchain.pem` + `privkey.pem`（有效期 2026-08-04 ~ 2026-11-02，90 天需续期），`server.py` 优先加载 LE 命名、兼容自签命名（cert.pem/key.pem 为 fallback）
+- 同一 Handler：HTTPS 上静态文件 / API / WS 全部可用
+- **已实测**：`curl --resolve pomogrow.top:443:127.0.0.1 https://pomogrow.top/updates/latest.json` → 200（证书链完整可信）
+- **待办**：
+  - 公网 443 端口需开放（当前 IP 直连 443 不通，开放后 `https://115.159.49.112/` 可达但证书域名不匹配，会告警）
+  - 域名 `pomogrow.top` **ICP 备案未完成**：备案通过 + DNS 解析后，客户端更新源可切 `https://pomogrow.top/updates/latest.json`（零告警真 HTTPS）
+  - 证书 90 天续期：建议配置自动续期任务（certbot 或手动替换 / 根目录 fullchain.pem/privkey.pem）
 
 ---
 
