@@ -495,11 +495,13 @@ docker run -d \
 
 - **正式证书（Let's Encrypt，2026-08-04 配置）**：域名 `pomogrow.top`，`/home/ubuntu/frontend/certs/fullchain.pem` + `privkey.pem`（有效期 2026-08-04 ~ 2026-11-02，90 天需续期），`server.py` 优先加载 LE 命名、兼容自签命名（cert.pem/key.pem 为 fallback）
 - 同一 Handler：HTTPS 上静态文件 / API / WS 全部可用
-- **已实测**：`curl --resolve pomogrow.top:443:127.0.0.1 https://pomogrow.top/updates/latest.json` → 200（证书链完整可信）
+- **已实测（2026-08-04）**：
+  - 域名 HTTPS 严格校验：`curl https://pomogrow.top/updates/latest.json` → 200（DNS 已解析，证书链完整可信，零告警）
+  - 公网 IP HTTPS：`curl -k https://115.159.49.112/` → 200（443 已放行；证书域名不匹配，浏览器/严格校验会告警，属正常）
+  - TLS 握手防卡死：`SecureHTTPServer` 将 TLS 握手放入连接线程（10s 超时），避免半开连接阻塞 accept 主循环导致 443 整体超时
 - **待办**：
-  - 公网 443 端口需开放（当前 IP 直连 443 不通，开放后 `https://115.159.49.112/` 可达但证书域名不匹配，会告警）
-  - 域名 `pomogrow.top` **ICP 备案未完成**：备案通过 + DNS 解析后，客户端更新源可切 `https://pomogrow.top/updates/latest.json`（零告警真 HTTPS）
-  - 证书 90 天续期：建议配置自动续期任务（certbot 或手动替换 / 根目录 fullchain.pem/privkey.pem）
+  - 域名 `pomogrow.top` **ICP 备案**（合规要求，不影响当前 DNS/HTTPS 实测）：备案通过后客户端更新源可正式切 `https://pomogrow.top/updates/latest.json`（已可访问，零告警真 HTTPS）
+  - 证书自动续期**已由用户侧配置**（2026-11-02 到期前自动替换）
 
 ---
 
