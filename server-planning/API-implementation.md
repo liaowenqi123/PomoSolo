@@ -489,6 +489,20 @@ docker run -d \
 - 已放占位 `latest.json` 验证访问（本机 + 公网均 200），客户端首次 scp 后覆盖即可
 - latest.json 格式（Tauri updater 标准）：`{"version":"x.y.z","notes":"...","pub_date":"...","platforms":{"windows-x86_64":{"url":"http://115.159.49.112/updates/xxx.exe","signature":"..."}}}`
 
+### HTTPS（443 端口，2026-08-04 起）
+
+容器 `-p 443:443`，443 上提供 TLS。
+
+- **正式证书（Let's Encrypt，2026-08-04 配置）**：域名 `pomogrow.top`，`/home/ubuntu/frontend/certs/fullchain.pem` + `privkey.pem`（有效期 2026-08-04 ~ 2026-11-02，90 天需续期），`server.py` 优先加载 LE 命名、兼容自签命名（cert.pem/key.pem 为 fallback）
+- 同一 Handler：HTTPS 上静态文件 / API / WS 全部可用
+- **已实测（2026-08-04）**：
+  - 域名 HTTPS 严格校验：`curl https://pomogrow.top/updates/latest.json` → 200（DNS 已解析，证书链完整可信，零告警）
+  - 公网 IP HTTPS：`curl -k https://115.159.49.112/` → 200（443 已放行；证书域名不匹配，浏览器/严格校验会告警，属正常）
+  - TLS 握手防卡死：`SecureHTTPServer` 将 TLS 握手放入连接线程（10s 超时），避免半开连接阻塞 accept 主循环导致 443 整体超时
+- **待办**：
+  - 域名 `pomogrow.top` **ICP 备案**（合规要求，不影响当前 DNS/HTTPS 实测）：备案通过后客户端更新源可正式切 `https://pomogrow.top/updates/latest.json`（已可访问，零告警真 HTTPS）
+  - 证书自动续期：1Panel 已配置（DNS 自动 + 拨杆开启），续期结果推送到宿主根目录 `/`。**同步兜底**：`/home/ubuntu/sync-le-cert.sh`（root cron 每 6h）检测根目录证书变化 → 同步到 `/home/ubuntu/frontend/certs/` → 重启 `frontend-web` 重新加载证书，日志 `/var/log/pomosolo-cert-sync.log`
+
 ---
 
 ## 客户端迁移指南
