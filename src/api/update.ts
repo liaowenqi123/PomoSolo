@@ -69,9 +69,13 @@ export async function checkUpdate(
  *
  * 后端会先备份用户音乐，然后下载并通过 "update-status" 事件报告进度，
  * 校验安装包签名后启动安装器，应用自动退出重启。
+ *
+ * @param source 更新源
+ * @param allowBeta 是否下载 Beta 版本（须与 checkUpdate 一致，否则会下载到正式版）
  */
 export async function downloadAndInstall(
   source: UpdateSource = "github",
+  allowBeta: boolean = false,
 ): Promise<void> {
-  await invoke("download_and_install", { source });
+  await invoke("download_and_install", { source, allowBeta });
 }

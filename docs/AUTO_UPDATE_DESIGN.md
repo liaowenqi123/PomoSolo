@@ -26,6 +26,15 @@
 > - `check_update` 新增 `allow_beta` 参数（默认 false）：正式渠道遇到 prerelease 时 emit
 >   `not-available + betaOnly:true + betaVersion`，不打扰正式用户；设置面板新增"接收 Beta 版本更新"开关（默认关），
 >   开启后 `allow_beta=true` 才会把 beta 当可更新项提示。
+>
+> ⚠️ **Beta 检测数据源修复（v4.5.19）**：v4.5.18 只修了版本比较逻辑，但**数据源仍拿不到 beta**——
+> GitHub 的 `releases/latest/download/latest.json` 端点永远指向最新**非 prerelease** release（即 v4.5.18），
+> 服务器 `/updates/latest.json` 也只有一份（被正式版覆盖）→ 开了 Beta 开关也检测不到 4.6.0-beta.0。
+> v4.5.19 起 `fetch_latest_json(source, allow_beta)` 按渠道分流：
+> - GitHub Beta 渠道：调 GitHub API `releases?per_page=100`（含 prerelease），用 `is_newer` 语义找版本号
+>   最大的 release，取其 `latest.json` 资产下载地址（未认证限流 60 次/时/IP，检查频率低够用）；
+> - 服务器 Beta 渠道：独立文件 `http://115.159.49.112/updates/latest-beta.json`（正式/测试互不覆盖，已部署 4.6.0-beta.0）；
+> - `download_and_install` 同步新增 `allow_beta` 参数（前端下载时透传，否则下载阶段会重新拉正式版 latest.json）。
 
 ## 一、概述
 

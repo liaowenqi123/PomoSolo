@@ -87,13 +87,16 @@ describe("api/update", () => {
 
   // ===== downloadAndInstall =====
 
-  it("downloadAndInstall 应调用 invoke('download_and_install', { source: 'github' })（默认源）", async () => {
+  it("downloadAndInstall 应调用 invoke('download_and_install', { source: 'github', allowBeta: false })（默认源+默认不接收 Beta）", async () => {
     invokeMock.mockResolvedValue(undefined);
 
     await downloadAndInstall();
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
-    expect(invokeMock).toHaveBeenCalledWith("download_and_install", { source: "github" });
+    expect(invokeMock).toHaveBeenCalledWith("download_and_install", {
+      source: "github",
+      allowBeta: false,
+    });
   });
 
   it("downloadAndInstall 应传递指定更新源 server", async () => {
@@ -101,7 +104,21 @@ describe("api/update", () => {
 
     await downloadAndInstall("server");
 
-    expect(invokeMock).toHaveBeenCalledWith("download_and_install", { source: "server" });
+    expect(invokeMock).toHaveBeenCalledWith("download_and_install", {
+      source: "server",
+      allowBeta: false,
+    });
+  });
+
+  it("downloadAndInstall 应透传 allowBeta=true（下载 Beta 版本，与检查一致）", async () => {
+    invokeMock.mockResolvedValue(undefined);
+
+    await downloadAndInstall("server", true);
+
+    expect(invokeMock).toHaveBeenCalledWith("download_and_install", {
+      source: "server",
+      allowBeta: true,
+    });
   });
 
   it("downloadAndInstall invoke 抛错时应向上传播", async () => {

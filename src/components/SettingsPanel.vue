@@ -230,7 +230,10 @@ async function handleUpdateBtnClick(): Promise<void> {
   } else {
     updateBtnDisabled.value = true;
     updateBtnText.value = "准备下载...";
-    await downloadAndInstall(local.value.updateSource);
+    await downloadAndInstall(
+      local.value.updateSource,
+      local.value.allowBetaUpdates,
+    );
   }
 }
 

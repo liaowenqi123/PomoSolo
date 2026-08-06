@@ -52,13 +52,29 @@ impl UpdateSource {
         }
     }
 
-    /// 各更新源的 latest.json 地址
+    /// 各更新源的 latest.json 地址（正式渠道：不含 prerelease）
     fn latest_json_url(&self) -> &'static str {
         match self {
             Self::Github => {
                 "https://github.com/liaowenqi123/PomoSolo/releases/latest/download/latest.json"
             }
             Self::Server => "http://115.159.49.112/updates/latest.json",
+        }
+    }
+
+    /// Beta 渠道（allow_beta=true）的 latest.json 地址
+    ///
+    /// GitHub 的 `releases/latest` 端点永远指向最新**非 prerelease** release，
+    /// 拿不到 beta/alpha/rc → 走 GitHub API 找版本号最大的 release（含 prerelease，
+    /// v4.5.19 修复）；服务器约定单独的 `latest-beta.json` 文件（正式/测试互不覆盖）。
+    fn latest_beta_json_url(&self) -> &'static str {
+        match self {
+            Self::Github => {
+                // 实际地址需经 GitHub API 解析（版本号最大 release 的 latest.json 资产），
+                // 见 fetch_latest_json 的 allow_beta 分支。
+                "https://api.github.com/repos/liaowenqi123/PomoSolo/releases?per_page=100"
+            }
+            Self::Server => "http://115.159.49.112/updates/latest-beta.json",
         }
     }
 }
@@ -115,10 +131,24 @@ pub struct UpdateInfo {
     pub date: Option<String>,
 }
 
-/// 拉取指定更新源的 latest.json
-async fn fetch_latest_json(source: UpdateSource) -> Result<LatestJson, String> {
+/// 拉取更新信息（正式渠道拉 latest.json；allow_beta=true 拉 beta 渠道）
+///
+/// GitHub 正式渠道用 `releases/latest`（永不返回 prerelease）；
+/// Beta 渠道（v4.5.19 修复）走 GitHub API 列出全部 release（含 prerelease），
+/// 用 `is_newer` 语义找版本号最大的 release，取其 latest.json 资产的下载地址。
+/// 服务器 Beta 渠道为独立的 `latest-beta.json`（正式/测试互不覆盖）。
+async fn fetch_latest_json(source: UpdateSource, allow_beta: bool) -> Result<LatestJson, String> {
+    let url = if allow_beta {
+        match source {
+            UpdateSource::Github => github_latest_json_asset_url().await?,
+            UpdateSource::Server => source.latest_beta_json_url().to_string(),
+        }
+    } else {
+        source.latest_json_url().to_string()
+    };
     let resp = reqwest::Client::new()
-        .get(source.latest_json_url())
+        .get(&url)
+        .header("User-Agent", "PomoSolo-Updater")
         .timeout(std::time::Duration::from_secs(20))
         .send()
         .await
@@ -131,6 +161,68 @@ async fn fetch_latest_json(source: UpdateSource) -> Result<LatestJson, String> {
         .await
         .map_err(|e| format!("读取更新信息失败: {}", e))?;
     serde_json::from_str(&text).map_err(|e| format!("解析更新信息失败: {}", e))
+}
+
+/// GitHub API release 对象（仅取所需字段）
+#[derive(Debug, Deserialize)]
+struct GithubRelease {
+    tag_name: String,
+    #[serde(default)]
+    draft: bool,
+    assets: Vec<GithubAsset>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GithubAsset {
+    name: String,
+    browser_download_url: String,
+}
+
+/// 通过 GitHub API 找出版本号最大的 release（含 prerelease）的 latest.json 资产地址
+///
+/// `releases/latest` 端点排除 prerelease，Beta 检测必须走 API 列表。
+/// 用 `is_newer` 语义比较（"4.6.0-beta.0" > "4.5.18"），draft / 无 latest.json 资产的跳过。
+async fn github_latest_json_asset_url() -> Result<String, String> {
+    let resp = reqwest::Client::new()
+        .get("https://api.github.com/repos/liaowenqi123/PomoSolo/releases?per_page=100")
+        .header("User-Agent", "PomoSolo-Updater")
+        .timeout(std::time::Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(|e| format!("查询 GitHub Release 列表失败: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("GitHub API 返回 HTTP {}", resp.status()));
+    }
+    let releases: Vec<GithubRelease> = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析 GitHub Release 列表失败: {}", e))?;
+    pick_best_release_asset(&releases)
+        .map(|(_, url)| url)
+        .ok_or_else(|| "GitHub 上未找到可用的 latest.json".to_string())
+}
+
+/// 从 release 列表里选出版本号最大（语义化，含 prerelease）且带 latest.json 资产的
+/// 发布，返回其 (version, latest.json 下载地址)。draft / 无 latest.json 资产的跳过。
+fn pick_best_release_asset(releases: &[GithubRelease]) -> Option<(String, String)> {
+    let mut best: Option<(String, String)> = None; // (version, latest.json 下载地址)
+    for r in releases {
+        if r.draft {
+            continue;
+        }
+        let version = r.tag_name.trim_start_matches('v');
+        let Some(asset) = r.assets.iter().find(|a| a.name == "latest.json") else {
+            continue;
+        };
+        let is_better = match &best {
+            None => true,
+            Some((cur, _)) => is_newer(version, cur),
+        };
+        if is_better {
+            best = Some((version.to_string(), asset.browser_download_url.clone()));
+        }
+    }
+    best
 }
 
 /// 版本号比较：latest > current 时有更新
@@ -288,7 +380,7 @@ pub async fn check_update(
     let allow_beta = allow_beta.unwrap_or(false);
     let _ = app.emit("update-status", serde_json::json!({ "status": "checking" }));
 
-    let latest = match fetch_latest_json(source).await {
+    let latest = match fetch_latest_json(source, allow_beta).await {
         Ok(l) => l,
         Err(e) => {
             let msg = format!("检查更新失败: {}", e);
@@ -342,11 +434,13 @@ pub async fn check_update(
 pub async fn download_and_install(
     app: AppHandle,
     source: Option<String>,
+    allow_beta: Option<bool>,
 ) -> Result<(), String> {
     if cfg!(debug_assertions) {
         return Err("开发模式不支持安装更新".to_string());
     }
     let source = UpdateSource::parse(source);
+    let allow_beta = allow_beta.unwrap_or(false);
 
     // 1. 备份用户下载的歌曲（避免被安装包覆盖）
     if let Err(e) = backup_music_dir(&app) {
@@ -354,8 +448,8 @@ pub async fn download_and_install(
         // 备份失败不阻塞更新，继续
     }
 
-    // 2. 拉取更新信息（下载地址 + 签名）
-    let latest = fetch_latest_json(source)
+    // 2. 拉取更新信息（下载地址 + 签名；Beta 渠道与检查时保持一致）
+    let latest = fetch_latest_json(source, allow_beta)
         .await
         .map_err(|e| {
             let msg = format!("获取更新信息失败: {}", e);
@@ -577,6 +671,48 @@ mod tests {
         assert!(!is_prerelease("4.6.0"));
         assert!(!is_prerelease("4.6.0.1"));
         assert!(!is_prerelease(""));
+    }
+
+    /// 构造 GitHub release（测试辅助）
+    fn rel(tag: &str, draft: bool, has_asset: bool) -> GithubRelease {
+        GithubRelease {
+            tag_name: tag.to_string(),
+            draft,
+            assets: if has_asset {
+                vec![GithubAsset {
+                    name: "latest.json".to_string(),
+                    browser_download_url: format!("https://example.com/{}/latest.json", tag),
+                }]
+            } else {
+                vec![]
+            },
+        }
+    }
+
+    #[test]
+    fn test_pick_best_release_prefers_highest_semver_including_prerelease() {
+        // v4.5.19 修复：Beta 检测必须能选出版本号最大的 release（含 prerelease）。
+        // 4.6.0-beta.0 > 4.5.18（新 minor 的 beta 仍比旧 release 新）。
+        let releases = vec![
+            rel("v4.5.18", false, true),
+            rel("v4.6.0-beta.0", false, true),
+            rel("v4.5.17", false, true),
+        ];
+        let best = pick_best_release_asset(&releases).unwrap();
+        assert_eq!(best.0, "4.6.0-beta.0");
+        assert_eq!(best.1, "https://example.com/v4.6.0-beta.0/latest.json");
+    }
+
+    #[test]
+    fn test_pick_best_release_skips_draft_and_missing_asset() {
+        let releases = vec![
+            rel("v4.6.0-beta.0", true, true), // draft 跳过
+            rel("v4.5.18", false, false),     // 无 latest.json 资产跳过
+            rel("v4.5.17", false, true),
+        ];
+        let best = pick_best_release_asset(&releases).unwrap();
+        assert_eq!(best.0, "4.5.17");
+        assert!(pick_best_release_asset(&[]).is_none());
     }
 
     #[test]

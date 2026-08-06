@@ -711,6 +711,10 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 > ⚠️ **v4.5.17 更新解析修复教训（2026-08-03）**：v4.5.15 起自实现更新器的 `LatestJson` 结构体把 `url`/`signature` 定义在**顶层**，但 tauri updater 规范是嵌套在 `platforms.windows-x86_64` 下 → 检查/下载全链报 `解析更新信息失败: missing field 'url'`（v4.5.16 能启动后首次暴露）。已改为按规范从 `platforms.windows-x86_64` 提取，并新增**真实发布物夹具测试**（GitHub/服务器各一份实际 latest.json 内容，字节级核对线上文件后入库），发版前必须过该解析回归测试。更新链路（解析→版本比较→下载→验签）任何改动都必须配真实数据测试，不得只凭肉眼核对 JSON。
 >
 > ⚠️ **v4.5.18 版本号识别语义化 + Beta 开关（2026-08-04）**：此前 `is_newer` 无法区分 "4.6.0-beta.0" 与 "4.6.0"（视为同版本）→ 正式版用户可能漏推正式更新。v4.5.18 起：语义化比较（同数字带 prerelease 后缀更旧）、`is_prerelease` 识别 beta/alpha/rc、`check_update` 默认跳过 prerelease（emit `not-available + betaOnly`），设置面板新增"接收 Beta 版本更新"开关（默认关）。**服务器 latest.json 无需改动**；GitHub Release 侧要求 beta 必须勾选 prerelease 标记（4.6.0-beta.0 已补标），避免 tauri 规范的 releases/latest 误指 beta。
+>
+> ⚠️ **v4.5.19 Beta 数据源修复（2026-08-04）**：v4.5.18 开了 Beta 开关仍检测不到 4.6.0-beta.0——根因是数据源：GitHub `releases/latest` 永指最新**非 prerelease** release，服务器 `latest.json` 也只有一份（被正式版覆盖）。v4.5.19 起客户端 Beta 渠道：
+> - **GitHub**：走 GitHub API `releases?per_page=100`（含 prerelease），语义化取版本号最大的 release 的 latest.json 资产；
+> - **服务器**：请求独立的 **`/updates/latest-beta.json`**（正式/测试互不覆盖）——**服务器部门需配合**：每次发 beta 时同步一份 latest-beta.json（url 指向服务器 beta 安装包，UTF8 无 BOM），当前已部署 4.6.0-beta.0 版本。正式版仍走 `latest.json`。
 
 **1. 静态目录 `/updates/`（本次需要服务器做的事）**
 
