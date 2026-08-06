@@ -19,6 +19,8 @@ import {
 import {
   checkUpdate,
   downloadAndInstall,
+  fetchNotice,
+  type UpdateNotice,
   type UpdateStatusPayload,
 } from "@/api/update";
 import { useTauriEvent } from "@/api/events";
@@ -215,9 +217,27 @@ useTauriEvent<UpdateStatusPayload>("update-status", (e) => {
       updateBtnAction.value = "check";
       updateBtnDisabled.value = false;
       updateProgressVisible.value = false;
+      // v4.5.21：更新出错时拉取服务器公告，让用户知道该怎么做（教训：v4.5.20 曾逼用户重装）
+      void showUpdateNoticeOnError();
       break;
   }
 });
+
+/** 服务器公告（更新出错时展示官方指引，v4.5.21） */
+const updateNotice = ref<UpdateNotice | null>(null);
+
+async function showUpdateNoticeOnError(): Promise<void> {
+  try {
+    const notice = await fetchNotice(appVersion.value);
+    updateNotice.value = notice;
+  } catch {
+    updateNotice.value = null; // 公告拉取失败不打扰用户
+  }
+}
+
+function closeUpdateNotice(): void {
+  updateNotice.value = null;
+}
 
 // 加载版本号
 void getVersion().then((v) => {
@@ -762,6 +782,32 @@ function statusLabel(status: number): string {
             >
               {{ updateStatusText }}
             </div>
+            <!-- v4.5.21：更新出错时展示服务器公告（官方升级指引），避免用户不知道怎么办 -->
+            <div
+              v-if="updateNotice"
+              class="update-notice"
+              :class="`update-notice--${updateNotice.level ?? 'warning'}`"
+            >
+              <span class="update-notice__text">
+                {{ updateNotice.text ?? "更新出现问题，请查看升级指引" }}
+              </span>
+              <a
+                v-if="updateNotice.url"
+                class="update-notice__link"
+                :href="updateNotice.url"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                查看升级指引
+              </a>
+              <button
+                class="update-notice__close"
+                title="关闭"
+                @click="closeUpdateNotice"
+              >
+                ×
+              </button>
+            </div>
             <div class="settings-row">
               <label class="settings-row__label">版本</label>
               <span class="version-text" @click="handleVersionClick">v{{ appVersion }}</span>
@@ -1202,6 +1248,70 @@ function statusLabel(status: number): string {
 
 .update-status--error {
   color: #ef5350;
+}
+
+/* v4.5.21：服务器公告条（更新出错时展示官方指引） */
+.update-notice {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  position: relative;
+}
+
+.update-notice--warning {
+  background: rgba(255, 193, 7, 0.1);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  color: #ffd54f;
+}
+
+.update-notice--error {
+  background: rgba(239, 83, 80, 0.1);
+  border: 1px solid rgba(239, 83, 80, 0.3);
+  color: #ef9a9a;
+}
+
+.update-notice--info {
+  background: rgba(100, 181, 246, 0.1);
+  border: 1px solid rgba(100, 181, 246, 0.3);
+  color: #90caf9;
+}
+
+.update-notice__text {
+  flex: 1;
+  word-break: break-word;
+}
+
+.update-notice__link {
+  flex-shrink: 0;
+  color: #ffd54f;
+  text-decoration: underline;
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.update-notice__link:hover {
+  opacity: 0.85;
+}
+
+.update-notice__close {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.5);
+  transition: all 0.15s ease;
+}
+
+.update-notice__close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .version-text {

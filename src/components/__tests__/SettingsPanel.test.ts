@@ -10,9 +10,16 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: invokeMock,
 }));
 
-// Mock @tauri-apps/api/event（useTauriEvent 间接依赖 listen）
+// Mock @tauri-apps/api/event（useTauriEvent 间接依赖 listen；捕获处理器以便模拟后端事件）
+const eventHandlers: Record<string, (e: { payload: unknown }) => void> = {};
+const listenMock = vi.hoisted(() =>
+  vi.fn((event: string, handler: (e: { payload: unknown }) => void) => {
+    eventHandlers[event] = handler;
+    return Promise.resolve(() => {});
+  }),
+);
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(() => Promise.resolve(() => {})),
+  listen: listenMock,
   emit: vi.fn(() => Promise.resolve()),
 }));
 
@@ -44,6 +51,7 @@ vi.mock("@/api/garden", () => gardenApi);
 import SettingsPanel from "../SettingsPanel.vue";
 import { useSettingsStore, DEFAULT_SETTINGS } from "../../stores/settings";
 import { useGardenStore } from "../../stores/garden";
+import type { UpdateStatusPayload } from "@/api/update";
 
 describe("SettingsPanel.vue", () => {
   beforeEach(() => {
@@ -526,5 +534,72 @@ describe("SettingsPanel.vue", () => {
       source: "github",
       allowBeta: true,
     });
+  });
+
+  // ===== 服务器公告（v4.5.21） =====
+
+  /** 模拟后端 update-status 事件（触发组件监听的回调） */
+  function emitUpdateStatus(payload: UpdateStatusPayload): void {
+    const handler = eventHandlers["update-status"];
+    expect(handler).toBeDefined();
+    handler({ payload });
+  }
+
+  it("更新失败时应展示服务器公告（含官方指引链接）", async () => {
+    invokeMock.mockResolvedValue({
+      active: true,
+      level: "warning",
+      text: "自动更新异常，请手动下载 v4.5.20 覆盖安装",
+      url: "http://115.159.49.112/updates/PomoSolo_4.5.20_x64-setup.exe",
+      min_version: "4.5.15",
+      max_version: "4.5.19",
+    });
+    const wrapper = mountComponent();
+
+    // 等 getVersion 异步 resolve（appVersion 就绪后事件触发才会带上正确版本号）
+    await flushPromises();
+
+    emitUpdateStatus({ status: "error", message: "签名验证失败" });
+    await flushPromises();
+
+    // 错误提示仍在
+    expect(wrapper.find(".update-status--error").text()).toContain("更新失败");
+    // 公告条已展示
+    const notice = wrapper.find(".update-notice");
+    expect(notice.exists()).toBe(true);
+    expect(notice.classes()).toContain("update-notice--warning");
+    expect(notice.text()).toContain("自动更新异常");
+    // 指引链接指向服务器安装包
+    const link = notice.find(".update-notice__link");
+    expect(link.exists()).toBe(true);
+    expect(link.attributes("href")).toBe(
+      "http://115.159.49.112/updates/PomoSolo_4.5.20_x64-setup.exe",
+    );
+    // 拉取公告时携带当前应用版本
+    expect(invokeMock).toHaveBeenCalledWith("fetch_notice", { version: "0.0.0" });
+  });
+
+  it("点击公告关闭按钮应隐藏公告条", async () => {
+    invokeMock.mockResolvedValue({ active: true, text: "官方指引" });
+    const wrapper = mountComponent();
+
+    emitUpdateStatus({ status: "error", message: "下载失败" });
+    await flushPromises();
+    expect(wrapper.find(".update-notice").exists()).toBe(true);
+
+    await wrapper.find(".update-notice__close").trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".update-notice").exists()).toBe(false);
+  });
+
+  it("公告拉取失败时应静默（不显示公告，不影响错误提示）", async () => {
+    invokeMock.mockRejectedValue(new Error("network error"));
+    const wrapper = mountComponent();
+
+    emitUpdateStatus({ status: "error", message: "网络错误" });
+    await flushPromises();
+
+    expect(wrapper.find(".update-notice").exists()).toBe(false);
+    expect(wrapper.find(".update-status--error").text()).toContain("更新失败");
   });
 });

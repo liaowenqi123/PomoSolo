@@ -131,6 +131,63 @@ pub struct UpdateInfo {
     pub date: Option<String>,
 }
 
+/// 服务器公告（/updates/notice.json，v4.5.21 新增）
+///
+/// 更新失败（签名验证失败/下载失败/解析失败）时向前端展示官方指引，
+/// 避免用户在出错时不知道怎么做（教训：v4.5.20 签名 bug 曾逼用户重装）。
+/// 网络失败/无公告返回 None——公告是增强能力，不阻塞任何流程。
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UpdateNotice {
+    #[serde(default)]
+    pub active: bool,
+    #[serde(default)]
+    pub level: String,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub min_version: String,
+    #[serde(default)]
+    pub max_version: String,
+}
+
+/// 公告是否对当前版本生效：min_version <= version <= max_version（空表示不限）
+fn notice_in_range(notice: &UpdateNotice, version: &str) -> bool {
+    let after_min =
+        notice.min_version.is_empty() || !is_newer(&notice.min_version, version);
+    let before_max =
+        notice.max_version.is_empty() || !is_newer(version, &notice.max_version);
+    after_min && before_max
+}
+
+/// 拉取服务器公告（按当前版本过滤生效范围）
+#[tauri::command]
+pub async fn fetch_notice(version: String) -> Result<Option<UpdateNotice>, String> {
+    const NOTICE_URL: &str = "http://115.159.49.112/updates/notice.json";
+    let resp = match reqwest::Client::new()
+        .get(NOTICE_URL)
+        .timeout(std::time::Duration::from_secs(8))
+        .send()
+        .await
+    {
+        Ok(r) if r.status().is_success() => r,
+        _ => return Ok(None), // 公告拉取失败不打扰用户
+    };
+    let text = match resp.text().await {
+        Ok(t) => t,
+        Err(_) => return Ok(None),
+    };
+    let notice: UpdateNotice = match serde_json::from_str(&text) {
+        Ok(n) => n,
+        Err(_) => return Ok(None),
+    };
+    if !notice.active || !notice_in_range(&notice, &version) {
+        return Ok(None);
+    }
+    Ok(Some(notice))
+}
+
 /// 拉取更新信息（正式渠道拉 latest.json；allow_beta=true 拉 beta 渠道）
 ///
 /// GitHub 正式渠道用 `releases/latest`（永不返回 prerelease）；
@@ -802,6 +859,34 @@ mod tests {
         let best = pick_best_release_asset(&releases).unwrap();
         assert_eq!(best.0, "4.5.17");
         assert!(pick_best_release_asset(&[]).is_none());
+    }
+
+    #[test]
+    fn test_notice_in_range_filters_by_version() {
+        fn notice(min: &str, max: &str) -> UpdateNotice {
+            UpdateNotice {
+                active: true,
+                level: "warning".into(),
+                text: "测试公告".into(),
+                url: "http://example.com".into(),
+                min_version: min.into(),
+                max_version: max.into(),
+            }
+        }
+        // min/max 空 = 不限
+        assert!(notice_in_range(&notice("", ""), "4.5.20"));
+        // 范围内
+        assert!(notice_in_range(&notice("4.5.15", "4.5.19"), "4.5.17"));
+        assert!(notice_in_range(&notice("4.5.15", "4.5.19"), "4.5.15"));
+        assert!(notice_in_range(&notice("4.5.15", "4.5.19"), "4.5.19"));
+        // 范围外
+        assert!(!notice_in_range(&notice("4.5.15", "4.5.19"), "4.5.14"));
+        assert!(!notice_in_range(&notice("4.5.15", "4.5.19"), "4.5.20"));
+        // 只设一端
+        assert!(notice_in_range(&notice("", "4.5.19"), "4.5.10"));
+        assert!(!notice_in_range(&notice("", "4.5.19"), "4.5.20"));
+        assert!(notice_in_range(&notice("4.5.15", ""), "4.5.21"));
+        assert!(!notice_in_range(&notice("4.5.15", ""), "4.5.14"));
     }
 
     #[test]

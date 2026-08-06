@@ -8,8 +8,9 @@ vi.mock("@tauri-apps/api/core", () => ({
 import {
   checkUpdate,
   downloadAndInstall,
+  fetchNotice,
 } from "../update";
-import type { UpdateInfo, UpdateStatus, UpdateStatusPayload } from "../update";
+import type { UpdateInfo, UpdateNotice, UpdateStatus, UpdateStatusPayload } from "../update";
 
 describe("api/update", () => {
   beforeEach(() => {
@@ -166,16 +167,64 @@ describe("api/update", () => {
     expect(payload.total).toBe(2048);
   });
 
+  // ===== fetchNotice（v4.5.21） =====
+
+  it("fetchNotice 应调用 invoke('fetch_notice', { version })", async () => {
+    const fakeNotice: UpdateNotice = {
+      active: true,
+      level: "warning",
+      text: "自动更新异常，请手动升级",
+      url: "http://115.159.49.112/updates/PomoSolo_4.5.20_x64-setup.exe",
+      min_version: "4.5.15",
+      max_version: "4.5.19",
+    };
+    invokeMock.mockResolvedValue(fakeNotice);
+
+    const result = await fetchNotice("4.5.17");
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith("fetch_notice", { version: "4.5.17" });
+    expect(result).toEqual(fakeNotice);
+  });
+
+  it("fetchNotice 无公告时应返回 null", async () => {
+    invokeMock.mockResolvedValue(null);
+
+    const result = await fetchNotice("4.5.21");
+
+    expect(result).toBeNull();
+  });
+
+  it("fetchNotice 返回的公告应保留完整字段（含空版本范围）", async () => {
+    const fakeNotice: UpdateNotice = { active: true, text: "系统维护公告" };
+    invokeMock.mockResolvedValue(fakeNotice);
+
+    const result = await fetchNotice("4.5.21");
+
+    expect(result).toEqual(fakeNotice);
+    expect(result?.min_version).toBeUndefined();
+    expect(result?.max_version).toBeUndefined();
+  });
+
+  it("fetchNotice invoke 抛错时应向上传播", async () => {
+    invokeMock.mockRejectedValue(new Error("network error"));
+    await expect(fetchNotice("4.5.21")).rejects.toThrow("network error");
+  });
+
   // ===== 命令名互不相同 =====
 
-  it("两个命令名应互不相同", async () => {
+  it("三个命令名应互不相同", async () => {
     invokeMock.mockResolvedValue(undefined);
     await checkUpdate();
     await downloadAndInstall();
+    invokeMock.mockResolvedValue(null);
+    await fetchNotice("4.5.21");
 
     const names = invokeMock.mock.calls.map((c) => c[0]);
     const unique = new Set(names);
     expect(unique.size).toBe(names.length);
-    expect(unique).toEqual(new Set(["check_update", "download_and_install"]));
+    expect(unique).toEqual(
+      new Set(["check_update", "download_and_install", "fetch_notice"]),
+    );
   });
 });

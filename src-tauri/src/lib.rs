@@ -214,6 +214,7 @@ pub fn run() {
             // 自动更新
             commands::update::check_update,
             commands::update::download_and_install,
+            commands::update::fetch_notice,
             // 系统集成（开机自启）
             commands::system::autostart_enable,
             commands::system::autostart_is_enabled,

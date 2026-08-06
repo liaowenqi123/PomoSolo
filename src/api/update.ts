@@ -43,6 +43,21 @@ export interface UpdateStatusPayload {
   betaVersion?: string;
 }
 
+/**
+ * 服务器公告（v4.5.21 新增）
+ *
+ * 更新失败（签名验证失败/下载失败/解析失败）时向前端展示官方指引，
+ * 避免用户在出错时不知道怎么做。来源：服务器 /updates/notice.json。
+ */
+export interface UpdateNotice {
+  active: boolean;
+  level?: string;
+  text?: string;
+  url?: string;
+  min_version?: string;
+  max_version?: string;
+}
+
 // ===== API =====
 
 /**
@@ -78,4 +93,14 @@ export async function downloadAndInstall(
   allowBeta: boolean = false,
 ): Promise<void> {
   await invoke("download_and_install", { source, allowBeta });
+}
+
+/**
+ * 拉取服务器公告（按当前版本过滤生效范围，v4.5.21）
+ *
+ * 更新出错时调用，展示官方指引（如手动升级路径）。失败返回 null，不阻塞任何流程。
+ * @param version 当前应用版本
+ */
+export async function fetchNotice(version: string): Promise<UpdateNotice | null> {
+  return await invoke<UpdateNotice | null>("fetch_notice", { version });
 }
