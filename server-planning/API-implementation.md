@@ -729,6 +729,8 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 > ⚠️ **v4.5.19 Beta 数据源修复（2026-08-04）**：v4.5.18 开了 Beta 开关仍检测不到 4.6.0-beta.0——根因是数据源：GitHub `releases/latest` 永指最新**非 prerelease** release，服务器 `latest.json` 也只有一份（被正式版覆盖）。v4.5.19 起客户端 Beta 渠道：
 > - **GitHub**：走 GitHub API `releases?per_page=100`（含 prerelease），语义化取版本号最大的 release 的 latest.json 资产；
 > - **服务器**：请求独立的 **`/updates/latest-beta.json`**（正式/测试互不覆盖）——**服务器部门需配合**：每次发 beta 时同步一份 latest-beta.json（url 指向服务器 beta 安装包，UTF8 无 BOM），当前已部署 4.6.0-beta.0 版本。正式版仍走 `latest.json`。
+>
+> ⚠️ **v4.5.20 签名验证修复（2026-08-04，最重要的修复）**：自 v4.5.15 自实现更新器起签名验证从未通过过（现象：下载完报"安装包签名验证失败"）。根因是客户端 `verify_installer` 三重错误：公钥偏移取错（[3..35] 应为 [10..42] → 提取垃圾公钥）、签名格式（tauri 的 signature 是 base64(minisign 文本) 非裸 64 字节）、算法（tauri 是 Ed25519(blake2b-512(文件)) 预哈希非直签）。v4.5.20 已重写验证逻辑（+blake2 依赖），**latest.json 格式无需改动**。**服务器部门无需动作**；但**已装 4.5.15~4.5.19 的客户端需手动下载 v4.5.20 安装包覆盖安装一次**（错误公钥无法自动修复）。
 
 **1. 静态目录 `/updates/`（本次需要服务器做的事）**
 

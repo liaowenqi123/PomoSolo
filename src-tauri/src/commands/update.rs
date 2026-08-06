@@ -266,16 +266,32 @@ fn is_prerelease(version: &str) -> bool {
 /// 解析 tauri.conf.json 中 updater.pubkey（minisign 公钥文本的 base64）
 ///
 /// 配置格式：base64( "untrusted comment: minisign public key: XXXX\nRWT<base64>" )，
-/// 其中第二行 base64 解码后为 "Ed" + 签名算法(0x21) + 32 字节 Ed25519 公钥。
+/// RWT 行 base64 解码后 42 字节 = [0..2]算法 + [2..10]key_id + [10..42]Ed25519 公钥。
+/// ⚠️ v4.5.20 修复：此前错误取 bytes[3..35]（把 key_id 尾段拼进公钥），导致提取的公钥
+/// 是垃圾值、任何真实签名都无法通过验证（现象：下载完提示"安装包签名验证失败"）。
 fn parse_pubkey(pubkey_b64: &str) -> Option<[u8; 32]> {
     let text = B64.decode(pubkey_b64).ok()?;
     let text = String::from_utf8(text).ok()?;
     let line = text.lines().find(|l| l.trim().starts_with("RWT"))?;
     let bytes = B64.decode(line.trim()).ok()?;
-    bytes.get(3..35)?.try_into().ok()
+    if bytes.len() < 42 {
+        return None;
+    }
+    bytes.get(10..42)?.try_into().ok()
 }
 
-/// 校验安装包 Ed25519 签名（signature 是对安装包文件内容的签名，base64）
+/// 校验安装包签名（v4.5.20 重写）
+///
+/// tauri updater 的 latest.json `signature` 字段 = base64(minisign 签名文本)：
+///   untrusted comment: signature from tauri secret key
+///   RUT<base64>   ← 解码 74 字节 = [0..2]算法 + [2..10]key_id + [10..74]Ed25519 签名
+///   trusted comment: timestamp:... file:...
+///   <base64>      ← 64 字节 global signature（本实现不校验，只做主签名验证）
+///
+/// 算法标记：[0..2] == "ED"(0x45 0x44) → 预哈希模式 Ed25519(blake2b-512(文件))；
+/// [0..2] == "Ed"(0x45 0x64) → 直签模式 Ed25519(文件)。
+///
+/// 兼容旧格式：若 signature 是裸 64 字节 Ed25519 签名的 base64，按直签模式验证。
 fn verify_installer(data: &[u8], signature_b64: &str, pubkey_b64: &str) -> bool {
     let Some(pk) = parse_pubkey(pubkey_b64) else {
         return false;
@@ -283,14 +299,51 @@ fn verify_installer(data: &[u8], signature_b64: &str, pubkey_b64: &str) -> bool 
     let Ok(vk) = VerifyingKey::from_bytes(&pk) else {
         return false;
     };
-    let Ok(sig_bytes) = B64.decode(signature_b64) else {
+
+    // 1) 裸 64 字节签名（base64 直解码）：直签文件内容
+    if let Ok(sig_bytes) = B64.decode(signature_b64) {
+        if let Ok(sig) = <[u8; 64]>::try_from(sig_bytes.as_slice()) {
+            if vk.verify(data, &Signature::from_bytes(&sig)).is_ok() {
+                return true;
+            }
+        }
+    }
+
+    // 2) tauri minisign 格式：signature = base64(minisign 签名文本)
+    let Ok(text) = B64.decode(signature_b64) else {
         return false;
     };
-    let Ok(sig_bytes) = <[u8; 64]>::try_from(sig_bytes.as_slice()) else {
+    let Ok(text) = String::from_utf8(text) else {
         return false;
     };
-    let sig = Signature::from_bytes(&sig_bytes);
-    vk.verify(data, &sig).is_ok()
+    let Some(sig_line) = text.lines().find(|l| l.trim().starts_with("RUT")) else {
+        return false;
+    };
+    let Ok(bin1) = B64.decode(sig_line.trim()) else {
+        return false;
+    };
+    if bin1.len() != 74 {
+        return false;
+    }
+    let prehashed = bin1[0..2] == [0x45, 0x44]; // "ED" = 预哈希
+    let Ok(sig) = <[u8; 64]>::try_from(&bin1[10..74]) else {
+        return false;
+    };
+    let sig = Signature::from_bytes(&sig);
+    if prehashed {
+        use blake2::digest::{Update, VariableOutput};
+        let Ok(mut hasher) = blake2::Blake2bVar::new(64) else {
+            return false;
+        };
+        hasher.update(data);
+        let mut h = [0u8; 64];
+        if hasher.finalize_variable(&mut h).is_err() {
+            return false;
+        }
+        vk.verify(&h, &sig).is_ok()
+    } else {
+        vk.verify(data, &sig).is_ok()
+    }
 }
 
 /// 读取 tauri.conf.json 配置中的更新公钥（plugins.updater.pubkey）
@@ -557,6 +610,42 @@ fn is_builtin_song(filename: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ed25519_dalek::{SigningKey, Signer};
+
+    /// 构造 tauri minisign 公钥文本的 base64
+    /// （RWT 行 = base64(42 字节) = "Ed" + key_id + 公钥；base64 恰以 "RWT" 开头）
+    fn make_pubkey_b64(keypair: &SigningKey) -> String {
+        let mut bin = Vec::with_capacity(42);
+        bin.extend_from_slice(&[0x45, 0x64]); // "Ed"
+        bin.extend_from_slice(&[0xfb, 0x21, 0xb5, 0xed, 0x19, 0xdf, 0xef, 0x70]); // key_id
+        bin.extend_from_slice(&keypair.verifying_key().to_bytes());
+        assert_eq!(bin.len(), 42);
+        let text = format!(
+            "untrusted comment: minisign public key: TEST\n{}\n",
+            B64.encode(&bin)
+        );
+        B64.encode(text.as_bytes())
+    }
+
+    /// 构造 tauri 预哈希签名文本（signature = base64(minisign 文本)，RUT 行 = "ED" + key_id + 签名）
+    fn make_tauri_prehashed_sig_b64(keypair: &SigningKey, data: &[u8]) -> String {
+        use blake2::digest::{Update, VariableOutput};
+        let mut hasher = blake2::Blake2bVar::new(64).unwrap();
+        hasher.update(data);
+        let mut h = [0u8; 64];
+        hasher.finalize_variable(&mut h).unwrap();
+        let sig = keypair.sign(&h);
+        let mut bin1 = Vec::with_capacity(74);
+        bin1.extend_from_slice(&[0x45, 0x44]); // "ED" = 预哈希模式
+        bin1.extend_from_slice(&[0xfb, 0x21, 0xb5, 0xed, 0x19, 0xdf, 0xef, 0x70]); // key_id
+        bin1.extend_from_slice(&sig.to_bytes());
+        assert_eq!(bin1.len(), 74);
+        let text = format!(
+            "untrusted comment: signature from tauri secret key\n{}\ntrusted comment: timestamp:0 file:test\nAAAA\n",
+            B64.encode(&bin1)
+        );
+        B64.encode(text.as_bytes())
+    }
 
     #[test]
     fn test_is_builtin_song_matches_pattern() {
@@ -721,6 +810,49 @@ mod tests {
         let pubkey = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcwRUZERjE5RURCNTIxRkIKUldUN0liWHRHZC92Y0U1NnoxUXBGWFl1aG5BdVkwY2c4eHBEN1h5dm1qQlVLSzdmQWRWQmdqS3MK";
         let pk = parse_pubkey(pubkey).expect("应能解析出公钥");
         assert_eq!(pk.len(), 32);
+        // v4.5.20 修复：公钥在 RWT 行解码后 [10..42]（"Ed" + key_id8 + 公钥32）。
+        // 旧实现取 bytes[3..35] 得到垃圾公钥 → 真实签名永远验证失败。
+        let hex: String = pk.iter().map(|b| format!("{:02x}", b)).collect();
+        assert_eq!(
+            hex,
+            "4e7acf542915762e86702e634720f31a43ed7caf9a305428aedf01d5418232ac",
+            "公钥偏移错误会导致任何真实签名都无法通过验证"
+        );
+    }
+
+    #[test]
+    fn test_verify_installer_accepts_tauri_prehashed_signature() {
+        // v4.5.20 修复：tauri 签名 = Ed25519(blake2b-512(文件))，minisign 文本格式
+        let keypair = SigningKey::from_bytes(&[7u8; 32]);
+        let data = b"fake installer content for unit test";
+        let sig_b64 = make_tauri_prehashed_sig_b64(&keypair, data);
+        let pubkey_b64 = make_pubkey_b64(&keypair);
+
+        // 真实预哈希签名必须通过（此前旧实现永远失败）
+        assert!(
+            verify_installer(data, &sig_b64, &pubkey_b64),
+            "tauri 预哈希签名应通过验证"
+        );
+        // 篡改文件内容 → 必须失败
+        assert!(!verify_installer(b"tampered content", &sig_b64, &pubkey_b64));
+        // 公钥不匹配 → 必须失败
+        let other = SigningKey::from_bytes(&[9u8; 32]);
+        assert!(!verify_installer(data, &sig_b64, &make_pubkey_b64(&other)));
+    }
+
+    #[test]
+    fn test_verify_installer_accepts_legacy_raw_signature() {
+        // 兼容旧格式：裸 64 字节 Ed25519 直签文件内容的 base64
+        let keypair = SigningKey::from_bytes(&[8u8; 32]);
+        let data = b"raw signature test";
+        let sig = keypair.sign(data);
+        let sig_b64 = B64.encode(sig.to_bytes());
+        let pk_b64 = make_pubkey_b64(&keypair);
+        let pk = parse_pubkey(&pk_b64);
+        let vk = pk.and_then(|p| VerifyingKey::from_bytes(&p).ok());
+        assert!(vk.is_some(), "公钥应能解析并构造 VerifyingKey");
+        assert!(verify_installer(data, &sig_b64, &pk_b64));
+        assert!(!verify_installer(b"other", &sig_b64, &make_pubkey_b64(&keypair)));
     }
 
     #[test]
