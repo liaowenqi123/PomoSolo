@@ -82,8 +82,15 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # 本地 runner 上 system32\bash.exe 是 WSL 启动器，dtolnay/rust-toolchain 用它跑生成的
+      # 临时脚本时 Windows 路径反斜杠被吞（No such file or directory），改用系统 rustup 直装：
+      # 系统 rustup 代理在 PATH（C:\Users\admin\.cargo\bin），RUSTUP_HOME 已缓存 stable 工具链
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustc --version
+          cargo --version
 
       # 无 rust-cache：本地固定 CARGO_TARGET_DIR 即缓存（依赖未变时增量编译，与 GitHub 零缓存往返）
 
