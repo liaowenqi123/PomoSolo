@@ -119,6 +119,76 @@ describe("p2p 信令路由", () => {
     b.close();
   });
 
+  it("offer 发起者与挂起 key 不匹配时（持有者≠DJ），唯一挂起项兜底接受（v4.6.0 修复）", async () => {
+    // 场景：服务器 _pick_song_holder 选了非 DJ 的持有者 → offer 的 from_user_id ≠ 挂起的 djUserId。
+    // 精确匹配不到但只有一个挂起接收 → 用该挂起项建连，避免 offer 被忽略导致 P2P 形同虚设。
+    const closeSpy = vi.fn();
+    const fakePc = {
+      close: closeSpy,
+      setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+      createAnswer: vi.fn().mockResolvedValue({ type: "answer", sdp: "x" }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      ondatachannel: null,
+      onicecandidate: null,
+      onconnectionstatechange: null,
+      connectionState: "new",
+    };
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn().mockImplementation(() => fakePc),
+    );
+    const signal = vi.fn().mockResolvedValue(undefined);
+    const onOpen = vi.fn();
+    const handle = p2pReceive({
+      peerId: "dj-user-id", // 挂起 key 是 DJ 的 user_id
+      role: "answerer",
+      onChunk: vi.fn(),
+      signal,
+      callbacks: { onOpen },
+    });
+    // 持有者并非 DJ：from_user_id = "holder-user-id" ≠ "dj-user-id"
+    expect(() =>
+      handlePeerSignal({
+        type: "peer:offer",
+        from_user_id: "holder-user-id",
+        sdp: { type: "offer" },
+      }),
+    ).not.toThrow();
+    // 唯一挂起项被消费 → 应答流程发起
+    await vi.waitFor(() => expect(signal).toHaveBeenCalled());
+    handle.close();
+    // 挂起表已清空：后续无挂起 offer 静默忽略
+    expect(() =>
+      handlePeerSignal({ type: "peer:offer", from_user_id: "holder-user-id", sdp: { type: "offer" } }),
+    ).not.toThrow();
+    expect(closeSpy).not.toHaveBeenCalled(); // 新 offer 未建连
+  });
+
+  it("offer 发起者不匹配且存在多个挂起时不做兜底（避免误配对）", async () => {
+    const fakePc = {
+      close: vi.fn(),
+      setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+      createAnswer: vi.fn().mockResolvedValue({ type: "answer", sdp: "x" }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      ondatachannel: null,
+      onicecandidate: null,
+      onconnectionstatechange: null,
+      connectionState: "new",
+    };
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn().mockImplementation(() => fakePc),
+    );
+    const a = p2pReceive({ peerId: "peer-A", role: "answerer", signal: vi.fn().mockResolvedValue(undefined) });
+    const b = p2pReceive({ peerId: "peer-B", role: "answerer", signal: vi.fn().mockResolvedValue(undefined) });
+    // 两个挂起 + offer 来自第三方 → 不兜底（保持原忽略行为）
+    expect(() =>
+      handlePeerSignal({ type: "peer:offer", from_user_id: "peer-C", sdp: { type: "offer" } }),
+    ).not.toThrow();
+    a.close();
+    b.close();
+  });
+
   it("发送端发完数据后等接收端 ack 才完成（防丢尾包）", async () => {
     // 伪造 DataChannel：手动触发 open / 注入 ack 消息
     const sent: unknown[] = [];

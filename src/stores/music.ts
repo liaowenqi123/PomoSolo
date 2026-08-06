@@ -130,6 +130,8 @@ export const useMusicStore = defineStore("music", () => {
     startedAt: number;
     /** 已自动重试次数（0 起，UI 展示"第 n/m 次重试"） */
     retryCount: number;
+    /** 实际传输通道（v4.6.0 可观察性）："p2p"=WebRTC 直连 / "server"=服务器中转 / null=未确定 */
+    channel: "p2p" | "server" | null;
   }
   const songTransfer = ref<SongTransferState>({
     state: "idle",
@@ -138,7 +140,20 @@ export const useMusicStore = defineStore("music", () => {
     total: 0,
     startedAt: 0,
     retryCount: 0,
+    channel: null,
   });
+  /** 传歌状态重置为 idle（各中断/完成路径统一复位，含 channel 清空） */
+  function resetSongTransfer(): void {
+    songTransfer.value = {
+      state: "idle",
+      songName: "",
+      received: 0,
+      total: 0,
+      startedAt: 0,
+      retryCount: 0,
+      channel: null,
+    };
+  }
   /** 传歌期间暂存的 DJ 播放进度（秒），合并完成后用于立即 seek 校准 */
   let pendingSyncPosition = 0;
   /** 未开启同步时缓存的最近一次 music:sync_state（开启同步后立即应用，解决"加入已有 DJ 的同步没反应"） */
@@ -254,6 +269,7 @@ export const useMusicStore = defineStore("music", () => {
           total: 0,
           startedAt: now,
           retryCount: transferRetry,
+          channel: null,
         };
         void musicSyncRequestSong(songId, fromChunk).catch((e) => {
           console.warn("[MusicStore] 续传请求失败:", e);
@@ -262,7 +278,7 @@ export const useMusicStore = defineStore("music", () => {
         // 重试耗尽 → 降级为"无这首歌"（不再卡住曲名）
         console.warn("[MusicStore] 传歌多次重试失败，降级为无这首歌:", t.songName);
         const songId = t.songName;
-        songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0 };
+        resetSongTransfer();
         lastChunkAt = 0;
         transferRetry = 0;
         if (songId) missingSongName.value = songId;
@@ -533,7 +549,7 @@ export const useMusicStore = defineStore("music", () => {
   function abortCurrentTransfer(): void {
     activeP2PReceive?.close();
     activeP2PReceive = null;
-    songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0 };
+    resetSongTransfer();
     lastChunkAt = 0;
     transferRetry = 0;
   }
@@ -566,6 +582,7 @@ export const useMusicStore = defineStore("music", () => {
       total: 0,
       startedAt: Date.now(),
       retryCount: 0,
+      channel: null,
     };
     // Phase 1：首次传输（非续传）且知道 DJ 身份 → 挂起 WebRTC 直连接收。
     // DJ 侧收到 p2p 标志后优先尝试直传；失败自动回退服务器中转（music:song_chunk 路径照常）。
@@ -585,6 +602,10 @@ export const useMusicStore = defineStore("music", () => {
           lastChunkAt = Date.now();
         },
         callbacks: {
+          // v4.6.0：WebRTC 建连成功 → 标记"P2P 直连中"，前端可明确观察到通道
+          onOpen: () => {
+            songTransfer.value.channel = "p2p";
+          },
           onComplete: () => {
             // 直连收齐 → 关闭挂起 + 直接合并（不经服务器 transfer_done）
             const total = songTransfer.value.total;
@@ -594,6 +615,7 @@ export const useMusicStore = defineStore("music", () => {
           onError: (err) => {
             // 建连失败/通道中断 → 回退服务器中转（现有请求已在途，music:song_chunk 会继续）
             activeP2PReceive = null;
+            songTransfer.value.channel = "server";
             console.warn("[MusicStore] P2P 直连失败，回退服务器中转:", err);
           },
         },
@@ -604,7 +626,7 @@ export const useMusicStore = defineStore("music", () => {
       // 等待服务器分配持有者：DJ 走 P2P 直传（DataChannel 分片）或服务器中转（music:song_chunk）
     } catch (e) {
       console.warn("[MusicStore] 请求传歌失败:", e);
-      songTransfer.value = { state: "failed", songName: songId, received: 0, total: 0, startedAt: 0, retryCount: 0 };
+      songTransfer.value = { state: "failed", songName: songId, received: 0, total: 0, startedAt: 0, retryCount: 0, channel: null };
     }
   }
 
@@ -617,6 +639,8 @@ export const useMusicStore = defineStore("music", () => {
     }
     const songId = typeof evt.song_id === "string" ? evt.song_id : "";
     if (!songId || songId !== songTransfer.value.songName) return;
+    // v4.6.0：收到服务器分片 → 明确标记"服务器中转"通道（前端可观察）
+    songTransfer.value.channel = "server";
     const chunkIndex = Number(evt.chunk_index ?? 0);
     const totalChunks = Number(evt.total_chunks ?? 0);
     const dataBase64 = typeof evt.data_base64 === "string" ? evt.data_base64 : "";
@@ -649,7 +673,7 @@ export const useMusicStore = defineStore("music", () => {
    * @param totalChunks 分片总数（服务器 transfer_done 携带，缺失时用已记录值）
    */
   async function finalizeTransfer(songId: string, totalChunks: number): Promise<void> {
-    songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0 };
+    resetSongTransfer();
     lastChunkAt = 0;
     transferRetry = 0;
     try {
@@ -719,7 +743,7 @@ export const useMusicStore = defineStore("music", () => {
     // 正在传输其他歌时收到旧歌的迟到 transfer_failed：不打断当前传输、不设缺歌提示
     if (t.state !== "idle") {
       if (t.songName !== songId) return;
-      songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0 };
+      songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0, channel: null };
     }
     // 仅当失败的是当前曲目时才提示"无这首歌"（迟到的旧歌失败不污染提示）
     if (songId && songId === trackName.value) missingSongName.value = songId;
@@ -1045,7 +1069,7 @@ export const useMusicStore = defineStore("music", () => {
     currentTime.value = 0;
     duration.value = 0;
     // 同步听歌无歌可播时复位 P2P 传输状态
-    songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0 };
+    songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0, channel: null };
   }
 
   function handlePlayError(payload: MusicPlayErrorPayload) {
@@ -1136,7 +1160,7 @@ export const useMusicStore = defineStore("music", () => {
       djName.value = "";
       djUserId.value = null;
       waitingForSongs.value = false;
-      songTransfer.value = { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0 };
+      resetSongTransfer();
       lastChunkAt = 0;
       stopTransferWatch();
     }

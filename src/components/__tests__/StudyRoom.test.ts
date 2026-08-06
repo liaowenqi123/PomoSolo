@@ -30,8 +30,12 @@ const musicMock = vi.hoisted(() => ({
   isDj: false,
   djName: "",
   djUserId: null,
+  waitingForSongs: false,
+  songTransfer: { state: "idle", songName: "", received: 0, total: 0, startedAt: 0, retryCount: 0, channel: null },
   setSyncEnabled: vi.fn(),
   requestDj: vi.fn(),
+  setTransferMode: vi.fn(),
+  transferMode: "immediate",
 }));
 vi.mock("@/stores/music", () => ({
   useMusicStore: () => musicMock,

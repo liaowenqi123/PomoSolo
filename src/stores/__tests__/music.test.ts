@@ -76,7 +76,7 @@ interface P2PReceiveOpts {
   peerId: string;
   role: string;
   onChunk: (chunk: Uint8Array, index: number, totalChunks: number) => Promise<void>;
-  callbacks: { onComplete: () => void; onError: (err: string) => void };
+  callbacks: { onComplete: () => void; onError: (err: string) => void; onOpen?: () => void };
 }
 interface P2PSendOpts {
   peerId: string;
@@ -871,7 +871,7 @@ describe("useMusicStore", () => {
   it("handleTransferDone：切歌打断后旧歌的迟到 transfer_done 被忽略", async () => {
     const s = useMusicStore();
     // 当前正在传输 b.mp3（DJ 已切歌），此时到达旧歌 a.mp3 的 transfer_done
-    s.songTransfer = { state: "downloading", songName: "b.mp3", received: 3, total: 10, startedAt: Date.now(), retryCount: 0 };
+    s.songTransfer = { state: "downloading", songName: "b.mp3", received: 3, total: 10, startedAt: Date.now(), retryCount: 0, channel: null };
     s.handleSyncWsEvent({ type: "music:transfer_done", song_id: "a.mp3", total_chunks: 10 });
     await new Promise((r) => setTimeout(r, 0));
     expect(musicApi.musicFinalizeSong).not.toHaveBeenCalled();
@@ -884,7 +884,7 @@ describe("useMusicStore", () => {
   it("handleTransferDone：正常完成 → 合并、标记本地已有；下载与播放分离（不立即播放）", async () => {
     const s = useMusicStore();
     s.setSyncEnabled(true);
-    s.songTransfer = { state: "downloading", songName: "a.mp3", received: 10, total: 10, startedAt: Date.now(), retryCount: 0 };
+    s.songTransfer = { state: "downloading", songName: "a.mp3", received: 10, total: 10, startedAt: Date.now(), retryCount: 0, channel: null };
     s.djName = "bob";
     musicApi.musicFinalizeSong.mockResolvedValue({ success: true });
     s.handleSyncWsEvent({ type: "music:transfer_done", song_id: "a.mp3", total_chunks: 10 });
@@ -904,7 +904,7 @@ describe("useMusicStore", () => {
       const s = useMusicStore();
       s.setSyncEnabled(true);
       s.isDj = false;
-      s.songTransfer = { state: "downloading", songName: "a.mp3", received: 10, total: 10, startedAt: Date.now(), retryCount: 0 };
+      s.songTransfer = { state: "downloading", songName: "a.mp3", received: 10, total: 10, startedAt: Date.now(), retryCount: 0, channel: null };
       s.trackName = "old.mp3";
       s.playing = false;
       musicApi.musicFinalizeSong.mockResolvedValue({ success: true });
@@ -1015,7 +1015,7 @@ describe("useMusicStore", () => {
   it("handleTransferFailed：旧歌的迟到失败事件不打断当前传输", () => {
     const s = useMusicStore();
     s.trackName = "b.mp3";
-    s.songTransfer = { state: "downloading", songName: "b.mp3", received: 2, total: 10, startedAt: Date.now(), retryCount: 0 };
+    s.songTransfer = { state: "downloading", songName: "b.mp3", received: 2, total: 10, startedAt: Date.now(), retryCount: 0, channel: null };
     s.handleSyncWsEvent({ type: "music:transfer_failed", song_id: "a.mp3" });
     expect(s.songTransfer.state).toBe("downloading");
     expect(s.songTransfer.songName).toBe("b.mp3");
@@ -1025,7 +1025,7 @@ describe("useMusicStore", () => {
   it("handleTransferFailed：当前传输失败 → 复位并提示无这首歌", () => {
     const s = useMusicStore();
     s.trackName = "a.mp3";
-    s.songTransfer = { state: "downloading", songName: "a.mp3", received: 2, total: 10, startedAt: Date.now(), retryCount: 0 };
+    s.songTransfer = { state: "downloading", songName: "a.mp3", received: 2, total: 10, startedAt: Date.now(), retryCount: 0, channel: null };
     s.handleSyncWsEvent({ type: "music:transfer_failed", song_id: "a.mp3" });
     expect(s.songTransfer.state).toBe("idle");
     expect(s.missingSongName).toBe("a.mp3");
@@ -1161,6 +1161,49 @@ describe("useMusicStore", () => {
     opts.callbacks.onError("P2P 建连超时");
     // 请求已在途：状态保持 requesting，等服务器 song_chunk 继续下载
     expect(s.songTransfer.state).toBe("requesting");
+  });
+
+  it("P2P 建连成功 → channel 标记为 p2p（前端可观察）", async () => {
+    const s = useMusicStore();
+    s.djUserId = "dj-1";
+    musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+    await s.startSongTransfer("song-x", 0);
+    const opts = p2pApi.p2pReceive.mock.calls[0][0] as P2PReceiveOpts;
+    // 初始未确定
+    expect(s.songTransfer.channel).toBeNull();
+    opts.callbacks.onOpen?.();
+    expect(s.songTransfer.channel).toBe("p2p");
+  });
+
+  it("P2P 建连失败 → channel 标记为 server（回退服务器中转）", async () => {
+    const s = useMusicStore();
+    s.djUserId = "dj-1";
+    musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+    await s.startSongTransfer("song-x", 0);
+    const opts = p2pApi.p2pReceive.mock.calls[0][0] as P2PReceiveOpts;
+    opts.callbacks.onError("P2P 建连超时");
+    expect(s.songTransfer.channel).toBe("server");
+  });
+
+  it("收到服务器中转分片 → channel 标记为 server（前端可观察）", async () => {
+    const s = useMusicStore();
+    s.djUserId = "dj-1";
+    musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+    await s.startSongTransfer("song-x", 0);
+    musicApi.musicReceiveSongChunk.mockResolvedValue({ success: true });
+    s.handleSyncWsEvent({
+      type: "music:song_chunk",
+      song_id: "song-x",
+      chunk_index: 0,
+      total_chunks: 2,
+      chunk_size: 128,
+      data_base64: "AQ==",
+    });
+    // handleSongChunk 为异步执行（void 分发），需等待落盘完成再断言
+    await vi.waitFor(() => {
+      expect(s.songTransfer.channel).toBe("server");
+      expect(s.songTransfer.received).toBe(1);
+    });
   });
 
   it("DJ 收到带 p2p+requester_user_id 的请求 → 先 P2P 直传，完成通知服务器清理", async () => {

@@ -29,6 +29,8 @@ export interface P2PTransferCallbacks {
   onComplete?: (stats: { bytes: number; ms: number; speedBps: number }) => void;
   /** 建连或传输失败 */
   onError?: (err: string) => void;
+  /** WebRTC 建连成功（DataChannel 可传输；前端据此标记"P2P 直连中"） */
+  onOpen?: () => void;
 }
 
 export interface P2PStartOptions {
@@ -60,7 +62,14 @@ export interface P2PHandle {
   close: () => void;
 }
 
-const DEFAULT_STUN = ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"];
+// 国内可达性优先的 STUN 列表（v4.6.0-beta 实测 Google STUN 在大陆常被墙/不稳定，
+// 仅 cloudflare 单点时对称 NAT 下打洞成功率低；多 STUN 并行收集提高 srflx 候选获取率）
+const DEFAULT_STUN = [
+  "stun:stun.cloudflare.com:3478",
+  "stun:stun.miwifi.com:3478",
+  "stun:stun.chat.bilibili.com:3478",
+  "stun:stun.l.google.com:19302",
+];
 const DEFAULT_CHUNK_SIZE = 128 * 1024;
 const DEFAULT_TIMEOUT_MS = 8_000;
 
@@ -352,6 +361,7 @@ function establishConnection(
   pc.onconnectionstatechange = () => {
     if (pc.connectionState === "connected") {
       clearTimeout(timeoutTimer);
+      callbacks.onOpen?.();
     }
   };
 
@@ -403,7 +413,18 @@ export function handlePeerSignal(evt: Record<string, unknown>): void {
 
   switch (type) {
     case "peer:offer": {
-      const opts = pendingReceivers.get(from);
+      // 优先精确匹配发起者；否则回退到"当前唯一挂起的接收"。
+      // 服务器选持有者优先 DJ 但不保证是 DJ（_pick_song_holder 可能选任一成员），
+      // 此时 offer 的 from_user_id ≠ 听众挂起的 djUserId → 精确匹配不到 → 用唯一挂起兜底，
+      // 否则 offer 被忽略、8s 后回退服务器中转（v4.6.0-beta 实测 P2P 形同虚设的根因之一）。
+      let opts = pendingReceivers.get(from);
+      if (!opts && pendingReceivers.size === 1) {
+        const only = pendingReceivers.values().next().value;
+        if (only) {
+          opts = only;
+          pendingReceivers.delete(only.peerId);
+        }
+      }
       if (!opts) return; // 没有挂起的接收 → 忽略
       pendingReceivers.delete(from);
       try {

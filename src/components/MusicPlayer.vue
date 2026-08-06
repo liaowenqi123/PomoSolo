@@ -65,6 +65,48 @@ const trackDisplay = computed(() => {
   return store.playError || (store.hasMusic ? (store.trackName || "未播放") : "无音乐");
 });
 
+/**
+ * 当前传输通道标记（v4.6.0 可观察性）：P2P 直连 / 服务器中转 / 未确定。
+ * 传输结束后展示"通道已确定"的结果，方便用户确认 P2P 是否真的建立。
+ */
+const transferChannelLabel = computed(() => {
+  const channel = store.songTransfer.channel;
+  if (channel === "p2p") return "P2P 直连";
+  if (channel === "server") return "服务器中转";
+  return null;
+});
+
+/**
+ * 曲名是否溢出（v4.6.0）：溢出时启用横向滚动，避免长歌名被截断看不到全名。
+ * 用 ResizeObserver 监听曲名容器宽度变化，scrollWidth > clientWidth 即为溢出。
+ */
+const trackNameRef = ref<HTMLElement | null>(null);
+const isTrackOverflow = ref(false);
+let trackNameObserver: ResizeObserver | null = null;
+
+function updateTrackOverflow(): void {
+  const el = trackNameRef.value;
+  if (!el) return;
+  isTrackOverflow.value = el.scrollWidth > el.clientWidth + 1;
+}
+
+onMounted(() => {
+  // 注册曲名容器溢出检测（曲名变化/窗口缩放都会触发 ResizeObserver）
+  updateTrackOverflow();
+  if (typeof ResizeObserver !== "undefined") {
+    trackNameObserver = new ResizeObserver(() => updateTrackOverflow());
+    if (trackNameRef.value) trackNameObserver.observe(trackNameRef.value);
+  }
+});
+
+// 监听曲名文本变化（trackDisplay 变化时重新计算是否溢出）；setup 顶层同步创建，随组件自动停止
+watch(trackDisplay, () => updateTrackOverflow(), { flush: "post" });
+
+onUnmounted(() => {
+  trackNameObserver?.disconnect();
+  trackNameObserver = null;
+});
+
 // ===== 进度条拖拽 =====
 const progressBarRef = ref<HTMLDivElement | null>(null);
 const isDraggingProgress = ref(false);
@@ -430,13 +472,26 @@ if (typeof document !== "undefined") {
         <div class="music-info">
           <span class="music-icon">🎵</span>
           <span
+            ref="trackNameRef"
             class="music-player__track-name"
             :class="{
               error: !!store.playError || !!store.missingSongName || store.waitingForSongs || (store.songTransfer.state !== 'idle' && !store.playing),
               empty: !store.hasMusic,
             }"
+            :title="trackDisplay"
           >
-            {{ trackDisplay }}
+            <span class="music-player__track-scroll" :class="{ active: isTrackOverflow }">
+              {{ trackDisplay }}
+            </span>
+          </span>
+          <!-- v4.6.0：传输通道标记（P2P 直连 / 服务器中转），便于确认 P2P 是否建立 -->
+          <span
+            v-if="transferChannelLabel"
+            class="music-player__transfer-channel"
+            :class="`music-player__transfer-channel--${store.songTransfer.channel}`"
+            :title="`当前传输通道：${transferChannelLabel}`"
+          >
+            {{ transferChannelLabel }}
           </span>
 
           <!-- 音量（本地输出，非 DJ 也可调整） -->
@@ -756,9 +811,11 @@ if (typeof document !== "undefined") {
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   flex: 1;
   color: rgba(255, 255, 255, 0.95);
+  position: relative;
+  /* v4.6.0：长歌名内部横向滚动（scrollWidth > clientWidth 时启用），
+     不设 text-overflow 截断，改用 .track-scroll 滚动显示完整曲名 */
 }
 
 .music-player__track-name.error {
@@ -767,6 +824,55 @@ if (typeof document !== "undefined") {
 
 .music-player__track-name.empty {
   color: rgba(255, 255, 255, 0.5);
+}
+
+/* 曲名滚动容器：溢出时横向平移，未溢出保持静止 */
+.music-player__track-scroll {
+  display: inline-block;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.music-player__track-scroll.active {
+  animation: trackNameMarquee 12s linear infinite;
+}
+
+@keyframes trackNameMarquee {
+  0% {
+    transform: translateX(0);
+  }
+  8% {
+    transform: translateX(0);
+  }
+  92% {
+    transform: translateX(calc(-100% + 160px));
+  }
+  100% {
+    transform: translateX(calc(-100% + 160px));
+  }
+}
+
+/* v4.6.0：传输通道徽章（P2P 直连 / 服务器中转） */
+.music-player__transfer-channel {
+  flex-shrink: 0;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  line-height: 1.5;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.music-player__transfer-channel--p2p {
+  background: rgba(102, 187, 106, 0.18);
+  color: #66bb6a;
+  border: 1px solid rgba(102, 187, 106, 0.35);
+}
+
+.music-player__transfer-channel--server {
+  background: rgba(255, 193, 7, 0.15);
+  color: #ffca28;
+  border: 1px solid rgba(255, 193, 7, 0.3);
 }
 
 /* ============ 底部控制行：榜单(左) + 上一首 + 播放 + 下一首 + 模式(右) ============ */

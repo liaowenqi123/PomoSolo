@@ -760,6 +760,22 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 >
 > ⚠️ 回退方法：若发现 `p2p` 标志导致异常，删掉 `handle_music_request_song` 里 `if msg.get("p2p")` 两行即可，不影响其他逻辑。
 
+## 【纯客户端，无需服务器操作】Phase 1.1：P2P 可观察性与打洞修复（2026-08-06，分支 feature/p2p-datachannel）
+
+> 背景：用户实测两边都升到 beta 后无法确认 P2P 到底通没通（流量监控"不对劲"、前端曲名区太短不滚动看不到传输状态）。
+> 根因：① 客户端仅配 STUN 无 TURN，Google STUN 国内常被墙 + 对称 NAT → 打洞失败；② 8s 超时**静默**回退服务器中转（3Mbps）无任何 UI 提示；
+> ③ 服务器选持有者优先 DJ 但不保证是 DJ（`_pick_song_holder` 可选中任一成员），而听众挂起 P2P 接收的 key 是 `djUserId` → offer 的
+> `from_user_id` 与挂起 key 不匹配时 `handlePeerSignal` 直接忽略 → P2P 形同虚设。
+>
+> **本次改动（纯前端，协议/服务器零改动）**：
+> 1. **前端可观察性**：`SongTransferState` 新增 `channel: "p2p" | "server" | null`——WebRTC 建连成功标 `p2p`、失败回退/收到服务器分片标 `server`；
+>    MusicPlayer 曲名下方显示通道徽章（P2P 绿 / 服务器黄），StudyRoom 同步提示区显示"⚡ P2P 直连 / 🌐 服务器中转"。
+> 2. **曲名溢出滚动**：曲名容器 `scrollWidth > clientWidth` 时启用 marquee 平移滚动（12s 循环），长文件名也能看清当前传输对象。
+> 3. **STUN 国内可达优先**：`stun.l.google.com` 降为兜底，前置 `stun.cloudflare.com` + `stun.miwifi.com` + `stun.chat.bilibili.com` 等国内易达服务器。
+> 4. **offer 唯一挂起兜底**：`handlePeerSignal` 的 peer:offer 精确匹配失败时，若当前**只有一个**挂起接收则消费它（修复持有者≠DJ 时 offer 被忽略）；多个挂起时仍精确匹配不兜底（避免错连）。
+>
+> **未决（后续）**：对称 NAT 下 STUN 无法打洞仍需 TURN（coturn）中继；分片 `number[]` JSON 序列化效率可改二进制。协议未变，服务器无需配合。
+
 ## 【已部署 + 客户端已实现】Phase 2：安装包 P2P 种子（2026-08-04）
 
 > 用户本机带宽充裕，开启"分享安装包"后，其他客户端更新时优先从在线种子 **P2P 直连**下载（不经服务器，也不走 GitHub）。
