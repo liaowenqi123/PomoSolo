@@ -284,7 +284,7 @@ describe("SettingsPanel.vue", () => {
   it("应渲染所有开关（外观2+功能按钮5+导航2+音乐3+种植1+系统1+Beta1+分享1=16）", () => {
     const wrapper = mountComponent();
     const toggles = wrapper.findAll('.settings-row--toggle input[type="checkbox"]');
-    expect(toggles).toHaveLength(15);
+    expect(toggles).toHaveLength(16);
   });
 
   it("显示菜园子按钮开关默认应为 checked", () => {
