@@ -49,6 +49,8 @@ export interface AppSettings {
   updateSource: UpdateSource;
   /** 是否接收 Beta 版本更新（v4.5.18，默认 false：正式渠道跳过 prerelease） */
   allowBetaUpdates: boolean;
+  /** P2P 分享安装包（Phase 2）：开启后本机作为种子，其他客户端可直连下载 */
+  shareInstaller: boolean;
   // 系统
   autoStart: boolean;
   // 主题
@@ -75,6 +77,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   syncTransferMode: "immediate",
   updateSource: "github",
   allowBetaUpdates: false,
+  shareInstaller: false,
   autoStart: false,
   theme: "light",
 };

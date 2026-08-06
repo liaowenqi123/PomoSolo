@@ -58,6 +58,30 @@
 > - 拉取失败 / 非 200 / 解析失败 / 未 active / 不在版本范围 → 后端返回 `Ok(None)`，**不打扰用户**；
 > - 部署后 4.5.15~4.5.19 老用户更新失败时会看到"请手动升级 v4.5.20 覆盖安装"指引，不再需要删重装。
 
+> ## Phase 2：P2P 种子下载安装包（v4.6.0-beta.0，2026-08-04）
+>
+> 服务器 3Mbps 慢、GitHub 国内不稳 → 用户本机带宽充裕，增加**在线种子 P2P 直连**路径：
+>
+> **种子端**（分享安装包开关，需登录）：`SettingsPanel` → 开启后 `startSeedSharing(appVersion)`
+> 调 `p2p_seed_register`（version + 文件名 + size）注册 → 每 30s `p2p_seed_heartbeat` 保活 →
+> 关闭/登出时 `p2p_seed_unregister`。服务器只维护内存种子表（user_id → {version, file, size, last_seen}，
+> 60s 无心跳自动清理），**不存文件、不中转数据**（见 `server-planning/ws_server.py` p2p:seed_* 消息）。
+>
+> **下载端**（更新按钮，种子优先）：`check_update` 返回的 `UpdateInfo` 新增 `signature` 字段（来自 latest.json）
+> → 下载前 `p2p_seed_list(version)` 查在线种子 → 有种子则前端 WebRTC 收片（`p2pReceive` DataChannel 分片）
+> → 逐片调 `update_seed_download_chunk`（Rust 落盘到系统临时目录 `pomosolo_update_{version}.exe`）
+> → 收齐后 Rust `finish_seed_install` 复用 `verify_installer` 校验 Ed25519 签名 → 通过则启动安装器并退出应用。
+> 无种子 / P2P 失败（`onError` → `update_seed_download_abort` 清会话删残留）→ 自动回退现有
+> `downloadAndInstall`（服务器/GitHub）。
+>
+> **实现文件**：Rust `commands/p2p.rs`（p2p_seed_register/heartbeat/unregister/list，seed_list 走 ws::request
+> 请求-响应）+ `commands/update.rs`（update_seed_download_begin/chunk/abort + `SeedDownload` 全局单会话）；
+> 前端 `api/seed.ts`（4 个命令封装）+ `api/update.ts`（signature + 3 个 seed 下载命令）+ `seed.ts`（管理器
+> start/stop + 30s 心跳）+ `stores/settings.ts`（shareInstaller 开关）+ `SettingsPanel.vue`（开关 UI + trySeedDownload）。
+> 收齐判定用 `chunk_received` 纯函数（index+1 >= total，乱序取 max；total 未定时只累计不判定）。
+> 打洞/建连/传输全部复用现有 WebRTC 栈（浏览器原生 `RTCPeerConnection` + 服务器 peer:* 信令，见 P2P 架构文档），
+> 客户端零新增依赖。
+
 ## 一、概述
 
 本文档描述如何为 Electron 应用实现自动更新功能。用户第一次安装时可以选择安装目录，后续更新完全静默自动完成。

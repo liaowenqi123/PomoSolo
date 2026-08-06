@@ -396,4 +396,56 @@ describe("MusicPlayer.vue", () => {
     expect(wrapper.find(".music-player__track-name").text()).toBe("b.mp3");
     wrapper.unmount();
   });
+
+  // ===== v4.6.0：传输通道可观察性 =====
+
+  it("P2P 直连通道 → 显示绿色『P2P 直连』徽章", () => {
+    mockStore = makeStore({
+      playing: false,
+      trackName: "old.mp3",
+      songTransfer: { state: "downloading", songName: "new.mp3", received: 1, total: 48, channel: "p2p" },
+    });
+    const wrapper = mountComponent();
+    const badge = wrapper.find(".music-player__transfer-channel");
+    expect(badge.exists()).toBe(true);
+    expect(badge.text()).toBe("P2P 直连");
+    expect(badge.classes()).toContain("music-player__transfer-channel--p2p");
+    wrapper.unmount();
+  });
+
+  it("服务器中转通道 → 显示黄色『服务器中转』徽章", () => {
+    mockStore = makeStore({
+      playing: false,
+      trackName: "old.mp3",
+      songTransfer: { state: "downloading", songName: "new.mp3", received: 1, total: 48, channel: "server" },
+    });
+    const wrapper = mountComponent();
+    const badge = wrapper.find(".music-player__transfer-channel");
+    expect(badge.exists()).toBe(true);
+    expect(badge.text()).toBe("服务器中转");
+    expect(badge.classes()).toContain("music-player__transfer-channel--server");
+    wrapper.unmount();
+  });
+
+  it("传输通道未确定（channel=null）→ 不显示徽章", () => {
+    mockStore = makeStore({
+      playing: false,
+      trackName: "old.mp3",
+      songTransfer: { state: "requesting", songName: "new.mp3", received: 0, total: 0, channel: null },
+    });
+    const wrapper = mountComponent();
+    expect(wrapper.find(".music-player__transfer-channel").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("长曲名溢出 → 启用横向滚动动画（track-scroll active）", async () => {
+    const longName = "这是一首特别长的歌曲名称用来测试曲名溢出时是否启用横向滚动动画效果.mp3";
+    mockStore = makeStore({ playing: true, trackName: longName });
+    const wrapper = mountComponent();
+    // jsdom 无真实布局，scrollWidth/clientWidth 恒为 0 → 直接断言滚动容器结构存在
+    const scroll = wrapper.find(".music-player__track-scroll");
+    expect(scroll.exists()).toBe(true);
+    expect(scroll.text()).toBe(longName);
+    wrapper.unmount();
+  });
 });

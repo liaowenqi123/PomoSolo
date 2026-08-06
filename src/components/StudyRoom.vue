@@ -1063,6 +1063,10 @@ function shortId(id: string): string {
               <p v-if="music.waitingForSongs" class="sync-hint sync-waiting">
                 ⏳ 等待其他用户下载歌曲…
               </p>
+              <!-- v4.6.0：传输通道状态（P2P 直连 / 服务器中转），便于观察 P2P 是否建立 -->
+              <p v-if="music.songTransfer.channel" class="sync-hint sync-channel" :class="`sync-channel--${music.songTransfer.channel}`">
+                {{ music.songTransfer.channel === "p2p" ? "⚡ 当前走 P2P 直连（不经服务器）" : "🌐 当前走服务器中转" }}
+              </p>
             </template>
             <p v-if="!music.isDj" class="sync-hint">
               开启后由 DJ 控制播放，大家同步收听同一首歌；只有 DJ 能操作播放器
@@ -1532,6 +1536,25 @@ function shortId(id: string): string {
 
 .sync-waiting {
   color: rgba(255, 200, 120, 0.9);
+}
+
+/* v4.6.0：传输通道状态（P2P 直连 / 服务器中转） */
+.sync-channel {
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  display: inline-block;
+  font-weight: 500;
+}
+
+.sync-channel--p2p {
+  background: rgba(102, 187, 106, 0.15);
+  color: #66bb6a;
+}
+
+.sync-channel--server {
+  background: rgba(255, 193, 7, 0.12);
+  color: #ffca28;
 }
 
 /* 使用说明（可展开折叠） */

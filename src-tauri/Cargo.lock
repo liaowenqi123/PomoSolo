@@ -3003,7 +3003,7 @@ dependencies = [
 
 [[package]]
 name = "pomo-solo"
-version = "4.5.21"
+version = "4.6.0"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",

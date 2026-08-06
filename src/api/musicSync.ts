@@ -92,10 +92,48 @@ export function musicSyncState(params: {
 /**
  * 听众侧：请求拉取 DJ 正在播放但本地缺失的歌曲（P2P 传歌）。
  * @param fromChunk 断点续传起点（已成功保存的分片数）；0 = 从头传输。
+ * @param p2p 本客户端支持 WebRTC 直连（true 时持有者优先尝试 P2P，失败自动回退服务器中转）
  * 后端：`music_sync_request_song(song_id, from_chunk) -> Result<(), String>`
  */
-export function musicSyncRequestSong(songId: string, fromChunk = 0): Promise<void> {
-  return invoke<void>("music_sync_request_song", { songId, fromChunk });
+export function musicSyncRequestSong(songId: string, fromChunk = 0, p2p = false): Promise<void> {
+  return invoke<void>("music_sync_request_song", { songId, fromChunk, p2p });
+}
+
+/**
+ * P2P 传歌（WebRTC 直连，二进制分片）：持有者（DJ）侧读取歌曲分片原始字节。
+ * 与 `musicReadSongChunk` 等价但返回二进制（不经 base64），供 DataChannel 直传。
+ * 后端：`music_read_song_chunk_bin(song_name, chunk_index) -> { success, total_chunks, chunk_size, data }`
+ */
+export function musicReadSongChunkBin(songName: string, chunkIndex: number): Promise<{
+  success: boolean;
+  error?: string;
+  total_chunks?: number;
+  chunk_size?: number;
+  data?: number[];
+}> {
+  return invoke<{ success: boolean; error?: string; total_chunks?: number; chunk_size?: number; data?: number[] }>(
+    "music_read_song_chunk_bin",
+    { songName, chunkIndex },
+  );
+}
+
+/**
+ * P2P 传歌（WebRTC 直连，二进制分片）：听众侧保存收到的分片到临时文件。
+ * 与 `musicReceiveSongChunk` 等价但直接接收二进制（不经 base64）。
+ * 后端：`music_receive_song_chunk_bin(song_name, chunk_index, total_chunks, data) -> { success }`
+ */
+export function musicReceiveSongChunkBin(
+  songName: string,
+  chunkIndex: number,
+  totalChunks: number,
+  data: number[],
+): Promise<{ success: boolean; error?: string }> {
+  return invoke<{ success: boolean; error?: string }>("music_receive_song_chunk_bin", {
+    songName,
+    chunkIndex,
+    totalChunks,
+    data,
+  });
 }
 
 /**

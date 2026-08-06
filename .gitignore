@@ -22,6 +22,10 @@ foreground_inspection/__pycache__/
 foreground_inspection/*.spec
 foreground_inspection/api_config.json
 
+# Python build artifacts (server planning)
+server-planning/__pycache__/
+server-planning/*.pyc
+
 
 # OS files
 .DS_Store

@@ -20,9 +20,16 @@ import {
   checkUpdate,
   downloadAndInstall,
   fetchNotice,
+  updateSeedDownloadBegin,
+  updateSeedDownloadChunk,
+  updateSeedDownloadAbort,
   type UpdateNotice,
+  type UpdateInfo,
   type UpdateStatusPayload,
 } from "@/api/update";
+import { seedList } from "@/api/seed";
+import { p2pReceive } from "@/p2p";
+import { startSeedSharing, stopSeedSharing } from "@/seed";
 import { useTauriEvent } from "@/api/events";
 import { cloudGetSession, type Session } from "@/api/auth";
 import {
@@ -155,6 +162,10 @@ const updateProgressVisible = ref(false);
 const updateProgressPercent = ref(0);
 const updateProgressText = ref("");
 let statusTimer: ReturnType<typeof setTimeout> | null = null;
+/** checkUpdate 返回的完整更新信息（含签名，P2P 种子下载用） */
+const latestUpdateInfo = ref<UpdateInfo | null>(null);
+/** 分享安装包状态提示 */
+const seedStatusText = ref("");
 
 // 监听后端 update-status 事件
 useTauriEvent<UpdateStatusPayload>("update-status", (e) => {
@@ -246,14 +257,106 @@ void getVersion().then((v) => {
 
 async function handleUpdateBtnClick(): Promise<void> {
   if (updateBtnAction.value === "check") {
-    await checkUpdate(local.value.updateSource, local.value.allowBetaUpdates);
+    latestUpdateInfo.value = await checkUpdate(
+      local.value.updateSource,
+      local.value.allowBetaUpdates,
+    );
   } else {
     updateBtnDisabled.value = true;
     updateBtnText.value = "准备下载...";
+    // Phase 2：P2P 种子优先（直连在线种子拉安装包，不经服务器/GitHub）
+    if (latestUpdateInfo.value) {
+      const p2pOk = await trySeedDownload(latestUpdateInfo.value);
+      if (p2pOk) return; // P2P 成功：Rust 收齐后自动校验并启动安装器（应用退出）
+    }
+    updateBtnText.value = "下载中...";
     await downloadAndInstall(
       local.value.updateSource,
       local.value.allowBetaUpdates,
     );
+  }
+}
+
+/**
+ * 尝试从 P2P 种子直连下载安装包。
+ *
+ * 流程：查在线种子 → 有则 WebRTC 收片（DataChannel 分片逐片调 Rust 落盘）→
+ * Rust 收齐后自动校验签名并启动安装器。失败/无种子返回 false 由调用方回退。
+ */
+async function trySeedDownload(info: UpdateInfo): Promise<boolean> {
+  const { version, signature } = info;
+  if (!signature || !version) return false;
+  let peers: string[] = [];
+  try {
+    peers = await seedList(version);
+  } catch (e) {
+    console.warn("[Update] 查询在线种子失败，回退服务器/GitHub:", e);
+    return false;
+  }
+  if (peers.length === 0) return false;
+  const peerId = peers[0];
+
+  return await new Promise<boolean>((resolve) => {
+    void updateSeedDownloadBegin(version, signature)
+      .then(() => {
+        p2pReceive({
+          peerId,
+          role: "answerer",
+          timeoutMs: 10_000,
+          onChunk: async (chunk, index, totalChunks) => {
+            try {
+              await updateSeedDownloadChunk(Array.from(chunk), index, totalChunks);
+            } catch (e) {
+              throw new Error(`分片落盘失败: ${String(e)}`);
+            }
+          },
+          callbacks: {
+            onComplete: () => {
+              // Rust 收齐后自动校验签名并启动安装器（emit downloaded → 应用退出）
+              updateStatusText.value = "P2P 下载完成，即将安装重启";
+              updateStatusType.value = "success";
+              resolve(true);
+            },
+            onError: (err) => {
+              console.warn("[Update] P2P 种子下载失败，回退服务器/GitHub:", err);
+              void updateSeedDownloadAbort().catch(() => {});
+              resolve(false);
+            },
+          },
+        });
+      })
+      .catch((e) => {
+        console.warn("[Update] 初始化种子下载失败，回退服务器/GitHub:", e);
+        resolve(false);
+      });
+  });
+}
+
+/**
+ * 分享安装包开关（Phase 2）：开启需登录，注册种子 + 30s 心跳；关闭注销。
+ * 未登录或注册失败时回滚开关。
+ */
+async function onShareInstallerChange(value: boolean): Promise<void> {
+  if (value) {
+    const session = await cloudGetSession().catch(() => null);
+    if (!session) {
+      seedStatusText.value = "分享安装包需先登录";
+      await settings.update("shareInstaller", false);
+      return;
+    }
+    try {
+      await startSeedSharing(appVersion.value);
+      seedStatusText.value = "分享中（本机作为 P2P 种子）";
+      await settings.update("shareInstaller", true);
+    } catch (e) {
+      console.warn("[Update] 开启种子分享失败:", e);
+      seedStatusText.value = "开启分享失败，请检查登录状态";
+      await settings.update("shareInstaller", false);
+    }
+  } else {
+    await stopSeedSharing();
+    seedStatusText.value = "";
+    await settings.update("shareInstaller", false);
   }
 }
 
@@ -755,6 +858,22 @@ function statusLabel(status: number): string {
             </div>
             <p class="update-source-hint">
               默认只推送正式版本；开启后可接收 Beta/测试版（如 4.6.0-beta），Beta 版本可能有未修复的问题。
+            </p>
+            <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">分享安装包（P2P）</label>
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  :checked="local.shareInstaller"
+                  @change="
+                    onShareInstallerChange(($event.target as HTMLInputElement).checked)
+                  "
+                />
+                <span class="toggle__slider"></span>
+              </label>
+            </div>
+            <p class="update-source-hint">
+              {{ seedStatusText || "开启后本机作为种子，其他客户端更新时可 P2P 直连下载安装包（需登录）。" }}
             </p>
             <div class="settings-row">
               <label class="settings-row__label">检查更新</label>

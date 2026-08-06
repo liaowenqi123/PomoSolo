@@ -12,3 +12,4 @@ pub mod study_room;
 pub mod sync;
 pub mod update;
 pub mod system;
+pub mod p2p;

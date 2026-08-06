@@ -487,6 +487,53 @@ pub async fn music_update_tag(
 /// P2P 分片大小（字节）
 const TRANSFER_CHUNK_SIZE: usize = 128 * 1024;
 
+/// 计算歌曲文件分片边界（纯函数，便于单测）
+/// 返回 `(total_chunks, start, end)`；文件为空或 index 越界返回 None
+fn chunk_bounds(total: usize, chunk_index: u32) -> Option<(u32, usize, usize)> {
+    if total == 0 {
+        return None;
+    }
+    let total_chunks = ((total + TRANSFER_CHUNK_SIZE - 1) / TRANSFER_CHUNK_SIZE) as u32;
+    if chunk_index >= total_chunks {
+        return None;
+    }
+    let start = (chunk_index as usize) * TRANSFER_CHUNK_SIZE;
+    let end = std::cmp::min(start + TRANSFER_CHUNK_SIZE, total);
+    Some((total_chunks, start, end))
+}
+
+/// 读取歌曲分片原始字节（内部复用，供 WebRTC 直传命令使用）
+/// 返回 `(chunk_bytes, total_chunks)`；失败返回 `Err(json)`（与命令层一致的错误结构）
+fn read_song_chunk_raw(app: &AppHandle, name: &str, chunk_index: u32) -> Result<(Vec<u8>, u32), Value> {
+    let music_dir = match get_music_dir(app) {
+        Ok(d) => d,
+        Err(e) => return Err(json!({ "success": false, "error": e })),
+    };
+    let path = music_dir.join(name);
+    if !path.is_file() {
+        return Err(json!({ "success": false, "error": "song_missing" }));
+    }
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) => return Err(json!({ "success": false, "error": format!("读取歌曲失败: {}", e) })),
+    };
+    let total = bytes.len();
+    if total == 0 {
+        return Err(json!({ "success": false, "error": "empty_song" }));
+    }
+    let (total_chunks, start, end) = match chunk_bounds(total, chunk_index) {
+        Some(v) => v,
+        None => {
+            return Err(json!({
+                "success": false,
+                "error": "chunk_index_out_of_range",
+                "total_chunks": ((total + TRANSFER_CHUNK_SIZE - 1) / TRANSFER_CHUNK_SIZE) as u32
+            }));
+        }
+    };
+    Ok((bytes[start..end].to_vec(), total_chunks))
+}
+
 /// 清理歌曲名中的路径分隔符/非法字符，防止路径穿越
 fn sanitize_song_name(name: &str) -> String {
     let base = name.split(['/', '\\']).next_back().unwrap_or(name);
@@ -573,6 +620,56 @@ pub async fn music_receive_song_chunk(
         .map_err(|e| format!("分片解码失败: {}", e))?;
     let part_path = tdir.join(format!("{}.{:06}", name, chunk_index));
     std::fs::write(&part_path, &bytes).map_err(|e| format!("写入分片失败: {}", e))?;
+    Ok(json!({ "success": true, "chunk_index": chunk_index }))
+}
+
+/// P2P 传歌（WebRTC 直连）：读取歌曲分片原始字节（DJ/持有者侧，二进制版）
+///
+/// 与 `music_read_song_chunk` 等价，但直接返回二进制（不经 base64），
+/// 供 DataChannel 直传使用（Phase 1，避免 128KB → base64 的往返转换）。
+/// 返回：`{ success, song_name, chunk_index, total_chunks, chunk_size, data }`
+#[tauri::command]
+pub async fn music_read_song_chunk_bin(
+    app: AppHandle,
+    song_name: String,
+    chunk_index: u32,
+) -> Result<Value, String> {
+    let name = sanitize_song_name(&song_name);
+    if name.is_empty() {
+        return Ok(json!({ "success": false, "error": "invalid_song_name" }));
+    }
+    match read_song_chunk_raw(&app, &name, chunk_index) {
+        Ok((chunk, total_chunks)) => Ok(json!({
+            "success": true,
+            "song_name": name,
+            "chunk_index": chunk_index,
+            "total_chunks": total_chunks,
+            "chunk_size": chunk.len(),
+            "data": chunk,
+        })),
+        Err(v) => Ok(v),
+    }
+}
+
+/// P2P 传歌（WebRTC 直连）：保存收到的二进制分片到临时文件（听众侧，二进制版）
+///
+/// 与 `music_receive_song_chunk` 等价，但直接接收二进制（不经 base64）。
+#[tauri::command]
+pub async fn music_receive_song_chunk_bin(
+    app: AppHandle,
+    song_name: String,
+    chunk_index: u32,
+    total_chunks: u32,
+    data: Vec<u8>,
+) -> Result<Value, String> {
+    let name = sanitize_song_name(&song_name);
+    if name.is_empty() || total_chunks == 0 || chunk_index >= total_chunks {
+        return Ok(json!({ "success": false, "error": "invalid_params" }));
+    }
+    let tdir = transfer_dir(&app)?;
+    std::fs::create_dir_all(&tdir).map_err(|e| format!("创建临时目录失败: {}", e))?;
+    let part_path = tdir.join(format!("{}.{:06}", name, chunk_index));
+    std::fs::write(&part_path, &data).map_err(|e| format!("写入分片失败: {}", e))?;
     Ok(json!({ "success": true, "chunk_index": chunk_index }))
 }
 
@@ -664,5 +761,47 @@ mod tests {
         assert!(TRANSFER_CHUNK_SIZE > 0);
         // 一首 6MB 的歌应分成约 48 片（符合 WS 消息大小限制）
         assert_eq!((6 * 1024 * 1024 + TRANSFER_CHUNK_SIZE - 1) / TRANSFER_CHUNK_SIZE, 48);
+    }
+
+    #[test]
+    fn test_chunk_bounds_regular_chunk() {
+        // 4MB 文件：4 片，第 0 片 = [0, 128KB)
+        let total = 4 * 1024 * 1024;
+        let (total_chunks, start, end) = chunk_bounds(total, 0).unwrap();
+        assert_eq!(total_chunks, 32);
+        assert_eq!(start, 0);
+        assert_eq!(end, TRANSFER_CHUNK_SIZE);
+    }
+
+    #[test]
+    fn test_chunk_bounds_last_partial_chunk() {
+        // 3 片整 + 1 字节：最后一片只有 1 字节
+        let total = 3 * TRANSFER_CHUNK_SIZE + 1;
+        let (total_chunks, start, end) = chunk_bounds(total, 3).unwrap();
+        assert_eq!(total_chunks, 4);
+        assert_eq!(start, 3 * TRANSFER_CHUNK_SIZE);
+        assert_eq!(end, total);
+        assert_eq!(end - start, 1);
+    }
+
+    #[test]
+    fn test_chunk_bounds_out_of_range_and_empty() {
+        // 越界 index → None
+        assert!(chunk_bounds(1024, 1).is_none());
+        // 空文件 → None
+        assert!(chunk_bounds(0, 0).is_none());
+        // 空 index 但非空文件 → 合法
+        let (tc, s, e) = chunk_bounds(1024, 0).unwrap();
+        assert_eq!(tc, 1);
+        assert_eq!((s, e), (0, 1024));
+    }
+
+    #[test]
+    fn test_chunk_bounds_exact_multiple() {
+        // 恰好 2 片整：第 2 片越界
+        let total = 2 * TRANSFER_CHUNK_SIZE;
+        assert!(chunk_bounds(total, 2).is_none());
+        let (tc, s, e) = chunk_bounds(total, 1).unwrap();
+        assert_eq!((tc, s, e), (2, TRANSFER_CHUNK_SIZE, total));
     }
 }
