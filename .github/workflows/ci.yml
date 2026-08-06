@@ -13,7 +13,14 @@ permissions:
 jobs:
   test:
     name: Test & Coverage
-    runs-on: windows-latest
+    # 本地自建 runner：托管 windows-latest 排队极不稳定（曾 20+ 分钟不接单），
+    # 本地环境工具链齐全（node22 + rust stable），与 build 同机串行、共享同一份缓存
+    runs-on: [self-hosted, windows, x64]
+    env:
+      CARGO_HOME: D:\pomosolo-cache\cargo
+      RUSTUP_HOME: D:\pomosolo-cache\rustup
+      NPM_CONFIG_CACHE: D:\pomosolo-cache\npm
+      CARGO_TARGET_DIR: D:\pomosolo-cache\target
 
     steps:
       - name: Checkout
@@ -25,13 +32,13 @@ jobs:
           node-version: 22
           cache: npm
 
+      # 同 build：本地 runner 的 system32\bash.exe 是 WSL 启动器，dtolnay action 不可用，直接用系统 rustup
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustc --version
+          cargo --version
 
       - name: Install dependencies
         run: npm ci
