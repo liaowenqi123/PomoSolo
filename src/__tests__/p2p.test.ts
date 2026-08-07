@@ -164,6 +164,79 @@ describe("p2p 信令路由", () => {
     expect(closeSpy).not.toHaveBeenCalled(); // 新 offer 未建连
   });
 
+  it("peer:ice 早于 offer 到达时缓冲，offer 建连后注入（关键 srflx 候选不丢失）", async () => {
+    // 跨 NAT 打洞根因修复：offerer 的候选可能先于 peer:offer 到达 answerer，
+    // v4.6.0 前 liveConnections 无此键直接丢弃 → 关键 srflx 候选丢失 → 打洞失败。
+    const addIce = vi.fn().mockResolvedValue(undefined);
+    const fakePc = {
+      remoteDescription: null,
+      addIceCandidate: addIce,
+      close: vi.fn(),
+      setRemoteDescription: vi.fn().mockImplementation(async () => {
+        fakePc.remoteDescription = { type: "offer" };
+      }),
+      createAnswer: vi.fn().mockResolvedValue({ type: "answer", sdp: "x" }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      ondatachannel: null,
+      onicecandidate: null,
+      onconnectionstatechange: null,
+      connectionState: "new",
+    };
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn().mockImplementation(() => fakePc),
+    );
+    const signal = vi.fn().mockResolvedValue(undefined);
+    p2pReceive({ peerId: "peer-A", role: "answerer", onChunk: vi.fn(), signal });
+    // 候选先到：liveConnections 尚无连接 → 缓冲而非丢弃
+    handlePeerSignal({
+      type: "peer:ice",
+      from_user_id: "peer-A",
+      candidate: { candidate: "srflx 1.2.3.4:9000", sdpMid: "0", sdpMLineIndex: 0 },
+    });
+    // offer 到达 → 建连 → 缓冲候选注入，最终 addIceCandidate 收到
+    handlePeerSignal({ type: "peer:offer", from_user_id: "peer-A", sdp: { type: "offer" } });
+    await vi.waitFor(() =>
+      expect(addIce).toHaveBeenCalledWith(expect.objectContaining({ candidate: "srflx 1.2.3.4:9000" })),
+    );
+  });
+
+  it("remoteDescription 未设置时的候选缓冲，setRemoteDescription 后统一 flush", async () => {
+    // 连接已建但 offer/answer 尚未 settle：addIceCandidate 此时抛 InvalidStateError，
+    // 不能吞掉候选，应缓冲到 setRemoteDescription 成功后注入。
+    const addIce = vi.fn().mockResolvedValue(undefined);
+    const fakePc = {
+      remoteDescription: null, // 保持 null：模拟 remoteDescription 尚未设置
+      addIceCandidate: addIce,
+      close: vi.fn(),
+      setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+      createAnswer: vi.fn().mockResolvedValue({ type: "answer", sdp: "x" }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      ondatachannel: null,
+      onicecandidate: null,
+      onconnectionstatechange: null,
+      connectionState: "new",
+    };
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn().mockImplementation(() => fakePc),
+    );
+    const signal = vi.fn().mockResolvedValue(undefined);
+    const handle = p2pReceive({ peerId: "peer-B", role: "answerer", onChunk: vi.fn(), signal });
+    handlePeerSignal({ type: "peer:offer", from_user_id: "peer-B", sdp: { type: "offer" } });
+    // offer 建连后、remoteDescription 设置前到达的候选 → 缓冲而非丢弃
+    handlePeerSignal({
+      type: "peer:ice",
+      from_user_id: "peer-B",
+      candidate: { candidate: "srflx 9.9.9.9:3478", sdpMid: "0", sdpMLineIndex: 0 },
+    });
+    await vi.waitFor(() =>
+      expect(addIce).toHaveBeenCalledWith(expect.objectContaining({ candidate: "srflx 9.9.9.9:3478" })),
+    );
+    handlePeerSignal({ type: "peer:bye", from_user_id: "peer-B" });
+    handle.close();
+  });
+
   it("offer 发起者不匹配且存在多个挂起时不做兜底（避免误配对）", async () => {
     const fakePc = {
       close: vi.fn(),

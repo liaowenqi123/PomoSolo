@@ -800,6 +800,24 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 >
 > **未决（后续）**：对称 NAT 下 STUN 无法打洞仍需 TURN（coturn）中继；分片 `number[]` JSON 序列化效率可改二进制。协议未变，服务器无需配合。
 
+## 【纯客户端，无需服务器操作】Phase 1.2：trickle ICE 候选时序竞态修复（2026-08-07）
+
+> 背景：v4.6.0 正式版用户实测跨公网（不同网络）P2P 仍打不穿——听众端"第一次尝试无通道标记，约 8s 后回退服务器中转"，
+> 与 Phase 1.1 修复后预期不符。服务器已确认最新版（`music:request_song` 的 p2p 透传 + `peer:*` 定向转发齐全），问题在客户端。
+>
+> **根因（trickle ICE 竞态）**：WebRTC ICE 候选与 offer/answer 经不同 WS 消息独立转发，到达顺序不保证：
+> 1. offerer（持有者）在 `setLocalDescription(offer)` 后立即开始收集候选 → 关键 **srflx（NAT 映射）候选可能先于 `peer:offer` 到达** answerer；
+>    v4.6.0 前 `handlePeerSignal` 的 `peer:ice` 分支在 `liveConnections` 无此键时**直接丢弃** → 打洞必需的公网候选永久丢失。
+> 2. 候选在 `remoteDescription` 设置前到达时 `addIceCandidate` 抛 `InvalidStateError`，被上层 catch 吞掉 → 同样丢失。
+>
+> **本次改动（纯前端 `src/p2p.ts`）**：
+> 1. **模块级候选缓冲** `earlyCandidates: Map<peerId, RTCIceCandidateInit[]>`：`peer:ice` 先于 offer 到达时缓冲，offer 建连后统一注入。
+> 2. **连接级候选缓冲**：`remoteDescription` 未设置时的候选先入 `bufferedCandidates`，`setRemoteDescription` 成功后 flush（offerer 的 `onAnswer` 与 answerer 的 offer 处理两处）。
+> 3. **可观测性**：`handlePeerSignal` 收到无挂起匹配的 `peer:offer` 时打 `console.warn`（原静默忽略，无法判断打洞失败原因）。
+> 4. 诊断打点：`requestDj` / `music:dj_changed` 处理加耗时日志（配合 UI 卡顿排查）。
+>
+> 协议未变，服务器零改动。新增测试 2 例（候选先到缓冲注入 / remoteDescription 未设置缓冲 flush）。
+
 ## 【已部署 + 客户端已实现】Phase 2：安装包 P2P 种子（2026-08-04）
 
 > 用户本机带宽充裕，开启"分享安装包"后，其他客户端更新时优先从在线种子 **P2P 直连**下载（不经服务器，也不走 GitHub）。

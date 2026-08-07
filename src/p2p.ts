@@ -119,6 +119,15 @@ export function parseMeta(text: string): ChunkMeta | null {
 const pendingReceivers = new Map<string, P2PStartOptions>();
 /** 活跃连接表：peerId → 连接控制器 */
 const liveConnections = new Map<string, PeerConnectionController>();
+/**
+ * 早于连接建立的 ICE 候选缓冲：peerId → 候选列表。
+ *
+ * trickle ICE 竞态：offerer 的候选可能在 peer:offer 之前到达 answerer
+ * （此时 liveConnections 尚无此键），若直接丢弃会丢失关键 srflx 候选，
+ * 跨 NAT 打洞失败（v4.6.0 实测"P2P 打不穿、8s 超时回退服务器中转"的根因）。
+ * 等 offer 建连后统一注入。
+ */
+const earlyCandidates = new Map<string, RTCIceCandidateInit[]>();
 
 interface PeerConnectionController {
   peerId: string;
@@ -178,6 +187,10 @@ function establishConnection(
 ): PeerConnectionController {
   const pc = createPeerConnection(opts, callbacks);
   const isOfferer = opts.role === "offerer";
+  // remoteDescription 设置前的候选缓冲：addIceCandidate 在 remoteDescription 为 null 时
+  // 抛 InvalidStateError，若被上层 catch 吞掉 → 关键候选永久丢失 → 打洞失败。
+  // setRemoteDescription 成功后统一 flush（trickle ICE 竞态修复）。
+  const bufferedCandidates: RTCIceCandidateInit[] = [];
   const chunkSize = opts.chunkSize ?? DEFAULT_CHUNK_SIZE;
   let dc: RTCDataChannel | null = null;
   let closed = false;
@@ -333,6 +346,17 @@ function establishConnection(
     }, 5_000);
   }
 
+  async function flushBufferedCandidates() {
+    while (bufferedCandidates.length) {
+      const c = bufferedCandidates.shift()!;
+      try {
+        await pc.addIceCandidate(c);
+      } catch {
+        /* 候选已失效（已建连/已关闭）忽略 */
+      }
+    }
+  }
+
   const controller: PeerConnectionController = {
     peerId: opts.peerId,
     pc,
@@ -340,14 +364,21 @@ function establishConnection(
     onAnswer: async (sdp) => {
       if (sdp && !closed) {
         await pc.setRemoteDescription(sdp);
+        await flushBufferedCandidates();
       }
     },
     onIce: async (candidate) => {
       if (candidate && !closed) {
-        try {
-          await pc.addIceCandidate(candidate);
-        } catch {
-          /* 时序竞态：已建连时忽略 */
+        if (pc.remoteDescription) {
+          try {
+            await pc.addIceCandidate(candidate);
+          } catch {
+            /* 时序竞态：已建连时忽略 */
+          }
+        } else {
+          // remoteDescription 尚未设置（offer/answer 还在路上）→ 缓冲，
+          // setRemoteDescription 成功后 flush，避免关键候选丢失
+          bufferedCandidates.push(candidate);
         }
       }
     },
@@ -385,6 +416,7 @@ function establishConnection(
     void (async () => {
       try {
         await pc.setRemoteDescription(incomingOffer);
+        await flushBufferedCandidates();
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         await signal("peer:answer", opts.peerId, { sdp: pc.localDescription });
@@ -425,11 +457,20 @@ export function handlePeerSignal(evt: Record<string, unknown>): void {
           pendingReceivers.delete(only.peerId);
         }
       }
-      if (!opts) return; // 没有挂起的接收 → 忽略
+      if (!opts) {
+        console.warn("[P2P] 收到 peer:offer 但无挂起接收，忽略:", from);
+        return; // 没有挂起的接收 → 忽略
+      }
       pendingReceivers.delete(from);
       try {
         const controller = establishConnection(opts, opts.callbacks ?? {}, sdp);
         liveConnections.set(from, controller);
+        // 注入早于 offer 到达的候选（trickle ICE 竞态修复：否则关键 srflx 候选丢失）
+        const buffered = earlyCandidates.get(from);
+        if (buffered && buffered.length) {
+          earlyCandidates.delete(from);
+          for (const c of buffered) void controller.onIce(c);
+        }
       } catch (e) {
         opts.callbacks?.onError?.(`P2P 建连失败: ${String(e)}`);
       }
@@ -440,12 +481,21 @@ export function handlePeerSignal(evt: Record<string, unknown>): void {
       break;
     }
     case "peer:ice": {
-      void liveConnections.get(from)?.onIce(candidate);
+      const conn = liveConnections.get(from);
+      if (conn) {
+        void conn.onIce(candidate);
+      } else if (candidate) {
+        // 连接尚未建立（offer 可能还在路上）→ 缓冲，offer 建连后统一注入
+        const arr = earlyCandidates.get(from) ?? [];
+        arr.push(candidate);
+        earlyCandidates.set(from, arr);
+      }
       break;
     }
     case "peer:bye": {
       liveConnections.get(from)?.close();
       liveConnections.delete(from);
+      earlyCandidates.delete(from);
       break;
     }
     default:

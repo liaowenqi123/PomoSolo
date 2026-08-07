@@ -1170,8 +1170,11 @@ export const useMusicStore = defineStore("music", () => {
 
   /** 申请成为 DJ */
   async function requestDj() {
+    const t0 = performance.now();
     try {
       await musicSyncRequestDj();
+      // 诊断打点：如果 UI 卡顿，这里耗时异常可定位到 Rust/WS 链路
+      console.warn(`[MusicStore] requestDj invoke 耗时 ${(performance.now() - t0).toFixed(1)}ms`);
     } catch (e) {
       console.warn("[MusicStore] 申请 DJ 失败:", e);
     }
@@ -1341,6 +1344,7 @@ export const useMusicStore = defineStore("music", () => {
       }
       case "music:dj_changed": {
         // { dj_user_id, dj_username }
+        const t0 = performance.now();
         const uid = typeof evt.dj_user_id === "string" ? evt.dj_user_id : null;
         djUserId.value = uid;
         djName.value = typeof evt.dj_username === "string" ? evt.dj_username : "";
@@ -1353,6 +1357,8 @@ export const useMusicStore = defineStore("music", () => {
         if (isDj.value && !wasDj) {
           window.setTimeout(() => void broadcastSyncState(), 300);
         }
+        // 诊断打点：dj_changed 处理若 >1s 说明同步长任务在这里（UI 卡顿定位）
+        console.warn(`[MusicStore] dj_changed 处理耗时 ${(performance.now() - t0).toFixed(1)}ms`);
         break;
       }
       case "music:state": {
