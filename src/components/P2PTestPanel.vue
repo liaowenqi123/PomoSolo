@@ -47,6 +47,25 @@ function fmtSpeed(bps: number): string {
   return `${bps} B/s`;
 }
 
+/** 一键复制诊断日志（全局 user-select:none，鼠标选中不便 → 提供复制按钮） */
+async function copyDiagnostics(): Promise<void> {
+  const text = diagnostics.value.join("\n");
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // WebView2 旧版/无权限时回退到临时 textarea
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+  }
+}
+
 async function refresh(): Promise<void> {
   if (!loggedIn.value) return;
   loading.value = true;
@@ -235,7 +254,10 @@ onUnmounted(() => {
 
       <!-- ICE 诊断日志（排障 P2P 打洞失败：候选类型/状态变化） -->
       <div v-if="diagnostics.length" class="p2p-test__diag">
-        <div class="p2p-test__diag-title">ICE 诊断（候选/状态）</div>
+        <div class="p2p-test__diag-head">
+          <span class="p2p-test__diag-title">ICE 诊断（候选/状态）</span>
+          <button class="p2p-test__diag-copy" @click="copyDiagnostics">复制诊断</button>
+        </div>
         <div v-for="(d, i) in diagnostics" :key="i" class="p2p-test__diag-line">{{ d }}</div>
       </div>
     </template>
@@ -396,11 +418,52 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  /* 诊断信息允许鼠标选中复制（全局 user-select:none，需显式放开） */
+  user-select: text;
+  -webkit-user-select: text;
+}
+/* 深色底自定义滚动条（默认滚动条在 WebView2 深色容器里不可见/突兀） */
+.p2p-test__diag::-webkit-scrollbar,
+.p2p-test__users::-webkit-scrollbar {
+  width: 8px;
+}
+.p2p-test__diag::-webkit-scrollbar-track,
+.p2p-test__users::-webkit-scrollbar-track {
+  background: transparent;
+}
+.p2p-test__diag::-webkit-scrollbar-thumb,
+.p2p-test__users::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 4px;
+}
+.p2p-test__diag::-webkit-scrollbar-thumb:hover,
+.p2p-test__users::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.38);
+}
+.p2p-test__diag-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 .p2p-test__diag-title {
   font-size: 11px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.6);
+}
+.p2p-test__diag-copy {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 5px;
+  padding: 2px 10px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.p2p-test__diag-copy:hover {
+  background: rgba(255, 255, 255, 0.22);
 }
 .p2p-test__diag-line {
   font-size: 11px;

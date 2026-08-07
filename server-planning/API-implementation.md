@@ -899,6 +899,27 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 协议未变（新增可选 hello 协商与压缩帧，旧端忽略未知字段），服务器零改动。用户实测 P2P 建连超时
 （见 v4.6.3 后反馈），待 ICE 诊断数据定位后再定兜底方案（TURN / 服务器缓存 / CDN）。
 
+## v4.6.5：P2P 诊断可用性增强（2026-08-07，纯客户端）
+
+> 用户 v4.6.4 实测反馈：诊断日志只能 OCR 不能选中复制、深色框滚动条无样式、希望直接看出结论。
+>
+> **1. 诊断结论自动分析**：`p2p.ts` `establishConnection` 新增 `diagnoseConclusion()`——超时/
+> 连接失败时自动统计两侧候选类型（host/srflx/relay）输出一行结论，直接回答"为什么打不通"：
+> - 本机无 srflx → STUN 失败或 UDP 出站被拦
+> - 本机多个 srflx 端口各异 → 疑似对称 NAT（端口每次变，打洞需端口预测，成功率低）
+> - 对端仅有 host（无 srflx）→ 不在同一局域网且对端 UDP 打洞路径不通
+> - 两侧都有 srflx 仍连不上 → 一侧对称 NAT/CGNAT 或运营商丢 UDP → 建议 TURN 中继
+> 对端候选类型从 `onIce` 原始 SDP candidate 的 `typ` 字段提取。
+>
+> **2. 诊断区可选中复制**：全局 `* { user-select: none }` 导致诊断文本不可选 → `.p2p-test__diag`
+> 显式 `user-select: text`。
+>
+> **3. 复制按钮**：诊断区标题右侧"复制诊断"（`navigator.clipboard`，失败回退 textarea+execCommand），
+> 一键复制全部诊断日志。
+>
+> **4. 深色底自定义滚动条**：`.p2p-test__diag` / `.p2p-test__users` 补 `::-webkit-scrollbar` 亮色样式
+> （默认滚动条在 WebView2 深色容器不可见）。
+
 ## 【已部署 + 客户端已实现】Phase 2：安装包 P2P 种子（2026-08-04）
 
 > 用户本机带宽充裕，开启"分享安装包"后，其他客户端更新时优先从在线种子 **P2P 直连**下载（不经服务器，也不走 GitHub）。

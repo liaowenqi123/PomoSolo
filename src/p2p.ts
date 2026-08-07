@@ -290,6 +290,7 @@ function establishConnection(
     if (!completed && pc.connectionState !== "connected") {
       timedOut = true;
       diagnose(`超时：本地候选(${diagLocal.length}) ${diagLocal.join(" | ") || "无"}；对端候选 ${remoteIceCount} 个；ICE=${pc.iceConnectionState}`);
+      diagnoseConclusion();
       callbacks.onError?.(`P2P 建连超时（${opts.peerId}）`);
       cleanup();
     }
@@ -300,9 +301,56 @@ function establishConnection(
   // ── ICE 诊断（排障 P2P 打洞失败：收集候选/状态变化，输出到 console + onDiagnose）──
   const diagLocal: string[] = [];
   let remoteIceCount = 0;
+  /** 对端候选类型（从原始 SDP candidate 提取 typ 字段） */
+  const remoteTypes: string[] = [];
+  /** 诊断结论只输出一次 */
+  let conclusionDone = false;
   function diagnose(info: string) {
     console.warn(`[P2P-diagnose] ${opts.role} peer=${opts.peerId} ${info}`);
     opts.onDiagnose?.(info);
+  }
+
+  /**
+   * 诊断结论（自动分析两侧候选 → NAT 类型推断），超时/连接失败时输出一次。
+   * 用于直接回答"为什么打洞打不通"，避免肉眼看候选列表。
+   */
+  function diagnoseConclusion() {
+    if (conclusionDone) return;
+    conclusionDone = true;
+    let host = 0;
+    let srflx = 0;
+    let relay = 0;
+    const srflxPorts = new Set<string>();
+    for (const line of diagLocal) {
+      if (line.includes(":host:")) host += 1;
+      else if (line.includes(":srflx:")) {
+        srflx += 1;
+        srflxPorts.add(line.slice(line.lastIndexOf(":") + 1));
+      } else if (line.includes(":relay:")) relay += 1;
+    }
+    const rt: Record<string, number> = {};
+    for (const t of remoteTypes) rt[t] = (rt[t] ?? 0) + 1;
+    const parts: string[] = [];
+    if (srflx === 0) {
+      parts.push("本机无公网候选（STUN 失败或 UDP 出站被拦）");
+    } else if (srflx > 1 && srflxPorts.size > 1) {
+      parts.push(`本机疑似对称 NAT（${srflx} 个 srflx 端口各异，打洞需端口预测，成功率低）`);
+    } else {
+      parts.push("本机有公网候选");
+    }
+    const rsrflx = rt.srflx ?? 0;
+    const rhost = rt.host ?? 0;
+    if (rsrflx > 0) {
+      parts.push(`对端有公网候选 srflx×${rsrflx}`);
+    } else if (rhost > 0) {
+      parts.push("对端仅有内网 host 候选（无公网 srflx）→ 不在同一局域网且对端 UDP 打洞路径不通");
+    } else {
+      parts.push(`对端候选 ${remoteIceCount} 个（无 srflx/host 归类，见明细）`);
+    }
+    if (srflx > 0 && rsrflx > 0) {
+      parts.push("两侧都有公网候选仍连不上 → 一侧为对称 NAT/CGNAT 或运营商丢 UDP，建议加 TURN 中继");
+    }
+    diagnose(`诊断结论：${parts.join("；")}`);
   }
 
   function cleanup() {
@@ -537,6 +585,9 @@ function establishConnection(
       if (candidate && !closed) {
         remoteIceCount++;
         diagnose(`收到对端候选 ${candidate.candidate ?? "(end-of-candidates)"}`);
+        // 提取候选类型（原始 SDP 里的 typ 字段），供诊断结论统计
+        const typ = / typ (\w+)/.exec(candidate.candidate ?? "");
+        if (typ) remoteTypes.push(typ[1]);
         if (pc.remoteDescription) {
           try {
             await pc.addIceCandidate(candidate);
@@ -565,6 +616,9 @@ function establishConnection(
     if (pc.connectionState === "connected") {
       clearTimeout(timeoutTimer);
       callbacks.onOpen?.();
+    } else if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
+      // 连接失败/断开：输出诊断结论（NAT 类型推断），排障打洞失败
+      diagnoseConclusion();
     }
   };
   pc.oniceconnectionstatechange = () => {
