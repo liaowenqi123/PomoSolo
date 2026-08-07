@@ -125,6 +125,7 @@ pub async fn p2p_seed_list(
 
 /// 在线用户（P2P 测试目标候选）
 #[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct P2POnlineUser {
     pub user_id: String,
     pub username: String,
@@ -284,6 +285,19 @@ mod tests {
         assert_eq!(users[0].user_id, "uuid-a");
         assert_eq!(users[0].username, "小明");
         assert_eq!(users[1].user_id, "uuid-b");
+    }
+
+    #[test]
+    fn test_online_user_serializes_camel_case() {
+        // 前端 P2PTestPanel 读 userId（camelCase），若序列化输出 user_id 会导致 u.userId undefined → 渲染崩溃
+        let u = P2POnlineUser {
+            user_id: "uuid-a".to_string(),
+            username: "小明".to_string(),
+        };
+        let json = serde_json::to_value(u).unwrap();
+        assert_eq!(json["userId"], "uuid-a");
+        assert_eq!(json["username"], "小明");
+        assert!(json.get("user_id").is_none());
     }
 
     #[test]

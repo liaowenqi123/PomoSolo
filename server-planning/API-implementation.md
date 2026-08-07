@@ -849,6 +849,21 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 >
 > 协议未变，服务器零改动。正确用法：两台设备用**不同账号**登录，双端在线后即可互测。
 
+## 【纯客户端，无需服务器操作】v4.6.3：P2P 测试列表渲染崩溃修复（2026-08-07）
+
+> 背景：v4.6.2 修复颜色后用户复测（admin + 汤圆不同账号双机在线），P2P 面板依然"只有标题、下面空白"。
+> 服务器加诊断日志实测：`p2p:online` 数据流完全正常（admin 查到 `['汤圆']`、汤圆查到 `['admin']`）→ 问题在前端渲染。
+>
+> 根因（Tauri 序列化字段名不匹配）：Rust `P2POnlineUser` 字段为 snake_case（`user_id`/`username`），
+> `#[derive(Serialize)]` 默认输出 `{"user_id":...}`；而前端 `P2POnlineUser { userId, username }` 模板读 `u.userId`
+> → undefined → `shortId(undefined)` 抛 TypeError → **整个 P2PTestPanel 渲染崩溃 → body 空白**。
+> 单机（空列表不渲染列表项）正常、双机（有数据）一渲染就崩。
+> 注：Tauri 命令返回值序列化**不做** camelCase 自动转换（只有入参做），结构体字段名必须与前端读取名严格对齐。
+>
+> 修复：① Rust `P2POnlineUser` 加 `#[serde(rename_all = "camelCase")]`（输出 `userId`）+ 回归测试
+> `test_online_user_serializes_camel_case`；② 前端 `shortId` 加字段缺失容错（防再崩）。
+> 协议未变，服务器零改动（服务器端 `p2p:online` 诊断 print 日志验证后可移除）。
+
 ## 【已部署 + 客户端已实现】Phase 2：安装包 P2P 种子（2026-08-04）
 
 > 用户本机带宽充裕，开启"分享安装包"后，其他客户端更新时优先从在线种子 **P2P 直连**下载（不经服务器，也不走 GitHub）。

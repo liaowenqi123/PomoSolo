@@ -718,6 +718,7 @@ def handle_p2p_online(user_id, msg):
             for uid, conn in connections.items()
             if uid != user_id
         ]
+    print(f"[ws] p2p:online from {user_id} -> {len(users)} others: {[u['username'] for u in users]}", file=sys.stderr)
     return {"type": "p2p:online", "users": users}
 
 

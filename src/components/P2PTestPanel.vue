@@ -34,8 +34,9 @@ const progress = ref(0);
 const localResult = ref<TestResult | null>(null);
 const remoteResult = ref<TestResult | null>(null);
 
-/** 在线用户 ID 短显（前 8 位） */
-function shortId(id: string): string {
+/** 在线用户 ID 短显（前 8 位）；字段缺失时容错，避免渲染崩溃 */
+function shortId(id: string | undefined): string {
+  if (!id) return "";
   return id.length > 8 ? `${id.slice(0, 8)}…` : id;
 }
 
@@ -236,6 +237,8 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 10px;
   font-size: 13px;
+  /* P2P 面板容器固定黑底（#1a1a1a），文字固定亮色，勿用 var(--text-color)（亮色主题下会变黑字） */
+  color: #f0f0f0;
 }
 .p2p-test__toolbar {
   display: flex;
@@ -259,7 +262,7 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 .p2p-test__desc {
-  color: var(--text-color, #f0f0f0);
+  color: #f0f0f0;
   line-height: 1.5;
   margin: 0;
 }
@@ -292,14 +295,14 @@ onUnmounted(() => {
 }
 .p2p-test__user-name {
   font-weight: 500;
-  color: var(--text-color, #f0f0f0);
+  color: #f0f0f0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .p2p-test__user-id {
   font-size: 11px;
-  color: #aaa;
+  color: rgba(255, 255, 255, 0.55);
 }
 .p2p-test__test-btn {
   background: var(--accent, #e94560);
@@ -315,7 +318,7 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 .p2p-test__empty {
-  color: var(--text-color, #f0f0f0);
+  color: #f0f0f0;
   text-align: center;
   padding: 14px 0;
   display: flex;
@@ -332,7 +335,7 @@ onUnmounted(() => {
   cursor: pointer;
 }
 .p2p-test__status {
-  color: var(--text-color, #f0f0f0);
+  color: #f0f0f0;
   padding: 6px 2px;
 }
 .p2p-test__status-line {
@@ -361,7 +364,10 @@ onUnmounted(() => {
 .p2p-test__result-row {
   display: flex;
   justify-content: space-between;
-  color: var(--text-color, #f0f0f0);
+  color: #f0f0f0;
+}
+.p2p-test__result-label {
+  color: #f0f0f0;
 }
 .p2p-test__result-error {
   color: #ff3b30;
