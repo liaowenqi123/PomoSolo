@@ -194,7 +194,10 @@ useTauriEvent<UpdateStatusPayload>("update-status", (e) => {
           : "正式版已是最新；存在 Beta 版本，可在下方开启接收";
         updateStatusType.value = "info";
       } else {
-        updateStatusText.value = "已是最新版本";
+        // v4.6.6：展示更新源上的最新版本号，避免"服务器有新版但查不到"的困惑
+        updateStatusText.value = payload.latestVersion
+          ? `已是最新版本（${local.updateSource === "server" ? "服务器" : "GitHub"}最新 v${payload.latestVersion}）`
+          : "已是最新版本";
         updateStatusType.value = "success";
       }
       updateBtnText.value = "检查更新";

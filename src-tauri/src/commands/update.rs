@@ -516,8 +516,10 @@ pub async fn check_update(
         return Ok(None);
     }
     if !is_newer(&latest.version, current) {
+        // v4.6.6：无更新提示附带源上最新版本号，前端展示避免"查不到更新"困惑
         let _ = app.emit("update-status", serde_json::json!({
             "status": "not-available",
+            "latestVersion": &latest.version,
         }));
         return Ok(None);
     }

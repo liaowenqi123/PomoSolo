@@ -812,7 +812,10 @@ def handle_p2p_seed_list(user_id, msg):
 # ── 心跳 ──
 
 def handle_ping(user_id, msg):
-    send_to_user(user_id, {"type": "pong", "server_time": int(time.time() * 1000)})
+    resp = {"type": "pong", "server_time": int(time.time() * 1000)}
+    if msg.get("id") is not None:
+        resp["id"] = msg["id"]  # 请求-响应：回显 id 供客户端 ws::request 匹配（v4.6.6 时钟对齐用）
+    send_to_user(user_id, resp)
 
 
 # ── 连接生命周期 ──

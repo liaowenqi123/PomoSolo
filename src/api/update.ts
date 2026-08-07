@@ -43,6 +43,8 @@ export interface UpdateStatusPayload {
   betaOnly?: boolean;
   /** 被跳过的 beta 版本号 */
   betaVersion?: string;
+  /** 更新源上的最新版本号（无更新提示时展示，v4.6.6） */
+  latestVersion?: string;
 }
 
 /**

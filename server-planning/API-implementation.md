@@ -938,6 +938,31 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 >
 > 传歌与测试走同一 establishConnection，修复对两者同时生效。
 
+## v4.6.6：更新源可观测 + 同步听歌延迟对齐（2026-08-07）
+
+> **更新源"查不到更新"澄清**：服务器 `latest.json` 一直是 4.6.5、与客户端已发布版本一致，
+> 检查无更新属**正确行为**。为避免困惑，客户端在"已是最新"提示里展示更新源上的最新版本号
+> （`check_update` 的 not-available 事件新增 `latestVersion` 字段，前端据此显示
+> "已是最新版本（服务器/GitHub 最新 vX）"）。
+>
+> **同步听歌延迟对齐（阶段一：时钟对齐 + 总延迟补偿）**：
+> 根因 ① 听众端校准 `pos = position_ms + (Date.now() - timestamp_server)` 依赖本地时钟与
+> 服务器一致，本地时间偏差几百 ms 会整体偏移（电话哼歌可听出不同步）；
+> 根因 ② `timestamp_server` 是服务器转发时刻，只补偿"服务器→听众"，DJ→服务器那段（几十~几百 ms）未补。
+>
+> 修复：
+> 1. **服务器**（已改，随本版部署）：`handle_ping` 的 pong 增加 `id` 回显，
+>    使 `ws::request("ping")` 请求-响应可匹配（原来 pong 不带 id 只能走事件）。
+> 2. **客户端 Rust**：新增 `music_sync_measure_time_offset` 命令——发 3 次 ping，
+>    取 RTT 最小一次估算时钟偏移（offset = server_time + RTT/2 - 本地收到时刻，毫秒）。
+> 3. **客户端前端**：
+>    - 开启同步时调用上述命令，此后校准用 `serverNow() = Date.now() + offset`
+>    - DJ 广播 `music:sync_state` 附带 `dj_server_time`（DJ 对齐后发出的服务器时间，时钟偏移
+>      未就绪时不带、退回旧校准）；Rust `music_sync_state` 命令新增可选参数 `dj_server_time`
+>    - 听众端校准优先 `position_ms + (serverNow() - dj_server_time)`（覆盖 DJ→服务器→听众
+>      全链路延迟），否则退回 `serverNow() - timestamp_server`
+> 4. 说明：阶段二（统计 seek 执行耗时二次补偿）用户确认暂不做，先看阶段一实测效果。
+
 ## 【已部署 + 客户端已实现】Phase 2：安装包 P2P 种子（2026-08-04）
 
 > 用户本机带宽充裕，开启"分享安装包"后，其他客户端更新时优先从在线种子 **P2P 直连**下载（不经服务器，也不走 GitHub）。

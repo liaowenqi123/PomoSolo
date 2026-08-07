@@ -50,6 +50,8 @@ const musicSyncApi = vi.hoisted(() => ({
   musicSyncTransferFailed: vi.fn(),
   musicSyncSetConfig: vi.fn(),
   musicSyncRequestState: vi.fn(),
+  // v4.6.6 时钟对齐
+  musicSyncMeasureTimeOffset: vi.fn(),
   // Phase 1 WebRTC 直传二进制分片
   musicReadSongChunkBin: vi.fn(),
   musicReceiveSongChunkBin: vi.fn(),

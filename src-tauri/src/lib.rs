@@ -214,6 +214,7 @@ pub fn run() {
             commands::music_sync::music_sync_transfer_failed,
             commands::music_sync::music_sync_set_config,
             commands::music_sync::music_sync_request_state,
+            commands::music_sync::music_sync_measure_time_offset,
             // 自动更新
             commands::update::check_update,
             commands::update::download_and_install,

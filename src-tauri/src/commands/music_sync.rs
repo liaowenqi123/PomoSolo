@@ -120,6 +120,8 @@ pub async fn music_sync_request_dj(
 /// 取代旧的动作消息（play/pause/seek/next），携带完整状态：
 /// song_id + playing + position_ms + volume + transfer_mode。
 /// 服务器需像 music:state 一样广播给房间全体（附加 timestamp_server）。
+/// v4.6.6：附 `dj_server_time`（DJ 对齐服务器时钟后发出的服务器时间戳），
+/// 听众端用它补偿"DJ 发出 → 收到"的完整传输延迟，对齐更准。
 #[tauri::command]
 pub async fn music_sync_state(
     app: AppHandle,
@@ -129,15 +131,19 @@ pub async fn music_sync_state(
     position_ms: i64,
     volume: f64,
     transfer_mode: String,
+    dj_server_time: Option<i64>,
 ) -> Result<(), String> {
     let token = require_token(&state).await?;
-    let params = serde_json::json!({
+    let mut params = serde_json::json!({
         "song_id": song_id,
         "playing": playing,
         "position_ms": position_ms,
         "volume": volume,
         "transfer_mode": transfer_mode,
     });
+    if let Some(t) = dj_server_time {
+        params["dj_server_time"] = serde_json::json!(t);
+    }
     ws::send(&app, &state.ws, &token, "music:sync_state", params).await
 }
 
@@ -246,4 +252,46 @@ pub async fn music_sync_request_state(
 ) -> Result<(), String> {
     let token = require_token(&state).await?;
     ws::send(&app, &state.ws, &token, "music:request_state", serde_json::json!({})).await
+}
+
+/// 测量与服务器的时钟偏移（v4.6.6 同步听歌延迟对齐）
+///
+/// 发 3 次 `ping` 请求（服务器回 `pong` + `server_time` 毫秒时间戳），取 RTT 最小
+/// 的一次估算时钟偏移：收到响应瞬间的服务器时间 ≈ server_time + RTT/2，
+/// 偏移 = 服务器时间 - 本地时间。之后本地时间 + 偏移 ≈ 服务器时间。
+///
+/// 用途：听众端 `pos = position_ms + (serverNow - timestamp_server)` 校准会因
+/// 本地时钟与服务器不一致而整体偏移几百 ms（电话哼歌能听出不同步）——
+/// 先用本命令对齐时钟，再做进度补偿。
+#[tauri::command]
+pub async fn music_sync_measure_time_offset(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<i64, String> {
+    let token = require_token(&state).await?;
+    let now_ms = || -> Result<u128, String> {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .map_err(|e| format!("读取本地时间失败: {}", e))
+    };
+
+    let mut best: Option<(u128, i64)> = None; // (RTT ms, offset ms)，取 RTT 最小
+    for _ in 0..3 {
+        let t1 = now_ms()?;
+        let resp = ws::request(&app, &state.ws, &token, "ping", serde_json::json!({})).await?;
+        let t2 = now_ms()?;
+        let server_time = resp
+            .get("server_time")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(|| "服务器未返回时间戳".to_string())?;
+        let rtt = t2 - t1;
+        // 收到响应瞬间的服务器时间 ≈ server_time + RTT/2（假设网络对称）
+        let offset = server_time + (rtt as i64) / 2 - t2 as i64;
+        if best.as_ref().map_or(true, |(best_rtt, _)| rtt < *best_rtt) {
+            best = Some((rtt, offset));
+        }
+    }
+    best.map(|(_, offset)| offset)
+        .ok_or_else(|| "测量时钟偏移失败".to_string())
 }

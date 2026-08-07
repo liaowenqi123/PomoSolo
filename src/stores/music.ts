@@ -58,6 +58,7 @@ import {
   musicSyncTransferFailed,
   musicSyncSetConfig,
   musicSyncRequestState,
+  musicSyncMeasureTimeOffset,
   musicReadSongChunkBin,
   musicReceiveSongChunkBin,
 } from "@/api/musicSync";
@@ -198,6 +199,32 @@ export const useMusicStore = defineStore("music", () => {
    * 与进度位置无关——DJ 手动回退/前进都是"新广播"（ts 更大），都能正常应用。
    */
   let lastSyncTs = 0;
+
+  // ===== 客户端-服务器时钟对齐（v4.6.6 延迟对齐） =====
+  //
+  // 进度校准 `pos = position_ms + (serverNow - timestamp_server)` 依赖本地时钟与
+  // 服务器一致，但本地时间可能偏差几百 ms（电话哼歌能听出不同步）。
+  // 开启同步时用 ping→pong（server_time）测偏移，之后 serverNow() 即为对齐后的服务器时间。
+  let serverClockOffsetMs = 0;
+  /** 时钟偏移是否已测好：未就绪时 DJ 广播不带 dj_server_time（退回服务器时间戳校准） */
+  let clockOffsetReady = false;
+  /** 对齐后的"服务器当前时间"（毫秒）：本地时间 + 测得的时钟偏移 */
+  function serverNow(): number {
+    return Date.now() + serverClockOffsetMs;
+  }
+  /** 测量与服务器的时钟偏移（开启同步时调用，失败不影响同步，退回原校准） */
+  function measureClockOffset(): void {
+    void Promise.resolve(musicSyncMeasureTimeOffset())
+      .then((offset) => {
+        if (typeof offset !== "number") return; // 测试 mock 等异常返回直接跳过
+        serverClockOffsetMs = offset;
+        clockOffsetReady = true;
+        console.log(`[MusicStore] 时钟偏移已对齐: ${offset}ms（本地时间 + ${offset} ≈ 服务器时间）`);
+      })
+      .catch(() => {
+        console.warn("[MusicStore] 测量服务器时钟偏移失败，进度校准退回原逻辑");
+      });
+  }
 
   // ===== DJ 操作串行队列（"原子锁"） =====
   //
@@ -375,6 +402,8 @@ export const useMusicStore = defineStore("music", () => {
         positionMs: Math.floor(currentTime.value * 1000),
         volume: volume.value,
         transferMode: settingsStore.settings.syncTransferMode,
+        // v4.6.6：时钟对齐就绪后才附 DJ 服务器时间戳（否则退回服务器时间戳校准）
+        djServerTime: clockOffsetReady ? serverNow() : undefined,
       });
     } catch (e) {
       console.warn("[MusicStore] DJ 全量状态广播失败:", e);
@@ -1155,6 +1184,8 @@ export const useMusicStore = defineStore("music", () => {
       const settingsStore = useSettingsStore();
       transferMode.value = settingsStore.settings.syncTransferMode;
       ensureTransferWatch();
+      // v4.6.6 时钟对齐：开启同步时测量与服务器的时钟偏移，进度校准更准
+      measureClockOffset();
       // 提前加载本地歌单：同步广播可能早于歌单到达，playlist 空数组会被误判
       // "缺歌"触发 P2P 下载（本地明确有的歌也被误下载）
       void requestPlaylist();
@@ -1197,10 +1228,15 @@ export const useMusicStore = defineStore("music", () => {
     const action = evt.action;
     const positionMs = Number(evt.position_ms ?? 0);
     const ts = Number(evt.timestamp_server ?? 0);
-    // 校准：服务器广播时刻 + 已流逝时间 ≈ 当前播放位置
+    const djServerTime = Number(evt.dj_server_time ?? 0);
+    // 校准：DJ 发出/服务器转发时刻 + 已流逝时间 ≈ DJ 当前播放位置（v4.6.6 时钟对齐版）。
+    // 优先 dj_server_time（DJ 对齐服务器时钟后发出的时间戳，覆盖 DJ→服务器→听众全链路延迟）；
+    // 退回 timestamp_server（服务器转发时刻，缺 DJ→服务器那段）；时间基准为对齐后的服务器时钟。
     let pos = positionMs;
-    if (ts > 0) {
-      pos += Math.max(0, Date.now() - ts);
+    if (djServerTime > 0) {
+      pos += Math.max(0, serverNow() - djServerTime);
+    } else if (ts > 0) {
+      pos += Math.max(0, serverNow() - ts);
     }
     const posSec = Math.floor(pos / 1000);
     // 广播新旧判定：时间戳更小的迟到旧广播直接忽略（旧状态不覆盖新状态）。
@@ -1267,9 +1303,15 @@ export const useMusicStore = defineStore("music", () => {
     const djPlaying = evt.playing === true;
     const positionMs = Number(evt.position_ms ?? 0);
     const ts = Number(evt.timestamp_server ?? 0);
+    const djServerTime = Number(evt.dj_server_time ?? 0);
+    // 校准：DJ 发出/服务器转发时刻 + 已流逝时间 ≈ DJ 当前播放位置（v4.6.6 时钟对齐版）。
+    // 优先 dj_server_time（DJ 对齐服务器时钟后发出的时间戳，覆盖全链路延迟）；
+    // 退回 timestamp_server；时间基准为对齐后的服务器时钟（本地时钟偏差几百 ms 会听出不同步）。
     let pos = positionMs;
-    if (ts > 0) {
-      pos += Math.max(0, Date.now() - ts);
+    if (djServerTime > 0) {
+      pos += Math.max(0, serverNow() - djServerTime);
+    } else if (ts > 0) {
+      pos += Math.max(0, serverNow() - ts);
     }
     const posSec = Math.floor(pos / 1000);
     // 广播新旧判定：时间戳更小的迟到旧广播直接忽略（旧状态不覆盖新状态）。

@@ -71,7 +71,7 @@ export function musicSyncRequestDj(): Promise<void> {
 /**
  * 广播 DJ 全量状态快照（歌曲 + 播放状态 + 进度 + 音量 + 传歌方案）。
  * 取代旧的动作消息（play/pause/seek/next），让听众端拿到完整状态而非单个动作。
- * 后端：`music_sync_state(song_id, playing, position_ms, volume, transfer_mode) -> Result<(), String>`
+ * 后端：`music_sync_state(song_id, playing, position_ms, volume, transfer_mode, dj_server_time) -> Result<(), String>`
  */
 export function musicSyncState(params: {
   songId: string;
@@ -79,6 +79,8 @@ export function musicSyncState(params: {
   positionMs: number;
   volume: number;
   transferMode: string;
+  /** v4.6.6：DJ 对齐服务器时钟后发出的服务器时间（毫秒），听众端据此补偿完整传输延迟 */
+  djServerTime?: number;
 }): Promise<void> {
   return invoke<void>("music_sync_state", {
     songId: params.songId,
@@ -86,7 +88,18 @@ export function musicSyncState(params: {
     positionMs: params.positionMs,
     volume: params.volume,
     transferMode: params.transferMode,
+    djServerTime: params.djServerTime,
   });
+}
+
+/**
+ * 测量与服务器的时钟偏移（v4.6.6 延迟对齐）。
+ * 后端发 3 次 ping（服务器回 pong + server_time），取 RTT 最小一次估算偏移。
+ * 返回偏移（毫秒）：本地时间 + 偏移 ≈ 服务器时间。
+ * 后端：`music_sync_measure_time_offset() -> Result<i64, String>`
+ */
+export function musicSyncMeasureTimeOffset(): Promise<number> {
+  return invoke<number>("music_sync_measure_time_offset");
 }
 
 /**
