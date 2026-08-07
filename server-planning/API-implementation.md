@@ -920,6 +920,24 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 > **4. 深色底自定义滚动条**：`.p2p-test__diag` / `.p2p-test__users` 补 `::-webkit-scrollbar` 亮色样式
 > （默认滚动条在 WebView2 深色容器不可见）。
 
+## v4.6.6：P2P 测试"显示失败但实际成功"修复（2026-08-07，纯客户端）
+
+> 用户实测：换设备对后 P2P 打洞成功（传歌直连巨快），但 P2P 测试工具显示
+> `P2P直连失败 / P2P通道错误`，同时对方回传"已确认打通 13.22 MB/s"——自相矛盾。
+>
+> **根因**：目标端（answerer）收齐全部数据后回 ack → 立即 `onComplete → cleanup → pc.close()`；
+> 发送端（offerer）已发完全部分片、正在等 ack，通道被对端关闭触发 `channel.onclose/onerror`，
+> 而此时 `completed` 仍为 false → 误报"P2P 通道关闭/错误"。数据实际 100% 送达（接收端不
+> 收齐不会 close），故对方确认成功。
+>
+> **修复（双保险）**：
+> 1. 发送端 `sendFile` 发完全部分片后置 `allSent=true`；此后 `onclose/onerror`（`isOfferer && allSent`）
+>    视为"对端已收齐正常关闭"→ `onComplete()` 判定成功，不再报错
+> 2. 接收端 `onComplete` 后延迟 500ms 再 `cleanup()`，给发送端留出收到 ack 的时间
+>    （立即 close 会让 ack 未送达 → 发送端只能靠 allSent 兜底）
+>
+> 传歌与测试走同一 establishConnection，修复对两者同时生效。
+
 ## 【已部署 + 客户端已实现】Phase 2：安装包 P2P 种子（2026-08-04）
 
 > 用户本机带宽充裕，开启"分享安装包"后，其他客户端更新时优先从在线种子 **P2P 直连**下载（不经服务器，也不走 GitHub）。

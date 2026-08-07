@@ -285,6 +285,9 @@ function establishConnection(
   let transferCompressed = false;
   /** 发送端：是否已开始发送（防止协商回包与超时竞态导致重复发送） */
   let sendStarted = false;
+  /** 发送端：全部数据分片是否已发出（进入等 ack 阶段）。
+   *  v4.6.6：此时对端关闭通道 = 对端已收齐（回 ack 后正常 close），不再误报失败 */
+  let allSent = false;
   let negotiateTimer: ReturnType<typeof setTimeout> | null = null;
   const timeoutTimer = setTimeout(() => {
     if (!completed && pc.connectionState !== "connected") {
@@ -373,7 +376,13 @@ function establishConnection(
     const ms = Date.now() - startTime;
     const speedBps = ms > 0 ? Math.round((receivedBytes * 8 * 1000) / ms) : 0;
     callbacks.onComplete?.({ bytes: receivedBytes, ms, speedBps });
-    cleanup();
+    if (isOfferer) {
+      cleanup();
+    } else {
+      // 接收端：延迟关闭连接，给发送端留出收到 ack 的时间。
+      // v4.6.6：立即 pc.close() 会让 ack 未送达/触发对端 onclose → 发送端误报"通道关闭/错误"
+      setTimeout(cleanup, 500);
+    }
   }
 
   function wireChannel(channel: RTCDataChannel) {
@@ -446,12 +455,24 @@ function establishConnection(
     };
     channel.onclose = () => {
       if (!completed) {
-        callbacks.onError?.("P2P 通道关闭");
+        if (isOfferer && allSent) {
+          // 数据已全部发出、对端已收齐并正常关闭通道 → 视为传输成功
+          onComplete();
+        } else {
+          callbacks.onError?.("P2P 通道关闭");
+        }
       }
       cleanup();
     };
     channel.onerror = () => {
-      callbacks.onError?.("P2P 通道错误");
+      if (!completed) {
+        if (isOfferer && allSent) {
+          // 全部数据发出后对端关闭导致的级联错误 → 视为传输成功（数据已收齐）
+          onComplete();
+        } else {
+          callbacks.onError?.("P2P 通道错误");
+        }
+      }
       cleanup();
     };
   }
@@ -549,6 +570,8 @@ function establishConnection(
         dc.send(encodeChunk(i, data));
       }
     }
+    // 全部分片已发出：此后对端关闭通道视为"对端已收齐正常完成"（onclose/onerror 兜底判定成功）
+    allSent = true;
     // 发送完成：等接收端 ack 确认收齐（最多 5s）再完成。
     // 发送端立即关闭会导致接收端丢尾包（纯软件栈缓冲未 flush），ack 兜底。
     ackTimer = setTimeout(() => {
