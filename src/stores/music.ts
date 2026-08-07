@@ -73,6 +73,7 @@ import {
   p2pAcceptTest,
   p2pReceive,
   p2pSend,
+  p2pStartTest,
   type P2PHandle,
 } from "@/p2p";
 
@@ -1432,6 +1433,36 @@ export const useMusicStore = defineStore("music", () => {
       case "p2p:test_result": {
         // 目标端回传的结果 → 转发给发起方设置面板 UI（P2PTestPanel）
         dispatchP2PTestResult(evt);
+        break;
+      }
+      case "p2p:reverse_test_request": {
+        // 发起方首个方向打洞失败 → 请求本机反向发起（本机作为 offerer 推测试数据，
+        // 双向打洞容错：只要有一边能打通即判成功，v4.7.3）
+        const from = typeof evt.from_user_id === "string" ? evt.from_user_id : "";
+        if (!from) break;
+        const fromName = typeof evt.from_username === "string" ? evt.from_username : "";
+        console.warn("[MusicStore] 收到 P2P 反向测试请求:", fromName || from);
+        p2pStartTest(from, {
+          onComplete: (stats) => {
+            void p2pTestResult({
+              toUserId: from,
+              ok: true,
+              ms: stats.ms,
+              speedBps: stats.speedBps,
+              bytes: stats.bytes,
+            }).catch((e) => console.warn("[MusicStore] 回传反向测试结果失败:", e));
+          },
+          onError: (err) => {
+            void p2pTestResult({
+              toUserId: from,
+              ok: false,
+              ms: 0,
+              speedBps: 0,
+              bytes: 0,
+              error: err,
+            }).catch((e) => console.warn("[MusicStore] 回传反向测试失败结果失败:", e));
+          },
+        });
         break;
       }
       case "p2p:seed_request": {

@@ -23,6 +23,11 @@ export async function p2pTestRequest(toUserId: string): Promise<void> {
   await invoke("p2p_test_request", { toUserId });
 }
 
+/** 请求目标端反向发起 P2P 测试（v4.7.3 双向打洞容错：首个方向失败后调用） */
+export async function p2pReverseTestRequest(toUserId: string): Promise<void> {
+  await invoke("p2p_reverse_test_request", { toUserId });
+}
+
 /** 目标端回传 P2P 测试结果给发起方（发起方 UI 显示双方视角） */
 export async function p2pTestResult(params: {
   toUserId: string;

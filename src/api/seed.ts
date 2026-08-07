@@ -33,12 +33,21 @@ export async function seedUnregister(): Promise<void> {
 }
 
 /**
- * 查询持有指定版本安装包的在线种子 user_id 列表（服务器已排除自己）
+ * 在线种子（v4.7.3 起服务器返回 userId + username，
+ * 供下载端前端显示"正在从 xxx 直连下载"）。
+ */
+export interface P2PSeedPeer {
+  userId: string;
+  username: string;
+}
+
+/**
+ * 查询持有指定版本安装包的在线种子列表（服务器已排除自己）
  *
  * @param version 目标版本；不传则返回全部在线种子
  */
-export async function seedList(version?: string): Promise<string[]> {
-  return await invoke<string[]>("p2p_seed_list", {
+export async function seedList(version?: string): Promise<P2PSeedPeer[]> {
+  return await invoke<P2PSeedPeer[]>("p2p_seed_list", {
     version: version ?? "",
   });
 }

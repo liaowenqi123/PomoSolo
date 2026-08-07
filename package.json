@@ -1,6 +1,6 @@
 {
   "name": "pomo-solo",
-  "version": "4.7.2",
+  "version": "4.7.3",
   "description": "PomoSolo - Tauri + Vue 3 重构版",
   "type": "module",
   "scripts": {

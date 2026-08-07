@@ -9,8 +9,8 @@
  */
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useAuthStore } from "@/stores/auth";
-import { p2pOnline, p2pTestRequest, type P2POnlineUser } from "@/api/p2pTest";
-import { p2pStartTest, setP2PTestResultHandler } from "@/p2p";
+import { p2pOnline, p2pTestRequest, p2pReverseTestRequest, type P2POnlineUser } from "@/api/p2pTest";
+import { p2pStartTest, setP2PTestResultHandler, p2pReceive } from "@/p2p";
 
 interface TestResult {
   ok: boolean;
@@ -85,6 +85,106 @@ async function refresh(): Promise<void> {
   }
 }
 
+/** 测试阶段：正向（本机 offerer）/ 反向（对端 offerer） */
+type TestPhase = "normal" | "reverse";
+let currentPhase: TestPhase = "normal";
+
+/** 记录本次测试最终结果（只写一次，双向容错判成功即定） */
+function setFinalResult(r: TestResult): void {
+  localResult.value = r;
+  testing.value = null;
+}
+
+function finishOk(stats: { ms: number; speedBps: number; bytes: number }, label: string): void {
+  setFinalResult({
+    ok: true,
+    ms: stats.ms,
+    speedBps: stats.speedBps,
+    bytes: stats.bytes,
+    error: "",
+    label,
+  });
+}
+
+function fail(err: string, label: string): void {
+  setFinalResult({
+    ok: false,
+    ms: 0,
+    speedBps: 0,
+    bytes: 0,
+    error: err,
+    label,
+  });
+}
+
+/**
+ * 发起单方向测试（v4.7.3 双向打洞容错）：
+ * 1. normal：本机作为 offerer（p2pTestRequest 通知对端挂起接收 + p2pStartTest 主动推数据）
+ * 2. 失败 → reverse：请求对端作为 offerer 反向推（p2pReverseTestRequest + 本机 p2pReceive 挂起接收）
+ * 两边都失败才判失败；任一边成功即成功（NAT 打洞方向不对称，换方向常能打通）。
+ */
+function runDirection(u: P2POnlineUser): void {
+  // 守卫：结果已定（双向中任一方成功）后，迟到的另一方向回调不得再覆盖/重复尝试
+  if (!testing.value) return;
+  const phase = currentPhase;
+  if (phase === "normal") {
+    // 正向：本机 offerer，主动推 2MB 测试数据
+    void p2pTestRequest(u.userId).catch((e) => {
+      console.warn("[P2PTest] 发送测试请求失败:", e);
+      // 请求都发不出去 → 尝试反向（对端可能在线但服务器暂未响应）
+      diagnostics.value.push("正向测试请求发送失败，尝试反向打洞");
+      currentPhase = "reverse";
+      runDirection(u);
+    });
+    p2pStartTest(u.userId, {
+      onDiagnose: (info) => {
+        diagnostics.value.push(info);
+      },
+      onOpen: () => {
+        // 建连成功（DataChannel 可传）——但不代表测速完成，等 onComplete
+      },
+      onProgress: (p) => {
+        progress.value = p;
+      },
+      onComplete: (stats) => {
+        finishOk(stats, "P2P 直连打通，2MB 测速完成（本机发起方向）");
+      },
+      onError: (err) => {
+        diagnostics.value.push(`正向打洞失败：${err}，尝试反向打洞`);
+        currentPhase = "reverse";
+        runDirection(u);
+      },
+    });
+  } else {
+    // 反向：本机 answerer，挂起等待对端 offer 推数据
+    diagnostics.value.push("反向打洞：请求对端作为发起方推测试数据…");
+    void p2pReverseTestRequest(u.userId).catch((e) => {
+      console.warn("[P2PTest] 发送反向测试请求失败:", e);
+      fail(String(e), "双向打洞均失败");
+    });
+    p2pReceive({
+      peerId: u.userId,
+      role: "answerer",
+      timeoutMs: 12_000,
+      onDiagnose: (info) => {
+        diagnostics.value.push(`[反向] ${info}`);
+      },
+      onChunk: async () => {},
+      callbacks: {
+        onProgress: (_received, _total, percent) => {
+          progress.value = percent;
+        },
+        onComplete: (stats) => {
+          finishOk(stats, "P2P 直连打通，2MB 测速完成（对端发起方向）");
+        },
+        onError: (err) => {
+          fail(err, "双向打洞均失败（对端发起方向也失败）");
+        },
+      },
+    });
+  }
+}
+
 function runTest(u: P2POnlineUser): void {
   if (testing.value) return;
   testing.value = u;
@@ -92,50 +192,8 @@ function runTest(u: P2POnlineUser): void {
   diagnostics.value = [];
   localResult.value = null;
   remoteResult.value = null;
-  void p2pTestRequest(u.userId).catch((e) => {
-    localResult.value = {
-      ok: false,
-      ms: 0,
-      speedBps: 0,
-      bytes: 0,
-      error: String(e),
-      label: "发送测试请求失败",
-    };
-  });
-  // 发起 WebRTC 直连 + 2MB 测速（offerer）
-  p2pStartTest(u.userId, {
-    onDiagnose: (info) => {
-      diagnostics.value.push(info);
-    },
-    onOpen: () => {
-      // 建连成功（DataChannel 可传）——但不代表测速完成，等 onComplete
-    },
-    onProgress: (p) => {
-      progress.value = p;
-    },
-    onComplete: (stats) => {
-      localResult.value = {
-        ok: true,
-        ms: stats.ms,
-        speedBps: stats.speedBps,
-        bytes: stats.bytes,
-        error: "",
-        label: "P2P 直连打通，2MB 测速完成",
-      };
-      testing.value = null;
-    },
-    onError: (err) => {
-      localResult.value = {
-        ok: false,
-        ms: 0,
-        speedBps: 0,
-        bytes: 0,
-        error: err,
-        label: "P2P 直连失败",
-      };
-      testing.value = null;
-    },
-  });
+  currentPhase = "normal";
+  runDirection(u);
 }
 
 function goLogin(): void {

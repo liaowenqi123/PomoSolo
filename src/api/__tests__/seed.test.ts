@@ -55,15 +55,22 @@ describe("api/seed（Phase 2 安装包种子）", () => {
     expect(invokeMock).toHaveBeenCalledWith("p2p_seed_unregister");
   });
 
-  it("seedList 应调用 invoke('p2p_seed_list') 并返回在线种子列表", async () => {
-    invokeMock.mockResolvedValue(["uuid-a", "uuid-b"]);
+  it("seedList 应调用 invoke('p2p_seed_list') 并返回在线种子列表（含用户名）", async () => {
+    // v4.7.3：服务器返回 {userId, username}[]（此前为纯 userId 数组）
+    invokeMock.mockResolvedValue([
+      { userId: "uuid-a", username: "小明" },
+      { userId: "uuid-b", username: "" },
+    ]);
 
     const peers = await seedList("4.6.0-beta.0");
 
     expect(invokeMock).toHaveBeenCalledWith("p2p_seed_list", {
       version: "4.6.0-beta.0",
     });
-    expect(peers).toEqual(["uuid-a", "uuid-b"]);
+    expect(peers).toEqual([
+      { userId: "uuid-a", username: "小明" },
+      { userId: "uuid-b", username: "" },
+    ]);
   });
 
   it("seedList 不传版本时应传空字符串（查询全部在线种子）", async () => {

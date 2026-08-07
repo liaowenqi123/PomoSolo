@@ -972,8 +972,9 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 > - `p2p:seed_register`：种子注册（version/file/size，重复注册覆盖）
 > - `p2p:seed_heartbeat`：心跳保活（客户端每 30s）
 > - `p2p:seed_unregister`：主动注销
-> - `p2p:seed_list`：查在线种子（按 version 过滤、排除自己、返回 user_id 数组；**带 id 回显支持
->   ws::request 请求-响应匹配**，客户端 `p2p_seed_list` 命令即用它）
+> - `p2p:seed_list`：查在线种子（按 version 过滤、排除自己；**v4.7.3 起返回
+>   `{userId, username}[]`**，此前为纯 user_id 数组——附 username 供下载端 UI 显示"从谁下载"；
+>   **带 id 回显支持 ws::request 请求-响应匹配**，客户端 `p2p_seed_list` 命令即用它）
 >
 > 服务器只做"谁在线、谁有哪个版本"的**目录服务**，不存文件、不中转数据（文件走 WebRTC 直连）。
 >
@@ -1071,3 +1072,35 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 - 验证：`powershell_encoded` 纯函数单测（往返 + 字符安全 ×2）；`#[ignore]` 手动集成测试
   `test_spawn_powershell_hidden_manual` 真实启动隐藏 PowerShell 写探针文件通过（`cargo test -- --ignored ...`）。
 - 纯客户端改动，服务器零改动；latest.json/latest-beta.json 仅需更新 url/版本指向 4.7.2。
+
+---
+
+## 【服务器已部署】v4.7.3 双向打洞容错 + answerer 超时修复 + 下载观测（2026-08-08）
+
+> 需求（用户）：打洞方向不对称（对称 NAT vs 锥形 NAT）——"汤圆向 CICI 能打通、反向打不通"，
+> 增加容错：**双向互相打洞，只有两边都失败才算失败，任一边成功即成功**；
+> 且传音乐/传安装包都走双向测试；下载侧前端要能观测"从谁那里拉的安装包"。
+
+**1. 新信令 `p2p:reverse_test_request`（服务器已部署，路由 + handler）**
+- 客户端 A 首个方向（A 作 offerer）打洞失败 → 发 `p2p:reverse_test_request { to_user_id:B }`
+- 服务器定向转发给 B：`{ type:"p2p:reverse_test_request", from_user_id:A, from_username }`；B 离线静默丢弃
+- B 收到后**作为 offerer** 推 2MB 测试数据回 A（与 `p2p:test_request` 对称，复用 `p2p:test_result` 回传结果）
+- 客户端流程：normal（本机 offerer）→ 失败转 reverse（对端 offerer）→ 两边都失败才判失败
+- 兼容性：旧版客户端不认识该消息，服务器转发后静默忽略，A 端 reverse 方向正常超时判失败（行为等同纯单向）
+
+**2. answerer 等待 offer 超时兜底（v4.7.2 实测卡死 bug 修复）**
+- 根因：answerer 建连超时在 `establishConnection` 内部，而它要等对端 `peer:offer` 到达才执行——
+  种子端一直不发起 offer（WS 掉线/对方没留存安装包/服务器丢弃）时挂起接收永久等待 → Promise 永不 resolve → 下载 UI 卡死
+- 修复：`p2pReceive` 内部独立 `pendingReceiverTimers` 兜底（默认 8s），offer 到达时清理，
+  未到达到期触发 `onError("等待对端发起连接超时")` → 调用方正常回退（下载回退服务器/GitHub）
+
+**3. `p2p:seed_list` 返回结构变化（兼容注意）**
+- v4.7.3 起返回 `{userId, username}[]`（此前 `string[]`），username 供下载端 UI 显示"正在从 xxx 直连下载"
+- 服务器已部署；**旧版客户端**（v4.7.2 及更早）`parse_seed_peers` 按字符串数组解析会得到空列表 → 下载直接回退服务器/GitHub（不影响正常更新，仅 P2P 种子功能退化）
+
+**4. 下载观测（客户端）**
+- `SettingsPanel.trySeedDownload` 显示"正在从「用户名」直连下载（P2P 种子）"（用户名缺失时显示通用文案）
+- Rust `p2p_seed_list` 返回 `Vec<P2PSeedPeer{userId, username}>`（serde camelCase），前端 `api/seed.ts` 同步类型
+
+**协议变更清单（本版）**：新增 `p2p:reverse_test_request`（fire-and-forget，同 `p2p:test_request` 语义）；
+`p2p:seed_list` 响应 peers 字段结构变化。其余消息零改动。

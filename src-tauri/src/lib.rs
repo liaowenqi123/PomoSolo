@@ -240,6 +240,7 @@ pub fn run() {
             // P2P 连通性测试工具（在线列表 / 测试请求 / 结果回传）
             commands::p2p::p2p_online,
             commands::p2p::p2p_test_request,
+            commands::p2p::p2p_reverse_test_request,
             commands::p2p::p2p_test_result,
             // 系统集成（开机自启）
             commands::system::autostart_enable,

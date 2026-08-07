@@ -100,7 +100,15 @@ pub async fn p2p_seed_unregister(
         .await
 }
 
-/// 查询持有指定版本的在线种子（user_id 列表，服务器已排除自己）
+/// 在线种子（P2P 下载来源，v4.7.3 起携带 username 供前端显示"从谁下载"）
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct P2PSeedPeer {
+    pub user_id: String,
+    pub username: String,
+}
+
+/// 查询持有指定版本的在线种子（userId + username 列表，服务器已排除自己）
 ///
 /// 走 ws::request 请求-响应（服务器回显 id），15s 超时。
 #[tauri::command]
@@ -108,7 +116,7 @@ pub async fn p2p_seed_list(
     app: AppHandle,
     state: State<'_, AppState>,
     version: Option<String>,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<P2PSeedPeer>, String> {
     let token = require_token(&state).await?;
     let resp = ws::request(
         &app,
@@ -218,6 +226,29 @@ pub async fn p2p_test_request(
     .await
 }
 
+/// 请求目标端反向发起 P2P 测试（v4.7.3 双向打洞容错）：
+/// 发起方首个方向打洞失败后调用，目标端收到 `p2p:reverse_test_request` 后
+/// 作为 offerer 推测试数据回来——只有两边都失败才算测试失败。
+#[tauri::command]
+pub async fn p2p_reverse_test_request(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    to_user_id: String,
+) -> Result<(), String> {
+    if to_user_id.is_empty() {
+        return Err("缺少测试目标".to_string());
+    }
+    let token = require_token(&state).await?;
+    ws::send(
+        &app,
+        &state.ws,
+        &token,
+        "p2p:reverse_test_request",
+        serde_json::json!({ "to_user_id": to_user_id }),
+    )
+    .await
+}
+
 /// 目标端回传 P2P 测试结果给发起方（fire-and-forget），发起方 UI 显示双方视角。
 #[tauri::command]
 pub async fn p2p_test_result(
@@ -246,16 +277,27 @@ pub async fn p2p_test_result(
     ws::send(&app, &state.ws, &token, "p2p:test_result", params).await
 }
 
-/// 解析 seed_list 响应的 peers 字段（纯函数，便于单测）
-fn parse_seed_peers(resp: &Value) -> Result<Vec<String>, String> {
+/// 解析 seed_list 响应的 peers 字段（纯函数，便于单测）。
+/// v4.7.3 起服务器返回 `{userId, username}[]`（此前为纯 userId 数组）。
+fn parse_seed_peers(resp: &Value) -> Result<Vec<P2PSeedPeer>, String> {
     let peers = resp
         .get("peers")
         .and_then(|p| p.as_array())
         .ok_or_else(|| "种子列表响应格式错误".to_string())?;
-    Ok(peers
+    peers
         .iter()
-        .filter_map(|v| v.as_str().map(String::from))
-        .collect())
+        .map(|p| {
+            let user_id = p
+                .get("userId")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "种子缺 userId".to_string())?;
+            let username = p.get("username").and_then(|v| v.as_str()).unwrap_or("");
+            Ok(P2PSeedPeer {
+                user_id: user_id.to_string(),
+                username: username.to_string(),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -267,28 +309,43 @@ mod tests {
         let resp = serde_json::json!({
             "type": "p2p:seed_list",
             "id": "42",
-            "peers": ["uuid-a", "uuid-b"],
+            "peers": [
+                {"userId": "uuid-a", "username": "小明"},
+                {"userId": "uuid-b", "username": ""}
+            ],
             "version": "4.6.0-beta.0"
         });
-        assert_eq!(
-            parse_seed_peers(&resp).unwrap(),
-            vec!["uuid-a".to_string(), "uuid-b".to_string()]
-        );
+        let peers = parse_seed_peers(&resp).unwrap();
+        assert_eq!(peers.len(), 2);
+        assert_eq!(peers[0].user_id, "uuid-a");
+        assert_eq!(peers[0].username, "小明");
+        assert_eq!(peers[1].user_id, "uuid-b");
+        assert_eq!(peers[1].username, "");
     }
 
     #[test]
     fn test_parse_seed_peers_empty() {
         let resp = serde_json::json!({ "peers": [], "version": "" });
-        assert_eq!(parse_seed_peers(&resp).unwrap(), Vec::<String>::new());
+        assert_eq!(parse_seed_peers(&resp).unwrap().len(), 0);
     }
 
     #[test]
-    fn test_parse_seed_peers_skips_non_strings() {
-        let resp = serde_json::json!({ "peers": ["ok", 123, null, "also-ok"] });
-        assert_eq!(
-            parse_seed_peers(&resp).unwrap(),
-            vec!["ok".to_string(), "also-ok".to_string()]
-        );
+    fn test_seed_peer_serializes_camel_case() {
+        // 前端 SettingsPanel 读 peer.userId（camelCase），若序列化输出 user_id 会导致 undefined → 下载直接回退
+        let p = P2PSeedPeer {
+            user_id: "uuid-a".to_string(),
+            username: "小明".to_string(),
+        };
+        let json = serde_json::to_value(p).unwrap();
+        assert_eq!(json["userId"], "uuid-a");
+        assert_eq!(json["username"], "小明");
+        assert!(json.get("user_id").is_none());
+    }
+
+    #[test]
+    fn test_parse_seed_peers_missing_user_id_errors() {
+        let resp = serde_json::json!({ "peers": [{"username": "无id"}] });
+        assert!(parse_seed_peers(&resp).is_err());
     }
 
     #[test]

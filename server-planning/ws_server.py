@@ -233,6 +233,7 @@ def handle_message(user_id, msg):
         # P2P 连通性测试工具（Phase 1.2+）
         "p2p:test_request": handle_p2p_test_request,
         "p2p:test_result": handle_p2p_test_result,
+        "p2p:reverse_test_request": handle_p2p_reverse_test_request,
         # Phase 2 安装包种子：注册/心跳/注销/查询/通知发起
         "p2p:seed_register": handle_p2p_seed_register,
         "p2p:seed_heartbeat": handle_p2p_seed_heartbeat,
@@ -761,6 +762,27 @@ def handle_p2p_test_result(user_id, msg):
     })
 
 
+def handle_p2p_reverse_test_request(user_id, msg):
+    """P2P 反向测试请求（v4.7.3）：发起方首个方向打洞失败后，请求目标端反向发起。
+
+    目标端收到后作为 offerer 推测试数据回发起方——双向打洞容错：
+    只要有一边能打通即判为成功，两边都失败才判失败。
+    """
+    to_user_id = msg.get("to_user_id")
+    if not to_user_id or to_user_id == user_id:
+        return
+    with _lock:
+        target = connections.get(to_user_id)
+        if not target:
+            return
+        from_name = (connections.get(user_id) or {}).get("username", "")
+    send_to_user(to_user_id, {
+        "type": "p2p:reverse_test_request",
+        "from_user_id": user_id,
+        "from_username": from_name,
+    })
+
+
 # ── 安装包种子（Phase 2，P2P 分享安装包）──
 
 def handle_p2p_seed_register(user_id, msg):
@@ -793,7 +815,8 @@ def handle_p2p_seed_unregister(user_id, msg):
 
 
 def handle_p2p_seed_list(user_id, msg):
-    """查询在线种子：返回持有指定版本安装包的种子 user_id 列表（不含自己）。
+    """查询在线种子：返回持有指定版本安装包的种子列表（不含自己），
+    每项含 userId + username（v4.7.3 起附 username，供下载端 UI 显示来源）。
     顺便清理超时未心跳的僵尸种子。"""
     version = msg.get("version")
     now = time.time()
@@ -802,9 +825,16 @@ def handle_p2p_seed_list(user_id, msg):
         for u in expired:
             p2p_seeds.pop(u, None)
         if version:
-            peers = [u for u, s in p2p_seeds.items() if s["version"] == version and u != user_id]
+            seed_ids = [u for u, s in p2p_seeds.items() if s["version"] == version and u != user_id]
         else:
-            peers = [u for u in p2p_seeds.keys() if u != user_id]
+            seed_ids = [u for u in p2p_seeds.keys() if u != user_id]
+        peers = [
+            {
+                "userId": uid,
+                "username": (connections.get(uid) or {}).get("username", ""),
+            }
+            for uid in seed_ids
+        ]
     resp = {"type": "p2p:seed_list", "peers": peers, "version": version or ""}
     if msg.get("id") is not None:
         resp["id"] = msg["id"]  # 请求-响应：回显 id 供客户端 ws::request 匹配

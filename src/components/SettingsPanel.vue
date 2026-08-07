@@ -31,7 +31,7 @@ import {
   type UpdateStatusPayload,
 } from "@/api/update";
 import { open } from "@tauri-apps/plugin-dialog";
-import { seedList, seedFetch } from "@/api/seed";
+import { seedList, seedFetch, type P2PSeedPeer } from "@/api/seed";
 import { p2pReceive } from "@/p2p";
 import { startSeedSharing, stopSeedSharing } from "@/seed";
 import { useTauriEvent } from "@/api/events";
@@ -394,7 +394,7 @@ async function trySeedDownload(info: UpdateInfo): Promise<boolean> {
   const { version, signature } = info;
   if (!signature || !version) return false;
   updateChannel.value = "p2p"; // P2P 种子通道（传输快，无暂停按钮）
-  let peers: string[] = [];
+  let peers: P2PSeedPeer[] = [];
   try {
     peers = await seedList(version);
   } catch (e) {
@@ -402,7 +402,12 @@ async function trySeedDownload(info: UpdateInfo): Promise<boolean> {
     return false;
   }
   if (peers.length === 0) return false;
-  const peerId = peers[0];
+  const peer = peers[0];
+  const peerId = peer.userId;
+  // v4.7.3 下载观测：展示种子用户名，让用户知道从谁那里直连拉取安装包
+  updateStatusText.value = peer.username
+    ? `正在从「${peer.username}」直连下载（P2P 种子）`
+    : "正在从在线种子直连下载（P2P）";
 
   return await new Promise<boolean>((resolve) => {
     void updateSeedDownloadBegin(version, signature)

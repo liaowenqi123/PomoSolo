@@ -729,7 +729,7 @@ describe("SettingsPanel.vue", () => {
       }
       return Promise.resolve(undefined);
     });
-    seedApi.seedList.mockResolvedValue(["peer-uuid"]);
+    seedApi.seedList.mockResolvedValue([{ userId: "peer-uuid", username: "种子用户" }]);
     let receiveOpts: Record<string, unknown> | null = null;
     p2pApi.p2pReceive.mockImplementation((opts: Record<string, unknown>) => {
       receiveOpts = opts;
@@ -746,6 +746,8 @@ describe("SettingsPanel.vue", () => {
     expect(receiveOpts).not.toBeNull();
     expect(receiveOpts!.peerId).toBe("peer-uuid");
     expect(receiveOpts!.role).toBe("answerer");
+    // v4.7.3 下载观测：展示下载来源（从哪个种子用户直连拉取）
+    expect(wrapper.text()).toContain("正在从「种子用户」直连下载");
 
     // 分片到达 → 逐片调 Rust 落盘
     const onChunk = receiveOpts!.onChunk as (chunk: Uint8Array, index: number, total: number) => Promise<void>;
@@ -803,7 +805,7 @@ describe("SettingsPanel.vue", () => {
       }
       return Promise.resolve(undefined);
     });
-    seedApi.seedList.mockResolvedValue(["peer-uuid"]);
+    seedApi.seedList.mockResolvedValue([{ userId: "peer-uuid", username: "" }]);
     let receiveOpts: Record<string, unknown> | null = null;
     p2pApi.p2pReceive.mockImplementation((opts: Record<string, unknown>) => {
       receiveOpts = opts;

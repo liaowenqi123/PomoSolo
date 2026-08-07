@@ -193,6 +193,16 @@ export function parseMeta(text: string): ChunkMeta | null {
 
 /** 接收端挂起表：peerId → 等待对端 offer 的选项 */
 const pendingReceivers = new Map<string, P2PStartOptions>();
+/**
+ * 接收端挂起超时：peerId → 等待 offer 的时钟。
+ *
+ * answerer 的建连超时在 establishConnection 内部，而 establishConnection 要等对端
+ * offer 到达才执行——若种子端/对端一直没发起 offer（WS 掉线、对方没留存安装包、
+ * 服务器丢弃等），挂起的接收会**永久等待** → 调用方 Promise 永不 resolve →
+ * 更新下载 UI 卡死在"准备下载"（v4.7.2 实测 bug）。这里独立起一个时钟兜底：
+ * offer 到达时 handlePeerSignal 会清理（delete），未到达则到期触发 onError。
+ */
+const pendingReceiverTimers = new Map<string, number>();
 /** 活跃连接表：peerId → 连接控制器 */
 const liveConnections = new Map<string, PeerConnectionController>();
 /**
@@ -230,13 +240,28 @@ function createPeerConnection(opts: P2PStartOptions, callbacks: P2PTransferCallb
 
 /**
  * 接收端（answerer）：挂起等待对端 offer。应在发起 music:request_song 时同步调用。
+ *
+ * v4.7.3：增加"等待 offer 超时"兜底——offer 到来自动清理，未到达则到期触发 onError，
+ * 调用方据此回退（否则 Promise 永不 resolve，UI 卡死）。
  */
 export function p2pReceive(opts: P2PStartOptions): P2PHandle {
   const prev = pendingReceivers.get(opts.peerId);
   if (prev) pendingReceivers.delete(opts.peerId);
   pendingReceivers.set(opts.peerId, opts);
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timer = window.setTimeout(() => {
+    // 若 offer 已到达并进入 establishConnection，此处已被清理，不会误触发
+    if (pendingReceivers.delete(opts.peerId)) {
+      pendingReceiverTimers.delete(opts.peerId);
+      opts.callbacks?.onError?.(`等待对端发起连接超时（${opts.peerId}）`);
+    }
+  }, timeoutMs);
+  pendingReceiverTimers.set(opts.peerId, timer);
   return {
     close: () => {
+      const t = pendingReceiverTimers.get(opts.peerId);
+      if (t !== undefined) window.clearTimeout(t);
+      pendingReceiverTimers.delete(opts.peerId);
       pendingReceivers.delete(opts.peerId);
     },
   };
@@ -707,6 +732,10 @@ export function handlePeerSignal(evt: Record<string, unknown>): void {
         if (only) {
           opts = only;
           pendingReceivers.delete(only.peerId);
+          // 清理 fallback 接收的"等待 offer"超时
+          const pt = pendingReceiverTimers.get(only.peerId);
+          if (pt !== undefined) window.clearTimeout(pt);
+          pendingReceiverTimers.delete(only.peerId);
         }
       }
       if (!opts) {
@@ -714,6 +743,10 @@ export function handlePeerSignal(evt: Record<string, unknown>): void {
         return; // 没有挂起的接收 → 忽略
       }
       pendingReceivers.delete(from);
+      // offer 已到达 → 清理"等待 offer"超时（防误触发 onError）
+      const pt = pendingReceiverTimers.get(from);
+      if (pt !== undefined) window.clearTimeout(pt);
+      pendingReceiverTimers.delete(from);
       try {
         const controller = establishConnection(opts, opts.callbacks ?? {}, sdp);
         liveConnections.set(from, controller);
