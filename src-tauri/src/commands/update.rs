@@ -615,11 +615,14 @@ pub async fn download_and_install(
     }
 
     // 5. 启动安装器并退出应用（安装器完成安装后应用重启）
+    //    必须传 /S 静默参数：否则 NSIS 非静默运行会弹"检测到旧版，是否先卸载"确认框
+    //    （v4.5.15 自实现更新器起一直漏传，用户升级时出现 uninstall before install 提示）
     let _ = app.emit(
         "update-status",
         serde_json::json!({ "status": "downloaded" }),
     );
     std::process::Command::new(&dest)
+        .args(["/S"])
         .spawn()
         .map_err(|e| format!("启动安装器失败: {}", e))?;
     std::thread::sleep(std::time::Duration::from_millis(500));
@@ -771,6 +774,7 @@ async fn finish_seed_install(app: &AppHandle, dest: &PathBuf, signature: &str) -
         serde_json::json!({ "status": "downloaded" }),
     );
     std::process::Command::new(dest)
+        .args(["/S"])
         .spawn()
         .map_err(|e| format!("启动安装器失败: {}", e))?;
     std::thread::sleep(std::time::Duration::from_millis(500));

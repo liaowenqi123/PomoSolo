@@ -19,6 +19,12 @@
 > 做夹具回归测试（`test_parse_real_github_latest_json` / `test_parse_real_server_latest_json`），改更新解析逻辑
 > 必须先更新夹具再跑测试。
 >
+> ⚠️ **启动安装器必须传 `/S` 静默参数（v4.6.2 修复）**：v4.5.15 自实现更新器起 `download_and_install` / `finish_seed_install`
+> 的 `Command::new(安装包).spawn()` **一直漏传静默参数** → NSIS 非静默运行，检测到已安装旧版就弹
+> "检测到旧版，是否先卸载"确认框（用户升级时看到 uninstall before install 提示）。修复：`.args(["/S"])`。
+> `/S` 使 NSIS 全程静默（自动卸载旧版 → 安装新版 → 无任何 UI），与官方 tauri-plugin-updater 行为一致。
+> 应用数据（`%APPDATA%\com.pomosolo.app`）不受卸载重装影响。
+>
 > ⚠️ **版本号识别语义化（v4.5.18 修复）**：此前 `is_newer` 把 "4.6.0-beta.0" 与 "4.6.0" 当作同一版本，
 > 无法区分正式版与 beta → 会漏推正式版更新。v4.5.18 重写为语义化比较：
 > - `is_newer` 每段解析为 `(数字, 有无 prerelease 后缀)` 二元组，同数字带后缀的**更旧**（"4.6.0-beta.0" < "4.6.0"）

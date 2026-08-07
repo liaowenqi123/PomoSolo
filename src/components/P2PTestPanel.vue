@@ -50,7 +50,13 @@ async function refresh(): Promise<void> {
   loading.value = true;
   loadError.value = "";
   try {
-    users.value = await p2pOnline();
+    // 8s 超时兜底：WS 请求默认 15s 太久，服务器未响应时界面长时间空白
+    users.value = await Promise.race([
+      p2pOnline(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("请求超时（服务器未响应，请检查网络/登录状态）")), 8000),
+      ),
+    ]);
   } catch (e) {
     loadError.value = String(e);
   } finally {
@@ -141,6 +147,7 @@ onUnmounted(() => {
     </div>
     <p class="p2p-test__desc">
       选择一位在线用户发起 WebRTC 直连测试（跨 NAT 打洞 + 2MB 测速）。对方会自动接受，无需操作。
+      <span class="p2p-test__warn">注意：两台设备请用不同账号登录——同一账号会互相挤下线，导致列表加载失败。</span>
     </p>
 
     <!-- 未登录 -->
@@ -150,8 +157,13 @@ onUnmounted(() => {
     </div>
 
     <template v-else>
+      <!-- 加载中 -->
+      <div v-if="loading && !users.length" class="p2p-test__empty">
+        正在获取在线用户…
+      </div>
+
       <!-- 在线列表 -->
-      <div v-if="users.length" class="p2p-test__users">
+      <div v-else-if="users.length" class="p2p-test__users">
         <div v-for="u in users" :key="u.userId" class="p2p-test__user">
           <div class="p2p-test__user-info">
             <span class="p2p-test__user-name">{{ u.username || "匿名用户" }}</span>
@@ -247,9 +259,15 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 .p2p-test__desc {
-  color: var(--text-secondary, #888);
+  color: var(--text-color, #f0f0f0);
   line-height: 1.5;
   margin: 0;
+}
+.p2p-test__warn {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #ffb84d;
 }
 .p2p-test__users {
   display: flex;
@@ -262,7 +280,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--bg-secondary, #f5f5f5);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 8px;
   padding: 8px 12px;
 }
@@ -274,16 +292,17 @@ onUnmounted(() => {
 }
 .p2p-test__user-name {
   font-weight: 500;
+  color: var(--text-color, #f0f0f0);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .p2p-test__user-id {
   font-size: 11px;
-  color: var(--text-secondary, #888);
+  color: #aaa;
 }
 .p2p-test__test-btn {
-  background: var(--accent, #4f9cf9);
+  background: var(--accent, #e94560);
   color: #fff;
   border: none;
   border-radius: 6px;
@@ -296,7 +315,7 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 .p2p-test__empty {
-  color: var(--text-secondary, #888);
+  color: var(--text-color, #f0f0f0);
   text-align: center;
   padding: 14px 0;
   display: flex;
@@ -305,7 +324,7 @@ onUnmounted(() => {
   align-items: center;
 }
 .p2p-test__login-btn {
-  background: var(--accent, #4f9cf9);
+  background: var(--accent, #e94560);
   color: #fff;
   border: none;
   border-radius: 6px;
@@ -313,7 +332,7 @@ onUnmounted(() => {
   cursor: pointer;
 }
 .p2p-test__status {
-  color: var(--text-secondary, #888);
+  color: var(--text-color, #f0f0f0);
   padding: 6px 2px;
 }
 .p2p-test__status-line {
@@ -342,7 +361,7 @@ onUnmounted(() => {
 .p2p-test__result-row {
   display: flex;
   justify-content: space-between;
-  color: var(--text-secondary, #888);
+  color: var(--text-color, #f0f0f0);
 }
 .p2p-test__result-error {
   color: #ff3b30;
