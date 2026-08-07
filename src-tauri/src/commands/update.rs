@@ -1086,25 +1086,59 @@ pub async fn update_download_cancel() -> Result<(), String> {
 
 /// 启动安装器并安排安装完成后自动重启应用。
 ///
-/// 直接 `spawn(安装器)` 后 `app.exit` 的话，安装器装完没人再拉起应用（自实现更新器缺陷）。
-/// 改为 cmd 包装：`cmd /c "start "" /wait <安装包> /S /UPDATE & start "" <应用exe>"`——
-/// `/wait` 让 cmd 等安装器静默完成，随后 `start` 拉起更新后的应用；cmd 独立于本进程运行。
+/// v4.6.4 曾改用 `cmd /c "start "" /wait <安装包> /S /UPDATE & start "" <应用>"` 以支持
+/// "装完自动重启 + /UPDATE 覆盖升级"，但 Rust 序列化 args 时把脚本内嵌引号转义成 `\"`，
+/// cmd 按自身规则剥掉最外层引号后残留反斜杠 → `start` 把 `\` 当命令执行 →
+/// "Windows找不到'\\'文件"（v4.6.x 空路径、v4.7.0 `\\` 同源），且 cmd 是控制台程序会弹黑框。
+/// v4.7.2 改 PowerShell 隐藏窗口：路径经环境变量传入、脚本经 `-EncodedCommand`
+/// （base64 UTF-16LE，不含引号/空格/特殊字符）传入，完全绕开命令行解析问题。
 ///
 /// `/UPDATE`（关键）：Tauri NSIS 的升级模式——UpdateMode=1 时**覆盖安装不卸载旧版**，
 /// 保留开始菜单/桌面/任务栏固定快捷方式、跳过 WebView2 安装；缺它则检测到旧版先卸载
 /// 再装（卸载删除 exe → 任务栏固定图标消失，用户 v4.6.2 起反馈"更新后固定图标不见了"）。
 fn spawn_installer_and_relaunch(dest: &PathBuf) -> Result<(), String> {
     let exe_path = std::env::current_exe().map_err(|e| format!("获取应用路径失败: {}", e))?;
-    // 路径经环境变量传入，规避 cmd 对命令行的引号/特殊字符解析问题
-    // （v4.6.x 曾现"Windows找不到''文件"：路径含空格/中文等特殊字符时 start 解析失败）
-    let script = "start \"\" /wait \"%POMOSOLO_UPDATER%\" /S /UPDATE & start \"\" \"%POMOSOLO_EXE%\"";
-    std::process::Command::new("cmd")
-        .env("POMOSOLO_UPDATER", dest.as_os_str())
-        .env("POMOSOLO_EXE", exe_path.as_os_str())
-        .args(["/c", script])
-        .spawn()
-        .map_err(|e| format!("启动安装器失败: {}", e))?;
+    let script = "$p = Start-Process -FilePath $env:POMOSOLO_UPDATER -ArgumentList '/S','/UPDATE' -PassThru -Wait; Start-Process -FilePath $env:POMOSOLO_EXE";
+    spawn_powershell_hidden(
+        script,
+        &[
+            ("POMOSOLO_UPDATER", dest.as_os_str()),
+            ("POMOSOLO_EXE", exe_path.as_os_str()),
+        ],
+    )
+}
+
+/// 以隐藏窗口方式启动 PowerShell 执行脚本（`-EncodedCommand` 传 base64 UTF-16LE）
+fn spawn_powershell_hidden(script: &str, envs: &[(&str, &std::ffi::OsStr)]) -> Result<(), String> {
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args([
+        "-NoProfile",
+        "-WindowStyle",
+        "Hidden",
+        "-EncodedCommand",
+        &powershell_encoded(script),
+    ]);
+    for (key, value) in envs {
+        cmd.env(key, value);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW：彻底不弹控制台黑框
+    }
+    cmd.spawn().map_err(|e| format!("启动安装流程失败: {}", e))?;
     Ok(())
+}
+
+/// 生成 PowerShell `-EncodedCommand` 用的 base64 UTF-16LE 字符串（纯函数，便于单测）。
+/// base64 只含字母数字 `+/=`，无空格/引号/特殊字符 → 经 `Command::args` 序列化到
+/// 命令行时不被转义，PowerShell 端也能无歧义解码，彻底规避 cmd 式引号解析问题。
+fn powershell_encoded(script: &str) -> String {
+    let mut bytes: Vec<u8> = Vec::with_capacity(script.len() * 2);
+    for unit in script.encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    B64.encode(&bytes)
 }
 
 /// 从安装包文件名提取版本号（"PomoSolo_4.6.6_x64-setup.exe" → "4.6.6"）
@@ -1563,6 +1597,59 @@ mod tests {
         assert_eq!(parse_win_proxy_server(""), None);
         assert_eq!(parse_win_proxy_server("no such value"), None);
         assert_eq!(parse_win_proxy_server(&reg_output("")), None);
+    }
+
+    // ===== powershell_encoded（v4.7.2 安装器启动，替代 cmd 方案） =====
+
+    #[test]
+    fn test_powershell_encoded_roundtrip() {
+        // base64 UTF-16LE 编码后解码应还原原脚本（含中文/引号/空格路径场景）
+        let script = "$p = Start-Process -FilePath $env:POMOSOLO_UPDATER -ArgumentList '/S','/UPDATE' -PassThru -Wait; Start-Process -FilePath $env:POMOSOLO_EXE";
+        let encoded = powershell_encoded(script);
+        let bytes = B64.decode(&encoded).unwrap();
+        let units: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        let decoded = String::from_utf16(&units).unwrap();
+        assert_eq!(decoded, script);
+    }
+
+    #[test]
+    fn test_powershell_encoded_is_command_line_safe() {
+        // base64 不含空格/引号/`&` 等会被命令行解析的字符 → Rust args 序列化后无歧义
+        let script = "start \"\" /wait \"C:\\文件 目录\\安装.exe\" /S /UPDATE";
+        let encoded = powershell_encoded(script);
+        assert!(!encoded.contains(' '));
+        assert!(!encoded.contains('"'));
+        assert!(!encoded.contains('&'));
+        assert!(!encoded.contains('\\'));
+        assert!(encoded.chars().all(|c| c.is_ascii_alphanumeric() || "+/=".contains(c)));
+    }
+
+    #[test]
+    #[ignore] // 手动验证：cargo test -- --ignored test_spawn_powershell_hidden_manual
+    fn test_spawn_powershell_hidden_manual() {
+        // 真实启动隐藏 PowerShell 写文件，验证 -EncodedCommand + env + CREATE_NO_WINDOW 全链路
+        let dest = std::env::temp_dir().join("pomo_pwsh_probe.txt");
+        let _ = fs::remove_file(&dest);
+        let script = format!(
+            "Set-Content -Path '{}' -Value 'ok'",
+            dest.to_string_lossy()
+        );
+        spawn_powershell_hidden(&script, &[("POMOSOLO_EXE", dest.as_os_str())])
+            .unwrap_or_else(|e| panic!("spawn_powershell_hidden 失败: {e}"));
+        let mut written = false;
+        for _ in 0..30 {
+            if dest.exists() {
+                written = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert!(written, "PowerShell 未在 3s 内写出探针文件");
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "ok");
+        let _ = fs::remove_file(&dest);
     }
 
     #[test]

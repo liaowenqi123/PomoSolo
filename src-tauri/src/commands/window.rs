@@ -245,8 +245,11 @@ pub async fn open_external(url: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", "", &url])
+        // explorer 把 URL 交给默认浏览器（不走 `cmd /C start "" url`：Rust 序列化 args 时
+        // 会把空标题引号转义成 `\"`，cmd 解析后 start 拿到残留反斜杠会误执行 "\" →
+        // 报"Windows找不到'\'文件"；explorer 也无控制台黑框）
+        std::process::Command::new("explorer")
+            .arg(&url)
             .spawn()
             .map_err(|e| format!("打开链接失败: {}", e))?;
     }

@@ -1042,3 +1042,32 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 - 根因：Tauri WebView2 下 `<a target="_blank">` 不生效（无新窗口）。
 - 修复：公告条指引链接改为 `@click.prevent="openUpdateGuide"`，走 `open_external`
   （`api/window`）用系统默认浏览器打开公告 `url`；已补测试断言 `open_external` 调用。
+
+---
+
+## 【纯客户端，无服务器改动】v4.7.2 修复安装器启动"Windows找不到'\\'文件"（2026-08-07）
+
+> 用户报告 4.6.4 起升级时报 cmd 黑框 + `Windows找不到"\\"文件`，判断与 v4.6.4
+> "更新器覆盖升级/自动重启"改动有关（属实）。
+
+**根因（v4.6.4 引入，de51ad0）**
+- v4.6.4 之前：`Command::new(安装包).args(["/S"]).spawn()` 纯 Rust 直接启动（CreateProcess，
+  路径不走任何命令行解析），从不出错、无黑框。
+- v4.6.4 为支持"装完自动重启 + /UPDATE 覆盖升级"改为 `cmd /c "start "" /wait <安装包> /S /UPDATE & start "" <应用>"`。
+- Rust 序列化 args 时会把含引号参数的内嵌 `"` 转义成 `\"`；cmd 按自身规则剥掉最外层引号后，
+  `\"` 里的反斜杠残留为独立字符 → `start` 把第一个参数 `\` 当命令执行 →
+  报 `Windows找不到"\"文件`（4.6.x 空路径、4.7.0 环境变量版 `\\` 同源）。
+  且 cmd 是控制台程序 → 弹黑框。v4.7.0 环境变量版只让路径不进命令行，脚本内字面引号照样被转义，问题依旧。
+
+**修复（v4.7.2）**
+- `spawn_installer_and_relaunch` 改 **PowerShell 隐藏窗口**方案，彻底绕开命令行解析：
+  - 路径经环境变量传入（`POMOSOLO_UPDATER` / `POMOSOLO_EXE`）；
+  - 脚本经 `-EncodedCommand` 传入（base64 UTF-16LE，只含字母数字 `+/=`，无空格/引号/特殊字符，
+    Rust 序列化后无歧义、PowerShell 端无歧义解码）；
+  - `-NoProfile -WindowStyle Hidden` + `CREATE_NO_WINDOW`（0x08000000）→ 无黑框；
+  - 脚本语义：`Start-Process -FilePath $env:POMOSOLO_UPDATER -ArgumentList '/S','/UPDATE' -PassThru -Wait` 等安装器静默完成，再 `Start-Process -FilePath $env:POMOSOLO_EXE` 拉起更新后的应用。
+- `open_external`（v4.7.1 新增，同一 cmd 引号问题）Windows 分支改 `explorer <url>`：
+  Rust 序列化无引号转义、无 cmd 黑框，URL 直接交系统默认浏览器。
+- 验证：`powershell_encoded` 纯函数单测（往返 + 字符安全 ×2）；`#[ignore]` 手动集成测试
+  `test_spawn_powershell_hidden_manual` 真实启动隐藏 PowerShell 写探针文件通过（`cargo test -- --ignored ...`）。
+- 纯客户端改动，服务器零改动；latest.json/latest-beta.json 仅需更新 url/版本指向 4.7.2。
