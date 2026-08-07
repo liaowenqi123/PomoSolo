@@ -71,6 +71,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(move |app, shortcut, event| {
@@ -218,17 +219,24 @@ pub fn run() {
             // 自动更新
             commands::update::check_update,
             commands::update::download_and_install,
+            commands::update::update_download_pause,
+            commands::update::update_download_resume,
+            commands::update::update_download_cancel,
+            commands::update::install_local_installer,
             commands::update::fetch_notice,
             commands::update::update_seed_download_begin,
             commands::update::update_seed_download_chunk,
             commands::update::update_seed_download_abort,
+            commands::update::update_seed_read_chunk,
+            commands::update::update_seed_has_installer,
             // P2P 信令（WebRTC 牵线）
             commands::p2p::p2p_signal,
-            // P2P 安装包种子（Phase 2：注册/心跳/注销/查询）
+            // P2P 安装包种子（Phase 2：注册/心跳/注销/查询/通知发起）
             commands::p2p::p2p_seed_register,
             commands::p2p::p2p_seed_heartbeat,
             commands::p2p::p2p_seed_unregister,
             commands::p2p::p2p_seed_list,
+            commands::p2p::p2p_seed_fetch,
             // P2P 连通性测试工具（在线列表 / 测试请求 / 结果回传）
             commands::p2p::p2p_online,
             commands::p2p::p2p_test_request,

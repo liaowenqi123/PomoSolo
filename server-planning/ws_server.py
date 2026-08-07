@@ -233,11 +233,12 @@ def handle_message(user_id, msg):
         # P2P 连通性测试工具（Phase 1.2+）
         "p2p:test_request": handle_p2p_test_request,
         "p2p:test_result": handle_p2p_test_result,
-        # Phase 2 安装包种子：注册/心跳/注销/查询
+        # Phase 2 安装包种子：注册/心跳/注销/查询/通知发起
         "p2p:seed_register": handle_p2p_seed_register,
         "p2p:seed_heartbeat": handle_p2p_seed_heartbeat,
         "p2p:seed_unregister": handle_p2p_seed_unregister,
         "p2p:seed_list": handle_p2p_seed_list,
+        "p2p:seed_fetch": handle_p2p_seed_fetch,
         "ping": handle_ping,
     }
     handler = handlers.get(mtype)
@@ -808,6 +809,23 @@ def handle_p2p_seed_list(user_id, msg):
     if msg.get("id") is not None:
         resp["id"] = msg["id"]  # 请求-响应：回显 id 供客户端 ws::request 匹配
     send_to_user(user_id, resp)
+
+
+def handle_p2p_seed_fetch(user_id, msg):
+    """下载端请求种子端发起 P2P 传输（v4.6.6 补齐种子端后新增）。
+
+    向种子端（to_user_id）转发 `p2p:seed_request`（带发起者 user_id），
+    种子端收到后发起 WebRTC offer 推安装包分片——此前种子端从不主动发起，
+    下载端只能挂 10s 超时回退服务器/GitHub 下载。"""
+    to_user_id = msg.get("to_user_id")
+    version = msg.get("version")
+    if not to_user_id or not version or to_user_id == user_id:
+        return
+    send_to_user(to_user_id, {
+        "type": "p2p:seed_request",
+        "from_user_id": user_id,
+        "version": version,
+    })
 
 # ── 心跳 ──
 

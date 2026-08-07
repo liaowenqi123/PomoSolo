@@ -12,6 +12,7 @@
     "core:window:allow-show",
     "core:window:allow-hide",
     "autostart:default",
-    "global-shortcut:default"
+    "global-shortcut:default",
+    "dialog:default"
   ]
 }

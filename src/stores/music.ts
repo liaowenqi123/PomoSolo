@@ -66,6 +66,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useSettingsStore } from "@/stores/settings";
 import { readData, writeData } from "@/api/data";
 import { p2pTestResult } from "@/api/p2pTest";
+import { serveInstaller } from "@/seed";
 import {
   dispatchP2PTestResult,
   handlePeerSignal,
@@ -1431,6 +1432,12 @@ export const useMusicStore = defineStore("music", () => {
       case "p2p:test_result": {
         // 目标端回传的结果 → 转发给发起方设置面板 UI（P2PTestPanel）
         dispatchP2PTestResult(evt);
+        break;
+      }
+      case "p2p:seed_request": {
+        // { from_user_id, version }：下载端请求本机（种子端）分享安装包 →
+        // 本机作为 offerer 读留存的安装包分片推送（v4.6.6 补齐种子端）
+        serveInstaller(evt);
         break;
       }
       case "music:dj_changed": {

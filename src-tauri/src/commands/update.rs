@@ -33,6 +33,8 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::AsyncWriteExt;
 
@@ -425,48 +427,358 @@ fn temp_dest_path(version: &str) -> PathBuf {
     p
 }
 
-/// 下载安装包到本地，通过 "update-status" 事件上报进度
-async fn download_installer(
-    app: &AppHandle,
-    url: &str,
-    dest: &PathBuf,
-) -> Result<(), String> {
-    let resp = reqwest::Client::new()
-        .get(url)
-        .timeout(std::time::Duration::from_secs(600))
-        .send()
-        .await
-        .map_err(|e| format!("下载更新失败: {}", e))?;
-    if !resp.status().is_success() {
-        return Err(format!("下载更新返回 HTTP {}", resp.status()));
+/// 安装包留存目录（安装目录 resources/installers/，per-user 安装可写）
+///
+/// Phase 2 种子分享：每次更新成功后把安装包 + latest.json 留存于此，
+/// 只保留最新版本（写入新版本时删除旧版本文件），作为"种子"供其他客户端直连拉取。
+fn installer_store_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("无法获取资源目录: {}", e))?;
+    let dir = resource_dir.join("installers");
+    fs::create_dir_all(&dir).map_err(|e| format!("创建安装包留存目录失败: {}", e))?;
+    Ok(dir)
+}
+
+/// 留存安装包路径（与发版产物命名一致：PomoSolo_<version>_x64-setup.exe）
+fn installer_store_path(app: &AppHandle, version: &str) -> Result<PathBuf, String> {
+    Ok(installer_store_dir(app)?.join(format!("PomoSolo_{version}_x64-setup.exe")))
+}
+
+/// UTC 毫秒时间戳（latest.json 留存用，避免引入额外依赖）
+fn utc_now_rfc3339() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // 近似 RFC3339（秒级精度够用）；无 chrono 依赖
+    let days = secs / 86400;
+    let (year, month, day) = {
+        // 简单换算：从 1970-01-01 起算（公历，忽略闰秒）
+        let mut y = 1970;
+        let mut d = days as i64;
+        loop {
+            let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+            let days_in_year = if leap { 366 } else { 365 };
+            if d < days_in_year { break; }
+            d -= days_in_year;
+            y += 1;
+        }
+        let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+        let mdays: [i64; 12] = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+        let mut m = 0usize;
+        while d >= mdays[m] {
+            d -= mdays[m];
+            m += 1;
+        }
+        (y, m + 1, d + 1)
+    };
+    let rem = secs % 86400;
+    let h = rem / 3600;
+    let mi = (rem % 3600) / 60;
+    let s = rem % 60;
+    format!("{year:04}-{month:02}-{day:02}T{h:02}:{mi:02}:{s:02}Z")
+}
+
+/// 更新成功后留存安装包（Phase 2 种子分享的文件来源）
+///
+/// 复制 %TEMP% 下载的安装包到安装目录 installers/，写入 latest.json（version + signature），
+/// 并删除目录里其他版本的安装包/元数据（只留最新一份）。失败不阻塞更新（记录日志继续）。
+fn store_installer(app: &AppHandle, version: &str, signature: &str) {
+    if let Err(e) = (|| -> Result<(), String> {
+        let src = temp_dest_path(version);
+        let dst = installer_store_path(app, version)?;
+        fs::copy(&src, &dst).map_err(|e| format!("复制安装包失败: {}", e))?;
+        // 只保留最新版本：删除目录里其他版本的安装包与旧元数据
+        let dir = installer_store_dir(app)?;
+        for entry in fs::read_dir(&dir).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if path == dst { continue; }
+            let name = entry.file_name().to_string_lossy().to_string();
+            let is_old_exe = name.starts_with("PomoSolo_") && name.ends_with("_x64-setup.exe");
+            let is_old_meta = name == "latest.json";
+            if is_old_exe || is_old_meta {
+                let _ = fs::remove_file(&path);
+            }
+        }
+        // 留存 latest.json（version + signature，供参考/调试）
+        let meta = serde_json::json!({
+            "version": version,
+            "pub_date": utc_now_rfc3339(),
+            "signature": signature,
+        });
+        fs::write(
+            dir.join("latest.json"),
+            serde_json::to_string(&meta).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| format!("写入 latest.json 失败: {}", e))?;
+        Ok(())
+    })() {
+        eprintln!("[updater] 留存安装包失败（不阻塞更新）: {}", e);
     }
-    let total = resp.content_length();
-    let mut stream = resp.bytes_stream();
-    let mut file = tokio::fs::File::create(dest)
-        .await
-        .map_err(|e| format!("创建临时文件失败: {}", e))?;
-    let mut transferred: u64 = 0;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| format!("下载中断: {}", e))?;
-        file.write_all(&chunk)
-            .await
-            .map_err(|e| format!("写入临时文件失败: {}", e))?;
-        transferred = transferred.saturating_add(chunk.len() as u64);
-        let percent = match total {
-            Some(t) if t > 0 => (transferred as f64 / t as f64 * 100.0).round() as u64,
-            _ => 0,
+}
+
+// ── 断点续传下载（v4.7.0）──
+//
+// 安装包下载改为后台任务（全局单会话，一次只允许一个下载），支持：
+// - 实时进度：每个分块到达即上报（percent 保留 1 位小数）
+// - 暂停/继续：暂停保留已下载数据，继续从断点发 Range 请求续传（协作式退出，无半截）
+// - 取消：任务收到取消标志后删除残留文件
+// - 断点续传：目标临时文件已有完整分块时，启动即从该偏移续传（同会话内）
+//
+// 下载完成后的收尾（验签 → 留存 → 启动安装器退出）与 P2P 种子下载共用逻辑。
+
+/// HTTP 下载会话（全局单例，与 SeedDownload 同层级但独立）
+struct DownloadTask {
+    dest: PathBuf,
+    url: String,
+    version: String,
+    signature: String,
+    /// 已完整写入 dest 的字节数（断点续传偏移；任务内提交更新）
+    offset: u64,
+    /// 文件总大小（0 = 未知）
+    total: u64,
+    paused: Arc<AtomicBool>,
+    canceled: Arc<AtomicBool>,
+    /// 唤醒阻塞在流上的后台任务（暂停/取消立即生效）
+    notify: Arc<tokio::sync::Notify>,
+    /// 后台任务句柄（resume 前等待旧任务退出，防止双任务并发写文件）
+    task: Option<tokio::task::JoinHandle<()>>,
+}
+
+fn download_mutex() -> &'static tokio::sync::Mutex<Option<DownloadTask>> {
+    static M: std::sync::OnceLock<tokio::sync::Mutex<Option<DownloadTask>>> =
+        std::sync::OnceLock::new();
+    M.get_or_init(|| tokio::sync::Mutex::new(None))
+}
+
+/// 会话内同步 offset/total（任务每写完整一个分块后调用）
+async fn update_download_session(offset: u64, total: u64) {
+    let mut guard = download_mutex().lock().await;
+    if let Some(t) = guard.as_mut() {
+        t.offset = offset;
+        t.total = total;
+    }
+}
+
+/// 下载出错收尾：报错 + 清理（删除残留临时文件，避免下次续传损坏）
+async fn fail_download(app: &AppHandle, dest: &PathBuf, msg: String) {
+    let _ = app.emit(
+        "update-status",
+        serde_json::json!({ "status": "error", "message": msg }),
+    );
+    *download_mutex().lock().await = None;
+    let _ = fs::remove_file(dest);
+}
+
+/// 后台下载任务主体
+///
+/// 启动时从全局会话读取任务参数与控制标志；循环内发（Range）请求流式下载，
+/// 每个分块写完整后提交 offset 并上报进度。被 notify 唤醒时检查暂停/取消：
+/// - 暂停：保留已下载文件与会话，直接返回（resume 会重新拉起本任务）
+/// - 取消：删除文件并清会话
+/// 流正常结束时若已下载完整字节数，进入收尾（验签 → 留存 → 安装）。
+async fn run_download_task(app: AppHandle) {
+    let (url, dest, version, signature, offset0, paused, canceled, notify) = {
+        let guard = download_mutex().lock().await;
+        let Some(t) = guard.as_ref() else {
+            return;
         };
+        (
+            t.url.clone(),
+            t.dest.clone(),
+            t.version.clone(),
+            t.signature.clone(),
+            t.offset,
+            Arc::clone(&t.paused),
+            Arc::clone(&t.canceled),
+            Arc::clone(&t.notify),
+        )
+    };
+    let mut offset = offset0;
+
+    loop {
+        if canceled.load(Ordering::SeqCst) {
+            *download_mutex().lock().await = None;
+            let _ = fs::remove_file(&dest);
+            return;
+        }
+        if paused.load(Ordering::SeqCst) {
+            return; // 暂停：保留文件与会话，等 resume 重新拉起
+        }
+
+        // 构造请求；offset > 0 时带 Range 头实现断点续传
+        let mut req = reqwest::Client::new().get(&url);
+        if offset > 0 {
+            req = req.header(reqwest::header::RANGE, format!("bytes={}-", offset));
+        }
+        let resp = match req.timeout(std::time::Duration::from_secs(600)).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                fail_download(&app, &dest, format!("下载更新失败: {}", e)).await;
+                return;
+            }
+        };
+        let status = resp.status();
+        // total 在响应头里确定：OK=从头（200）content_length 即总量；206=offset+剩余
+        let (mut file, total) = if status == reqwest::StatusCode::OK {
+            // 服务器不支持续传（或从头开始）：截断重建
+            offset = 0;
+            let total = resp.content_length().unwrap_or(0);
+            let f = match tokio::fs::File::create(&dest).await {
+                Ok(f) => f,
+                Err(e) => {
+                    fail_download(&app, &dest, format!("创建临时文件失败: {}", e)).await;
+                    return;
+                }
+            };
+            (f, total)
+        } else if status == reqwest::StatusCode::PARTIAL_CONTENT {
+            // 续传成功：206 的 content_length 是剩余字节
+            let total = offset + resp.content_length().unwrap_or(0);
+            let f = match tokio::fs::OpenOptions::new()
+                .append(true)
+                .create(true)
+                .open(&dest)
+                .await
+            {
+                Ok(f) => f,
+                Err(e) => {
+                    fail_download(&app, &dest, format!("打开临时文件失败: {}", e)).await;
+                    return;
+                }
+            };
+            (f, total)
+        } else if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+            // Range 不满足 = 目标文件已完整（上次已下完未安装）→ 直接收尾
+            finish_download(&app, &dest, &version, &signature).await;
+            return;
+        } else {
+            fail_download(&app, &dest, format!("下载更新返回 HTTP {}", status)).await;
+            return;
+        };
+        update_download_session(offset, total).await;
+
+        let mut stream = resp.bytes_stream();
+        // 流式下载：每分块写入后提交偏移；notify 唤醒（暂停/取消）立即中断
+        loop {
+            let chunk = tokio::select! {
+                c = stream.next() => c,
+                _ = notify.notified() => None,
+            };
+            match chunk {
+                Some(Ok(data)) => {
+                    if canceled.load(Ordering::SeqCst) {
+                        drop(file);
+                        *download_mutex().lock().await = None;
+                        let _ = fs::remove_file(&dest);
+                        return;
+                    }
+                    if paused.load(Ordering::SeqCst) {
+                        drop(file);
+                        return; // 暂停：已写分块完整，文件状态一致
+                    }
+                    if let Err(e) = file.write_all(&data).await {
+                        fail_download(&app, &dest, format!("写入临时文件失败: {}", e)).await;
+                        return;
+                    }
+                    offset += data.len() as u64;
+                    update_download_session(offset, total).await;
+                    let percent = if total > 0 {
+                        (offset as f64 / total as f64 * 100.0 * 10.0).round() / 10.0
+                    } else {
+                        0.0
+                    };
+                    let _ = app.emit(
+                        "update-status",
+                        serde_json::json!({
+                            "status": "downloading",
+                            "percent": percent,
+                            "transferred": offset,
+                            "total": total,
+                        }),
+                    );
+                }
+                Some(Err(e)) => {
+                    drop(file);
+                    fail_download(&app, &dest, format!("下载中断: {}", e)).await;
+                    return;
+                }
+                None => {
+                    drop(file);
+                    break; // 流结束或 notify 唤醒 → 出循环统一判定
+                }
+            }
+        }
+
+        if canceled.load(Ordering::SeqCst) {
+            *download_mutex().lock().await = None;
+            let _ = fs::remove_file(&dest);
+            return;
+        }
+        if paused.load(Ordering::SeqCst) {
+            return;
+        }
+        if total > 0 && offset >= total {
+            finish_download(&app, &dest, &version, &signature).await;
+            return;
+        }
+        // 服务器未提供 content-length 或提前断流
+        fail_download(&app, &dest, "下载不完整，请重新下载".to_string()).await;
+        return;
+    }
+}
+
+/// 下载收尾：验签 → 留存 → 启动安装器退出（与 P2P 种子下载共用逻辑）
+async fn finish_download(app: &AppHandle, dest: &PathBuf, version: &str, signature: &str) {
+    *download_mutex().lock().await = None;
+    let pubkey = match get_update_pubkey(app) {
+        Ok(p) => p,
+        Err(e) => {
+            let _ = app.emit(
+                "update-status",
+                serde_json::json!({ "status": "error", "message": e }),
+            );
+            let _ = fs::remove_file(dest);
+            return;
+        }
+    };
+    let exe_bytes = match fs::read(dest) {
+        Ok(b) => b,
+        Err(e) => {
+            let _ = app.emit(
+                "update-status",
+                serde_json::json!({ "status": "error", "message": format!("读取安装包失败: {}", e) }),
+            );
+            return;
+        }
+    };
+    if !verify_installer(&exe_bytes, signature, &pubkey) {
         let _ = app.emit(
             "update-status",
-            serde_json::json!({
-                "status": "downloading",
-                "percent": percent,
-                "transferred": transferred,
-                "total": total,
-            }),
+            serde_json::json!({ "status": "error", "message": "安装包签名验证失败，已拒绝安装" }),
         );
+        let _ = fs::remove_file(dest); // 签名失败的文件不可续传
+        return;
     }
-    Ok(())
+    // 留存安装包到安装目录（Phase 2 种子分享的文件来源；失败不阻塞更新）
+    store_installer(app, version, signature);
+    let _ = app.emit(
+        "update-status",
+        serde_json::json!({ "status": "downloaded" }),
+    );
+    if let Err(e) = spawn_installer_and_relaunch(dest) {
+        let _ = app.emit(
+            "update-status",
+            serde_json::json!({ "status": "error", "message": e }),
+        );
+        return;
+    }
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    app.exit(0);
 }
 
 /// 检查更新
@@ -553,7 +865,8 @@ pub async fn check_update(
 
 /// 下载并安装更新
 ///
-/// 流程：备份用户数据 → 拉取 latest.json → 下载安装包 → 验证 Ed25519 签名 → 启动安装器并退出。
+/// 流程：备份用户数据 → 拉取 latest.json → 启动后台下载任务（支持暂停/继续/断点续传）
+/// → 下载完成后自动验签 → 留存 → 启动安装器并退出。
 /// 通过 "update-status" 事件报告下载进度（status: downloading / downloaded / error）。
 #[tauri::command]
 pub async fn download_and_install(
@@ -566,6 +879,11 @@ pub async fn download_and_install(
     }
     let source = UpdateSource::parse(source);
     let allow_beta = allow_beta.unwrap_or(false);
+
+    // 已有进行中的下载（含暂停态）→ 拒绝重复启动
+    if download_mutex().lock().await.is_some() {
+        return Err("已有进行中的下载，请先继续或取消".to_string());
+    }
 
     // 1. 备份用户下载的歌曲（避免被安装包覆盖）
     if let Err(e) = backup_music_dir(&app) {
@@ -584,8 +902,6 @@ pub async fn download_and_install(
             }));
             msg
         })?;
-
-    // 3. 下载安装包
     let platform = latest.windows_platform().map_err(|e| {
         let msg = format!("获取更新信息失败: {}", e);
         let _ = app.emit("update-status", serde_json::json!({
@@ -594,38 +910,86 @@ pub async fn download_and_install(
         }));
         msg
     })?;
+
+    // 3. 启动后台下载任务（断点续传：目标临时文件已有完整分块时从该偏移继续）
     let dest = temp_dest_path(&latest.version);
-    if let Err(e) = download_installer(&app, &platform.url, &dest).await {
-        let msg = format!("下载更新失败: {}", e);
-        let _ = app.emit("update-status", serde_json::json!({
-            "status": "error",
-            "message": msg,
-        }));
-        return Err(msg);
+    let existing = fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+    let task = DownloadTask {
+        dest: dest.clone(),
+        url: platform.url.clone(),
+        version: latest.version.clone(),
+        signature: platform.signature.clone(),
+        offset: existing,
+        total: 0,
+        paused: Arc::new(AtomicBool::new(false)),
+        canceled: Arc::new(AtomicBool::new(false)),
+        notify: Arc::new(tokio::sync::Notify::new()),
+        task: None,
+    };
+    *download_mutex().lock().await = Some(task);
+    let handle = tokio::spawn(run_download_task(app));
+    if let Some(t) = download_mutex().lock().await.as_mut() {
+        t.task = Some(handle);
     }
+    Ok(())
+}
 
-    // 4. 验证 Ed25519 签名（防篡改，失败拒绝安装）
-    let pubkey = get_update_pubkey(&app)?;
-    let exe_bytes = fs::read(&dest).map_err(|e| format!("读取安装包失败: {}", e))?;
-    if !verify_installer(&exe_bytes, &platform.signature, &pubkey) {
-        let msg = "安装包签名验证失败，已拒绝安装".to_string();
-        let _ = app.emit("update-status", serde_json::json!({
-            "status": "error",
-            "message": msg,
-        }));
-        return Err(msg);
+/// 暂停下载（保留已下载数据；继续时从断点续传）
+#[tauri::command]
+pub async fn update_download_pause() -> Result<(), String> {
+    let guard = download_mutex().lock().await;
+    let Some(t) = guard.as_ref() else {
+        return Err("没有进行中的下载".to_string());
+    };
+    if t.paused.swap(true, Ordering::SeqCst) {
+        return Err("下载已处于暂停状态".to_string());
     }
+    t.notify.notify_one(); // 立即唤醒阻塞在流上的后台任务
+    Ok(())
+}
 
-    // 5. 启动安装器并退出应用（安装器静默完成后自动重启应用）
-    //    必须传 /S 静默参数：否则 NSIS 非静默运行会弹"检测到旧版，是否先卸载"确认框
-    //    （v4.5.15 自实现更新器起一直漏传，用户升级时出现 uninstall before install 提示）
-    let _ = app.emit(
-        "update-status",
-        serde_json::json!({ "status": "downloaded" }),
-    );
-    spawn_installer_and_relaunch(&dest)?;
-    std::thread::sleep(std::time::Duration::from_millis(500));
-    app.exit(0);
+/// 继续下载（等待旧任务退出后，从断点偏移发 Range 请求续传）
+#[tauri::command]
+pub async fn update_download_resume(app: AppHandle) -> Result<(), String> {
+    let mut guard = download_mutex().lock().await;
+    let Some(t) = guard.as_mut() else {
+        return Err("没有进行中的下载".to_string());
+    };
+    if !t.paused.load(Ordering::SeqCst) {
+        return Err("下载未处于暂停状态".to_string());
+    }
+    let old = t.task.take();
+    let committed = t.offset;
+    let dest = t.dest.clone();
+    t.paused.store(false, Ordering::SeqCst);
+    drop(guard);
+    // 等待旧任务退出（协作式暂停，很快返回），防止双任务并发写同一文件
+    if let Some(h) = old {
+        let _ = h.await;
+    }
+    // 保险：把文件截断到最后一次完整提交的偏移（丢弃可能的半截分块）
+    if let Ok(f) = tokio::fs::OpenOptions::new().write(true).open(&dest).await {
+        let _ = f.set_len(committed).await;
+    }
+    let handle = tokio::spawn(run_download_task(app));
+    let mut guard = download_mutex().lock().await;
+    if let Some(t) = guard.as_mut() {
+        t.offset = committed;
+        t.task = Some(handle);
+    }
+    Ok(())
+}
+
+/// 取消下载（后台任务收到取消标志后删除残留文件）
+#[tauri::command]
+pub async fn update_download_cancel() -> Result<(), String> {
+    let guard = download_mutex().lock().await;
+    let Some(t) = guard.as_ref() else {
+        return Err("没有进行中的下载".to_string());
+    };
+    t.canceled.store(true, Ordering::SeqCst);
+    t.paused.store(false, Ordering::SeqCst); // 取消优先于暂停
+    t.notify.notify_one();
     Ok(())
 }
 
@@ -640,15 +1004,94 @@ pub async fn download_and_install(
 /// 再装（卸载删除 exe → 任务栏固定图标消失，用户 v4.6.2 起反馈"更新后固定图标不见了"）。
 fn spawn_installer_and_relaunch(dest: &PathBuf) -> Result<(), String> {
     let exe_path = std::env::current_exe().map_err(|e| format!("获取应用路径失败: {}", e))?;
-    let script = format!(
-        "start \"\" /wait \"{}\" /S /UPDATE & start \"\" \"{}\"",
-        dest.to_string_lossy(),
-        exe_path.to_string_lossy()
-    );
+    // 路径经环境变量传入，规避 cmd 对命令行的引号/特殊字符解析问题
+    // （v4.6.x 曾现"Windows找不到''文件"：路径含空格/中文等特殊字符时 start 解析失败）
+    let script = "start \"\" /wait \"%POMOSOLO_UPDATER%\" /S /UPDATE & start \"\" \"%POMOSOLO_EXE%\"";
     std::process::Command::new("cmd")
-        .args(["/c", &script])
+        .env("POMOSOLO_UPDATER", dest.as_os_str())
+        .env("POMOSOLO_EXE", exe_path.as_os_str())
+        .args(["/c", script])
         .spawn()
         .map_err(|e| format!("启动安装器失败: {}", e))?;
+    Ok(())
+}
+
+/// 从安装包文件名提取版本号（"PomoSolo_4.6.6_x64-setup.exe" → "4.6.6"）
+fn extract_installer_version(name: &str) -> Option<String> {
+    let base = name.strip_prefix("PomoSolo_")?;
+    let base = base.strip_suffix("_x64-setup.exe")?;
+    Some(base.to_string())
+}
+
+/// 读取本机留存 latest.json 的 (version, signature)（本地安装包覆盖安装时验签用）
+fn read_stored_installer_meta(app: &AppHandle) -> Option<(String, String)> {
+    let dir = installer_store_dir(app).ok()?;
+    let text = fs::read_to_string(dir.join("latest.json")).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    Some((
+        v.get("version")?.as_str()?.to_string(),
+        v.get("signature")?.as_str()?.to_string(),
+    ))
+}
+
+/// 本地安装包覆盖安装（v4.7.0）
+///
+/// 用户从文件选择器选中本地安装包后直接覆盖安装：
+/// - 复用 `/S /UPDATE` 静默升级模式（不卸载旧版，保留任务栏/开始菜单固定快捷方式）
+/// - 若文件名版本与本机留存 latest.json 匹配 → 校验 Ed25519 签名（失败拒绝）；
+///   不匹配/无留存记录 → 信任用户自选文件，直接安装
+/// - 安装前照常备份用户音乐目录
+#[tauri::command]
+pub async fn install_local_installer(app: AppHandle, path: String) -> Result<(), String> {
+    if cfg!(debug_assertions) {
+        return Err("开发模式不支持覆盖安装".to_string());
+    }
+    if path.is_empty() {
+        return Err("未选择安装包".to_string());
+    }
+    let src = PathBuf::from(&path);
+    if !src.is_file() {
+        let msg = "安装包文件不存在".to_string();
+        let _ = app.emit("update-status", serde_json::json!({
+            "status": "error",
+            "message": msg,
+        }));
+        return Err(msg);
+    }
+
+    // 版本匹配时验签（本机留存的安装包是可信源；用户自选的其他版本信任用户）
+    if let Some(ver) = src
+        .file_name()
+        .and_then(|n| n.to_str())
+        .and_then(extract_installer_version)
+    {
+        if let Some((stored_ver, sig)) = read_stored_installer_meta(&app) {
+            if ver == stored_ver {
+                let pubkey = get_update_pubkey(&app)?;
+                let bytes = fs::read(&src).map_err(|e| format!("读取安装包失败: {}", e))?;
+                if !verify_installer(&bytes, &sig, &pubkey) {
+                    let msg = "本地安装包签名验证失败，已拒绝安装".to_string();
+                    let _ = app.emit("update-status", serde_json::json!({
+                        "status": "error",
+                        "message": msg,
+                    }));
+                    return Err(msg);
+                }
+            }
+        }
+    }
+
+    // 备份用户音乐（避免安装包覆盖），随后静默覆盖安装并重启应用
+    if let Err(e) = backup_music_dir(&app) {
+        eprintln!("[updater] 备份 music/ 目录失败: {}", e);
+    }
+    let _ = app.emit(
+        "update-status",
+        serde_json::json!({ "status": "downloaded" }),
+    );
+    spawn_installer_and_relaunch(&src)?;
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    app.exit(0);
     Ok(())
 }
 
@@ -662,6 +1105,8 @@ fn spawn_installer_and_relaunch(dest: &PathBuf) -> Result<(), String> {
 
 /// 种子下载会话
 struct SeedDownload {
+    /// 目标版本（决定临时文件名 + 留存文件名）
+    version: String,
     dest: PathBuf,
     /// 总片数（首片到达时由 meta 确定；未知为 0）
     total_chunks: u32,
@@ -714,6 +1159,7 @@ pub async fn update_seed_download_begin(
         .map_err(|e| format!("创建临时文件失败: {}", e))?;
     let mut guard = seed_download_mutex().lock().await;
     *guard = Some(SeedDownload {
+        version,
         dest,
         total_chunks: 0,
         received_chunks: 0,
@@ -747,9 +1193,9 @@ pub async fn update_seed_download_chunk(
     sd.received_bytes = sd.received_bytes.saturating_add(chunk.len() as u64);
     let complete = chunk_received(sd, chunk_index, total_chunks);
     let percent = if sd.total_chunks > 0 {
-        (sd.received_chunks as f64 / sd.total_chunks as f64 * 100.0).round() as u64
+        (sd.received_chunks as f64 / sd.total_chunks as f64 * 100.0 * 10.0).round() / 10.0
     } else {
-        0
+        0.0
     };
     let _ = app.emit(
         "update-status",
@@ -760,11 +1206,12 @@ pub async fn update_seed_download_chunk(
         }),
     );
     if complete {
+        let version = sd.version.clone();
         let dest = sd.dest.clone();
         let signature = sd.signature.clone();
         *guard = None; // 收齐后清会话
         drop(guard);
-        finish_seed_install(&app, &dest, &signature).await?;
+        finish_seed_install(&app, &dest, &signature, &version).await?;
     }
     Ok(())
 }
@@ -779,8 +1226,67 @@ pub async fn update_seed_download_abort() -> Result<(), String> {
     Ok(())
 }
 
-/// 种子下载收齐后的收尾：校验签名 → 启动安装器 → 退出应用
-async fn finish_seed_install(app: &AppHandle, dest: &PathBuf, signature: &str) -> Result<(), String> {
+/// 种子端读取安装包分片结果（与 music_read_song_chunk_bin 同构）
+#[derive(serde::Serialize)]
+pub struct UpdateSeedReadChunk {
+    pub success: bool,
+    pub error: Option<String>,
+    pub total_chunks: Option<u32>,
+    pub chunk_size: Option<u32>,
+    pub data: Option<Vec<u8>>,
+}
+
+/// 种子端：读取本机留存的安装包第 `chunk_index` 片（Phase 2 种子分享的"服务端"）
+///
+/// 文件来源：安装目录 resources/installers/PomoSolo_<version>_x64-setup.exe
+/// （store_installer 在更新成功后写入，只保留最新版本）。
+/// 供下载端经 WebRTC DataChannel 拉取安装包时逐片读取。
+#[tauri::command]
+pub async fn update_seed_read_chunk(
+    app: AppHandle,
+    version: String,
+    chunk_index: u32,
+) -> Result<UpdateSeedReadChunk, String> {
+    if cfg!(debug_assertions) {
+        return Err("开发模式不支持分享安装包".to_string());
+    }
+    if version.is_empty() {
+        return Err("版本号为空".to_string());
+    }
+    let path = installer_store_path(&app, &version)?;
+    let bytes = fs::read(&path).map_err(|e| format!("读取安装包失败: {}", e))?;
+    const CHUNK_SIZE: usize = 256 * 1024;
+    let total_chunks = (bytes.len() + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    if chunk_index as usize >= total_chunks {
+        return Err(format!("分片序号越界（{} >= {}）", chunk_index, total_chunks));
+    }
+    let start = chunk_index as usize * CHUNK_SIZE;
+    let end = (start + CHUNK_SIZE).min(bytes.len());
+    Ok(UpdateSeedReadChunk {
+        success: true,
+        error: None,
+        total_chunks: Some(total_chunks as u32),
+        chunk_size: Some(CHUNK_SIZE as u32),
+        data: Some(bytes[start..end].to_vec()),
+    })
+}
+
+/// 种子端：本机是否留存有指定版本的安装包（开启"分享安装包"前校验）
+#[tauri::command]
+pub async fn update_seed_has_installer(app: AppHandle, version: String) -> Result<bool, String> {
+    if cfg!(debug_assertions) {
+        return Ok(false);
+    }
+    Ok(installer_store_path(&app, &version)?.exists())
+}
+
+/// 种子下载收齐后的收尾：校验签名 → 留存安装包 → 启动安装器 → 退出应用
+async fn finish_seed_install(
+    app: &AppHandle,
+    dest: &PathBuf,
+    signature: &str,
+    version: &str,
+) -> Result<(), String> {
     let pubkey = get_update_pubkey(app)?;
     let exe_bytes = fs::read(dest).map_err(|e| format!("读取安装包失败: {}", e))?;
     if !verify_installer(&exe_bytes, signature, &pubkey) {
@@ -791,6 +1297,8 @@ async fn finish_seed_install(app: &AppHandle, dest: &PathBuf, signature: &str) -
         }));
         return Err(msg);
     }
+    // 留存安装包到安装目录（Phase 2 种子分享的文件来源；失败不阻塞更新）
+    store_installer(app, version, signature);
     let _ = app.emit(
         "update-status",
         serde_json::json!({ "status": "downloaded" }),
@@ -1188,6 +1696,7 @@ mod tests {
 
     fn new_seed_download() -> SeedDownload {
         SeedDownload {
+            version: "4.6.6".to_string(),
             dest: PathBuf::from("C:\\tmp\\test.exe"),
             total_chunks: 0,
             received_chunks: 0,

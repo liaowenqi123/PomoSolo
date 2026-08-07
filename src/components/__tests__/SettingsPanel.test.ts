@@ -49,6 +49,7 @@ const seedApi = vi.hoisted(() => ({
   seedHeartbeat: vi.fn(),
   seedUnregister: vi.fn(),
   seedList: vi.fn(),
+  seedFetch: vi.fn(),
 }));
 vi.mock("@/api/seed", () => seedApi);
 
@@ -104,6 +105,8 @@ describe("SettingsPanel.vue", () => {
     });
     seedApi.seedList.mockReset();
     seedApi.seedList.mockResolvedValue([]);
+    seedApi.seedFetch.mockReset();
+    seedApi.seedFetch.mockResolvedValue(undefined);
     seedManagerApi.startSeedSharing.mockReset();
     seedManagerApi.startSeedSharing.mockResolvedValue(undefined);
     seedManagerApi.stopSeedSharing.mockReset();

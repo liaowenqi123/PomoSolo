@@ -121,6 +121,32 @@ pub async fn p2p_seed_list(
     parse_seed_peers(&resp)
 }
 
+/// 下载端通知种子端发起 P2P 传输（Phase 2）：p2p:seed_fetch
+///
+/// 服务器收到后向种子端（to_user_id）转发 `p2p:seed_request`（带发起者 user_id），
+/// 种子端据此发起 WebRTC offer 推安装包分片（此前种子端从不主动发起，导致
+/// 下载端挂 10s 超时回退服务器/GitHub——v4.6.6 补齐种子端后新增）。
+#[tauri::command]
+pub async fn p2p_seed_fetch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    version: String,
+    to_user_id: String,
+) -> Result<(), String> {
+    if version.is_empty() || to_user_id.is_empty() {
+        return Err("种子请求参数不完整".to_string());
+    }
+    let token = require_token(&state).await?;
+    ws::send(
+        &app,
+        &state.ws,
+        &token,
+        "p2p:seed_fetch",
+        serde_json::json!({ "version": version, "to_user_id": to_user_id }),
+    )
+    .await
+}
+
 // ── P2P 连通性测试工具（Phase 1.2+）──
 
 /// 在线用户（P2P 测试目标候选）

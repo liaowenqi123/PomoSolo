@@ -8,6 +8,10 @@ vi.mock("@tauri-apps/api/core", () => ({
 import {
   checkUpdate,
   downloadAndInstall,
+  updateDownloadPause,
+  updateDownloadResume,
+  updateDownloadCancel,
+  installLocalInstaller,
   fetchNotice,
   updateSeedDownloadBegin,
   updateSeedDownloadChunk,
@@ -247,12 +251,59 @@ describe("api/update", () => {
     expect(invokeMock).toHaveBeenCalledWith("update_seed_download_abort");
   });
 
+  // ===== updateDownloadPause / Resume / Cancel（v4.7.0 暂停/继续/断点续传） =====
+
+  it("updateDownloadPause 应调用 invoke('update_download_pause')", async () => {
+    invokeMock.mockResolvedValue(undefined);
+
+    await updateDownloadPause();
+
+    expect(invokeMock).toHaveBeenCalledWith("update_download_pause");
+  });
+
+  it("updateDownloadResume 应调用 invoke('update_download_resume')", async () => {
+    invokeMock.mockResolvedValue(undefined);
+
+    await updateDownloadResume();
+
+    expect(invokeMock).toHaveBeenCalledWith("update_download_resume");
+  });
+
+  it("updateDownloadCancel 应调用 invoke('update_download_cancel')", async () => {
+    invokeMock.mockResolvedValue(undefined);
+
+    await updateDownloadCancel();
+
+    expect(invokeMock).toHaveBeenCalledWith("update_download_cancel");
+  });
+
+  // ===== installLocalInstaller（v4.7.0 本地安装包覆盖安装） =====
+
+  it("installLocalInstaller 应调用 invoke('install_local_installer', { path })", async () => {
+    invokeMock.mockResolvedValue(undefined);
+
+    await installLocalInstaller("C:\\Users\\test\\Downloads\\PomoSolo_4.7.0_x64-setup.exe");
+
+    expect(invokeMock).toHaveBeenCalledWith("install_local_installer", {
+      path: "C:\\Users\\test\\Downloads\\PomoSolo_4.7.0_x64-setup.exe",
+    });
+  });
+
+  it("installLocalInstaller invoke 抛错时应向上传播", async () => {
+    invokeMock.mockRejectedValue(new Error("签名验证失败"));
+    await expect(installLocalInstaller("C:\\x.exe")).rejects.toThrow("签名验证失败");
+  });
+
   // ===== 命令名互不相同 =====
 
   it("命令名应互不相同", async () => {
     invokeMock.mockResolvedValue(undefined);
     await checkUpdate();
     await downloadAndInstall();
+    await updateDownloadPause();
+    await updateDownloadResume();
+    await updateDownloadCancel();
+    await installLocalInstaller("C:\\x.exe");
     await updateSeedDownloadBegin("4.6.0-beta.0", "sig");
     await updateSeedDownloadChunk([1], 0, 1);
     await updateSeedDownloadAbort();
@@ -266,6 +317,10 @@ describe("api/update", () => {
       new Set([
         "check_update",
         "download_and_install",
+        "update_download_pause",
+        "update_download_resume",
+        "update_download_cancel",
+        "install_local_installer",
         "fetch_notice",
         "update_seed_download_begin",
         "update_seed_download_chunk",

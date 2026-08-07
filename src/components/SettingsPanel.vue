@@ -19,6 +19,9 @@ import {
 import {
   checkUpdate,
   downloadAndInstall,
+  updateDownloadPause,
+  updateDownloadResume,
+  installLocalInstaller,
   fetchNotice,
   updateSeedDownloadBegin,
   updateSeedDownloadChunk,
@@ -27,7 +30,8 @@ import {
   type UpdateInfo,
   type UpdateStatusPayload,
 } from "@/api/update";
-import { seedList } from "@/api/seed";
+import { open } from "@tauri-apps/plugin-dialog";
+import { seedList, seedFetch } from "@/api/seed";
 import { p2pReceive } from "@/p2p";
 import { startSeedSharing, stopSeedSharing } from "@/seed";
 import { useTauriEvent } from "@/api/events";
@@ -162,6 +166,10 @@ const updateStatusType = ref<"info" | "success" | "error">("info");
 const updateProgressVisible = ref(false);
 const updateProgressPercent = ref(0);
 const updateProgressText = ref("");
+/** 是否处于暂停状态（暂停后显示"继续下载"） */
+const updatePaused = ref(false);
+/** 当前下载通道（P2P 种子快，无暂停按钮；HTTP 下载支持暂停/继续） */
+const updateChannel = ref<"idle" | "p2p" | "http">("idle");
 let statusTimer: ReturnType<typeof setTimeout> | null = null;
 /** checkUpdate 返回的完整更新信息（含签名，P2P 种子下载用） */
 const latestUpdateInfo = ref<UpdateInfo | null>(null);
@@ -177,6 +185,8 @@ useTauriEvent<UpdateStatusPayload>("update-status", (e) => {
       updateBtnDisabled.value = true;
       updateStatusText.value = "";
       updateProgressVisible.value = false;
+      updatePaused.value = false;
+      updateChannel.value = "idle";
       break;
     case "available":
       updateStatusText.value = `发现新版本 v${payload.version}，点击下载`;
@@ -185,6 +195,8 @@ useTauriEvent<UpdateStatusPayload>("update-status", (e) => {
       updateBtnAction.value = "download";
       updateBtnDisabled.value = false;
       updateProgressVisible.value = false;
+      updatePaused.value = false;
+      updateChannel.value = "idle";
       break;
     case "not-available":
       // v4.5.18：最新版本是 Beta 且未开启接收 → 提示存在 Beta，引导用户开开关
@@ -211,12 +223,15 @@ useTauriEvent<UpdateStatusPayload>("update-status", (e) => {
       break;
     case "downloading":
       updateProgressVisible.value = true;
+      // percent 保留 1 位小数（v4.7.0 起后端上报小数精度）
       updateProgressPercent.value = payload.percent ?? 0;
+      updatePaused.value = false;
       const total = payload.total ?? 0;
       const totalMB = total > 0 ? ` / ${(total / 1048576).toFixed(1)}MB` : "";
-      updateProgressText.value = `下载中 ${payload.percent ?? 0}%${totalMB}`;
-      updateBtnText.value = "下载中...";
-      updateBtnDisabled.value = true;
+      updateProgressText.value = `下载中 ${(payload.percent ?? 0).toFixed(1)}%${totalMB}`;
+      // 主按钮复用为暂停/继续：仅 HTTP 下载可暂停（P2P 种子传输快，保持禁用）
+      updateBtnText.value = updateChannel.value === "http" ? "暂停下载" : "下载中...";
+      updateBtnDisabled.value = updateChannel.value !== "http";
       break;
     case "downloaded":
       updateStatusText.value = "更新已下载，即将安装重启";
@@ -224,6 +239,8 @@ useTauriEvent<UpdateStatusPayload>("update-status", (e) => {
       updateProgressVisible.value = false;
       updateBtnText.value = "安装中...";
       updateBtnDisabled.value = true;
+      updatePaused.value = false;
+      updateChannel.value = "idle";
       break;
     case "error":
       updateStatusText.value = `更新失败: ${payload.message ?? "未知错误"}`;
@@ -232,6 +249,8 @@ useTauriEvent<UpdateStatusPayload>("update-status", (e) => {
       updateBtnAction.value = "check";
       updateBtnDisabled.value = false;
       updateProgressVisible.value = false;
+      updatePaused.value = false;
+      updateChannel.value = "idle";
       // v4.5.21：更新出错时拉取服务器公告，让用户知道该怎么做（教训：v4.5.20 曾逼用户重装）
       void showUpdateNoticeOnError();
       break;
@@ -260,6 +279,39 @@ void getVersion().then((v) => {
 });
 
 async function handleUpdateBtnClick(): Promise<void> {
+  // 暂停态 → 继续（断点续传）
+  if (updatePaused.value) {
+    updateBtnDisabled.value = true;
+    updateBtnText.value = "继续中...";
+    try {
+      await updateDownloadResume();
+      // 恢复后 Rust 会重新 emit downloading，按钮文本由事件接管
+    } catch (e) {
+      updateStatusText.value = `继续下载失败: ${String(e)}`;
+      updateStatusType.value = "error";
+      updateBtnText.value = "继续下载";
+      updateBtnDisabled.value = false;
+    }
+    return;
+  }
+  // 下载中（HTTP 通道）→ 暂停（保留已下载数据，可断点续传）
+  if (updateChannel.value === "http" && updateBtnAction.value === "download") {
+    updateBtnDisabled.value = true;
+    try {
+      await updateDownloadPause();
+      updatePaused.value = true;
+      updateBtnText.value = "继续下载";
+      updateBtnDisabled.value = false;
+      updateProgressText.value = `已暂停 ${updateProgressPercent.value.toFixed(1)}%`;
+      updateStatusText.value = "";
+    } catch (e) {
+      updateStatusText.value = `暂停失败: ${String(e)}`;
+      updateStatusType.value = "error";
+      updateBtnText.value = "暂停下载";
+      updateBtnDisabled.value = false;
+    }
+    return;
+  }
   if (updateBtnAction.value === "check") {
     latestUpdateInfo.value = await checkUpdate(
       local.value.updateSource,
@@ -273,11 +325,54 @@ async function handleUpdateBtnClick(): Promise<void> {
       const p2pOk = await trySeedDownload(latestUpdateInfo.value);
       if (p2pOk) return; // P2P 成功：Rust 收齐后自动校验并启动安装器（应用退出）
     }
+    updateChannel.value = "http"; // P2P 失败回退 → 服务器/GitHub HTTP 下载（可暂停）
     updateBtnText.value = "下载中...";
     await downloadAndInstall(
       local.value.updateSource,
       local.value.allowBetaUpdates,
     );
+  }
+}
+
+/**
+ * 从本地安装包覆盖安装（v4.7.0）
+ *
+ * 文件选择器选 .exe → 后端静默覆盖安装（/S /UPDATE，不卸载旧版、
+ * 保留任务栏/开始菜单固定快捷方式）。文件名版本与本机留存 latest.json
+ * 匹配时后端会先校验签名，失败拒绝。成功安装后应用自动退出重启。
+ */
+async function handleLocalInstall(): Promise<void> {
+  updateBtnDisabled.value = true;
+  let selected: string | null = null;
+  try {
+    const picked = await open({
+      title: "选择 PomoSolo 安装包",
+      filters: [{ name: "安装包", extensions: ["exe"] }],
+      multiple: false,
+    });
+    selected = typeof picked === "string" ? picked : null;
+  } catch (e) {
+    updateStatusText.value = `打开文件选择器失败: ${String(e)}`;
+    updateStatusType.value = "error";
+    updateBtnDisabled.value = false;
+    return;
+  }
+  if (!selected) {
+    updateBtnDisabled.value = false; // 用户取消选择
+    return;
+  }
+  try {
+    updateStatusText.value = "正在从本地安装包覆盖安装...";
+    updateStatusType.value = "info";
+    updateProgressVisible.value = true;
+    updateProgressText.value = "覆盖安装中（保留任务栏固定）...";
+    // 成功后应用退出重启，无需恢复按钮
+    await installLocalInstaller(selected);
+  } catch (e) {
+    updateStatusText.value = `本地安装失败: ${String(e)}`;
+    updateStatusType.value = "error";
+    updateProgressVisible.value = false;
+    updateBtnDisabled.value = false;
   }
 }
 
@@ -290,6 +385,7 @@ async function handleUpdateBtnClick(): Promise<void> {
 async function trySeedDownload(info: UpdateInfo): Promise<boolean> {
   const { version, signature } = info;
   if (!signature || !version) return false;
+  updateChannel.value = "p2p"; // P2P 种子通道（传输快，无暂停按钮）
   let peers: string[] = [];
   try {
     peers = await seedList(version);
@@ -302,7 +398,11 @@ async function trySeedDownload(info: UpdateInfo): Promise<boolean> {
 
   return await new Promise<boolean>((resolve) => {
     void updateSeedDownloadBegin(version, signature)
-      .then(() => {
+      .then(async () => {
+        // 通知种子端发起 WebRTC offer（v4.6.6 补齐种子端；失败不阻塞，等 p2pReceive 超时兜底）
+        await seedFetch(version, peerId).catch((e) => {
+          console.warn("[Update] 通知种子端发起失败，将等待超时兜底:", e);
+        });
         p2pReceive({
           peerId,
           role: "answerer",
@@ -354,7 +454,8 @@ async function onShareInstallerChange(value: boolean): Promise<void> {
       await settings.update("shareInstaller", true);
     } catch (e) {
       console.warn("[Update] 开启种子分享失败:", e);
-      seedStatusText.value = "开启分享失败，请检查登录状态";
+      seedStatusText.value =
+        e instanceof Error ? e.message : "开启分享失败，请检查登录状态";
       await settings.update("shareInstaller", false);
     }
   } else {
@@ -907,13 +1008,23 @@ function statusLabel(status: number): string {
             </p>
             <div class="settings-row">
               <label class="settings-row__label">检查更新</label>
-              <button
-                class="update-btn"
-                :disabled="updateBtnDisabled"
-                @click="handleUpdateBtnClick"
-              >
-                {{ updateBtnText }}
-              </button>
+              <div class="update-btns">
+                <button
+                  class="update-btn"
+                  :disabled="updateBtnDisabled"
+                  @click="handleUpdateBtnClick"
+                >
+                  {{ updateBtnText }}
+                </button>
+                <button
+                  class="update-btn update-btn--local"
+                  :disabled="updateBtnDisabled"
+                  title="选择本地安装包直接覆盖安装（不卸载旧版，保留任务栏固定）"
+                  @click="handleLocalInstall"
+                >
+                  本地安装包
+                </button>
+              </div>
             </div>
             <div v-if="updateProgressVisible" class="update-progress">
               <div class="update-progress-bar">
@@ -1336,6 +1447,18 @@ function statusLabel(status: number): string {
 
 .update-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.12);
+}
+
+/* v4.7.0：检查更新 + 本地安装包两个按钮并排 */
+.update-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.update-btn--local {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .p2p-test-open-btn {

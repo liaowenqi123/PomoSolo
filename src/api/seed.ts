@@ -42,3 +42,16 @@ export async function seedList(version?: string): Promise<string[]> {
     version: version ?? "",
   });
 }
+
+/**
+ * 通知某个种子端发起 P2P 传输（v4.6.6 补齐种子端后新增）。
+ *
+ * 下载端查完种子列表后调用：服务器向种子端转发 `p2p:seed_request`，
+ * 种子端据此发起 WebRTC offer 推安装包分片（此前种子端从不主动发起）。
+ *
+ * @param version 目标安装包版本
+ * @param toUserId 种子端 user_id（seedList 返回的第一个）
+ */
+export async function seedFetch(version: string, toUserId: string): Promise<void> {
+  await invoke("p2p_seed_fetch", { version, toUserId });
+}

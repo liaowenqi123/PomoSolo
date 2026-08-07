@@ -985,3 +985,31 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 >
 > ⚠️ 回退方法：若种子功能导致异常，服务器删掉 `handle_p2p_seed_*` 4 个 handler 的注册（ws_server.py 231-234 行）即可，
 > 客户端会自动走无种子回退路径（下载行为与 v4.5.x 完全一致）。
+
+---
+
+## 【纯客户端，无服务器改动】v4.7.0 更新器增强（2026-08-07）
+
+> 三项更新器能力增强，全部在客户端 Rust/前端，服务器零改动：
+
+**1. 断点续传下载 + 暂停/继续/取消**
+- `download_and_install` 改为**启动后台下载任务**（tokio::spawn，全局单会话）后立即返回，
+  进度经既有 `update-status` 事件上报（`percent` 改为**保留 1 位小数**，如 `42.5`）。
+- 新命令：`update_download_pause` / `update_download_resume` / `update_download_cancel`。
+  - 暂停：`paused` 标志 + `Notify` 唤醒阻塞在流上的任务，保留已下载数据（协作式退出，无半截）
+  - 继续：等待旧任务退出 → 把临时文件截断到已提交偏移 → 发 `Range: bytes=<offset>-` 续传
+  - 取消：删除残留临时文件
+- 断点续传：同会话内暂停后继续即从断点续传；`Range` 返回 416 时视为文件已完整直接验签安装。
+- 前端：HTTP 下载中主按钮变为"暂停下载"（点击后"继续下载"）；P2P 种子传输快不提供暂停。
+
+**2. 本地安装包覆盖安装（复用 `/S /UPDATE` 静默升级，不卸载旧版、保留任务栏固定）**
+- 新增 tauri-plugin-dialog（`@tauri-apps/plugin-dialog`），capabilities 加 `dialog:default`。
+- 设置 → 更新面板新增"本地安装包"按钮：文件选择器选 .exe → `install_local_installer(path)`。
+- 后端 `install_local_installer`：文件名版本与本机留存 `installers/latest.json` 匹配时校验
+  Ed25519 签名（失败拒绝）；不匹配信任用户自选文件；安装前照常备份音乐目录。
+
+**3. 修复"Windows找不到''文件"（v4.6.x 用户升级报错）**
+- 根因：`spawn_installer_and_relaunch` 把安装包/应用路径**拼进 cmd 命令行字符串**，
+  路径含空格/中文等特殊字符时 `start` 解析失败 → 空路径报错。
+- 修复：路径改经**环境变量**传入（`%POMOSOLO_UPDATER%` / `%POMOSOLO_EXE%`），cmd 不再解析路径内容。
+- 注：服务器 `/updates/` 无安装包文件（仅元数据），下载一律走 GitHub Releases 直链。
