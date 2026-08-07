@@ -136,6 +136,13 @@ pub fn crop_cfg(key: &str) -> Option<&'static CropCfg> {
     CROP_CONFIG.iter().find(|c| c.key == key)
 }
 
+// ===== 专注连击配置 =====
+
+/// 专注连击激活阈值：连续完成 N 个番茄钟后进入加成状态
+pub const COMBO_ACTIVE_THRESHOLD: u64 = 3;
+
+/// 专注连击加成倍数（1.5 倍，apply_growth 中按 ×1.5 向上取整计算）
+
 // ===== 签到奖励配置 =====
 
 /// 每日基础奖励（每天都发）
@@ -1017,12 +1024,15 @@ pub async fn garden_update_focus(app: AppHandle, minutes: u32) -> Result<Value, 
 
 /// 惩罚核心逻辑（纯函数，便于单元测试）
 ///
-/// 参照旧版 handleGardenPunishment：
-/// - 只清空未成熟作物（progress < growTime）
+/// 参照旧版 handleGardenPunishment，v1 游戏性改进（枯萎救援）：
+/// - 未成熟作物：转为**枯萎状态**（wilted=true，保留 progress/plantedAt），可被专注救活
+/// - 已枯萎作物再次遭惩罚：**永久清除**（枯萎后又被罚就彻底没了，制造紧迫感）
+/// - 成熟作物（progress >= growTime）：不受影响
 /// - 不扣金币/种子/crops 背包
 /// - 累计 totalMinutes += progress
 /// - 不触发成就检查
-/// 返回 { hasLoss, losses, totalMinutes }。
+/// 返回 { hasLoss, losses, totalMinutes }，losses 每项含 revivable 字段
+/// （true=转为枯萎可救活，false=永久失去）。
 pub fn apply_punishment(data: &mut Value) -> Value {
     let obj = match data.as_object_mut() {
         Some(o) => o,
@@ -1055,26 +1065,48 @@ pub fn apply_punishment(data: &mut Value) -> Value {
             };
 
             let progress = plot.get("progress").and_then(|v| v.as_u64()).unwrap_or(0);
+            // 是否已处于枯萎状态（上一轮惩罚遗留）
+            let wilted = plot.get("wilted").and_then(|v| v.as_bool()).unwrap_or(false);
 
-            // 只清空未成熟的作物
+            // 只处理未成熟的作物
             if progress < cfg.grow_time {
-                losses.push(json!({
-                    "crop": crop,
-                    "name": cfg.name,
-                    "icon": cfg.icon,
-                    "progress": progress,
-                    "growTime": cfg.grow_time
-                }));
-                total_minutes += progress;
-
                 let id = plot.get("id").and_then(|v| v.as_u64()).unwrap_or(0);
-                *plot = json!({
-                    "id": id,
-                    "crop": null,
-                    "progress": 0,
-                    "plantedAt": null,
-                    "locked": false
-                });
+
+                if wilted {
+                    // 已枯萎又遭惩罚：永久清除
+                    losses.push(json!({
+                        "crop": crop,
+                        "name": cfg.name,
+                        "icon": cfg.icon,
+                        "progress": progress,
+                        "growTime": cfg.grow_time,
+                        "revivable": false
+                    }));
+                    total_minutes += progress;
+
+                    *plot = json!({
+                        "id": id,
+                        "crop": null,
+                        "progress": 0,
+                        "plantedAt": null,
+                        "locked": false
+                    });
+                } else {
+                    // 未成熟：转为枯萎（濒死），可被专注救活
+                    losses.push(json!({
+                        "crop": crop,
+                        "name": cfg.name,
+                        "icon": cfg.icon,
+                        "progress": progress,
+                        "growTime": cfg.grow_time,
+                        "revivable": true
+                    }));
+                    total_minutes += progress;
+
+                    if let Some(po) = plot.as_object_mut() {
+                        po.insert("wilted".to_string(), Value::Bool(true));
+                    }
+                }
             }
         }
     }
@@ -1204,24 +1236,163 @@ pub async fn garden_unlock_easteregg(app: AppHandle) -> Result<Value, String> {
     }))
 }
 
-/// 更新作物生长进度
-/// 参照旧版 updateGardenProgress：
-/// - 遍历所有有作物的 plots，progress += minutes
-/// - 不带成就检查（与旧版一致）
+/// 记录一次专注会话结果（纯函数，便于单元测试）
+///
+/// 专注连击（Focus Combo）v1：
+/// - completed=true（专注完成）：连击 count+1；达到 COMBO_ACTIVE_THRESHOLD 激活加成；
+///   同时**救活所有枯萎作物**（wilted 状态清除，进度保留）
+/// - completed=false（专注中断/放弃）：连击清零
+/// - combo.best 记录历史最高连击
+/// 返回 { combo: {count,best,active}, revivedCount }。
+pub fn record_focus_completion(data: &mut Value, completed: bool) -> Value {
+    let combo_value: Value;
+    let mut revived_count: u64 = 0;
+
+    // ===== 阶段 1：更新 combo 状态 =====
+    {
+        let obj = match data.as_object_mut() {
+            Some(o) => o,
+            None => {
+                return json!({
+                    "combo": { "count": 0, "best": 0, "active": false },
+                    "revivedCount": 0
+                })
+            }
+        };
+
+        let combo = obj
+            .entry("combo".to_string())
+            .or_insert_with(|| json!({ "count": 0, "best": 0, "active": false }));
+        if !combo.is_object() {
+            *combo = json!({ "count": 0, "best": 0, "active": false });
+        }
+        let combo_obj = match combo.as_object_mut() {
+            Some(o) => o,
+            None => {
+                return json!({
+                    "combo": { "count": 0, "best": 0, "active": false },
+                    "revivedCount": 0
+                })
+            }
+        };
+
+        if completed {
+            let count = combo_obj
+                .get("count")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                + 1;
+            let best = combo_obj.get("best").and_then(|v| v.as_u64()).unwrap_or(0);
+            combo_obj.insert("count".to_string(), Value::from(count));
+            if count > best {
+                combo_obj.insert("best".to_string(), Value::from(count));
+            }
+            combo_obj.insert(
+                "active".to_string(),
+                Value::from(count >= COMBO_ACTIVE_THRESHOLD),
+            );
+        } else {
+            combo_obj.insert("count".to_string(), Value::from(0));
+            combo_obj.insert("active".to_string(), Value::from(false));
+        }
+
+        combo_value = combo.clone();
+    }
+
+    // ===== 阶段 2：专注完成时救活枯萎作物 =====
+    if completed {
+        if let Some(obj) = data.as_object_mut() {
+            if let Some(plots) = obj.get_mut("plots").and_then(|v| v.as_array_mut()) {
+                for plot in plots.iter_mut() {
+                    let wilted = plot
+                        .get("wilted")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+                    if wilted {
+                        if let Some(po) = plot.as_object_mut() {
+                            po.insert("wilted".to_string(), Value::Bool(false));
+                            revived_count += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    json!({
+        "combo": combo_value,
+        "revivedCount": revived_count
+    })
+}
+
+/// 记录一次专注会话结果（由计时器完成/中断时调用）
+/// 返回 GardenOperationResult 形状 + combo / revivedCount 信息
 #[tauri::command]
-pub async fn garden_grow(app: AppHandle, minutes: u32) -> Result<Value, String> {
+pub async fn garden_record_focus(app: AppHandle, completed: bool) -> Result<Value, String> {
     let mut data = data_manager::read_garden_data(&app)?;
-    let obj = data.as_object_mut().ok_or("garden data 不是对象")?;
+
+    let info = record_focus_completion(&mut data, completed);
+
+    data_manager::write_garden_data(&app, &data)?;
+
+    Ok(json!({
+        "success": true,
+        "gardenData": data,
+        "combo": info.get("combo"),
+        "revivedCount": info.get("revivedCount"),
+        "unlockedAchievements": []
+    }))
+}
+
+/// 更新作物生长进度（纯函数，便于单元测试）
+///
+/// - 遍历所有有作物的 plots，progress += minutes
+/// - 专注连击激活（combo.active）时，按 minutes × 1.5 向上取整加成
+/// - 枯萎（wilted）作物不再生长（等待救活）
+/// 返回 { growthApplied }。
+pub fn apply_growth(data: &mut Value, minutes: u32) -> Value {
+    let obj = match data.as_object_mut() {
+        Some(o) => o,
+        None => return json!({ "growthApplied": 0 }),
+    };
+
+    let combo_active = obj
+        .get("combo")
+        .and_then(|c| c.get("active"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    // 1.5 倍向上取整：(minutes * 3 + 1) / 2
+    let growth: u64 = if combo_active {
+        (minutes as u64 * 3 + 1) / 2
+    } else {
+        minutes as u64
+    };
 
     if let Some(plots) = obj.get_mut("plots").and_then(|v| v.as_array_mut()) {
         for plot in plots.iter_mut() {
             let has_crop = plot.get("crop").and_then(|v| v.as_str()).is_some();
-            if has_crop {
+            let wilted = plot.get("wilted").and_then(|v| v.as_bool()).unwrap_or(false);
+            if has_crop && !wilted {
                 let progress = plot.get("progress").and_then(|v| v.as_u64()).unwrap_or(0);
-                plot["progress"] = Value::from(progress + minutes as u64);
+                plot["progress"] = Value::from(progress + growth);
             }
         }
     }
+
+    json!({ "growthApplied": growth })
+}
+
+/// 更新作物生长进度
+/// 参照旧版 updateGardenProgress：
+/// - 遍历所有有作物的 plots，progress += minutes
+/// - 专注连击激活时进度 ×1.5（v1 游戏性改进）
+/// - 不带成就检查（与旧版一致）
+#[tauri::command]
+pub async fn garden_grow(app: AppHandle, minutes: u32) -> Result<Value, String> {
+    let mut data = data_manager::read_garden_data(&app)?;
+
+    apply_growth(&mut data, minutes);
 
     data_manager::write_garden_data(&app, &data)?;
     // 返回 GardenOperationResult 形状（前端 applyResult 期望 success 字段）
@@ -1561,7 +1732,7 @@ mod tests {
     }
 
     #[test]
-    fn punishment_clears_immature_keeps_mature() {
+    fn punishment_wilts_immature_keeps_mature() {
         let mut g = punish_garden();
         let result = apply_punishment(&mut g);
 
@@ -1577,23 +1748,51 @@ mod tests {
         assert_eq!(carrot_loss["icon"], json!("🥕"));
         assert_eq!(carrot_loss["progress"], json!(10));
         assert_eq!(carrot_loss["growTime"], json!(25));
+        // 首次惩罚：未成熟作物转为枯萎（可救活）
+        assert_eq!(carrot_loss["revivable"], json!(true));
 
         // totalMinutes = 10 + 30 = 40
         assert_eq!(result["totalMinutes"], json!(40));
 
-        // 数据被清空：未成熟作物 → 空地，成熟作物保留，锁定土地保留
+        // 未成熟作物转枯萎（保留 crop/progress），成熟作物保留，锁定土地保留
         let plots = g["plots"].as_array().unwrap();
-        assert_eq!(plots[0]["crop"], json!(null));
-        assert_eq!(plots[0]["progress"], json!(0));
+        assert_eq!(plots[0]["crop"], json!("carrot"));
+        assert_eq!(plots[0]["progress"], json!(10));
+        assert_eq!(plots[0]["wilted"], json!(true));
         assert_eq!(plots[1]["crop"], json!("tomato"));
         assert_eq!(plots[1]["progress"], json!(50));
-        assert_eq!(plots[2]["crop"], json!(null));
+        assert_eq!(plots[1].get("wilted").map(|v| v.as_bool()).unwrap_or(Some(false)), Some(false));
+        assert_eq!(plots[2]["crop"], json!("sunflower"));
+        assert_eq!(plots[2]["wilted"], json!(true));
         // 锁定的玫瑰不受影响
         assert_eq!(plots[3]["crop"], json!("rose"));
         assert_eq!(plots[3]["progress"], json!(20));
 
         // totalLosses 累计 2
         assert_eq!(g["totalLosses"], json!(2));
+    }
+
+    #[test]
+    fn punishment_second_time_permanently_clears_wilted() {
+        // 已枯萎的作物再次遭惩罚 → 永久清除（revivable=false）
+        let mut g = punish_garden();
+        apply_punishment(&mut g); // 第一次：转枯萎
+
+        let result = apply_punishment(&mut g); // 第二次：永久清除
+        assert_eq!(result["hasLoss"], json!(true));
+        let losses = result["losses"].as_array().unwrap();
+        assert_eq!(losses.len(), 2);
+        for loss in losses {
+            assert_eq!(loss["revivable"], json!(false));
+        }
+
+        let plots = g["plots"].as_array().unwrap();
+        assert_eq!(plots[0]["crop"], json!(null));
+        assert_eq!(plots[0]["progress"], json!(0));
+        assert!(plots[0].get("wilted").is_none() || plots[0]["wilted"] != json!(true));
+        // 成熟作物依然保留
+        assert_eq!(plots[1]["crop"], json!("tomato"));
+        assert_eq!(plots[1]["progress"], json!(50));
     }
 
     #[test]
@@ -1639,8 +1838,8 @@ mod tests {
     }
 
     #[test]
-    fn punishment_all_immature_cleared() {
-        // 全部未成熟 → 全部枯萎，土地全部变空地
+    fn punishment_all_immature_wilted() {
+        // 全部未成熟 → 全部转枯萎（不是被清空）
         let mut g = json!({
             "coins": 0,
             "plots": [
@@ -1653,9 +1852,8 @@ mod tests {
         assert_eq!(result["losses"].as_array().unwrap().len(), 2);
         assert_eq!(result["totalMinutes"], json!(6));
         for plot in g["plots"].as_array().unwrap() {
-            assert_eq!(plot["crop"], json!(null));
-            assert_eq!(plot["progress"], json!(0));
-            assert_eq!(plot["plantedAt"], json!(null));
+            assert_eq!(plot["crop"], json!("carrot"));
+            assert_eq!(plot["wilted"], json!(true));
         }
     }
 
@@ -1673,6 +1871,141 @@ mod tests {
         assert_eq!(result["losses"].as_array().unwrap().len(), 0);
         // 数据原样保留
         assert_eq!(g["plots"][0]["crop"], json!("unknown_crop"));
+    }
+
+    // ===== record_focus_completion（专注连击 + 枯萎救援）=====
+
+    #[test]
+    fn record_focus_completion_increments_combo_on_success() {
+        let mut g = base_garden();
+        let info = record_focus_completion(&mut g, true);
+        assert_eq!(info["combo"]["count"], json!(1));
+        assert_eq!(info["combo"]["best"], json!(1));
+        assert_eq!(info["combo"]["active"], json!(false));
+    }
+
+    #[test]
+    fn record_focus_completion_activates_after_threshold() {
+        let mut g = base_garden();
+        record_focus_completion(&mut g, true);
+        record_focus_completion(&mut g, true);
+        let info = record_focus_completion(&mut g, true);
+        // 第 3 次激活
+        assert_eq!(info["combo"]["count"], json!(3));
+        assert_eq!(info["combo"]["active"], json!(true));
+    }
+
+    #[test]
+    fn record_focus_completion_interrupt_resets_combo() {
+        let mut g = base_garden();
+        record_focus_completion(&mut g, true);
+        record_focus_completion(&mut g, true);
+        record_focus_completion(&mut g, true);
+        // 中断 → 清零
+        let info = record_focus_completion(&mut g, false);
+        assert_eq!(info["combo"]["count"], json!(0));
+        assert_eq!(info["combo"]["active"], json!(false));
+        // best 保留历史最高
+        assert_eq!(info["combo"]["best"], json!(3));
+    }
+
+    #[test]
+    fn record_focus_completion_tracks_best() {
+        let mut g = base_garden();
+        record_focus_completion(&mut g, true);
+        record_focus_completion(&mut g, true);
+        record_focus_completion(&mut g, false); // 中断
+        let info = record_focus_completion(&mut g, true);
+        assert_eq!(info["combo"]["count"], json!(1));
+        assert_eq!(info["combo"]["best"], json!(2));
+    }
+
+    #[test]
+    fn record_focus_completion_revives_wilted_crops() {
+        let mut g = punish_garden();
+        apply_punishment(&mut g); // 胡萝卜 + 向日葵 转枯萎
+        assert_eq!(g["plots"][0]["wilted"], json!(true));
+        assert_eq!(g["plots"][2]["wilted"], json!(true));
+
+        let info = record_focus_completion(&mut g, true);
+        assert_eq!(info["revivedCount"], json!(2));
+        // 枯萎状态清除，进度保留
+        assert_eq!(g["plots"][0]["wilted"], json!(false));
+        assert_eq!(g["plots"][0]["progress"], json!(10));
+        assert_eq!(g["plots"][2]["wilted"], json!(false));
+    }
+
+    #[test]
+    fn record_focus_completion_no_wilted_no_revive() {
+        let mut g = base_garden();
+        let info = record_focus_completion(&mut g, true);
+        assert_eq!(info["revivedCount"], json!(0));
+    }
+
+    #[test]
+    fn record_focus_completion_non_object_returns_default_combo() {
+        let mut g = Value::Null;
+        let info = record_focus_completion(&mut g, true);
+        assert_eq!(info["combo"]["count"], json!(0));
+        assert_eq!(info["revivedCount"], json!(0));
+    }
+
+    // ===== apply_growth（生长进度 + 连击加成）=====
+
+    #[test]
+    fn apply_growth_normal_increments_progress() {
+        let mut g = base_garden();
+        g["plots"][0] = json!({
+            "id": 0, "crop": "carrot", "progress": 10, "plantedAt": null, "locked": false
+        });
+        let info = apply_growth(&mut g, 5);
+        assert_eq!(info["growthApplied"], json!(5));
+        assert_eq!(g["plots"][0]["progress"], json!(15));
+    }
+
+    #[test]
+    fn apply_growth_combo_bonus_rounds_up() {
+        // combo active：×1.5 向上取整
+        let mut g = base_garden();
+        g["combo"] = json!({ "count": 3, "best": 3, "active": true });
+        g["plots"][0] = json!({
+            "id": 0, "crop": "carrot", "progress": 0, "plantedAt": null, "locked": false
+        });
+        // 1 分钟 → 1.5 向上取整 = 2
+        apply_growth(&mut g, 1);
+        assert_eq!(g["plots"][0]["progress"], json!(2));
+        // 再 2 分钟 → 3（2*1.5）
+        apply_growth(&mut g, 2);
+        assert_eq!(g["plots"][0]["progress"], json!(5));
+    }
+
+    #[test]
+    fn apply_growth_combo_inactive_no_bonus() {
+        let mut g = base_garden();
+        g["combo"] = json!({ "count": 2, "best": 2, "active": false });
+        g["plots"][0] = json!({
+            "id": 0, "crop": "carrot", "progress": 0, "plantedAt": null, "locked": false
+        });
+        apply_growth(&mut g, 3);
+        assert_eq!(g["plots"][0]["progress"], json!(3));
+    }
+
+    #[test]
+    fn apply_growth_skips_wilted_crops() {
+        // 枯萎作物不再生长（等待救活）
+        let mut g = base_garden();
+        g["plots"][0] = json!({
+            "id": 0, "crop": "carrot", "progress": 10, "plantedAt": null, "locked": false, "wilted": true
+        });
+        apply_growth(&mut g, 5);
+        assert_eq!(g["plots"][0]["progress"], json!(10));
+    }
+
+    #[test]
+    fn apply_growth_non_object_returns_zero() {
+        let mut g = Value::Null;
+        let info = apply_growth(&mut g, 5);
+        assert_eq!(info["growthApplied"], json!(0));
     }
 
     // ===== try_unlock_easteregg（隐藏彩蛋成就）=====
