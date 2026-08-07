@@ -9,6 +9,11 @@
  * - 数据传输协议（DataChannel）：
  *   1. 控制消息（字符串 JSON）：`{"t":"meta","size":N,"totalChunks":M,"chunkSize":K}`
  *   2. 数据消息（二进制）：4 字节大端 chunk_index + chunk 原始字节
+ * - 压缩传输（v4.6.4，传歌省带宽，由发送端设置选择）：
+ *   - 发送端开启压缩后先发 `{"t":"hello","v":2}` 协商，对端回 `{"t":"hello-ack","compress":1}`
+ *     （旧版客户端不回 → 1.2s 后按旧格式不压缩发送，完全向后兼容）
+ *   - 协商成功：meta 带 `"compress":1`，数据帧改为 `4 字节 index + 1 字节压缩标志 + payload`，
+ *     分片经 deflate-raw 压缩（压缩后反而更大→发原片，保证不劣于不压缩）
  * - 可靠性：DataChannel 默认 ordered+reliable；失败/超时由调用方回退
  *   （音乐传歌回退服务器中转；更新下载回退服务器/GitHub）
  */
@@ -51,10 +56,17 @@ export interface P2PStartOptions {
   stunUrls?: string[];
   /** 单片字节数（默认 128KB） */
   chunkSize?: number;
+  /**
+   * 发送端启用压缩传输（传歌省带宽，v4.6.4）：
+   * 开启后与对端做 hello 协商（新对端 → deflate-raw 压缩分片；旧对端 → 自动回退不压缩，完全兼容）
+   */
+  compress?: boolean;
   /** 建连超时（默认 8s，超时回调 onError 并关闭） */
   timeoutMs?: number;
   /** 信令发送（默认走 Tauri invoke p2p_signal；测试注入假实现） */
   signal?: (type: P2PSignalType, toUserId: string, payload: Record<string, unknown>) => Promise<void>;
+  /** 诊断回调：输出 ICE 候选/状态变化（排障 P2P 打洞失败用，UI 可直接展示） */
+  onDiagnose?: (info: string) => void;
   callbacks?: P2PTransferCallbacks;
 }
 
@@ -72,6 +84,8 @@ const DEFAULT_STUN = [
 ];
 const DEFAULT_CHUNK_SIZE = 128 * 1024;
 const DEFAULT_TIMEOUT_MS = 8_000;
+/** 压缩协商超时：hello 发出后对端（旧版）不回 hello-ack 的最大等待，随后按不压缩旧格式发送 */
+const COMPRESS_NEGOTIATE_TIMEOUT = 1_200;
 
 // ── 纯函数（协议编解码，便于单测）──
 
@@ -89,15 +103,77 @@ export function parseChunk(buf: Uint8Array): { index: number; data: Uint8Array }
   return { index, data: buf.slice(4) };
 }
 
+/**
+ * 压缩传输分片编码：4 字节大端 index + 1 字节压缩标志（1=payload 为 deflate-raw 压缩数据）+ payload。
+ * 仅压缩传输使用（meta.compress=1）；不压缩仍走 encodeChunk/parseChunk 旧格式，兼容旧版对端。
+ */
+export function encodeChunkC(index: number, data: Uint8Array, compressed: boolean): Uint8Array<ArrayBuffer> {
+  const buf = new Uint8Array(5 + data.length);
+  const dv = new DataView(buf.buffer);
+  dv.setUint32(0, index);
+  buf[4] = compressed ? 1 : 0;
+  buf.set(data, 5);
+  return buf;
+}
+
+/** 解析压缩传输分片：返回 { index, compressed, data } */
+export function parseChunkC(buf: Uint8Array): { index: number; compressed: boolean; data: Uint8Array } {
+  const index = new DataView(buf.buffer, buf.byteOffset, buf.byteLength).getUint32(0);
+  const compressed = buf[4] === 1;
+  return { index, compressed, data: buf.slice(5) };
+}
+
+// ── 压缩（浏览器原生 CompressionStream = Chromium zlib，128KB 片开销微秒级，不吃算力）──
+
+function compressionSupported(): boolean {
+  return typeof CompressionStream !== "undefined" && typeof DecompressionStream !== "undefined";
+}
+
+/** deflate-raw 压缩单个分片；环境不支持或压缩失败时原样返回（jsdom 测试/旧内核兜底） */
+export async function compressChunk(data: Uint8Array): Promise<Uint8Array> {
+  if (!compressionSupported()) return data;
+  try {
+    // slice() 转成 ArrayBuffer-backed 视图以满足 BlobPart 类型约束
+    const stream = new Blob([data.slice()]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  } catch {
+    return data;
+  }
+}
+
+/** deflate-raw 解压单个分片；环境不支持或解压失败时原样返回 */
+export async function decompressChunk(data: Uint8Array): Promise<Uint8Array> {
+  if (!compressionSupported()) return data;
+  try {
+    const stream = new Blob([data.slice()]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  } catch {
+    return data;
+  }
+}
+
+/** 解析 hello-ack 协商回包（对端不支持/非该消息 → 返回空对象） */
+function parseHelloAck(text: string): { compress?: boolean } {
+  try {
+    const o = JSON.parse(text);
+    if (o && o.t === "hello-ack") return { compress: o.compress === true };
+  } catch {
+    /* 非 JSON */
+  }
+  return {};
+}
+
 export interface ChunkMeta {
   size: number;
   totalChunks: number;
   chunkSize: number;
+  /** 压缩传输标志（v4.6.4）：meta.compress=1 时数据帧为 index+标志+payload 格式 */
+  compress?: boolean;
 }
 
-/** 构建 meta 控制消息（JSON 字符串） */
-export function buildMeta(size: number, totalChunks: number, chunkSize: number): string {
-  return JSON.stringify({ t: "meta", size, totalChunks, chunkSize });
+/** 构建 meta 控制消息（JSON 字符串）；compress=true 时带压缩标志（旧版对端解析忽略未知字段） */
+export function buildMeta(size: number, totalChunks: number, chunkSize: number, compress = false): string {
+  return JSON.stringify({ t: "meta", size, totalChunks, chunkSize, ...(compress ? { compress: 1 } : {}) });
 }
 
 /** 解析 meta 控制消息 */
@@ -105,7 +181,7 @@ export function parseMeta(text: string): ChunkMeta | null {
   try {
     const o = JSON.parse(text);
     if (o && o.t === "meta" && typeof o.size === "number" && typeof o.totalChunks === "number") {
-      return { size: o.size, totalChunks: o.totalChunks, chunkSize: o.chunkSize ?? 0 };
+      return { size: o.size, totalChunks: o.totalChunks, chunkSize: o.chunkSize ?? 0, compress: o.compress === 1 };
     }
   } catch {
     /* 非 meta 消息 */
@@ -201,9 +277,19 @@ function establishConnection(
   let receivedBytes = 0;
   const startTime = Date.now();
   let ackTimer: ReturnType<typeof setTimeout> | null = null;
+  // ── 压缩传输状态（v4.6.4）──
+  const compressEnabled = opts.compress === true;
+  /** 发送端：协商结果（对端支持压缩 + 本端可用） */
+  let negotiatedCompress = false;
+  /** 接收端：从 meta 得知本次传输是否压缩 */
+  let transferCompressed = false;
+  /** 发送端：是否已开始发送（防止协商回包与超时竞态导致重复发送） */
+  let sendStarted = false;
+  let negotiateTimer: ReturnType<typeof setTimeout> | null = null;
   const timeoutTimer = setTimeout(() => {
     if (!completed && pc.connectionState !== "connected") {
       timedOut = true;
+      diagnose(`超时：本地候选(${diagLocal.length}) ${diagLocal.join(" | ") || "无"}；对端候选 ${remoteIceCount} 个；ICE=${pc.iceConnectionState}`);
       callbacks.onError?.(`P2P 建连超时（${opts.peerId}）`);
       cleanup();
     }
@@ -211,11 +297,20 @@ function establishConnection(
 
   const signal = opts.signal ?? defaultSignal;
 
+  // ── ICE 诊断（排障 P2P 打洞失败：收集候选/状态变化，输出到 console + onDiagnose）──
+  const diagLocal: string[] = [];
+  let remoteIceCount = 0;
+  function diagnose(info: string) {
+    console.warn(`[P2P-diagnose] ${opts.role} peer=${opts.peerId} ${info}`);
+    opts.onDiagnose?.(info);
+  }
+
   function cleanup() {
     if (closed) return;
     closed = true;
     clearTimeout(timeoutTimer);
     if (ackTimer) clearTimeout(ackTimer);
+    if (negotiateTimer) clearTimeout(negotiateTimer);
     try {
       pc.close();
     } catch {
@@ -237,21 +332,50 @@ function establishConnection(
     dc = channel;
     channel.onopen = () => {
       if (isOfferer) {
-        void sendFile();
+        void beginSend();
       }
     };
     channel.onmessage = (e: MessageEvent) => {
       if (typeof e.data === "string") {
+        if (isOfferer) {
+          // 压缩协商回包：对端支持压缩 → 立即按压缩发；不支持 → 立即按不压缩发（不等超时）
+          const helloAck = parseHelloAck(e.data);
+          if (helloAck.compress !== undefined) {
+            if (negotiateTimer) {
+              clearTimeout(negotiateTimer);
+              negotiateTimer = null;
+            }
+            if (helloAck.compress && compressionSupported()) {
+              negotiatedCompress = true;
+              void sendFile(true);
+            } else if (!sendStarted) {
+              void sendFile(false);
+            }
+            return;
+          }
+          // 接收端收齐后的确认（发送端依赖它安全关闭，防丢尾包）
+          if (e.data.includes('"t":"ack"')) {
+            onComplete();
+          }
+          return;
+        }
+        // answerer：对端询问压缩能力 → 回 hello-ack（本端可解压才报支持）
+        if (e.data.includes('"t":"hello"')) {
+          try {
+            dc?.send(JSON.stringify({ t: "hello-ack", compress: compressionSupported() }));
+          } catch {
+            /* 通道已断则无需回包 */
+          }
+          return;
+        }
         const meta = parseMeta(e.data);
         if (meta) {
           totalBytes = meta.size;
           totalChunks = meta.totalChunks;
+          transferCompressed = meta.compress === true;
+          if (transferCompressed) diagnose("压缩传输：对端启用分片压缩");
           callbacks.onProgress?.(0, totalBytes, 0);
           return;
-        }
-        // 接收端收齐后的确认（发送端依赖它安全关闭，防丢尾包）
-        if (isOfferer && e.data.includes('"t":"ack"')) {
-          onComplete();
         }
         return;
       }
@@ -286,7 +410,19 @@ function establishConnection(
 
   async function handleBinary(raw: ArrayBuffer) {
     const bytes = new Uint8Array(raw);
-    const { index, data } = parseChunk(bytes);
+    let index: number;
+    let data: Uint8Array;
+    if (transferCompressed) {
+      // 压缩传输帧：[index][flag][payload]，flag=1 时 payload 为 deflate-raw 压缩数据
+      const p = parseChunkC(bytes);
+      index = p.index;
+      data = p.compressed ? await decompressChunk(p.data) : p.data;
+    } else {
+      // 旧格式帧：[index][payload]（与旧版对端兼容）
+      const p = parseChunk(bytes);
+      index = p.index;
+      data = p.data;
+    }
     receivedBytes += data.length;
     const percent = totalBytes > 0 ? Math.min(100, Math.round((receivedBytes / totalBytes) * 100)) : 0;
     callbacks.onProgress?.(receivedBytes, totalBytes, percent);
@@ -308,8 +444,30 @@ function establishConnection(
     }
   }
 
-  async function sendFile() {
+  /**
+   * 发送端开场（v4.6.4）：开启压缩 → 先 hello 协商（新对端回 hello-ack → 压缩；
+   * 旧版对端不回 → 超时后按旧格式不压缩，完全兼容）；未开启 → 直接旧格式发送。
+   */
+  async function beginSend() {
     if (!dc || completed) return;
+    if (compressEnabled) {
+      negotiateTimer = setTimeout(() => {
+        negotiateTimer = null;
+        if (!sendStarted) void sendFile(false);
+      }, COMPRESS_NEGOTIATE_TIMEOUT);
+      try {
+        dc.send(JSON.stringify({ t: "hello", v: 2 }));
+      } catch {
+        /* 通道异常由 sendFile 兜底 */
+      }
+    } else {
+      await sendFile(false);
+    }
+  }
+
+  async function sendFile(useCompress: boolean) {
+    if (!dc || completed || sendStarted) return;
+    sendStarted = true;
     const sendChunk = opts.sendChunk;
     if (!sendChunk || typeof opts.totalBytes !== "number") {
       callbacks.onError?.("发送端缺少 sendChunk/totalBytes");
@@ -317,7 +475,8 @@ function establishConnection(
       return;
     }
     totalChunks = Math.ceil(opts.totalBytes / chunkSize);
-    dc.send(buildMeta(opts.totalBytes, totalChunks, chunkSize));
+    dc.send(buildMeta(opts.totalBytes, totalChunks, chunkSize, useCompress));
+    if (useCompress) diagnose("压缩传输：已启用（协商成功）");
     receivedBytes = opts.totalBytes; // 发送端进度按总量直接完成
     for (let i = 0; i < totalChunks; i++) {
       if (closed || dc.readyState !== "open") {
@@ -333,7 +492,14 @@ function establishConnection(
         cleanup();
         return;
       }
-      dc.send(encodeChunk(i, data));
+      if (useCompress) {
+        const comp = await compressChunk(data);
+        // 压缩后反而更大（已压缩格式如 MP3/FLAC）→ 发原片，保证压缩不劣于不压缩
+        const ok = comp.length < data.length;
+        dc.send(encodeChunkC(i, ok ? comp : data, ok));
+      } else {
+        dc.send(encodeChunk(i, data));
+      }
     }
     // 发送完成：等接收端 ack 确认收齐（最多 5s）再完成。
     // 发送端立即关闭会导致接收端丢尾包（纯软件栈缓冲未 flush），ack 兜底。
@@ -369,6 +535,8 @@ function establishConnection(
     },
     onIce: async (candidate) => {
       if (candidate && !closed) {
+        remoteIceCount++;
+        diagnose(`收到对端候选 ${candidate.candidate ?? "(end-of-candidates)"}`);
         if (pc.remoteDescription) {
           try {
             await pc.addIceCandidate(candidate);
@@ -386,14 +554,21 @@ function establishConnection(
 
   pc.onicecandidate = (e) => {
     if (e.candidate && !closed) {
+      const c = e.candidate;
+      diagLocal.push(`本地:${c.type}:${c.protocol}:${c.address}:${c.port}`);
+      diagnose(`收集候选 ${c.type} ${c.protocol} ${c.address}:${c.port}`);
       void signal("peer:ice", opts.peerId, { candidate: e.candidate.toJSON() }).catch(() => {});
     }
   };
   pc.onconnectionstatechange = () => {
+    diagnose(`连接状态=${pc.connectionState}`);
     if (pc.connectionState === "connected") {
       clearTimeout(timeoutTimer);
       callbacks.onOpen?.();
     }
+  };
+  pc.oniceconnectionstatechange = () => {
+    diagnose(`ICE 状态=${pc.iceConnectionState}`);
   };
 
   liveConnections.set(opts.peerId, controller);
@@ -528,6 +703,8 @@ export interface P2PTestOptions {
   onProgress?: (percent: number) => void;
   onComplete?: (stats: { bytes: number; ms: number; speedBps: number }) => void;
   onError?: (err: string) => void;
+  /** 诊断回调：ICE 候选/状态变化（P2P 面板直接展示，排障打洞失败） */
+  onDiagnose?: (info: string) => void;
 }
 
 /**
@@ -577,6 +754,7 @@ export function p2pStartTest(peerId: string, opts: P2PTestOptions = {}): P2PHand
     timeoutMs: opts.timeoutMs ?? 12_000,
     stunUrls: opts.stunUrls,
     signal: opts.signal,
+    onDiagnose: opts.onDiagnose,
     sendChunk: async () => zeroChunk,
     callbacks: {
       onOpen: () => opts.onOpen?.(),
@@ -595,6 +773,7 @@ export function p2pAcceptTest(fromUserId: string, opts: P2PTestOptions = {}): P2
     timeoutMs: opts.timeoutMs ?? 12_000,
     stunUrls: opts.stunUrls,
     signal: opts.signal,
+    onDiagnose: opts.onDiagnose,
     onChunk: async () => {},
     callbacks: {
       onOpen: () => opts.onOpen?.(),

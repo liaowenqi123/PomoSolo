@@ -1344,6 +1344,13 @@ function statusLabel(status: number): string {
   transition: all 0.15s ease;
 }
 
+/* 设置面板黑底，入口提示文字固定亮色（勿用 var(--text-color)，亮色主题下会变黑字） */
+.p2p-test-hint {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .p2p-test-open-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.12);
 }

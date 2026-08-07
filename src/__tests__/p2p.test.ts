@@ -8,8 +8,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   encodeChunk,
   parseChunk,
+  encodeChunkC,
+  parseChunkC,
   buildMeta,
   parseMeta,
+  compressChunk,
+  decompressChunk,
   p2pReceive,
   p2pSend,
   handlePeerSignal,
@@ -38,13 +42,57 @@ describe("p2p 分片协议", () => {
     expect(index).toBe(42);
     expect(Array.from(data)).toEqual(Array.from(payload));
   });
+
+  it("encodeChunkC 写入大端 index + 压缩标志 + 数据", () => {
+    const data = new Uint8Array([1, 2, 3, 4, 5]);
+    const buf = encodeChunkC(258, data, true); // 0x102, 压缩
+    expect(buf.length).toBe(5 + 5);
+    expect(new DataView(buf.buffer).getUint32(0)).toBe(258);
+    expect(buf[4]).toBe(1);
+    expect(Array.from(buf.slice(5))).toEqual([1, 2, 3, 4, 5]);
+    // 未压缩标志 = 0
+    const raw = encodeChunkC(1, data, false);
+    expect(raw[4]).toBe(0);
+  });
+
+  it("parseChunkC 还原 index / 压缩标志 / 数据（压缩传输帧）", () => {
+    const data = new Uint8Array([9, 8, 7]);
+    const { index, compressed, data: out } = parseChunkC(encodeChunkC(42, data, true));
+    expect(index).toBe(42);
+    expect(compressed).toBe(true);
+    expect(Array.from(out)).toEqual([9, 8, 7]);
+    const raw = parseChunkC(encodeChunkC(7, data, false));
+    expect(raw.compressed).toBe(false);
+  });
+
+  it("compressChunk/decompressChunk deflate-raw 往返一致（环境不支持时原样返回）", async () => {
+    if (typeof CompressionStream === "undefined") return; // Node 18+/WebView2 才支持
+    const payload = new Uint8Array(64 * 1024).map((_, i) => i % 8); // 高度可压缩
+    const comp = await compressChunk(payload);
+    if (comp.length >= payload.length) {
+      // jsdom 下 Blob.stream() 可能不可用 → 走原样兜底（真实 Chromium/Node 环境才生效）
+      expect(Array.from(comp)).toEqual(Array.from(payload));
+      return;
+    }
+    expect(comp.length).toBeLessThan(payload.length);
+    const out = await decompressChunk(comp);
+    expect(Array.from(out)).toEqual(Array.from(payload));
+  });
 });
 
 describe("p2p meta 控制消息", () => {
   it("buildMeta/parseMeta 往返一致", () => {
     const text = buildMeta(1024 * 1024, 8, 128 * 1024);
     const meta = parseMeta(text);
-    expect(meta).toEqual({ size: 1024 * 1024, totalChunks: 8, chunkSize: 128 * 1024 });
+    expect(meta).toEqual({ size: 1024 * 1024, totalChunks: 8, chunkSize: 128 * 1024, compress: false });
+  });
+
+  it("buildMeta 带压缩标志 → parseMeta 识别 compress", () => {
+    const text = buildMeta(1024 * 1024, 8, 128 * 1024, true);
+    const meta = parseMeta(text);
+    expect(meta?.compress).toBe(true);
+    // 旧版对端可正常解析（忽略未知 compress 字段）
+    expect(parseMeta(text)).toEqual({ size: 1024 * 1024, totalChunks: 8, chunkSize: 128 * 1024, compress: true });
   });
 
   it("parseMeta 拒绝非 meta 消息", () => {

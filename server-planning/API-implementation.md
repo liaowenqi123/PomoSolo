@@ -864,6 +864,41 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 > `test_online_user_serializes_camel_case`；② 前端 `shortId` 加字段缺失容错（防再崩）。
 > 协议未变，服务器零改动（服务器端 `p2p:online` 诊断 print 日志验证后可移除）。
 
+## v4.6.4：更新器覆盖升级 + 自动重启 + 黑字修复 + ICE 诊断 + P2P 传歌压缩（2026-08-07，纯客户端）
+
+> **1. 任务栏固定图标消失根因与修复**：用户反馈更新后任务栏固定图标消失（v4.6.2 起）。
+> 根因：自实现更新器启动 NSIS 安装器只传 `/S`（静默）未传 `/UPDATE`——Tauri NSIS 模板
+> `installer.nsi` 中 `UpdateMode`（`${GetOptions} $CMDLINE "/UPDATE"`）控制升级路径：
+> **带 `/UPDATE` = 覆盖安装不卸载**（保留开始菜单/桌面/任务栏固定、跳过 WebView2）；不带则
+> 检测到旧版先卸载再装 → 卸载删除 exe → 任务栏固定失效。修复：安装器参数改为 `/S /UPDATE`。
+>
+> **2. 更新完不自动启动修复**：原 `spawn(安装器)` 后 `app.exit`，装完没人拉起应用。
+> 改为 cmd 包装 `start "" /wait <安装包> /S /UPDATE & start "" <应用exe>`（独立 cmd 进程），
+> `/wait` 等安装器静默完成后自动重启应用。`finish_seed_install`（P2P 种子）同样处理。
+>
+> **3. 设置面板黑字**：`.p2p-test-hint`（"列出在线用户并测试..."）原无颜色定义继承黑字，
+> 改固定亮色 `rgba(255,255,255,0.7)`（设置面板黑底 #1a1a1a，禁用 var(--text-color)）。
+>
+> **4. ICE 诊断日志（排障 P2P 打洞失败）**：`p2p.ts` `establishConnection` 新增诊断收集——
+> 本地候选（host/srflx 类型+地址）、对端候选、`connectionState`/`iceConnectionState` 变化，
+> 输出 `console.warn([P2P-diagnose] ...)` + `P2PTestOptions.onDiagnose` 回调；P2PTestPanel
+> 测试时直接显示"ICE 诊断（候选/状态）"区域，超时时汇总本地/对端候选数与最终 ICE 状态。
+> 用途：确认打洞失败是对称 NAT（有 srflx 打不通）还是 STUN 收不到 srflx（只有 host）。
+>
+> **5. P2P 传歌压缩传输（发送端设置，省流量）**：
+> - 设置项 `p2pCompress`（默认开，DJ/发送端生效；StudyRoom DJ 区"压缩传歌"开关）
+> - 发送端开启后先发 `{"t":"hello","v":2}` 能力协商，对端回 `{"t":"hello-ack","compress":1}`
+>   （本端可解压才报支持）；**旧版客户端不回包 → 1.2s 后按旧格式不压缩发送，完全向后兼容**
+> - 协商成功：meta 带 `"compress":1`，数据帧改为 `4 字节 index + 1 字节压缩标志 + payload`，
+>   分片经 **deflate-raw**（Chromium `CompressionStream` 原生 zlib，128KB 片开销微秒级不算力）
+>   压缩；压缩后反而更大（MP3/FLAC 等已压缩格式）→ 发原片标志 0，保证不劣于不压缩
+> - 接收端按 meta.compress 自动区分新旧两种帧格式，无需设置
+> - 兼容矩阵：新发送+新接收=压缩；新发送+旧接收=协商超时回退不压缩（旧格式）；旧发送+新接收=旧格式。
+>   P2P 测试工具与种子下载不走压缩（测原始通道速率 / 安装包已压缩）
+
+协议未变（新增可选 hello 协商与压缩帧，旧端忽略未知字段），服务器零改动。用户实测 P2P 建连超时
+（见 v4.6.3 后反馈），待 ICE 诊断数据定位后再定兜底方案（TURN / 服务器缓存 / CDN）。
+
 ## 【已部署 + 客户端已实现】Phase 2：安装包 P2P 种子（2026-08-04）
 
 > 用户本机带宽充裕，开启"分享安装包"后，其他客户端更新时优先从在线种子 **P2P 直连**下载（不经服务器，也不走 GitHub）。

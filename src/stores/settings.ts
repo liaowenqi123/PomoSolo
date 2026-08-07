@@ -45,6 +45,9 @@ export interface AppSettings {
   advancedColorCustomization: boolean;
   // 同步听歌（DJ 生效）
   syncTransferMode: SyncTransferMode;
+  /** P2P 传歌压缩传输（v4.6.4，发送端/DJ 生效）：直传前 deflate-raw 压缩分片省流量；
+   *  与对端自动协商，旧版客户端自动回退不压缩，已压缩格式（MP3 等）分片自动发原片 */
+  p2pCompress: boolean;
   // 更新
   updateSource: UpdateSource;
   /** 是否接收 Beta 版本更新（v4.5.18，默认 false：正式渠道跳过 prerelease） */
@@ -75,6 +78,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showChartsBtn: true,
   advancedColorCustomization: false,
   syncTransferMode: "immediate",
+  p2pCompress: true,
   updateSource: "github",
   allowBetaUpdates: false,
   shareInstaller: false,

@@ -842,12 +842,16 @@ export const useMusicStore = defineStore("music", () => {
           }
           const totalChunks = first.total_chunks;
           const chunkSize = first.chunk_size;
+          // v4.6.4：压缩传歌（发送端设置，DJ 生效）——开启后直传前 deflate-raw 压缩分片省流量，
+          // 与对端自动协商（旧版客户端回退不压缩），压缩后更大（MP3 等）自动发原片
+          const settingsStore = useSettingsStore();
           p2pSend({
             peerId: requesterId,
             role: "offerer",
             totalBytes: totalChunks * chunkSize, // 估算：最后一片不满，接收端按 totalChunks 判定收齐
             chunkSize,
             timeoutMs: 8_000,
+            compress: settingsStore.settings.p2pCompress,
             sendChunk: async (index) => {
               // 中断守卫：DJ 已切歌 → 抛错中断（p2p 层触发 onError → 回退服务器中转）
               if (songId !== trackName.value) throw new Error("DJ 已切歌");

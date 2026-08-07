@@ -41,6 +41,14 @@ vi.mock("@/stores/music", () => ({
   useMusicStore: () => musicMock,
 }));
 
+// Mock @/stores/settings（压缩传歌开关等）
+vi.mock("@/stores/settings", () => ({
+  useSettingsStore: () => ({
+    settings: { p2pCompress: true },
+    update: vi.fn(),
+  }),
+}));
+
 // Mock @tauri-apps/api/event（ws-event 监听）
 type WsEventListener = (
   event: string,

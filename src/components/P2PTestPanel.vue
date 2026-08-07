@@ -31,6 +31,7 @@ const loading = ref(false);
 const loadError = ref("");
 const testing = ref<P2POnlineUser | null>(null);
 const progress = ref(0);
+const diagnostics = ref<string[]>([]);
 const localResult = ref<TestResult | null>(null);
 const remoteResult = ref<TestResult | null>(null);
 
@@ -69,6 +70,7 @@ function runTest(u: P2POnlineUser): void {
   if (testing.value) return;
   testing.value = u;
   progress.value = 0;
+  diagnostics.value = [];
   localResult.value = null;
   remoteResult.value = null;
   void p2pTestRequest(u.userId).catch((e) => {
@@ -83,6 +85,9 @@ function runTest(u: P2POnlineUser): void {
   });
   // 发起 WebRTC 直连 + 2MB 测速（offerer）
   p2pStartTest(u.userId, {
+    onDiagnose: (info) => {
+      diagnostics.value.push(info);
+    },
     onOpen: () => {
       // 建连成功（DataChannel 可传）——但不代表测速完成，等 onComplete
     },
@@ -226,6 +231,12 @@ onUnmounted(() => {
           </div>
         </template>
         <div v-else class="p2p-test__result-error">{{ remoteResult.error }}</div>
+      </div>
+
+      <!-- ICE 诊断日志（排障 P2P 打洞失败：候选类型/状态变化） -->
+      <div v-if="diagnostics.length" class="p2p-test__diag">
+        <div class="p2p-test__diag-title">ICE 诊断（候选/状态）</div>
+        <div v-for="(d, i) in diagnostics" :key="i" class="p2p-test__diag-line">{{ d }}</div>
       </div>
     </template>
   </div>
@@ -373,5 +384,28 @@ onUnmounted(() => {
   color: #ff3b30;
   word-break: break-all;
   font-size: 12px;
+}
+.p2p-test__diag {
+  margin-top: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  max-height: 160px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.p2p-test__diag-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+}
+.p2p-test__diag-line {
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.65);
+  word-break: break-all;
 }
 </style>

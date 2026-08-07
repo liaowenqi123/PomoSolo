@@ -33,6 +33,7 @@ import {
 } from "@/api/studyRoom";
 import { useAuthStore } from "@/stores/auth";
 import { useMusicStore } from "@/stores/music";
+import { useSettingsStore } from "@/stores/settings";
 import { musicSyncRequestState } from "@/api/musicSync";
 import { generateRoomName } from "@/utils/roomName";
 
@@ -55,6 +56,13 @@ const emit = defineEmits<{
 
 const authStore = useAuthStore();
 const music = useMusicStore();
+const settings = useSettingsStore();
+
+/** v4.6.4：P2P 传歌压缩开关（发送端/DJ 生效，省流量） */
+async function onP2PCompressChange(e: Event): Promise<void> {
+  const v = (e.target as HTMLInputElement).checked;
+  await settings.update("p2pCompress", v);
+}
 
 // ===== 视图状态 =====
 type View = "main" | "create" | "join" | "room";
@@ -1060,6 +1068,19 @@ function shortId(id: string): string {
                   {{ music.transferMode === "immediate" ? "听众下完即播，开头可能缺几秒" : "全员下完统一从头播放" }}
                 </span>
               </div>
+              <!-- v4.6.4：P2P 传歌压缩开关（发送端/DJ 生效，省流量） -->
+              <label class="sync-compress">
+                <input
+                  type="checkbox"
+                  class="sync-compress-input"
+                  :checked="settings.settings.p2pCompress"
+                  @change="onP2PCompressChange"
+                />
+                <span class="sync-compress-text">
+                  压缩传歌（发送端）
+                  <span class="sync-compress-desc">直传前压缩分片省流量；MP3 等已压缩格式自动不压缩；旧版客户端自动兼容</span>
+                </span>
+              </label>
               <p v-if="music.waitingForSongs" class="sync-hint sync-waiting">
                 ⏳ 等待其他用户下载歌曲…
               </p>
@@ -1653,6 +1674,42 @@ function shortId(id: string): string {
 .sync-mode-desc {
   font-size: 10px;
   color: rgba(255, 255, 255, 0.4);
+}
+
+/* v4.6.4：P2P 传歌压缩开关（深色底容器 → 文字显式亮色，勿用 var(--text-color)） */
+.sync-compress {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+}
+
+.sync-compress-input {
+  margin-top: 2px;
+  accent-color: #4ecca3;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sync-compress-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.4;
+}
+
+.sync-compress-desc {
+  font-size: 10px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.45);
+  line-height: 1.5;
 }
 
 .empty-hint {

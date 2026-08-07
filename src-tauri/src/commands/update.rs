@@ -614,19 +614,39 @@ pub async fn download_and_install(
         return Err(msg);
     }
 
-    // 5. 启动安装器并退出应用（安装器完成安装后应用重启）
+    // 5. 启动安装器并退出应用（安装器静默完成后自动重启应用）
     //    必须传 /S 静默参数：否则 NSIS 非静默运行会弹"检测到旧版，是否先卸载"确认框
     //    （v4.5.15 自实现更新器起一直漏传，用户升级时出现 uninstall before install 提示）
     let _ = app.emit(
         "update-status",
         serde_json::json!({ "status": "downloaded" }),
     );
-    std::process::Command::new(&dest)
-        .args(["/S"])
-        .spawn()
-        .map_err(|e| format!("启动安装器失败: {}", e))?;
+    spawn_installer_and_relaunch(&dest)?;
     std::thread::sleep(std::time::Duration::from_millis(500));
     app.exit(0);
+    Ok(())
+}
+
+/// 启动安装器并安排安装完成后自动重启应用。
+///
+/// 直接 `spawn(安装器)` 后 `app.exit` 的话，安装器装完没人再拉起应用（自实现更新器缺陷）。
+/// 改为 cmd 包装：`cmd /c "start "" /wait <安装包> /S /UPDATE & start "" <应用exe>"`——
+/// `/wait` 让 cmd 等安装器静默完成，随后 `start` 拉起更新后的应用；cmd 独立于本进程运行。
+///
+/// `/UPDATE`（关键）：Tauri NSIS 的升级模式——UpdateMode=1 时**覆盖安装不卸载旧版**，
+/// 保留开始菜单/桌面/任务栏固定快捷方式、跳过 WebView2 安装；缺它则检测到旧版先卸载
+/// 再装（卸载删除 exe → 任务栏固定图标消失，用户 v4.6.2 起反馈"更新后固定图标不见了"）。
+fn spawn_installer_and_relaunch(dest: &PathBuf) -> Result<(), String> {
+    let exe_path = std::env::current_exe().map_err(|e| format!("获取应用路径失败: {}", e))?;
+    let script = format!(
+        "start \"\" /wait \"{}\" /S /UPDATE & start \"\" \"{}\"",
+        dest.to_string_lossy(),
+        exe_path.to_string_lossy()
+    );
+    std::process::Command::new("cmd")
+        .args(["/c", &script])
+        .spawn()
+        .map_err(|e| format!("启动安装器失败: {}", e))?;
     Ok(())
 }
 
@@ -773,10 +793,7 @@ async fn finish_seed_install(app: &AppHandle, dest: &PathBuf, signature: &str) -
         "update-status",
         serde_json::json!({ "status": "downloaded" }),
     );
-    std::process::Command::new(dest)
-        .args(["/S"])
-        .spawn()
-        .map_err(|e| format!("启动安装器失败: {}", e))?;
+    spawn_installer_and_relaunch(dest)?;
     std::thread::sleep(std::time::Duration::from_millis(500));
     app.exit(0);
     Ok(())
