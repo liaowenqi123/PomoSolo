@@ -1,6 +1,6 @@
 [package]
 name = "pomo-solo"
-version = "4.7.0"
+version = "4.7.1"
 description = "PomoSolo - 番茄钟应用"
 authors = ["liaowenqi123"]
 edition = "2021"
@@ -26,6 +26,7 @@ aes-gcm = "0.10"
 pbkdf2 = { version = "0.12", features = ["simple"] }
 rand = "0.8"
 # HTTP 客户端（替代 axios + DeepSeek API + 更新下载）
+# 系统代理由 update.rs 自读注册表构造 Proxy（reqwest 0.12 无公开系统代理 API）
 reqwest = { version = "0.12", features = ["json", "stream"] }
 # Ed25519 签名验证（自实现更新器校验安装包签名）
 ed25519-dalek = "2"

@@ -165,11 +165,81 @@ fn notice_in_range(notice: &UpdateNotice, version: &str) -> bool {
     after_min && before_max
 }
 
+/// 构造更新 HTTP 客户端
+///
+/// `use_system_proxy=true` 时读取 Windows 系统代理（注册表 HKCU Internet Settings，
+/// 加速器/代理工具开了"系统代理"模式才生效），无系统代理/读取失败回退直连
+/// （v4.7.1：AK 类加速器只覆盖系统代理/浏览器通道，应用内 reqwest 默认直连，
+/// GitHub 被网络干扰时更新失败——读系统代理可让应用内跟上加速器）。
+fn update_client(use_system_proxy: bool) -> reqwest::Client {
+    if !use_system_proxy {
+        return reqwest::Client::new();
+    }
+    let mut builder = reqwest::Client::builder();
+    if let Some(proxy) = win_system_proxy() {
+        builder = builder.proxy(proxy);
+    }
+    builder.build().unwrap_or_else(|_| reqwest::Client::new())
+}
+
+/// 读取 Windows 系统代理（进程内缓存一次），未启用/读取失败返回 None
+fn win_system_proxy() -> Option<reqwest::Proxy> {
+    static CACHE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    let server = CACHE.get_or_init(|| {
+        let reg = |name: &str| -> Option<String> {
+            let out = std::process::Command::new("reg")
+                .args([
+                    "query",
+                    "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
+                    "/v",
+                    name,
+                ])
+                .output()
+                .ok()?;
+            Some(String::from_utf8_lossy(&out.stdout).to_string())
+        };
+        // ProxyEnable=0x1 才算启用（0x0 或读取失败 = 未启用，不用系统代理）
+        let enable = reg("ProxyEnable")?;
+        if !enable.contains("0x1") {
+            return None;
+        }
+        let server = reg("ProxyServer")?;
+        parse_win_proxy_server(&server)
+    });
+    server.as_deref().and_then(|s| reqwest::Proxy::all(format!("http://{s}")).ok())
+}
+
+/// 从 reg 输出解析 ProxyServer 值（纯函数，便于单测）
+///
+/// 常见格式：`127.0.0.1:7890` / `http=127.0.0.1:7890;https=127.0.0.1:7890` /
+/// `socks=127.0.0.1:7890;http=127.0.0.1:7890`。优先取 https= 段（更新走 HTTPS），
+/// 其次 http= 段，否则取整行值；输入为空返回 None。
+fn parse_win_proxy_server(raw: &str) -> Option<String> {
+    let line = raw.lines().find(|l| l.contains("REG_SZ"))?;
+    let value = line.splitn(2, "REG_SZ").nth(1)?.trim().to_string();
+    if value.is_empty() {
+        return None;
+    }
+    // 段格式 "key=addr;key=addr;..."：优先 https=，其次 http=
+    if value.contains('=') {
+        for key in ["https=", "http="] {
+            for seg in value.split(';') {
+                if let Some(addr) = seg.strip_prefix(key) {
+                    if !addr.trim().is_empty() {
+                        return Some(addr.trim().to_string());
+                    }
+                }
+            }
+        }
+    }
+    Some(value)
+}
+
 /// 拉取服务器公告（按当前版本过滤生效范围）
 #[tauri::command]
 pub async fn fetch_notice(version: String) -> Result<Option<UpdateNotice>, String> {
     const NOTICE_URL: &str = "http://115.159.49.112/updates/notice.json";
-    let resp = match reqwest::Client::new()
+    let resp = match update_client(false)
         .get(NOTICE_URL)
         .timeout(std::time::Duration::from_secs(8))
         .send()
@@ -198,7 +268,26 @@ pub async fn fetch_notice(version: String) -> Result<Option<UpdateNotice>, Strin
 /// Beta 渠道（v4.5.19 修复）走 GitHub API 列出全部 release（含 prerelease），
 /// 用 `is_newer` 语义找版本号最大的 release，取其 latest.json 资产的下载地址。
 /// 服务器 Beta 渠道为独立的 `latest-beta.json`（正式/测试互不覆盖）。
+///
+/// v4.7.1：GitHub 源拉取失败时**自动回退服务器源**（网络被干扰/加速器未覆盖时兜底，
+/// 服务器源 latest.json 的 url 指向服务器安装包，检查与下载全链路可用）。
 async fn fetch_latest_json(source: UpdateSource, allow_beta: bool) -> Result<LatestJson, String> {
+    match fetch_latest_json_once(source, allow_beta).await {
+        Ok(json) => Ok(json),
+        Err(e) if source == UpdateSource::Github => {
+            eprintln!("[updater] GitHub 更新源拉取失败，自动回退服务器源: {}", e);
+            fetch_latest_json_once(UpdateSource::Server, allow_beta)
+                .await
+                .map_err(|server_err| {
+                    format!("GitHub 源失败（{}）；回退服务器源也失败（{}）", e, server_err)
+                })
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// 按指定源拉取一次 latest.json（GitHub 源走系统代理，服务器源直连）
+async fn fetch_latest_json_once(source: UpdateSource, allow_beta: bool) -> Result<LatestJson, String> {
     let url = if allow_beta {
         match source {
             UpdateSource::Github => github_latest_json_asset_url().await?,
@@ -207,7 +296,7 @@ async fn fetch_latest_json(source: UpdateSource, allow_beta: bool) -> Result<Lat
     } else {
         source.latest_json_url().to_string()
     };
-    let resp = reqwest::Client::new()
+    let resp = update_client(source == UpdateSource::Github)
         .get(&url)
         .header("User-Agent", "PomoSolo-Updater")
         .timeout(std::time::Duration::from_secs(20))
@@ -244,7 +333,7 @@ struct GithubAsset {
 /// `releases/latest` 端点排除 prerelease，Beta 检测必须走 API 列表。
 /// 用 `is_newer` 语义比较（"4.6.0-beta.0" > "4.5.18"），draft / 无 latest.json 资产的跳过。
 async fn github_latest_json_asset_url() -> Result<String, String> {
-    let resp = reqwest::Client::new()
+    let resp = update_client(true)
         .get("https://api.github.com/repos/liaowenqi123/PomoSolo/releases?per_page=100")
         .header("User-Agent", "PomoSolo-Updater")
         .timeout(std::time::Duration::from_secs(20))
@@ -611,7 +700,9 @@ async fn run_download_task(app: AppHandle) {
         }
 
         // 构造请求；offset > 0 时带 Range 头实现断点续传
-        let mut req = reqwest::Client::new().get(&url);
+        // GitHub 直链走系统代理（加速器场景），服务器直连
+        let client = update_client(url.starts_with("https://github.com/"));
+        let mut req = client.get(&url);
         if offset > 0 {
             req = req.header(reqwest::header::RANGE, format!("bytes={}-", offset));
         }
@@ -1416,6 +1507,62 @@ mod tests {
     fn test_is_builtin_song_rejects_m4a() {
         // 内置歌曲均为 mp3，m4a 应不视为内置
         assert!(!is_builtin_song("钢琴曲 - 番茄钟.m4a"));
+    }
+
+    // ===== parse_win_proxy_server（v4.7.1 系统代理） =====
+
+    /// 拼一段模拟 reg query 输出（仅含 ProxyServer 键）
+    fn reg_output(value: &str) -> String {
+        format!(
+            "\nHKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\n    ProxyServer    REG_SZ    {}\n",
+            value
+        )
+    }
+
+    #[test]
+    fn test_parse_proxy_plain_host() {
+        // 整行值（无 key= 段）：直接返回该地址
+        assert_eq!(
+            parse_win_proxy_server(&reg_output("127.0.0.1:7890")),
+            Some("127.0.0.1:7890".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_proxy_prefers_https_segment() {
+        // 段格式优先取 https= 段（更新走 HTTPS）
+        assert_eq!(
+            parse_win_proxy_server(&reg_output(
+                "socks=127.0.0.1:7891;http=127.0.0.1:7892;https=127.0.0.1:7893"
+            )),
+            Some("127.0.0.1:7893".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_proxy_falls_back_to_http_segment() {
+        // 无 https= 段时回退 http= 段
+        assert_eq!(
+            parse_win_proxy_server(&reg_output("socks=127.0.0.1:7891;http=127.0.0.1:7892")),
+            Some("127.0.0.1:7892".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_proxy_empty_segment_skipped() {
+        // https= 段为空时跳过，取 http= 段
+        assert_eq!(
+            parse_win_proxy_server(&reg_output("http=127.0.0.1:7892;https=")),
+            Some("127.0.0.1:7892".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_proxy_empty_input_is_none() {
+        // 空输入 / 无 REG_SZ 行 / 值为空 → None
+        assert_eq!(parse_win_proxy_server(""), None);
+        assert_eq!(parse_win_proxy_server("no such value"), None);
+        assert_eq!(parse_win_proxy_server(&reg_output("")), None);
     }
 
     #[test]

@@ -1013,3 +1013,32 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
   路径含空格/中文等特殊字符时 `start` 解析失败 → 空路径报错。
 - 修复：路径改经**环境变量**传入（`%POMOSOLO_UPDATER%` / `%POMOSOLO_EXE%`），cmd 不再解析路径内容。
 - 注：服务器 `/updates/` 无安装包文件（仅元数据），下载一律走 GitHub Releases 直链。
+
+---
+
+## 【部分服务器改动】v4.7.1 更新可用性加固（2026-08-07）
+
+> 背景：用户环境 GitHub 直连被网络干扰（curl 退出码 52 = TCP 通但请求被丢弃），
+> 应用内 reqwest 与浏览器是不同通道，加速器若不设系统代理则覆盖不到应用内。
+
+**1. 更新器读系统代理（AK 类加速器场景）**
+- `update_client(use_system_proxy)`：GitHub 源拉取/下载时**尝试读 Windows 系统代理**。
+- reqwest 0.12 无公开系统代理 API（`Proxy::system()` 为 pub(crate)），改为自读注册表：
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings` 的
+  `ProxyEnable`（须含 `0x1`）+ `ProxyServer`，进程内 `OnceLock` 缓存一次。
+- `parse_win_proxy_server` 解析：优先 `https=` 段 → `http=` 段 → 整行值（纯函数，已加单测）。
+- 加速器开了"系统代理"模式 → 应用内更新请求也走加速器 → GitHub 可直连。
+
+**2. GitHub 源失败自动回退服务器源（网络被干扰时的兜底）**
+- `fetch_latest_json` 包一层 `fetch_latest_json_once`：GitHub 源拉取 latest.json 失败
+  （检查阶段）→ 自动用服务器源重拉一次，不再直接报错让用户卡住。
+- ⚠️ **服务器部署要求**：服务器 `/updates/latest.json` 与 `latest-beta.json` 的
+  `url` 必须指向**服务器安装包**（如 `http://115.159.49.112/updates/PomoSolo_4.7.1_x64-setup.exe`），
+  否则"GitHub 检查失败 → 回退服务器检查 → 但下载仍指向 GitHub"会二次失败。
+- 服务器 `/updates/` 从 v4.7.1 起**存放安装包文件**（与 v4.7.0 仅元数据不同）。
+  GitHub 正常时仍走 GitHub Releases 直链，仅失败时回退服务器。
+
+**3. 修复"查看升级指引点了没反应"**
+- 根因：Tauri WebView2 下 `<a target="_blank">` 不生效（无新窗口）。
+- 修复：公告条指引链接改为 `@click.prevent="openUpdateGuide"`，走 `open_external`
+  （`api/window`）用系统默认浏览器打开公告 `url`；已补测试断言 `open_external` 调用。

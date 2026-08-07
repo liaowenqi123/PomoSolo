@@ -45,6 +45,7 @@ import {
 } from "@/api/feedback";
 import P2PTestPanel from "./P2PTestPanel.vue";
 import { autostartEnable } from "@/api/system";
+import { openExternal } from "@/api/window";
 import { gardenUnlockEasteregg } from "@/api/garden";
 import { useGardenStore } from "../stores/garden";
 
@@ -271,6 +272,13 @@ async function showUpdateNoticeOnError(): Promise<void> {
 
 function closeUpdateNotice(): void {
   updateNotice.value = null;
+}
+
+/** 打开更新指引外链（Tauri WebView2 下 <a target="_blank"> 不生效，须走 open_external） */
+function openUpdateGuide(): void {
+  if (updateNotice.value?.url) {
+    void openExternal(updateNotice.value.url).catch(() => {});
+  }
 }
 
 // 加载版本号
@@ -1055,8 +1063,7 @@ function statusLabel(status: number): string {
                 v-if="updateNotice.url"
                 class="update-notice__link"
                 :href="updateNotice.url"
-                target="_blank"
-                rel="noopener noreferrer"
+                @click.prevent="openUpdateGuide"
               >
                 查看升级指引
               </a>

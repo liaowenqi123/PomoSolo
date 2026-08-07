@@ -617,6 +617,12 @@ describe("SettingsPanel.vue", () => {
     );
     // 拉取公告时携带当前应用版本
     expect(invokeMock).toHaveBeenCalledWith("fetch_notice", { version: "0.0.0" });
+    // v4.7.1：点击指引链接应走 open_external 打开外部浏览器（Tauri 下 <a target=_blank> 不生效）
+    invokeMock.mockClear();
+    await link.trigger("click");
+    expect(invokeMock).toHaveBeenCalledWith("open_external", {
+      url: "http://115.159.49.112/updates/PomoSolo_4.5.20_x64-setup.exe",
+    });
   });
 
   it("点击公告关闭按钮应隐藏公告条", async () => {
