@@ -818,6 +818,22 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 >
 > 协议未变，服务器零改动。新增测试 2 例（候选先到缓冲注入 / remoteDescription 未设置缓冲 flush）。
 
+## 【已部署 + 客户端将实现】P2P 连通性测试工具（2026-08-07，需服务器配合，已部署完毕）
+
+> 目的：设置面板新增"P2P 测试工具"，客户端列出在线用户 → 选择目标 → 发起 WebRTC 建连测试，
+> 用于排查"P2P 打不穿"（跨 NAT 打洞是否成功、直连速率）。**仅做 KB 级信令转发 + 在线目录，媒体数据仍走两端 WebRTC 直连**。
+>
+> **服务器已部署（`ws_server.py`，2026-08-07 13:12，docker restart 已生效，无需再操作）**，新增 3 个消息：
+> 1. `p2p:online`（请求-响应，回显 id）：返回在线用户列表 `{ type:"p2p:online", users:[{userId, username}] }`（排除自己，供发起方选测试目标）。
+> 2. `p2p:test_request`（fire-and-forget，定向转发）：客户端 A 发 `{ to_user_id:B }` → 服务器转发给 B
+>    `{ type:"p2p:test_request", from_user_id:A, from_username }`；B 离线静默丢弃，A 端 8s 超时判失败。
+> 3. `p2p:test_result`（fire-and-forget，定向转发）：B 测试完成后发 `{ to_user_id:A, ok, ms, speed_bps, bytes, error }`
+>    → 服务器转发给 A `{ type:"p2p:test_result", from_user_id:B, ... }`（发起方 UI 显示双方视角）。
+> 4. 客户端建连与测速仍复用已有 `peer:offer/answer/ice/bye` 信令 + `p2p_signal` 命令，**无新协议**。
+>
+> **待客户端实现（设置面板 P2P 测试工具）**：拉 `p2p:online` 列表 → 选目标 → 发 `p2p:test_request` + 本机 WebRTC
+> offerer 推 2MB 测试数据 → 目标端自动挂起接收（全局监听 `p2p:test_request`，无需在设置页）→ 测速 → 目标端回传 `p2p:test_result`。
+
 ## 【已部署 + 客户端已实现】Phase 2：安装包 P2P 种子（2026-08-04）
 
 > 用户本机带宽充裕，开启"分享安装包"后，其他客户端更新时优先从在线种子 **P2P 直连**下载（不经服务器，也不走 GitHub）。

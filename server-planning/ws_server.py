@@ -203,6 +203,9 @@ def handle_message(user_id, msg):
     if mtype == "room:join":
         return handle_room_join(user_id, msg)
 
+    if mtype == "p2p:online":
+        return handle_p2p_online(user_id, msg)
+
     # fire-and-forget 类（广播）
     handlers = {
         "room:leave": handle_room_leave,
@@ -227,6 +230,9 @@ def handle_message(user_id, msg):
         "peer:answer": handle_peer_signal,
         "peer:ice": handle_peer_signal,
         "peer:bye": handle_peer_signal,
+        # P2P 连通性测试工具（Phase 1.2+）
+        "p2p:test_request": handle_p2p_test_request,
+        "p2p:test_result": handle_p2p_test_result,
         # Phase 2 安装包种子：注册/心跳/注销/查询
         "p2p:seed_register": handle_p2p_seed_register,
         "p2p:seed_heartbeat": handle_p2p_seed_heartbeat,
@@ -697,6 +703,60 @@ def handle_peer_signal(user_id, msg):
     forward = {k: v for k, v in msg.items() if k not in ("type", "to_user_id")}
     forward["from_user_id"] = user_id
     send_to_user(to_user_id, {"type": msg["type"], **forward})
+
+
+# ── P2P 连通性测试工具（Phase 1.2+，2026-08-07）──
+# 设置面板"P2P 测试工具"：客户端列出在线用户 → 选目标发起 WebRTC 建连测试。
+# 仅做 KB 级信令转发 + 在线目录，媒体数据仍走两端 WebRTC 直连（同 peer:*）。
+
+def handle_p2p_online(user_id, msg):
+    """P2P 测试：返回在线用户列表（请求-响应，回显 id）。
+    排除自己；仅返回已登录且 WS 在线的用户（供发起方选测试目标）。"""
+    with _lock:
+        users = [
+            {"userId": uid, "username": conn["username"]}
+            for uid, conn in connections.items()
+            if uid != user_id
+        ]
+    return {"type": "p2p:online", "users": users}
+
+
+def handle_p2p_test_request(user_id, msg):
+    """P2P 测试请求：转发给目标客户端，目标自动挂起 WebRTC 接收并回传结果。
+    - 目标离线静默丢弃，发起端 8s 超时判定失败
+    - 仅在线用户即可互测（调试工具，测试数据量小，自动关闭）"""
+    to_user_id = msg.get("to_user_id")
+    if not to_user_id or to_user_id == user_id:
+        return
+    with _lock:
+        target = connections.get(to_user_id)
+        if not target:
+            return
+        from_name = (connections.get(user_id) or {}).get("username", "")
+    send_to_user(to_user_id, {
+        "type": "p2p:test_request",
+        "from_user_id": user_id,
+        "from_username": from_name,
+    })
+
+
+def handle_p2p_test_result(user_id, msg):
+    """P2P 测试结果回传：目标端测试完成后，把结果发给发起方（发起方 UI 显示双方视角）。"""
+    to_user_id = msg.get("to_user_id")
+    if not to_user_id or to_user_id == user_id:
+        return
+    with _lock:
+        from_name = (connections.get(user_id) or {}).get("username", "")
+    send_to_user(to_user_id, {
+        "type": "p2p:test_result",
+        "from_user_id": user_id,
+        "from_username": from_name,
+        "ok": bool(msg.get("ok")),
+        "ms": msg.get("ms"),
+        "speed_bps": msg.get("speed_bps"),
+        "bytes": msg.get("bytes"),
+        "error": msg.get("error") if msg.get("error") else None,
+    })
 
 
 # ── 安装包种子（Phase 2，P2P 分享安装包）──

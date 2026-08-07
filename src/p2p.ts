@@ -502,3 +502,105 @@ export function handlePeerSignal(evt: Record<string, unknown>): void {
       break;
   }
 }
+
+// ── P2P 连通性测试工具（Phase 1.2+，设置面板"P2P 测试工具"）──
+// 发起方推 2MB 测试数据测速（offerer）；目标端自动挂起接收（answerer），
+// 测完回传 p2p:test_result 给发起方。信令复用 peer:* + p2p_signal，无新协议。
+
+/** P2P 测试传输量：2MB（够测速、够短） */
+const P2P_TEST_BYTES = 2 * 1024 * 1024;
+const P2P_TEST_CHUNK_SIZE = 64 * 1024;
+
+export interface P2PTestOptions {
+  /** 测试数据字节数（默认 2MB） */
+  bytes?: number;
+  /** 单片字节数（默认 64KB） */
+  chunkSize?: number;
+  stunUrls?: string[];
+  /** 建连超时（默认 12s） */
+  timeoutMs?: number;
+  signal?: (
+    type: P2PSignalType,
+    toUserId: string,
+    payload: Record<string, unknown>,
+  ) => Promise<void>;
+  onOpen?: () => void;
+  onProgress?: (percent: number) => void;
+  onComplete?: (stats: { bytes: number; ms: number; speedBps: number }) => void;
+  onError?: (err: string) => void;
+}
+
+/**
+ * 目标端回传结果的处理回调（发起方注册，收到 p2p:test_result 时被调用）。
+ * 由 music store 的 handleSyncWsEvent 路由（目标端回传 → 服务器 → 发起方 ws-event）。
+ */
+let testResultHandler: ((result: {
+  fromUserId: string;
+  fromUsername: string;
+  ok: boolean;
+  ms: number;
+  speedBps: number;
+  bytes: number;
+  error: string | null;
+}) => void) | null = null;
+
+/** 注册/清除测试结果处理器（P2PTestPanel 挂载时注册，卸载时清除） */
+export function setP2PTestResultHandler(
+  handler: typeof testResultHandler,
+): void {
+  testResultHandler = handler;
+}
+
+/** 由 handleSyncWsEvent 调用：目标端回传结果 → 转发给已注册的发起方 UI */
+export function dispatchP2PTestResult(evt: Record<string, unknown>): void {
+  testResultHandler?.({
+    fromUserId: typeof evt.from_user_id === "string" ? evt.from_user_id : "",
+    fromUsername: typeof evt.from_username === "string" ? evt.from_username : "",
+    ok: evt.ok === true,
+    ms: Number(evt.ms ?? 0),
+    speedBps: Number(evt.speed_bps ?? 0),
+    bytes: Number(evt.bytes ?? 0),
+    error: typeof evt.error === "string" && evt.error ? evt.error : null,
+  });
+}
+
+/** 发起方：推测试数据并测速（offerer，跨 NAT 打洞直连） */
+export function p2pStartTest(peerId: string, opts: P2PTestOptions = {}): P2PHandle {
+  const bytes = opts.bytes ?? P2P_TEST_BYTES;
+  const chunkSize = opts.chunkSize ?? P2P_TEST_CHUNK_SIZE;
+  const zeroChunk = new Uint8Array(chunkSize);
+  return p2pSend({
+    peerId,
+    role: "offerer",
+    totalBytes: bytes,
+    chunkSize,
+    timeoutMs: opts.timeoutMs ?? 12_000,
+    stunUrls: opts.stunUrls,
+    signal: opts.signal,
+    sendChunk: async () => zeroChunk,
+    callbacks: {
+      onOpen: () => opts.onOpen?.(),
+      onProgress: (_received, _total, percent) => opts.onProgress?.(percent),
+      onComplete: (stats) => opts.onComplete?.(stats),
+      onError: (err) => opts.onError?.(err),
+    },
+  });
+}
+
+/** 目标端：自动挂起接收测试数据（answerer，测试完成后由调用方回传 p2p:test_result） */
+export function p2pAcceptTest(fromUserId: string, opts: P2PTestOptions = {}): P2PHandle {
+  return p2pReceive({
+    peerId: fromUserId,
+    role: "answerer",
+    timeoutMs: opts.timeoutMs ?? 12_000,
+    stunUrls: opts.stunUrls,
+    signal: opts.signal,
+    onChunk: async () => {},
+    callbacks: {
+      onOpen: () => opts.onOpen?.(),
+      onProgress: (_received, _total, percent) => opts.onProgress?.(percent),
+      onComplete: (stats) => opts.onComplete?.(stats),
+      onError: (err) => opts.onError?.(err),
+    },
+  });
+}

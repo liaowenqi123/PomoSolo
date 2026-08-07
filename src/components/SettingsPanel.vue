@@ -39,6 +39,7 @@ import {
   FEEDBACK_STATUS_LABELS,
   type FeedbackItem,
 } from "@/api/feedback";
+import P2PTestPanel from "./P2PTestPanel.vue";
 import { autostartEnable } from "@/api/system";
 import { gardenUnlockEasteregg } from "@/api/garden";
 import { useGardenStore } from "../stores/garden";
@@ -449,6 +450,23 @@ function closeFeedbackModal(): void {
   feedbackError.value = "";
 }
 
+// ===== P2P 连通性测试工具 =====
+const p2pTestVisible = ref(false);
+
+function openP2PTestModal(): void {
+  p2pTestVisible.value = true;
+}
+
+function closeP2PTestModal(): void {
+  p2pTestVisible.value = false;
+}
+
+function handleP2PTestLogin(): void {
+  closeP2PTestModal();
+  emit("close");
+  emit("open-auth");
+}
+
 async function refreshFeedback(): Promise<void> {
   feedbackLoading.value = true;
   feedbackError.value = "";
@@ -810,6 +828,15 @@ function statusLabel(status: number): string {
                 <span class="toggle__slider"></span>
               </label>
             </div>
+            <div class="settings-row">
+              <label class="settings-row__label">P2P 测试工具</label>
+              <button class="p2p-test-open-btn" @click="openP2PTestModal">
+                打开测试
+              </button>
+            </div>
+            <p class="p2p-test-hint">
+              列出在线用户并测试 WebRTC 直连（跨 NAT 打洞）是否打通，排查 P2P 传歌问题。
+            </p>
           </section>
 
           <!-- 关于 / 更新 -->
@@ -1050,6 +1077,27 @@ function statusLabel(status: number): string {
             </div>
           </div>
         </Transition>
+
+        <!-- P2P 测试工具模态框（覆盖在设置面板上方） -->
+        <Transition name="panel">
+          <div
+            v-if="p2pTestVisible"
+            class="feedback-overlay"
+            @click="closeP2PTestModal"
+          >
+            <div class="feedback-modal" @click.stop>
+              <div class="feedback-modal__header">
+                <h3 class="feedback-modal__title">P2P 测试工具</h3>
+                <button class="feedback-modal__close" @click="closeP2PTestModal">
+                  ×
+                </button>
+              </div>
+              <div class="feedback-modal__body">
+                <P2PTestPanel @login="handleP2PTestLogin" />
+              </div>
+            </div>
+          </div>
+        </Transition>
       </div>
 
       <!-- 彩蛋粒子效果（版本号点击 5 次触发，向四周飞散） -->
@@ -1284,6 +1332,19 @@ function statusLabel(status: number): string {
 }
 
 .update-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.p2p-test-open-btn {
+  padding: 6px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.9);
+  transition: all 0.15s ease;
+}
+
+.p2p-test-open-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.12);
 }
 

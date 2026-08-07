@@ -64,7 +64,15 @@ import {
 import { useAuthStore } from "@/stores/auth";
 import { useSettingsStore } from "@/stores/settings";
 import { readData, writeData } from "@/api/data";
-import { handlePeerSignal, p2pReceive, p2pSend, type P2PHandle } from "@/p2p";
+import { p2pTestResult } from "@/api/p2pTest";
+import {
+  dispatchP2PTestResult,
+  handlePeerSignal,
+  p2pAcceptTest,
+  p2pReceive,
+  p2pSend,
+  type P2PHandle,
+} from "@/p2p";
 
 // ===== 工具函数 =====
 
@@ -1340,6 +1348,43 @@ export const useMusicStore = defineStore("music", () => {
       case "peer:bye": {
         // P2P 信令（WebRTC 牵线）：服务器定向转发，路由给 p2p 模块
         handlePeerSignal(evt);
+        break;
+      }
+      case "p2p:test_request": {
+        // { from_user_id, from_username }：有人发起 P2P 连通性测试 → 自动挂起 WebRTC 接收，
+        // 测完把结果回传给发起方（目标端无需打开设置面板）
+        const from = typeof evt.from_user_id === "string" ? evt.from_user_id : "";
+        if (!from) break;
+        const fromName = typeof evt.from_username === "string" ? evt.from_username : "";
+        console.warn("[MusicStore] 收到 P2P 测试请求:", fromName || from);
+        const handle = p2pAcceptTest(from, {
+          onComplete: (stats) => {
+            void p2pTestResult({
+              toUserId: from,
+              ok: true,
+              ms: stats.ms,
+              speedBps: stats.speedBps,
+              bytes: stats.bytes,
+            }).catch((e) => console.warn("[MusicStore] 回传 P2P 测试结果失败:", e));
+          },
+          onError: (err) => {
+            void p2pTestResult({
+              toUserId: from,
+              ok: false,
+              ms: 0,
+              speedBps: 0,
+              bytes: 0,
+              error: err,
+            }).catch((e) => console.warn("[MusicStore] 回传 P2P 测试失败结果失败:", e));
+          },
+        });
+        // 兜底：发起方 offer 一直没来 → 15s 后关闭挂起（防残留）
+        window.setTimeout(() => handle.close(), 15_000);
+        break;
+      }
+      case "p2p:test_result": {
+        // 目标端回传的结果 → 转发给发起方设置面板 UI（P2PTestPanel）
+        dispatchP2PTestResult(evt);
         break;
       }
       case "music:dj_changed": {

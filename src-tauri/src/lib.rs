@@ -228,6 +228,10 @@ pub fn run() {
             commands::p2p::p2p_seed_heartbeat,
             commands::p2p::p2p_seed_unregister,
             commands::p2p::p2p_seed_list,
+            // P2P 连通性测试工具（在线列表 / 测试请求 / 结果回传）
+            commands::p2p::p2p_online,
+            commands::p2p::p2p_test_request,
+            commands::p2p::p2p_test_result,
             // 系统集成（开机自启）
             commands::system::autostart_enable,
             commands::system::autostart_is_enabled,

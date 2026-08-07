@@ -169,7 +169,7 @@ describe("p2p 信令路由", () => {
     // v4.6.0 前 liveConnections 无此键直接丢弃 → 关键 srflx 候选丢失 → 打洞失败。
     const addIce = vi.fn().mockResolvedValue(undefined);
     const fakePc = {
-      remoteDescription: null,
+      remoteDescription: null as RTCSessionDescriptionInit | null,
       addIceCandidate: addIce,
       close: vi.fn(),
       setRemoteDescription: vi.fn().mockImplementation(async () => {
