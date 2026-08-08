@@ -88,6 +88,10 @@ function updateTrackOverflow(): void {
   const el = trackNameRef.value;
   if (!el) return;
   isTrackOverflow.value = el.scrollWidth > el.clientWidth + 1;
+  // v4.7.5：滚动终点余量 = 容器实际宽度。原硬编码 160px 在曲名比窗口宽超 160px
+  // 或徽章/按钮挤窄窗口时，滚动到底后尾部整体滑出窗口 → "永远看不到"。
+  // translateX(-100% + 容器宽) 恰好让尾部停靠窗口右缘，保证全部内容可见。
+  el.style.setProperty("--track-marquee-end", `${el.clientWidth}px`);
 }
 
 onMounted(() => {
@@ -845,10 +849,10 @@ if (typeof document !== "undefined") {
     transform: translateX(0);
   }
   92% {
-    transform: translateX(calc(-100% + 160px));
+    transform: translateX(calc(-100% + var(--track-marquee-end, 160px)));
   }
   100% {
-    transform: translateX(calc(-100% + 160px));
+    transform: translateX(calc(-100% + var(--track-marquee-end, 160px)));
   }
 }
 

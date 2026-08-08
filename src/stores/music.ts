@@ -175,6 +175,12 @@ export const useMusicStore = defineStore("music", () => {
   let lastChunkAt = 0;
   /** 听众侧：当前挂起的 WebRTC P2P 接收（Phase 1，DJ 直连传歌；失败/切路径时关闭） */
   let activeP2PReceive: P2PHandle | null = null;
+  /** 听众侧：P2P 直连不稳定重试上限（v4.7.5：P2P 曾成功建连但传输中断时多给几次机会，而非立即回退服务器中转） */
+  const P2P_RETRY_LIMIT = 3;
+  /** 听众侧：本次传输会话已 P2P 重试次数 */
+  let p2pRetryCount = 0;
+  /** 听众侧：本会话是否曾 P2P 建连成功（onOpen 触发过）——仅"曾成功但中断"才值得重试；从未成功直接回退 */
+  let p2pHadConnected = false;
   /** 听众侧：当前歌曲传输已重试次数（每次超时重新下载 +1，耗尽后降级"无这首歌"） */
   let transferRetry = 0;
   /** 传输无进展超时阈值（ms）：卡住超过该时长立即断点续传（3s 足够判定"卡死"，越等越卡） */
@@ -603,6 +609,66 @@ export const useMusicStore = defineStore("music", () => {
    * DJ 切歌后目标变了，若旧歌传输还挂着（中断/卡住），直接中断旧传输启动新歌下载，
    * 避免"DJ 切歌后这边没反应"。
    */
+  /**
+   * 听众侧：挂起 WebRTC P2P 接收（DJ 直连传歌）。
+   * v4.7.5：P2P 曾建连成功但传输中断（通道不稳定）时自动重试——重新请求 DJ 发起
+   * 直连（上限 P2P_RETRY_LIMIT 次），而非立即回退服务器中转；已被服务器中转接管
+   * （channel==="server"）或从未成功建连则放弃重试直接回退。
+   */
+  function setupP2PReceive(songId: string): void {
+    activeP2PReceive?.close();
+    activeP2PReceive = p2pReceive({
+      peerId: djUserId.value as string,
+      role: "answerer",
+      timeoutMs: 8_000,
+      onChunk: async (chunk, index, totalChunks) => {
+        const res = await musicReceiveSongChunkBin(songId, index, totalChunks, Array.from(chunk));
+        if (!res.success) throw new Error(res.error ?? "分片落盘失败");
+        songTransfer.value.state = "downloading";
+        songTransfer.value.total = totalChunks;
+        songTransfer.value.received += 1;
+        lastChunkAt = Date.now();
+      },
+      callbacks: {
+        // v4.6.0：WebRTC 建连成功 → 标记"P2P 直连中"，前端可明确观察到通道
+        onOpen: () => {
+          p2pHadConnected = true;
+          songTransfer.value.channel = "p2p";
+        },
+        onComplete: () => {
+          // 直连收齐 → 关闭挂起 + 直接合并（不经服务器 transfer_done）
+          const total = songTransfer.value.total;
+          activeP2PReceive = null;
+          void finalizeTransfer(songId, total).catch(() => {});
+        },
+        onError: (err) => {
+          activeP2PReceive = null;
+          // v4.7.5：P2P 曾成功建连但传输中断（不稳定）→ 重新请求 DJ 直连再试，
+          // 上限内不立即回退服务器中转；已被服务器中转接管（channel==="server"）则放弃重试。
+          if (p2pHadConnected && p2pRetryCount < P2P_RETRY_LIMIT && songTransfer.value.channel !== "server") {
+            p2pRetryCount++;
+            songTransfer.value.channel = null;
+            songTransfer.value.received = 0;
+            songTransfer.value.total = 0;
+            console.warn(`[MusicStore] P2P 直连中断，第 ${p2pRetryCount}/${P2P_RETRY_LIMIT} 次重试:`, err);
+            void musicSyncRequestSong(songId, 0, true)
+              .then(() => {
+                // 重试挂起期间服务器中转已接管则不再挂 P2P，避免双通道竞态
+                if (songTransfer.value.channel !== "server") setupP2PReceive(songId);
+              })
+              .catch(() => {
+                songTransfer.value.channel = "server";
+              });
+            return;
+          }
+          // 从未成功建连 / 重试耗尽 / 已回退 → 服务器中转（现有请求已在途，music:song_chunk 会继续）
+          songTransfer.value.channel = "server";
+          console.warn("[MusicStore] P2P 直连失败，回退服务器中转:", err);
+        },
+      },
+    });
+  }
+
   async function startSongTransfer(songId: string, fromChunk = 0) {
     // 再次传输 = 视为本地暂时缺失（若之前合并过，先移除本地已有标记）
     localHasSongs.delete(songId);
@@ -614,6 +680,8 @@ export const useMusicStore = defineStore("music", () => {
       abortCurrentTransfer();
     }
     transferRetry = 0;
+    p2pRetryCount = 0;
+    p2pHadConnected = false;
     songTransfer.value = {
       state: "requesting",
       songName: songId,
@@ -627,38 +695,7 @@ export const useMusicStore = defineStore("music", () => {
     // DJ 侧收到 p2p 标志后优先尝试直传；失败自动回退服务器中转（music:song_chunk 路径照常）。
     const canP2P = fromChunk === 0 && !!djUserId.value;
     if (canP2P) {
-      activeP2PReceive?.close();
-      activeP2PReceive = p2pReceive({
-        peerId: djUserId.value as string,
-        role: "answerer",
-        timeoutMs: 8_000,
-        onChunk: async (chunk, index, totalChunks) => {
-          const res = await musicReceiveSongChunkBin(songId, index, totalChunks, Array.from(chunk));
-          if (!res.success) throw new Error(res.error ?? "分片落盘失败");
-          songTransfer.value.state = "downloading";
-          songTransfer.value.total = totalChunks;
-          songTransfer.value.received += 1;
-          lastChunkAt = Date.now();
-        },
-        callbacks: {
-          // v4.6.0：WebRTC 建连成功 → 标记"P2P 直连中"，前端可明确观察到通道
-          onOpen: () => {
-            songTransfer.value.channel = "p2p";
-          },
-          onComplete: () => {
-            // 直连收齐 → 关闭挂起 + 直接合并（不经服务器 transfer_done）
-            const total = songTransfer.value.total;
-            activeP2PReceive = null;
-            void finalizeTransfer(songId, total).catch(() => {});
-          },
-          onError: (err) => {
-            // 建连失败/通道中断 → 回退服务器中转（现有请求已在途，music:song_chunk 会继续）
-            activeP2PReceive = null;
-            songTransfer.value.channel = "server";
-            console.warn("[MusicStore] P2P 直连失败，回退服务器中转:", err);
-          },
-        },
-      });
+      setupP2PReceive(songId);
     }
     try {
       await musicSyncRequestSong(songId, fromChunk, canP2P);
