@@ -45,7 +45,14 @@ function isMature(plot: Plot): boolean {
   return getProgress(plot) >= 100;
 }
 
-/** 处理格子点击 */
+/**
+ * 处理格子点击。
+ *
+ * 空地：直接呼出种植轮盘（不再自动快捷种植，修复"有种子时轮盘呼不出"）。
+ * 同时 stopPropagation 阻止 click 冒泡到 document——
+ * 种植轮盘打开后监听 document click 用于点击外部关闭，
+ * 若不阻止，本次点击空地会立即把刚打开的轮盘关掉。
+ */
 function handleClick(plot: Plot, index: number, event: MouseEvent) {
   if (plot.locked) return;
 
@@ -65,54 +72,9 @@ function handleClick(plot: Plot, index: number, event: MouseEvent) {
     return;
   }
 
-  // 空地：由 mousedown/mouseup 处理（点按快捷种植，长按出轮盘）
-}
-
-// ===== 快捷种植（v3：点空地默认种最优种子，长按才出轮盘）=====
-
-/** 长按判定时长（ms）：超过则打开选种轮盘 */
-const LONG_PRESS_MS = 500;
-let longPressTimer: ReturnType<typeof setTimeout> | null = null;
-let pressTarget: { plot: Plot; index: number; clientX: number; clientY: number } | null = null;
-/**
- * 交互序号：每次 mousedown 递增。handleMouseUp 的 async plantQuick
- * 完成后检查此序号，若期间发生了新的 mousedown 则不再 emit plant
- * （修复：快捷种植 async 等待期间用户开始新长按，旧回调 emit plant
- *  会打开轮盘并立即被新交互的 click 关闭，表现为"轮盘呼不出"）
- */
-let pressSeq = 0;
-
-function handleMouseDown(plot: Plot, index: number, event: MouseEvent) {
-  // 仅空地触发快捷种植/长按轮盘
-  if (plot.locked || plot.wilted || plot.crop) return;
-  pressSeq++;
-  pressTarget = { plot, index, clientX: event.clientX, clientY: event.clientY };
-  longPressTimer = setTimeout(() => {
-    longPressTimer = null;
-    if (pressTarget) {
-      const { index: i, clientX, clientY } = pressTarget;
-      pressTarget = null;
-      // 长按 → 打开选种轮盘
-      emit("plant", i, clientX, clientY);
-    }
-  }, LONG_PRESS_MS);
-}
-
-async function handleMouseUp(): Promise<void> {
-  if (longPressTimer) {
-    clearTimeout(longPressTimer);
-    longPressTimer = null;
-  }
-  if (!pressTarget) return;
-  const { index, clientX, clientY } = pressTarget;
-  pressTarget = null;
-  const mySeq = pressSeq;
-  // 点按（< 长按阈值）-> 快捷种植最优种子；没种子/失败 -> 回退打开轮盘
-  const ok = await store.plantQuick(index);
-  // 期间发生了新的 mousedown（新长按/新点按）-> 不再 emit plant，避免干扰
-  if (!ok && mySeq === pressSeq) {
-    emit("plant", index, clientX, clientY);
-  }
+  // 空地：呼出种植轮盘（带鼠标坐标用于轮盘定位）
+  event.stopPropagation();
+  emit("plant", index, event.clientX, event.clientY);
 }
 
 /** 解锁按钮点击 */
@@ -150,8 +112,6 @@ function canUnlock(index: number): boolean {
         mature: !plot.locked && !!plot.crop && isMature(plot) && !plot.wilted,
         selected: props.selectedPlotIndex === index,
       }"
-      @mousedown="!plot.locked ? handleMouseDown(plot, index, $event) : undefined"
-      @mouseup="!plot.locked ? handleMouseUp() : undefined"
       @click="!plot.locked ? handleClick(plot, index, $event) : undefined"
     >
       <!-- 锁定土地 -->
