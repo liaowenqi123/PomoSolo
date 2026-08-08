@@ -101,6 +101,16 @@ describe("p2p meta 控制消息", () => {
     expect(parseMeta('{"t":"other"}')).toBeNull();
     expect(parseMeta("not json")).toBeNull();
   });
+
+  it("buildMeta/parseMeta 带 baseChunk（v4.7.7 多连接并行分段传输）", () => {
+    // 并行连接 k 的 meta 声明全局起始分片序号 baseChunk，接收端据此映射回全局 index 落盘
+    const text = buildMeta(6, 2, 3, false, 10); // 全局起始 index 10，本段 2 片
+    const meta = parseMeta(text);
+    expect(meta?.baseChunk).toBe(10);
+    expect(meta?.totalChunks).toBe(2);
+    // 缺省 baseChunk=0 → meta 不带该字段（单连接整文件，向后兼容），解析回 0
+    expect((parseMeta(buildMeta(6, 2, 3))?.baseChunk ?? 0)).toBe(0);
+  });
 });
 
 describe("p2p 信令路由", () => {
@@ -425,6 +435,64 @@ describe("p2p 信令路由", () => {
     expect(sent.some((d) => typeof d === "string" && d.includes('"t":"ack"'))).toBe(true);
   });
 
+  it("并行分段：接收端 onChunk 携带 baseChunk（v4.7.7 映射回全局 index 落盘）", async () => {
+    // 多连接并行传输：本连接 meta.baseChunk=10（全局起始片），帧 index 为段内局部序号，
+    // 接收端 onChunk 第 4 参收到 baseChunk，据此算出全局 index 落盘。
+    const sent: unknown[] = [];
+    let dcHandler: ((e: { channel: unknown }) => void) | null = null;
+    let msgHandler: ((e: { data: unknown }) => void) | null = null;
+    const fakeChannel = {
+      send: (d: unknown) => void sent.push(d),
+      readyState: "open",
+      bufferedAmount: 0,
+      close: vi.fn(),
+      set onmessage(fn: ((e: { data: unknown }) => void) | null) {
+        msgHandler = fn;
+      },
+      get onmessage() {
+        return msgHandler;
+      },
+    };
+    const fakePc = {
+      close: vi.fn(),
+      setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+      createAnswer: vi.fn().mockResolvedValue({ type: "answer", sdp: "x" }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      set ondatachannel(fn: ((e: { channel: unknown }) => void) | null) {
+        dcHandler = fn;
+      },
+      get ondatachannel() {
+        return dcHandler;
+      },
+      onicecandidate: null,
+      onconnectionstatechange: null,
+      connectionState: "new",
+    };
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn().mockImplementation(() => fakePc),
+    );
+    const onChunk = vi.fn().mockResolvedValue(undefined);
+    p2pReceive({
+      peerId: "peer-A",
+      role: "answerer",
+      tag: "p1", // 并行连接 tag
+      onChunk,
+      signal: vi.fn().mockResolvedValue(undefined),
+    });
+    handlePeerSignal({ type: "peer:offer", from_user_id: "peer-A", tag: "p1", sdp: { type: "offer" } });
+    await vi.waitFor(() => expect(dcHandler).toBeTruthy());
+    dcHandler!({ channel: fakeChannel });
+    // meta 带 baseChunk=10，本段 2 片；帧 index 为段内局部 0/1
+    msgHandler!({ data: buildMeta(6, 2, 3, false, 10) });
+    msgHandler!({ data: encodeChunk(0, new Uint8Array([1, 2, 3])) });
+    msgHandler!({ data: encodeChunk(1, new Uint8Array([4, 5, 6])) });
+    await vi.waitFor(() => expect(onChunk).toHaveBeenCalledTimes(2));
+    // onChunk(chunk, 段内index, 段total, baseChunk)：base=10 → 全局 index = 10/11
+    expect(onChunk).toHaveBeenNthCalledWith(1, expect.any(Uint8Array), 0, 2, 10);
+    expect(onChunk).toHaveBeenNthCalledWith(2, expect.any(Uint8Array), 1, 2, 10);
+  });
+
   it("reverse：answerer+sender 在收到的 channel 上发数据（v4.7.5 解耦）", async () => {
     // 下载端正常方向打不通 → reverse：持有端作 answerer 拿到 DataChannel 后发数据。
     // 验证发送逻辑按 isSender 判定（sender:"answerer" → 非 offerer 也 send）。
@@ -544,5 +612,374 @@ describe("p2p 信令路由", () => {
     msgHandler!({ data: encodeChunk(0, new Uint8Array([1, 2, 3])) });
     await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
     expect(sent.some((d) => typeof d === "string" && d.includes('"t":"ack"'))).toBe(true);
+  });
+
+  it("发送分片时 dc.send 抛异常 → onError 触发且连接被清理（v4.7.7 发送端不静默死亡）", async () => {
+    // 实测 bug 根因：DataChannel 缓冲满/通道异常时 dc.send 抛 OperationError，
+    // 无 try/catch 时异常被顶层 async 吞掉 → 发送端静默停止、对端永久等待。
+    // 修复后：sendWithBackpressure 捕获异常 → onError + cleanup，对端可及时回退。
+    const sent: unknown[] = [];
+    let sendCount = 0;
+    let openHandler: (() => void) | null = null;
+    const fakeChannel = {
+      send: (d: unknown) => {
+        sent.push(d);
+        sendCount += 1;
+        if (sendCount >= 2) throw new Error("buffer full"); // meta 成功、首个分片抛错
+      },
+      readyState: "open",
+      bufferedAmount: 0,
+      close: vi.fn(),
+      set onopen(fn: (() => void) | null) {
+        openHandler = fn;
+      },
+      get onopen() {
+        return openHandler;
+      },
+    };
+    const closeSpy = vi.fn();
+    const fakePc = {
+      close: closeSpy,
+      createDataChannel: vi.fn().mockReturnValue(fakeChannel),
+      createOffer: vi.fn().mockResolvedValue({ type: "offer", sdp: "x" }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      onicecandidate: null,
+      onconnectionstatechange: null,
+      connectionState: "connected",
+    };
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn().mockImplementation(() => fakePc),
+    );
+    const onComplete = vi.fn();
+    const onError = vi.fn();
+    const sendChunk = vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]));
+    p2pSend({
+      peerId: "peer-A",
+      role: "offerer",
+      totalBytes: 3,
+      chunkSize: 3,
+      sendChunk,
+      signal: vi.fn().mockResolvedValue(undefined),
+      callbacks: { onComplete, onError },
+    });
+    await vi.waitFor(() => expect(openHandler).toBeTruthy());
+    openHandler!();
+    await vi.waitFor(() => expect(onError).toHaveBeenCalled());
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining("发送分片失败"));
+    // 发送端异常后主动清理连接（不再挂死），对端可感知通道关闭回退
+    expect(closeSpy).toHaveBeenCalled();
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it("建连成功但无数据进展 → 30s 无进展超时触发 onError（v4.7.7 不再永久挂起）", () => {
+    // 实测 bug：offer 已到、连接已建，但数据因任何原因不到（发送端静默死亡等），
+    // 此前建连后无任何超时兜底 → 下载端 UI 永久卡"准备下载"无进度。
+    // 修复后：onopen 即启动 progressTimer，超时无进展 → onError，由调用方回退。
+    vi.useFakeTimers();
+    try {
+      let dcHandler: ((e: { channel: unknown }) => void) | null = null;
+      let openHandler: (() => void) | null = null;
+      const fakeChannel = {
+        send: vi.fn(),
+        readyState: "open",
+        bufferedAmount: 0,
+        close: vi.fn(),
+        set onopen(fn: (() => void) | null) {
+          openHandler = fn;
+        },
+        get onopen() {
+          return openHandler;
+        },
+      };
+      const fakePc = {
+        close: vi.fn(),
+        setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+        createAnswer: vi.fn().mockResolvedValue({ type: "answer", sdp: "x" }),
+        setLocalDescription: vi.fn().mockResolvedValue(undefined),
+        set ondatachannel(fn: ((e: { channel: unknown }) => void) | null) {
+          dcHandler = fn;
+        },
+        get ondatachannel() {
+          return dcHandler;
+        },
+        onicecandidate: null,
+        onconnectionstatechange: null,
+        // 通道 open 时连接必然已 connected（8s 建连超时被 guard 跳过，只测 30s 无进展超时）
+        connectionState: "connected",
+      };
+      vi.stubGlobal(
+        "RTCPeerConnection",
+        vi.fn().mockImplementation(() => fakePc),
+      );
+      const onOpen = vi.fn();
+      const onError = vi.fn();
+      p2pReceive({
+        peerId: "peer-A",
+        role: "answerer",
+        onChunk: vi.fn(),
+        signal: vi.fn().mockResolvedValue(undefined),
+        callbacks: { onOpen, onError },
+      });
+      handlePeerSignal({ type: "peer:offer", from_user_id: "peer-A", sdp: { type: "offer" } });
+      // offer 建连（同步挂好 ondatachannel）→ 通道 open → 启动无进展超时
+      dcHandler!({ channel: fakeChannel });
+      openHandler!();
+      expect(onError).not.toHaveBeenCalled();
+      // 30s 无任何数据到达 → 超时触发 onError（调用方可据此回退 reverse/服务器/GitHub）
+      vi.advanceTimersByTime(30_000);
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(onError).toHaveBeenCalledWith(expect.stringContaining("P2P 传输超时"));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("缓冲超过阈值时等 bufferedamountlow 排空再发（背压，v4.7.7 防缓冲满抛错）", async () => {
+    // 对端消费慢：bufferedAmount 持续增长到超过实现上限后 dc.send 抛 OperationError
+    //（发送端静默死亡的直接诱因）。修复后缓冲超阈值先暂停等待排空，传输不中断。
+    const sent: unknown[] = [];
+    let amount = 600 * 1024; // > 512KB 背压阈值
+    let openHandler: (() => void) | null = null;
+    const listeners: Record<string, Array<() => void>> = {};
+    const fakeChannel = {
+      send: (d: unknown) => void sent.push(d),
+      get bufferedAmount() {
+        return amount;
+      },
+      readyState: "open",
+      close: vi.fn(),
+      addEventListener: (evt: string, fn: () => void) => {
+        (listeners[evt] ??= []).push(fn);
+      },
+      removeEventListener: (evt: string, fn: () => void) => {
+        listeners[evt] = (listeners[evt] ?? []).filter((f) => f !== fn);
+      },
+      set onopen(fn: (() => void) | null) {
+        openHandler = fn;
+      },
+      get onopen() {
+        return openHandler;
+      },
+    };
+    const fakePc = {
+      close: vi.fn(),
+      createDataChannel: vi.fn().mockReturnValue(fakeChannel),
+      createOffer: vi.fn().mockResolvedValue({ type: "offer", sdp: "x" }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      onicecandidate: null,
+      onconnectionstatechange: null,
+      connectionState: "connected",
+    };
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn().mockImplementation(() => fakePc),
+    );
+    const sendChunk = vi.fn().mockResolvedValue(new Uint8Array(new Array(64 * 1024).fill(7)));
+    const onError = vi.fn();
+    p2pSend({
+      peerId: "peer-A",
+      role: "offerer",
+      totalBytes: 3 * 64 * 1024,
+      chunkSize: 64 * 1024,
+      sendChunk,
+      signal: vi.fn().mockResolvedValue(undefined),
+      callbacks: { onError },
+    });
+    await vi.waitFor(() => expect(openHandler).toBeTruthy());
+    openHandler!();
+    // meta 已发；首个分片因缓冲超阈值进入背压等待（注册了 bufferedamountlow 监听）
+    await vi.waitFor(() => expect(sent.length).toBe(1));
+    await vi.waitFor(() => expect(listeners.bufferedamountlow ?? []).toHaveLength(1));
+    // 对端消费排空缓冲 → 触发 bufferedamountlow → 继续发送
+    amount = 0;
+    (listeners.bufferedamountlow ?? []).forEach((fn) => fn());
+    await vi.waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(2));
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("同 peer 多 tag：offer 按 tag 路由到对应挂起接收，互不干扰（v4.7.7）", async () => {
+    // 测试工具"3 种打洞方式"：同一对端并发多条连接（A 打洞 tag="a" + B 打洞 tag="b"），
+    // 信令带 tag → handlePeerSignal 按 peerId:tag 路由，避免错配。
+    const fakePc = {
+      close: vi.fn(),
+      setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+      createAnswer: vi.fn().mockResolvedValue({ type: "answer", sdp: "x" }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      ondatachannel: null,
+      onicecandidate: null,
+      onconnectionstatechange: null,
+      connectionState: "new",
+    };
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn().mockImplementation(() => fakePc),
+    );
+    const signal = vi.fn().mockResolvedValue(undefined);
+    const ha = p2pReceive({ peerId: "peer-A", role: "answerer", tag: "a", signal, callbacks: { onError: vi.fn() } });
+    const hb = p2pReceive({ peerId: "peer-A", role: "answerer", tag: "b", signal, callbacks: { onError: vi.fn() } });
+    // tag=a 的 offer → 命中 tag=a 挂起（消费后仅剩 tag=b）
+    handlePeerSignal({ type: "peer:offer", from_user_id: "peer-A", tag: "a", sdp: { type: "offer" } });
+    await vi.waitFor(() => expect(signal).toHaveBeenCalled());
+    // tag=b 的 offer 仍可用（未被误消费）
+    expect(() =>
+      handlePeerSignal({ type: "peer:offer", from_user_id: "peer-A", tag: "b", sdp: { type: "offer" } }),
+    ).not.toThrow();
+    await vi.waitFor(() => expect(signal).toHaveBeenCalledTimes(2));
+    // 无对应 tag 的 offer：仍有两个挂起（size=2 不触发唯一兜底）→ 忽略不配对
+    handlePeerSignal({ type: "peer:offer", from_user_id: "peer-A", tag: "x", sdp: { type: "offer" } });
+    expect(fakePc.close).not.toHaveBeenCalled(); // 未建连
+    ha.close();
+    hb.close();
+  });
+
+  it("duplex-test：offerer 先推一程→duplex_switch→收对端一程→duplex_done 完成双向（v4.7.7）", async () => {
+    const sent: unknown[] = [];
+    let openHandler: (() => void) | null = null;
+    let msgHandler: ((e: { data: unknown }) => void) | null = null;
+    const fakeChannel = {
+      send: (d: unknown) => void sent.push(d),
+      readyState: "open",
+      bufferedAmount: 0,
+      close: vi.fn(),
+      set onopen(fn: (() => void) | null) {
+        openHandler = fn;
+      },
+      get onopen() {
+        return openHandler;
+      },
+      set onmessage(fn: ((e: { data: unknown }) => void) | null) {
+        msgHandler = fn;
+      },
+      get onmessage() {
+        return msgHandler;
+      },
+    };
+    const fakePc = {
+      close: vi.fn(),
+      createDataChannel: vi.fn().mockReturnValue(fakeChannel),
+      createOffer: vi.fn().mockResolvedValue({ type: "offer", sdp: "x" }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      onicecandidate: null,
+      onconnectionstatechange: null,
+      connectionState: "connected",
+    };
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn().mockImplementation(() => fakePc),
+    );
+    const onDirection = vi.fn();
+    const onDuplexComplete = vi.fn();
+    const onError = vi.fn();
+    p2pSend({
+      peerId: "peer-A",
+      role: "offerer",
+      mode: "duplex-test",
+      tag: "a",
+      totalBytes: 6,
+      chunkSize: 3,
+      signal: vi.fn().mockResolvedValue(undefined),
+      callbacks: { onDirection, onDuplexComplete, onError },
+    });
+    await vi.waitFor(() => expect(openHandler).toBeTruthy());
+    openHandler!();
+    // 本机推一程：meta + 2 分片 + duplex_switch（共 4 条）
+    await vi.waitFor(() => expect(sent.length).toBe(4));
+    await vi.waitFor(() =>
+      expect(sent.some((d) => typeof d === "string" && d.includes("duplex_switch"))).toBe(true),
+    );
+    await vi.waitFor(() => expect(onDirection).toHaveBeenCalledWith("self", expect.objectContaining({ bytes: 6 })));
+    // 对端推一程回来（meta + 2 分片）→ 收齐记录 peer 方向
+    msgHandler!({ data: buildMeta(6, 2, 3) });
+    msgHandler!({ data: encodeChunk(0, new Uint8Array([1, 2, 3])) });
+    msgHandler!({ data: encodeChunk(1, new Uint8Array([4, 5, 6])) });
+    await vi.waitFor(() =>
+      expect(onDirection).toHaveBeenCalledWith("peer", expect.objectContaining({ bytes: 6 })),
+    );
+    // 对端发 duplex_done → 双向全部完成
+    msgHandler!({ data: JSON.stringify({ t: "duplex_done" }) });
+    await vi.waitFor(() => expect(onDuplexComplete).toHaveBeenCalledTimes(1));
+    expect(onDuplexComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ self: expect.anything(), peer: expect.anything() }),
+    );
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("duplex-test：answerer 先收对端一程→收到 duplex_switch 再推一程→duplex_done 完成（v4.7.7）", async () => {
+    const sent: unknown[] = [];
+    let dcHandler: ((e: { channel: unknown }) => void) | null = null;
+    let openHandler: (() => void) | null = null;
+    let msgHandler: ((e: { data: unknown }) => void) | null = null;
+    const fakeChannel = {
+      send: (d: unknown) => void sent.push(d),
+      readyState: "open",
+      bufferedAmount: 0,
+      close: vi.fn(),
+      set onopen(fn: (() => void) | null) {
+        openHandler = fn;
+      },
+      get onopen() {
+        return openHandler;
+      },
+      set onmessage(fn: ((e: { data: unknown }) => void) | null) {
+        msgHandler = fn;
+      },
+      get onmessage() {
+        return msgHandler;
+      },
+    };
+    const fakePc = {
+      close: vi.fn(),
+      setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+      createAnswer: vi.fn().mockResolvedValue({ type: "answer", sdp: "x" }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      set ondatachannel(fn: ((e: { channel: unknown }) => void) | null) {
+        dcHandler = fn;
+      },
+      get ondatachannel() {
+        return dcHandler;
+      },
+      onicecandidate: null,
+      onconnectionstatechange: null,
+      connectionState: "new",
+    };
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn().mockImplementation(() => fakePc),
+    );
+    const onDirection = vi.fn();
+    const onDuplexComplete = vi.fn();
+    const onError = vi.fn();
+    p2pReceive({
+      peerId: "peer-A",
+      role: "answerer",
+      mode: "duplex-test",
+      tag: "b",
+      totalBytes: 6,
+      chunkSize: 3,
+      signal: vi.fn().mockResolvedValue(undefined),
+      callbacks: { onDirection, onDuplexComplete, onError },
+    });
+    handlePeerSignal({ type: "peer:offer", from_user_id: "peer-A", tag: "b", sdp: { type: "offer" } });
+    await vi.waitFor(() => expect(dcHandler).toBeTruthy());
+    dcHandler!({ channel: fakeChannel });
+    openHandler!(); // open：answerer 先不收不发，等对端推
+    // 先收对端（offerer）一程：meta + 2 分片
+    msgHandler!({ data: buildMeta(6, 2, 3) });
+    msgHandler!({ data: encodeChunk(0, new Uint8Array([1, 2, 3])) });
+    msgHandler!({ data: encodeChunk(1, new Uint8Array([4, 5, 6])) });
+    await vi.waitFor(() =>
+      expect(onDirection).toHaveBeenCalledWith("peer", expect.objectContaining({ bytes: 6 })),
+    );
+    // 收到 duplex_switch → 本机推一程（meta + 2 分片）+ duplex_done
+    msgHandler!({ data: JSON.stringify({ t: "duplex_switch" }) });
+    await vi.waitFor(() =>
+      expect(sent.some((d) => typeof d === "string" && d.includes("duplex_done"))).toBe(true),
+    );
+    await vi.waitFor(() =>
+      expect(onDirection).toHaveBeenCalledWith("self", expect.objectContaining({ bytes: 6 })),
+    );
+    await vi.waitFor(() => expect(onDuplexComplete).toHaveBeenCalledTimes(1));
+    expect(onError).not.toHaveBeenCalled();
   });
 });

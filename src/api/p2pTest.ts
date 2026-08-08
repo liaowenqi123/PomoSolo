@@ -18,14 +18,21 @@ export async function p2pOnline(): Promise<P2POnlineUser[]> {
   return await invoke<P2POnlineUser[]>("p2p_online");
 }
 
-/** 发起 P2P 测试请求（fire-and-forget，目标端自动挂起 WebRTC 接收） */
-export async function p2pTestRequest(toUserId: string): Promise<void> {
-  await invoke("p2p_test_request", { toUserId });
+/** 发起 P2P 测试请求（fire-and-forget，目标端自动挂起 WebRTC 接收）。
+ *  `tag`（v4.7.7）：3 种打洞方式用不同 tag 区分多条并发连接。 */
+export async function p2pTestRequest(toUserId: string, tag?: string): Promise<void> {
+  await invoke("p2p_test_request", { toUserId, tag: tag ?? "" });
 }
 
 /** 请求目标端反向发起 P2P 测试（v4.7.3 双向打洞容错：首个方向失败后调用） */
-export async function p2pReverseTestRequest(toUserId: string): Promise<void> {
-  await invoke("p2p_reverse_test_request", { toUserId });
+export async function p2pReverseTestRequest(toUserId: string, tag?: string): Promise<void> {
+  await invoke("p2p_reverse_test_request", { toUserId, tag: tag ?? "" });
+}
+
+/** AB 互相打洞测试请求（v4.7.7）：目标端同时挂 answerer(tag1) + 发起 offerer(tag2)，
+ *  两条连接同时打洞、双向同时测速。 */
+export async function p2pBidirTestRequest(toUserId: string, tag1: string, tag2: string): Promise<void> {
+  await invoke("p2p_bidir_test_request", { toUserId, tag1, tag2 });
 }
 
 /** 目标端回传 P2P 测试结果给发起方（发起方 UI 显示双方视角） */

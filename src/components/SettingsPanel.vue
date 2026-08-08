@@ -487,11 +487,12 @@ async function trySeedDownload(info: UpdateInfo): Promise<boolean> {
     };
 
     void updateSeedDownloadBegin(version, signature)
-      .then(async () => {
-        // 通知种子端发起 WebRTC offer（v4.6.6 补齐种子端；失败不阻塞，等 p2pReceive 超时兜底）
-        await seedFetch(version, peerId).catch((e) => {
-          console.warn("[Update] 通知种子端发起失败，将等待超时兜底:", e);
-        });
+      .then(() => {
+        // 先挂接收、再通知种子端发 offer（v4.7.7）：种子端收到请求后读片+发 offer 的
+        // 耗时可能短于"本机 await seedFetch 返回后再执行下一行 p2pReceive"的间隔——
+        // offer 早到会被 handlePeerSignal 以"无挂起接收"丢弃，正常方向打洞白费、只能
+        // 靠超时回退 reverse/服务器（实测种子下载"正在从XX直连下载"但 0 进展的竞态根因）。
+        // 先挂接收即无此竞态，offer 未达仍由 10s 等待超时兜底。
         const pending = p2pReceive({
           peerId,
           role: "answerer",
@@ -506,6 +507,10 @@ async function trySeedDownload(info: UpdateInfo): Promise<boolean> {
               tryReverse();
             },
           },
+        });
+        // 通知种子端发起 WebRTC offer（v4.6.6 补齐种子端；失败不阻塞，等 p2pReceive 超时兜底）
+        void seedFetch(version, peerId).catch((e) => {
+          console.warn("[Update] 通知种子端发起失败，将等待超时兜底:", e);
         });
       })
       .catch((e) => {

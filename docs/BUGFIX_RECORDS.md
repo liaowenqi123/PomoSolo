@@ -6,6 +6,53 @@
 
 ## 2026-08-08
 
+### 9. 种子 P2P 下载卡死（0 进展/永久"准备下载"）+ reverse 传歌 2-5% 中断（v4.7.7）
+
+**实测场景**：汤圆(4.7.6 种子) → cici(4.7.5 下载端) 种子更新：显示"正在从汤圆直连下载..."但无进度条、始终"准备下载"，P2P 能打洞却不下数据；同时 reverse 传歌传 2% 或 5% 就断、变服务器中转（正向 10MB/s 丝滑，反向慢/断）。
+
+**根因一：`sendFile` 的 `dc.send` 无 try/catch + 无背压 → 发送端静默死亡（核心根因）**
+- DataChannel 发送快于对端消费时 `bufferedAmount` 持续增长，超过实现上限后 `dc.send()` 抛 `OperationError`（Chromium 行为）。异常被顶层 async 吞掉（`void beginSend()` 无 catch）→ 发送端**静默停止**：无 onError、无 cleanup、通道不关 → 对端收不到数据也收不到错误 → 永久等待（种子 0% 卡死 / 传歌 2-5% 中断的同一根因）。
+- **修复**：`sendFile` 每片改走 `sendWithBackpressure`——缓冲 >512KB 先等 `bufferedamountlow` 排空再发（防缓冲满抛错）；任何 `dc.send` 异常 → `onError` + `cleanup`（发送端不静默死亡，对端可及时回退）。meta 发送同样加 try/catch。
+
+**根因二：建连成功后无任何超时兜底 → 永久挂起**
+- `pc.connectionState === "connected"` 时 `clearTimeout(timeoutTimer)`（建连超时），但之后**没有任何超时机制**——数据因任何原因不到/中断就永久挂起，UI 卡"准备下载"无进度。
+- **修复**：新增"无进展超时"（`progressTimer`，默认 30s，调用方可传 `progressTimeoutMs` 缩短）：channel open 即启动，每收/发一片重置；超时无进展 → `onError` + `cleanup`，由调用方回退（种子 → reverse → 服务器/GitHub）。音乐传歌传 15s（能通但慢速不误杀，死链尽快重试）。
+
+**根因三：种子下载 offer 竞态 → 正常方向 offer 被丢弃**
+- `trySeedDownload` 里 `await seedFetch(...)` 之后才 `p2pReceive(...)`：种子端收到请求后读片+发 offer 可能比本机下一行执行 p2pReceive 还快 → offer 早到被 `handlePeerSignal` 以"无挂起接收"丢弃，正常方向白费。
+- **修复**：先挂 `p2pReceive` 再 `seedFetch`（offer 未达仍由 10s 等待超时兜底）。
+
+**根因四：3s 传歌看门狗误杀"能通但慢"的反向传输**
+- `ensureTransferWatch` 3s 无进展即断点续传；续传 `from_chunk>0` 时 DJ 侧 `tryP2PTransfer` 直接跳过 P2P 走服务器中转 → 反向每片间隔稍长（>3s）就被掐断转服务器。
+- **修复**：P2P 直连期间（`channel==="p2p"`）看门狗不介入，死链改由 p2p 层 15s 无进展超时判定，走重试/反向/服务器完整链。
+
+**根因五：reverse 传歌一次中断立即回退服务器，无重试**
+- `tryReverseReceive` 的 onError 直接 `channel="server"`，P2P 不稳定时不给机会（与正常方向 P2P_RETRY_LIMIT=3 不一致）。
+- **修复**：reverse 同样重试上限 3 次（`p2pReverseRetryCount`），曾成功建连但中断 → 重新通知 DJ 反打，上限内不回退服务器中转。
+
+**影响范围**：`src/p2p.ts`、`src/stores/music.ts`、`src/components/SettingsPanel.vue`
+
+**新增：P2P 测试工具升级为"3 种打洞方式 × 双向测速 = 6 项"（v4.7.7）**
+- 一次点击跑 6 项测试：A 打洞（本机 offerer）、B 打洞（对端 offerer）、AB 互相打洞（两端同时各打一条连接），每种打洞方式建立的管道再分别测上行（A→B）与下行（B→A）。
+- p2p.ts 新增：
+  - `tag` 连接标签：同一对端并发多条连接（AB 互相打洞 = A offerer + B offerer 两条同时），信令 payload 带 tag，路由键 `peerId:tag`（缺省空 = 单连接，向后完全兼容）。
+  - `mode: "duplex-test"` 双向测速：同一连接上 offerer 先推一程 → `duplex_switch` → 对端推一程 → `duplex_done`；回调 `onDirection`（self/peer）+ `onDuplexComplete`。
+- 新信令 `p2p:bidir_test_request`（Rust 命令 + ws_server.py 转发）：目标端收到后同时挂 answerer(tag1) + 发起 offerer(tag2)。
+- 面板 UI：3×2 结果矩阵 + 结论（三种打洞方式双向总吞吐对比，标记洞质量最高者，验证"双方同时狂暴发包"是否更稳定）。
+
+**新增：reverse 传歌多连接并行传输（v4.7.7，绕开单连接 SCTP 流控窗口）**
+- 背景：同一对机器正向 10MB/s、反向巨慢——物理路径非瓶颈，瓶颈是 Chromium SCTP 对单条连接的流控窗口（固定小窗口 + 对端延迟 SACK ~200ms）。
+- 方案：文件按分片均分 K 段（默认 2，上限 4），reverse 时下载端建 K 条并行连接（tag p0..pK-1），持有端按段在各自连接上发数据——每条连接独立 SCTP 流控窗口，总吞吐 ≈ K × 单条。
+- p2p.ts：meta 新增 `baseChunk`（本连接全局起始分片序号，缺省 0=单连接整文件，向后兼容）；`onChunk` 第 4 参透传 baseChunk；接收端按全局 index 落盘（part 文件按全局 index 写，天然支持交错到达，无需 Rust 改读写）。
+- 协商：reverse 请求带 `parallel`（Rust `p2p_reverse_transfer_request` + ws_server.py 转发）；旧持有端忽略该字段 → 下载端并行连接超时后自动回退单连接 reverse，单连接也失败才回退服务器中转（两级降级）。
+- 影响范围：`src/p2p.ts`、`src/stores/music.ts`、`src/api/musicSync.ts`、`src-tauri/src/commands/p2p.rs`、`server-planning/ws_server.py`
+
+**测试：** 前端 58 文件 1157 用例通过（新增：dc.send 抛错 → onError+清理不静默死亡、建连成功无数据 30s 超时 onError、缓冲超阈值等 bufferedamountlow 背压不中断、同 peer 多 tag offer 路由、duplex offerer/answerer 双向切换、meta baseChunk 往返、并行分段 onChunk 携带 baseChunk、reverse 并行失败回退单连接再回退服务器、reverse 并行收齐合并）；vue-tsc 通过；Rust 全量通过。
+
+---
+
+## 2026-08-08
+
 ### 8. P2P reverse 反向打洞 + 下载后播放出现 1s+ 预期外延迟（v4.7.6）
 
 **问题一：P2P reverse 反向打洞不稳定 / 无法反向传播**

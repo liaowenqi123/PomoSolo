@@ -125,12 +125,16 @@ export function musicSyncReverseRequest(
   toUserId: string,
   songId?: string,
   version?: string,
+  parallel?: number,
 ): Promise<void> {
-  return invoke<void>("p2p_reverse_transfer_request", {
+  // parallel 仅 >1 时携带（并行分片传输）：缺省 0/1 = 单连接，与旧版调用形态完全一致
+  const params: Record<string, unknown> = {
     toUserId,
     songId: songId ?? "",
     version: version ?? "",
-  });
+  };
+  if (parallel && parallel > 1) params.parallel = parallel;
+  return invoke<void>("p2p_reverse_transfer_request", params);
 }
 
 /**

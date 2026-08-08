@@ -161,6 +161,8 @@ pub async fn p2p_seed_fetch(
 /// 持有端据此挂起 answerer+sender（在收到的 DataChannel 上发数据——DataChannel
 /// 建立后全双工，谁持有数据谁 send），下载端随后作 offerer 反向发起协商。
 /// 音乐传歌传 song_id；安装包分享传 version。两侧共用同一条信令。
+/// `parallel`（v4.7.7）：下载端请求 N 条并行连接分片传输（绕开单连接 SCTP 流控
+/// 窗口限制）；0/缺省 = 单连接（旧版持有端忽略该字段，自动退化为单连接）。
 #[tauri::command]
 pub async fn p2p_reverse_transfer_request(
     app: AppHandle,
@@ -168,21 +170,28 @@ pub async fn p2p_reverse_transfer_request(
     to_user_id: String,
     song_id: Option<String>,
     version: Option<String>,
+    parallel: Option<u32>,
 ) -> Result<(), String> {
     if to_user_id.is_empty() || (song_id.is_none() && version.is_none()) {
         return Err("反向传输请求参数不完整".to_string());
     }
     let token = require_token(&state).await?;
+    let mut params = serde_json::json!({
+        "to_user_id": to_user_id,
+        "song_id": song_id.unwrap_or_default(),
+        "version": version.unwrap_or_default(),
+    });
+    if let Some(p) = parallel {
+        if p > 1 {
+            params["parallel"] = serde_json::json!(p);
+        }
+    }
     ws::send(
         &app,
         &state.ws,
         &token,
         "p2p:reverse_transfer_request",
-        serde_json::json!({
-            "to_user_id": to_user_id,
-            "song_id": song_id.unwrap_or_default(),
-            "version": version.unwrap_or_default(),
-        }),
+        params,
     )
     .await
 }
@@ -238,45 +247,72 @@ fn parse_online_users(resp: &Value) -> Result<Vec<P2POnlineUser>, String> {
 }
 
 /// 发起 P2P 测试请求（fire-and-forget）：服务器定向转发给目标，目标自动挂起 WebRTC 接收。
+/// `tag`（v4.7.7）：目标端按 tag 挂起对应连接（测试工具 3 种打洞方式用不同 tag 区分）。
 #[tauri::command]
 pub async fn p2p_test_request(
     app: AppHandle,
     state: State<'_, AppState>,
     to_user_id: String,
+    tag: Option<String>,
 ) -> Result<(), String> {
     if to_user_id.is_empty() {
         return Err("缺少测试目标".to_string());
     }
     let token = require_token(&state).await?;
-    ws::send(
-        &app,
-        &state.ws,
-        &token,
-        "p2p:test_request",
-        serde_json::json!({ "to_user_id": to_user_id }),
-    )
-    .await
+    let mut params = serde_json::json!({ "to_user_id": to_user_id });
+    if let Some(t) = tag {
+        if !t.is_empty() {
+            params["tag"] = serde_json::json!(t);
+        }
+    }
+    ws::send(&app, &state.ws, &token, "p2p:test_request", params).await
 }
 
 /// 请求目标端反向发起 P2P 测试（v4.7.3 双向打洞容错）：
 /// 发起方首个方向打洞失败后调用，目标端收到 `p2p:reverse_test_request` 后
 /// 作为 offerer 推测试数据回来——只有两边都失败才算测试失败。
+/// `tag`（v4.7.7）：目标端按 tag 发起对应连接。
 #[tauri::command]
 pub async fn p2p_reverse_test_request(
     app: AppHandle,
     state: State<'_, AppState>,
     to_user_id: String,
+    tag: Option<String>,
 ) -> Result<(), String> {
     if to_user_id.is_empty() {
         return Err("缺少测试目标".to_string());
+    }
+    let token = require_token(&state).await?;
+    let mut params = serde_json::json!({ "to_user_id": to_user_id });
+    if let Some(t) = tag {
+        if !t.is_empty() {
+            params["tag"] = serde_json::json!(t);
+        }
+    }
+    ws::send(&app, &state.ws, &token, "p2p:reverse_test_request", params).await
+}
+
+/// AB 互相打洞测试请求（v4.7.7 测试工具"3 种打洞方式"第三种）：
+/// 目标端收到 `p2p:bidir_test_request` 后同时挂起 answerer（tag1，接本机 offer）与
+/// 发起 offerer（tag2，本机挂起接）——两条连接同时打洞，双向同时打通测速。
+#[tauri::command]
+pub async fn p2p_bidir_test_request(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    to_user_id: String,
+    tag1: String,
+    tag2: String,
+) -> Result<(), String> {
+    if to_user_id.is_empty() || tag1.is_empty() || tag2.is_empty() {
+        return Err("缺少互相打洞测试参数".to_string());
     }
     let token = require_token(&state).await?;
     ws::send(
         &app,
         &state.ws,
         &token,
-        "p2p:reverse_test_request",
-        serde_json::json!({ "to_user_id": to_user_id }),
+        "p2p:bidir_test_request",
+        serde_json::json!({ "to_user_id": to_user_id, "tag1": tag1, "tag2": tag2 }),
     )
     .await
 }

@@ -234,6 +234,7 @@ def handle_message(user_id, msg):
         "p2p:test_request": handle_p2p_test_request,
         "p2p:test_result": handle_p2p_test_result,
         "p2p:reverse_test_request": handle_p2p_reverse_test_request,
+        "p2p:bidir_test_request": handle_p2p_bidir_test_request,
         # Phase 2 安装包种子：注册/心跳/注销/查询/通知发起
         "p2p:seed_register": handle_p2p_seed_register,
         "p2p:seed_heartbeat": handle_p2p_seed_heartbeat,
@@ -728,7 +729,8 @@ def handle_p2p_online(user_id, msg):
 def handle_p2p_test_request(user_id, msg):
     """P2P 测试请求：转发给目标客户端，目标自动挂起 WebRTC 接收并回传结果。
     - 目标离线静默丢弃，发起端 8s 超时判定失败
-    - 仅在线用户即可互测（调试工具，测试数据量小，自动关闭）"""
+    - 仅在线用户即可互测（调试工具，测试数据量小，自动关闭）
+    - `tag`（v4.7.7）：测试工具 3 种打洞方式用不同 tag 区分多条并发连接"""
     to_user_id = msg.get("to_user_id")
     if not to_user_id or to_user_id == user_id:
         return
@@ -737,11 +739,15 @@ def handle_p2p_test_request(user_id, msg):
         if not target:
             return
         from_name = (connections.get(user_id) or {}).get("username", "")
-    send_to_user(to_user_id, {
+    forward = {
         "type": "p2p:test_request",
         "from_user_id": user_id,
         "from_username": from_name,
-    })
+    }
+    tag = msg.get("tag")
+    if tag:
+        forward["tag"] = tag
+    send_to_user(to_user_id, forward)
 
 
 def handle_p2p_test_result(user_id, msg):
@@ -768,6 +774,7 @@ def handle_p2p_reverse_test_request(user_id, msg):
 
     目标端收到后作为 offerer 推测试数据回发起方——双向打洞容错：
     只要有一边能打通即判为成功，两边都失败才判失败。
+    `tag`（v4.7.7）：目标端按 tag 发起对应连接。
     """
     to_user_id = msg.get("to_user_id")
     if not to_user_id or to_user_id == user_id:
@@ -777,10 +784,39 @@ def handle_p2p_reverse_test_request(user_id, msg):
         if not target:
             return
         from_name = (connections.get(user_id) or {}).get("username", "")
-    send_to_user(to_user_id, {
+    forward = {
         "type": "p2p:reverse_test_request",
         "from_user_id": user_id,
         "from_username": from_name,
+    }
+    tag = msg.get("tag")
+    if tag:
+        forward["tag"] = tag
+    send_to_user(to_user_id, forward)
+
+
+def handle_p2p_bidir_test_request(user_id, msg):
+    """AB 互相打洞测试请求（v4.7.7）：目标端收到后**同时**挂起 answerer（tag1，
+    接发起方 offer）与发起 offerer（tag2，发起方挂起接）——两条连接同时打洞，
+    双向同时打通测速，验证"双方同时狂暴发包"打出的洞是否比单向更稳定。"""
+    to_user_id = msg.get("to_user_id")
+    if not to_user_id or to_user_id == user_id:
+        return
+    tag1 = msg.get("tag1")
+    tag2 = msg.get("tag2")
+    if not tag1 or not tag2:
+        return
+    with _lock:
+        target = connections.get(to_user_id)
+        if not target:
+            return
+        from_name = (connections.get(user_id) or {}).get("username", "")
+    send_to_user(to_user_id, {
+        "type": "p2p:bidir_test_request",
+        "from_user_id": user_id,
+        "from_username": from_name,
+        "tag1": tag1,
+        "tag2": tag2,
     })
 
 
@@ -864,18 +900,23 @@ def handle_p2p_reverse_transfer_request(user_id, msg):
 
     下载端正常方向（持有端作 offerer）建连失败后发送，向持有端（to_user_id）转发：
     持有端挂起 answerer+sender（DataChannel 全双工，在收到的 channel 上发数据），
-    下载端随后作 offerer 反向发起协商。音乐传歌带 song_id；安装包分享带 version。"""
+    下载端随后作 offerer 反向发起协商。音乐传歌带 song_id；安装包分享带 version。
+    `parallel`（v4.7.7）：下载端请求 N 条并行连接分片传输；0/缺省 = 单连接。"""
     to_user_id = msg.get("to_user_id")
     song_id = msg.get("song_id") or ""
     version = msg.get("version") or ""
     if not to_user_id or to_user_id == user_id or (not song_id and not version):
         return
-    send_to_user(to_user_id, {
+    forward = {
         "type": "p2p:reverse_transfer_request",
         "from_user_id": user_id,
         "song_id": song_id,
         "version": version,
-    })
+    }
+    parallel = msg.get("parallel")
+    if parallel and int(parallel) > 1:
+        forward["parallel"] = int(parallel)
+    send_to_user(to_user_id, forward)
 
 # ── 心跳 ──
 

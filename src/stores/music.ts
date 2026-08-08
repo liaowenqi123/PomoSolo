@@ -72,10 +72,8 @@ import { serveInstaller, serveReverseInstaller } from "@/seed";
 import {
   dispatchP2PTestResult,
   handlePeerSignal,
-  p2pAcceptTest,
   p2pReceive,
   p2pSend,
-  p2pStartTest,
   type P2PHandle,
 } from "@/p2p";
 
@@ -304,6 +302,11 @@ export const useMusicStore = defineStore("music", () => {
       const t = songTransfer.value;
       const now = Date.now();
       if (t.state === "idle") return;
+      // v4.7.7：P2P 直连期间（channel==="p2p"）不触发断点续传看门狗——慢速反向/跨网
+      // 传歌每片间隔可能超 3s，3s 看门狗会把"能通但慢"的 P2P 掐断（断点续传 from_chunk>0
+      // 时 DJ 直接走服务器中转，实测反向传歌 2-5% 就"变服务器中转"的根因之一）。
+      // 死链改由 p2p 层 15s 无进展超时判定，走重试/反向打洞/服务器中转的完整链。
+      if (t.channel === "p2p") return;
       const stuck =
         t.state === "requesting"
           ? now - t.startedAt > TRANSFER_TIMEOUT_MS
@@ -644,6 +647,9 @@ export const useMusicStore = defineStore("music", () => {
       peerId: djUserId.value as string,
       role: "answerer",
       timeoutMs: 8_000,
+      // v4.7.7：P2P 直连期间看门狗（3s）不介入，由本层无进展超时判定死链后
+      // 走重试/反向/服务器；15s 足够区分"慢速但有进展"与"链路已死"
+      progressTimeoutMs: 15_000,
       onChunk: async (chunk, index, totalChunks) => {
         const res = await musicReceiveSongChunkBin(songId, index, totalChunks, Array.from(chunk));
         if (!res.success) throw new Error(res.error ?? "分片落盘失败");
@@ -704,14 +710,21 @@ export const useMusicStore = defineStore("music", () => {
    * 听众侧：reverse 反向打洞接收（v4.7.5）。
    * 正常方向（DJ 作 offerer）建连失败后调用：通知 DJ 挂起 answerer+sender，
    * 本机作 offerer 发起协商（DataChannel 全双工，DJ 在收到的 channel 上发数据）。
+   *
+   * v4.7.7 多连接并行（默认 parallel=2）：建 K 条并行连接（tag p0..pK-1），DJ 按段
+   * 在各自连接上发数据——每条连接独立 SCTP 流控窗口，绕开"单连接窗口限制"导致的
+   * 反向慢速。任一条失败 → 关闭全部并回退单连接 reverse（旧持有端/单段场景兼容）。
    */
-  async function tryReverseReceive(songId: string): Promise<void> {
+  async function tryReverseReceive(songId: string, parallel = 2): Promise<void> {
     if (!djUserId.value) {
       songTransfer.value.channel = "server";
       return;
     }
+    const K = Math.min(Math.max(parallel, 1), 4);
     try {
-      await musicSyncReverseRequest(djUserId.value, songId);
+      // parallel 声明连接数：持有端 4.7.7 按段挂多条；旧持有端忽略 → 本端并行 offer
+      // 超时后由 onError 回退单连接（不带 parallel 再请求一次）。
+      await musicSyncReverseRequest(djUserId.value, songId, undefined, K);
     } catch (e) {
       console.warn("[MusicStore] reverse 请求失败，回退服务器中转:", e);
       songTransfer.value.channel = "server";
@@ -720,75 +733,132 @@ export const useMusicStore = defineStore("music", () => {
     // 等待通知期间服务器中转已接管则不再发起
     if (songTransfer.value.channel === "server") return;
     activeP2PReceive?.close();
-    activeP2PReceive = p2pSend({
-      peerId: djUserId.value,
-      role: "offerer",
-      sender: "answerer", // reverse：本机作 offerer 打洞，DJ（answerer）在 channel 上发数据
-      timeoutMs: 10_000,
-      onChunk: async (chunk, index, totalChunks) => {
-        const res = await musicReceiveSongChunkBin(songId, index, totalChunks, Array.from(chunk));
-        if (!res.success) throw new Error(res.error ?? "分片落盘失败");
-        songTransfer.value.state = "downloading";
-        songTransfer.value.total = totalChunks;
-        songTransfer.value.received += 1;
-        lastChunkAt = Date.now();
-      },
-      callbacks: {
-        onOpen: () => {
-          p2pHadConnected = true;
-          songTransfer.value.channel = "p2p";
+    const handles: P2PHandle[] = [];
+    let doneCount = 0;
+    let settled = false;
+    // 全局 totalChunks 未知（各段 meta 只带段数）→ 收片时取各段全局上界（base+段数）的最大值
+    let globalTotal = 0;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      handles.forEach((h) => h.close());
+      activeP2PReceive = null;
+      if (ok) {
+        void finalizeTransfer(songId, globalTotal).catch(() => {});
+      } else if (K > 1) {
+        // 并行连接失败（持有端可能为旧版/未按段挂多条）→ 回退单连接 reverse 再试一次
+        console.warn("[MusicStore] reverse 并行传输失败，回退单连接 reverse");
+        songTransfer.value.received = 0;
+        songTransfer.value.total = 0;
+        void tryReverseReceive(songId, 1);
+      } else {
+        console.warn("[MusicStore] reverse P2P 失败，回退服务器中转:", "并行或单连接均失败");
+        songTransfer.value.channel = "server";
+      }
+    };
+    for (let k = 0; k < K; k++) {
+      const tag = K > 1 ? `p${k}` : undefined;
+      const handle = p2pSend({
+        peerId: djUserId.value,
+        role: "offerer",
+        sender: "answerer", // reverse：本机作 offerer 打洞，DJ（answerer）在 channel 上发数据
+        tag,
+        timeoutMs: 10_000,
+        // v4.7.7：反向打洞能打通但慢速（每片间隔可能超 3s）→ 无进展超时放宽到 15s，
+        // 避免 3s 看门狗把"能通的慢速反向"误判卡死、掐断转服务器中转
+        progressTimeoutMs: 15_000,
+        onChunk: async (chunk, index, totalChunks, baseChunk) => {
+          // 并行：帧 index 为段内局部序号 → 全局 index = base + index（part 文件按全局 index 写）
+          const globalIndex = (baseChunk ?? 0) + index;
+          // Rust 校验 total_chunks（chunk_index < total_chunks）→ 传全局上界，全局 index 必过
+          const totalForVerify = (baseChunk ?? 0) + totalChunks;
+          globalTotal = Math.max(globalTotal, totalForVerify);
+          const res = await musicReceiveSongChunkBin(songId, globalIndex, totalForVerify, Array.from(chunk));
+          if (!res.success) throw new Error(res.error ?? "分片落盘失败");
+          songTransfer.value.state = "downloading";
+          songTransfer.value.total = Math.max(songTransfer.value.total, globalTotal);
+          songTransfer.value.received += 1;
+          lastChunkAt = Date.now();
         },
-        onComplete: () => {
-          const total = songTransfer.value.total;
-          activeP2PReceive = null;
-          void finalizeTransfer(songId, total).catch(() => {});
+        callbacks: {
+          onOpen: () => {
+            p2pHadConnected = true;
+            songTransfer.value.channel = "p2p";
+          },
+          onComplete: () => {
+            doneCount += 1;
+            if (doneCount >= K) finish(true);
+          },
+          onError: (err) => {
+            console.warn("[MusicStore] reverse 连接失败:", err);
+            finish(false);
+          },
         },
-        onError: (err) => {
-          activeP2PReceive = null;
-          console.warn("[MusicStore] reverse P2P 失败，回退服务器中转:", err);
-          songTransfer.value.channel = "server";
-        },
-      },
-    });
+      });
+      handles.push(handle);
+    }
+    activeP2PReceive = handles[0] ?? null;
   }
 
   /**
    * DJ/持有端：响应 reverse 反向打洞（v4.7.5）。
    * 收到下载端 p2p:reverse_transfer_request 后挂起 answerer+sender——
    * 下载端作 offerer 发起协商，本机在收到的 DataChannel 上发数据。
+   *
+   * v4.7.7 多连接并行（parallel>1）：文件按分片均分 K 段，挂 K 条连接（tag p0..pK-1），
+   * 各自独立 SCTP 流控窗口 → 绕开"单连接窗口限制"导致的反向慢速。K=1 = 旧单连接行为。
    */
-  async function setupReverseServe(songId: string, requesterId: string): Promise<void> {
+  async function setupReverseServe(songId: string, requesterId: string, parallel = 1): Promise<void> {
     if (songId !== trackName.value) return; // 已切歌则不再响应
     try {
       const first = await musicReadSongChunkBin(songId, 0);
       if (!first.success || !first.total_chunks || !first.chunk_size) return;
-      const totalBytes = first.total_chunks * first.chunk_size;
+      const totalChunks = first.total_chunks;
+      const chunkSize = first.chunk_size;
       const settingsStore = useSettingsStore();
-      const handle = p2pReceive({
-        peerId: requesterId,
-        role: "answerer",
-        sender: "answerer", // reverse：本机（持有端）作 answerer 发数据
-        totalBytes,
-        chunkSize: first.chunk_size,
-        timeoutMs: 10_000,
-        compress: settingsStore.settings.p2pCompress,
-        sendChunk: async (index) => {
-          if (songId !== trackName.value) throw new Error("DJ 已切歌");
-          const res = await musicReadSongChunkBin(songId, index);
-          if (!res.success || !res.data) throw new Error(res.error ?? "读取分片失败");
-          return new Uint8Array(res.data);
-        },
-        callbacks: {
-          onComplete: () => {
-            void musicSyncTransferDone(songId).catch(() => {});
+      const K = Math.min(Math.max(parallel, 1), 4);
+      const segChunks = K > 1 ? Math.ceil(totalChunks / K) : totalChunks;
+      const handles: P2PHandle[] = [];
+      let doneCount = 0;
+      let actualK = 0;
+      // 全部段发出后才通知服务器传输完成（防提前清理 wait_all 状态）
+      const reportDone = () => {
+        doneCount += 1;
+        if (doneCount >= actualK) void musicSyncTransferDone(songId).catch(() => {});
+      };
+      for (let k = 0; k < K; k++) {
+        const base = k * segChunks;
+        const segCount = Math.min(segChunks, totalChunks - base);
+        if (segCount <= 0) break;
+        const tag = K > 1 ? `p${k}` : undefined;
+        const handle = p2pReceive({
+          peerId: requesterId,
+          role: "answerer",
+          sender: "answerer", // reverse：本机（持有端）作 answerer 发数据
+          tag,
+          baseChunk: base,
+          totalBytes: segCount * chunkSize, // 估算：最后一段不满，接收端按段 totalChunks 判定收齐
+          chunkSize,
+          timeoutMs: 10_000,
+          compress: settingsStore.settings.p2pCompress,
+          sendChunk: async (index) => {
+            if (songId !== trackName.value) throw new Error("DJ 已切歌");
+            const res = await musicReadSongChunkBin(songId, base + index);
+            if (!res.success || !res.data) throw new Error(res.error ?? "读取分片失败");
+            return new Uint8Array(res.data);
           },
-          onError: (err) => {
-            console.warn("[MusicStore] reverse 直传失败，走服务器中转:", err);
+          callbacks: {
+            onComplete: reportDone,
+            onError: (err) => {
+              console.warn("[MusicStore] reverse 直传失败，走服务器中转:", err);
+            },
           },
-        },
-      });
+        });
+        handles.push(handle);
+        actualK += 1;
+      }
       // 兜底：offer 一直不来则关闭挂起（防残留）
-      window.setTimeout(() => handle.close(), 12_000);
+      window.setTimeout(() => handles.forEach((h) => h.close()), 15_000);
     } catch (e) {
       console.warn("[MusicStore] reverse 服务初始化失败:", e);
     }
@@ -1581,6 +1651,15 @@ export const useMusicStore = defineStore("music", () => {
   function handleSyncWsEvent(payload: unknown) {
     if (!payload || typeof payload !== "object") return;
     const evt = payload as Record<string, unknown>;
+    // P2P 测试工具（v4.7.7）：目标端测完把本机视角速率回传发起方，作"对方确认"参考
+    const reportTest = (
+      to: string,
+      r: { ok: boolean; ms: number; speedBps: number; bytes: number; error?: string },
+    ) => {
+      void p2pTestResult({ toUserId: to, ...r }).catch((e) =>
+        console.warn("[MusicStore] 回传 P2P 测试结果失败:", e),
+      );
+    };
     switch (evt.type) {
       case "peer:offer":
       case "peer:answer":
@@ -1591,35 +1670,36 @@ export const useMusicStore = defineStore("music", () => {
         break;
       }
       case "p2p:test_request": {
-        // { from_user_id, from_username }：有人发起 P2P 连通性测试 → 自动挂起 WebRTC 接收，
-        // 测完把结果回传给发起方（目标端无需打开设置面板）
+        // { from_user_id, from_username, tag }：有人发起 P2P 测试（A 打洞，本机作
+        // answerer）→ 挂起 duplex 双向测速：先收对端一程，收到 duplex_switch 再推一程。
+        // 测完把本机视角速率回传发起方（无需打开设置面板）。
         const from = typeof evt.from_user_id === "string" ? evt.from_user_id : "";
         if (!from) break;
         const fromName = typeof evt.from_username === "string" ? evt.from_username : "";
-        console.warn("[MusicStore] 收到 P2P 测试请求:", fromName || from);
-        const handle = p2pAcceptTest(from, {
-          onComplete: (stats) => {
-            void p2pTestResult({
-              toUserId: from,
-              ok: true,
-              ms: stats.ms,
-              speedBps: stats.speedBps,
-              bytes: stats.bytes,
-            }).catch((e) => console.warn("[MusicStore] 回传 P2P 测试结果失败:", e));
-          },
-          onError: (err) => {
-            void p2pTestResult({
-              toUserId: from,
-              ok: false,
-              ms: 0,
-              speedBps: 0,
-              bytes: 0,
-              error: err,
-            }).catch((e) => console.warn("[MusicStore] 回传 P2P 测试失败结果失败:", e));
+        const tag = typeof evt.tag === "string" && evt.tag ? evt.tag : undefined;
+        console.warn("[MusicStore] 收到 P2P 测试请求（A 打洞）:", fromName || from);
+        const handle = p2pReceive({
+          peerId: from,
+          role: "answerer",
+          mode: "duplex-test",
+          tag,
+          timeoutMs: 12_000,
+          callbacks: {
+            onDuplexComplete: (stats) => {
+              reportTest(from, {
+                ok: true,
+                ms: stats.self?.ms ?? 0,
+                speedBps: stats.self?.speedBps ?? 0,
+                bytes: stats.self?.bytes ?? 0,
+              });
+            },
+            onError: (err) => {
+              reportTest(from, { ok: false, ms: 0, speedBps: 0, bytes: 0, error: err });
+            },
           },
         });
-        // 兜底：发起方 offer 一直没来 → 15s 后关闭挂起（防残留）
-        window.setTimeout(() => handle.close(), 15_000);
+        // 兜底：双向测速超时（对端旧版不会发 duplex_switch）→ 关闭挂起防残留
+        window.setTimeout(() => handle.close(), 25_000);
         break;
       }
       case "p2p:test_result": {
@@ -1628,33 +1708,89 @@ export const useMusicStore = defineStore("music", () => {
         break;
       }
       case "p2p:reverse_test_request": {
-        // 发起方首个方向打洞失败 → 请求本机反向发起（本机作为 offerer 推测试数据，
-        // 双向打洞容错：只要有一边能打通即判成功，v4.7.3）
+        // { from_user_id, from_username, tag }：B 打洞（本机作 offerer）→ 发起
+        // duplex 双向测速：先推一程，duplex_switch 后再收对端一程（v4.7.3 反向容错升级）
         const from = typeof evt.from_user_id === "string" ? evt.from_user_id : "";
         if (!from) break;
         const fromName = typeof evt.from_username === "string" ? evt.from_username : "";
-        console.warn("[MusicStore] 收到 P2P 反向测试请求:", fromName || from);
-        p2pStartTest(from, {
-          onComplete: (stats) => {
-            void p2pTestResult({
-              toUserId: from,
-              ok: true,
-              ms: stats.ms,
-              speedBps: stats.speedBps,
-              bytes: stats.bytes,
-            }).catch((e) => console.warn("[MusicStore] 回传反向测试结果失败:", e));
-          },
-          onError: (err) => {
-            void p2pTestResult({
-              toUserId: from,
-              ok: false,
-              ms: 0,
-              speedBps: 0,
-              bytes: 0,
-              error: err,
-            }).catch((e) => console.warn("[MusicStore] 回传反向测试失败结果失败:", e));
+        const tag = typeof evt.tag === "string" && evt.tag ? evt.tag : undefined;
+        console.warn("[MusicStore] 收到 P2P 反向测试请求（B 打洞）:", fromName || from);
+        p2pSend({
+          peerId: from,
+          role: "offerer",
+          mode: "duplex-test",
+          tag,
+          timeoutMs: 12_000,
+          callbacks: {
+            onDuplexComplete: (stats) => {
+              reportTest(from, {
+                ok: true,
+                ms: stats.self?.ms ?? 0,
+                speedBps: stats.self?.speedBps ?? 0,
+                bytes: stats.self?.bytes ?? 0,
+              });
+            },
+            onError: (err) => {
+              reportTest(from, { ok: false, ms: 0, speedBps: 0, bytes: 0, error: err });
+            },
           },
         });
+        break;
+      }
+      case "p2p:bidir_test_request": {
+        // { from_user_id, from_username, tag1, tag2 }：AB 互相打洞（v4.7.7）——
+        // 本机同时挂 answerer(tag1，接发起方 offer) 与发起 offerer(tag2，发起方挂起接)，
+        // 两条连接同时打洞、双向同时测速（验证"双方同时狂暴发包"的洞质量）。
+        const from = typeof evt.from_user_id === "string" ? evt.from_user_id : "";
+        if (!from) break;
+        const fromName = typeof evt.from_username === "string" ? evt.from_username : "";
+        const tag1 = typeof evt.tag1 === "string" && evt.tag1 ? evt.tag1 : "c1";
+        const tag2 = typeof evt.tag2 === "string" && evt.tag2 ? evt.tag2 : "c2";
+        console.warn("[MusicStore] 收到 P2P 互相打洞测试请求（AB 同时打）:", fromName || from);
+        const h1 = p2pReceive({
+          peerId: from,
+          role: "answerer",
+          mode: "duplex-test",
+          tag: tag1,
+          timeoutMs: 12_000,
+          callbacks: {
+            onDuplexComplete: (stats) => {
+              reportTest(from, {
+                ok: true,
+                ms: stats.self?.ms ?? 0,
+                speedBps: stats.self?.speedBps ?? 0,
+                bytes: stats.self?.bytes ?? 0,
+              });
+            },
+            onError: (err) => {
+              reportTest(from, { ok: false, ms: 0, speedBps: 0, bytes: 0, error: err });
+            },
+          },
+        });
+        const h2 = p2pSend({
+          peerId: from,
+          role: "offerer",
+          mode: "duplex-test",
+          tag: tag2,
+          timeoutMs: 12_000,
+          callbacks: {
+            onDuplexComplete: (stats) => {
+              reportTest(from, {
+                ok: true,
+                ms: stats.self?.ms ?? 0,
+                speedBps: stats.self?.speedBps ?? 0,
+                bytes: stats.self?.bytes ?? 0,
+              });
+            },
+            onError: (err) => {
+              reportTest(from, { ok: false, ms: 0, speedBps: 0, bytes: 0, error: err });
+            },
+          },
+        });
+        window.setTimeout(() => {
+          h1.close();
+          h2.close();
+        }, 25_000);
         break;
       }
       case "p2p:seed_request": {
@@ -1664,16 +1800,18 @@ export const useMusicStore = defineStore("music", () => {
         break;
       }
       case "p2p:reverse_transfer_request": {
-        // { from_user_id, song_id, version }：下载端通知本机挂起 reverse 传输
+        // { from_user_id, song_id, version, parallel }：下载端通知本机挂起 reverse 传输
         // （v4.7.5 反向打洞：下载端正常方向失败后作 offerer 反向发起，
         //  本机作 answerer 在收到的 DataChannel 上发数据）。音乐走 song_id；
         // 安装包分享走 version（seed.ts serveReverseInstaller 处理）。
+        // v4.7.7：parallel>1 时按段挂多条并行连接（绕开单连接 SCTP 流控窗口）。
         const from = typeof evt.from_user_id === "string" ? evt.from_user_id : "";
         const songId = typeof evt.song_id === "string" ? evt.song_id : "";
         const version = typeof evt.version === "string" ? evt.version : "";
+        const parallel = typeof evt.parallel === "number" ? evt.parallel : 1;
         if (!from) break;
         if (songId) {
-          void setupReverseServe(songId, from);
+          void setupReverseServe(songId, from, parallel);
         } else if (version) {
           serveReverseInstaller(evt);
         }

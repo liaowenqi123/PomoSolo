@@ -36,11 +36,32 @@ export interface P2PTransferCallbacks {
   onError?: (err: string) => void;
   /** WebRTC 建连成功（DataChannel 可传输；前端据此标记"P2P 直连中"） */
   onOpen?: () => void;
+  /** duplex-test 模式：一程测速完成（dir="self"=本机→对端，dir="peer"=对端→本机） */
+  onDirection?: (dir: "self" | "peer", stats: { bytes: number; ms: number; speedBps: number }) => void;
+  /** duplex-test 模式：双向全部完成 */
+  onDuplexComplete?: (stats: {
+    self: { bytes: number; ms: number; speedBps: number } | null;
+    peer: { bytes: number; ms: number; speedBps: number } | null;
+  }) => void;
 }
 
 export interface P2PStartOptions {
   /** 对端 user_id */
   peerId: string;
+  /**
+   * 同一对端并发多条连接时的区分标签（v4.7.7 测试工具"3 种打洞方式"用）：
+   * 信令 payload 携带，路由键变为 `peerId:tag`（默认空 = 单连接，向后完全兼容）。
+   * 如 AB 互相打洞时 A 同时建"本机 offerer"与"挂起收对端 offer"两条连接，
+   * 用不同 tag 区分，信令（offer/answer/ice）各自路由不错乱。
+   */
+  tag?: string;
+  /**
+   * 连接建立后的传输模式（v4.7.7 测试工具双向测速）：
+   * - 默认（不传）：offerer/持有端推数据（音乐/种子等既有逻辑）
+   * - "duplex-test"：双向测速——offerer 方先推一程，完成后发 duplex_switch，
+   *   对端再推一程，最后发 duplex_done 收尾。同一连接上测两个方向。
+   */
+  mode?: "duplex-test";
   /**
    * offerer = 发送端（发起 WebRTC + DataChannel，主动推数据）
    * answerer = 接收端（等待对端 offer，通过 ondatachannel 收数据）
@@ -57,8 +78,15 @@ export interface P2PStartOptions {
   sendChunk?: (index: number, totalChunks: number) => Promise<Uint8Array>;
   /** 发送端已知文件总字节数（接收端从 meta 获得） */
   totalBytes?: number;
-  /** 接收端落盘：收到第 index 片 */
-  onChunk?: (chunk: Uint8Array, index: number, totalChunks: number) => Promise<void>;
+  /**
+   * 该连接负责的**全局起始分片序号**（v4.7.7 多连接并行传输用，默认 0）：
+   * 文件按分片均分给 N 条并行连接，连接 k 负责全局 index ∈ [base, base+本段数)，
+   * 帧内 index 为局部序号（0..本段数-1），meta 携带 baseChunk 供接收端映射回全局
+   * index 落盘（接收端分片按全局 index 写，天然支持交错到达）。默认 0 = 整文件单连接。
+   */
+  baseChunk?: number;
+  /** 接收端落盘：收到第 index 片（并行传输时 index 为段内局部序号，baseChunk 为全局偏移） */
+  onChunk?: (chunk: Uint8Array, index: number, totalChunks: number, baseChunk?: number) => Promise<void>;
   /** STUN 服务器（获取 NAT 映射地址用）；空数组 = 只走 host 候选 */
   stunUrls?: string[];
   /** 单片字节数（默认 128KB） */
@@ -70,6 +98,12 @@ export interface P2PStartOptions {
   compress?: boolean;
   /** 建连超时（默认 8s，超时回调 onError 并关闭） */
   timeoutMs?: number;
+  /**
+   * 建连成功后"无数据进展"超时（默认 30s，v4.7.7）：每收/发一片重置，
+   * 超时无进展 → onError + cleanup。调用方可按场景缩短（音乐 15s，尽快重试/
+   * 回退），慢速但持续有数据到达的传输不会被误杀（每片都重置）。
+   */
+  progressTimeoutMs?: number;
   /** 信令发送（默认走 Tauri invoke p2p_signal；测试注入假实现） */
   signal?: (type: P2PSignalType, toUserId: string, payload: Record<string, unknown>) => Promise<void>;
   /** 诊断回调：输出 ICE 候选/状态变化（排障 P2P 打洞失败用，UI 可直接展示） */
@@ -91,8 +125,20 @@ const DEFAULT_STUN = [
 ];
 const DEFAULT_CHUNK_SIZE = 128 * 1024;
 const DEFAULT_TIMEOUT_MS = 8_000;
+/** 建连成功后"无数据进展"超时默认值（ms）：每收/发一片重置；超时无进展 → onError + cleanup */
+const PROGRESS_TIMEOUT_MS = 30_000;
 /** 压缩协商超时：hello 发出后对端（旧版）不回 hello-ack 的最大等待，随后按不压缩旧格式发送 */
 const COMPRESS_NEGOTIATE_TIMEOUT = 1_200;
+/**
+ * 发送端背压阈值（字节）：DataChannel 缓冲超过该值则暂停发送，等 bufferedamountlow
+ * 排空再发下一片。DataChannel 发送快于对端消费时 bufferedAmount 会持续增长，超过
+ * 实现上限后 `dc.send()` 抛 OperationError（Chromium 行为）——此前无 try/catch 时
+ * 异常被顶层 async 吞掉，发送端静默死亡、对端永久等待（v4.7.7 修复两个实测 bug 的根因：
+ * 种子下载 0 进展卡死 + reverse 传歌 2-5% 中断）。
+ */
+const SEND_BACKPRESSURE_BYTES = 512 * 1024;
+/** 背压等待上限（ms）：缓冲超阈值后最多等这么久；期间对端已死则由 progressTimer 兜底 */
+const BACKPRESSURE_WAIT_MS = 10_000;
 
 // ── 纯函数（协议编解码，便于单测）──
 
@@ -176,11 +222,26 @@ export interface ChunkMeta {
   chunkSize: number;
   /** 压缩传输标志（v4.6.4）：meta.compress=1 时数据帧为 index+标志+payload 格式 */
   compress?: boolean;
+  /** 并行传输（v4.7.7）：本连接负责的全局起始分片序号；缺省 0 = 整文件单连接 */
+  baseChunk?: number;
 }
 
 /** 构建 meta 控制消息（JSON 字符串）；compress=true 时带压缩标志（旧版对端解析忽略未知字段） */
-export function buildMeta(size: number, totalChunks: number, chunkSize: number, compress = false): string {
-  return JSON.stringify({ t: "meta", size, totalChunks, chunkSize, ...(compress ? { compress: 1 } : {}) });
+export function buildMeta(
+  size: number,
+  totalChunks: number,
+  chunkSize: number,
+  compress = false,
+  baseChunk = 0,
+): string {
+  return JSON.stringify({
+    t: "meta",
+    size,
+    totalChunks,
+    chunkSize,
+    ...(compress ? { compress: 1 } : {}),
+    ...(baseChunk > 0 ? { baseChunk } : {}),
+  });
 }
 
 /** 解析 meta 控制消息 */
@@ -188,7 +249,14 @@ export function parseMeta(text: string): ChunkMeta | null {
   try {
     const o = JSON.parse(text);
     if (o && o.t === "meta" && typeof o.size === "number" && typeof o.totalChunks === "number") {
-      return { size: o.size, totalChunks: o.totalChunks, chunkSize: o.chunkSize ?? 0, compress: o.compress === 1 };
+      return {
+        size: o.size,
+        totalChunks: o.totalChunks,
+        chunkSize: o.chunkSize ?? 0,
+        compress: o.compress === 1,
+        // 与 buildMeta 对称：baseChunk>0 才携带（缺省=单连接整文件，旧版对端无此字段）
+        ...(typeof o.baseChunk === "number" && o.baseChunk > 0 ? { baseChunk: o.baseChunk } : {}),
+      };
     }
   } catch {
     /* 非 meta 消息 */
@@ -198,7 +266,15 @@ export function parseMeta(text: string): ChunkMeta | null {
 
 // ── 连接注册表（handlePeerSignal 路由用）──
 
-/** 接收端挂起表：peerId → 等待对端 offer 的选项 */
+/**
+ * 连接路由键：`peerId:tag`（v4.7.7 同 peer 多连接）。
+ * tag 缺省为空 → key 就是 peerId，与历史行为完全一致（单连接场景不受影响）。
+ */
+function connKey(peerId: string, tag?: string): string {
+  return tag ? `${peerId}:${tag}` : peerId;
+}
+
+/** 接收端挂起表：connKey → 等待对端 offer 的选项 */
 const pendingReceivers = new Map<string, P2PStartOptions>();
 /**
  * 接收端挂起超时：peerId → 等待 offer 的时钟。
@@ -252,24 +328,25 @@ function createPeerConnection(opts: P2PStartOptions, callbacks: P2PTransferCallb
  * 调用方据此回退（否则 Promise 永不 resolve，UI 卡死）。
  */
 export function p2pReceive(opts: P2PStartOptions): P2PHandle {
-  const prev = pendingReceivers.get(opts.peerId);
-  if (prev) pendingReceivers.delete(opts.peerId);
-  pendingReceivers.set(opts.peerId, opts);
+  const key = connKey(opts.peerId, opts.tag);
+  const prev = pendingReceivers.get(key);
+  if (prev) pendingReceivers.delete(key);
+  pendingReceivers.set(key, opts);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const timer = window.setTimeout(() => {
     // 若 offer 已到达并进入 establishConnection，此处已被清理，不会误触发
-    if (pendingReceivers.delete(opts.peerId)) {
-      pendingReceiverTimers.delete(opts.peerId);
-      opts.callbacks?.onError?.(`等待对端发起连接超时（${opts.peerId}）`);
+    if (pendingReceivers.delete(key)) {
+      pendingReceiverTimers.delete(key);
+      opts.callbacks?.onError?.(`等待对端发起连接超时（${opts.peerId}${opts.tag ? `:${opts.tag}` : ""}）`);
     }
   }, timeoutMs);
-  pendingReceiverTimers.set(opts.peerId, timer);
+  pendingReceiverTimers.set(key, timer);
   return {
     close: () => {
-      const t = pendingReceiverTimers.get(opts.peerId);
+      const t = pendingReceiverTimers.get(key);
       if (t !== undefined) window.clearTimeout(t);
-      pendingReceiverTimers.delete(opts.peerId);
-      pendingReceivers.delete(opts.peerId);
+      pendingReceiverTimers.delete(key);
+      pendingReceivers.delete(key);
     },
   };
 }
@@ -293,6 +370,7 @@ function establishConnection(
   callbacks: P2PTransferCallbacks,
   incomingOffer?: RTCSessionDescriptionInit,
 ): PeerConnectionController {
+  const key = connKey(opts.peerId, opts.tag);
   const pc = createPeerConnection(opts, callbacks);
   const isOfferer = opts.role === "offerer";
   // v4.7.5 reverse 传输：数据发送方与协商发起方解耦。默认 sender="offerer"
@@ -311,6 +389,8 @@ function establishConnection(
   let totalBytes = opts.totalBytes ?? 0;
   let totalChunks = 0;
   let receivedBytes = 0;
+  /** 并行传输（v4.7.7）：本连接负责的全局起始分片序号（来自对端 meta.baseChunk） */
+  let chunkBase = 0;
   const startTime = Date.now();
   let ackTimer: ReturnType<typeof setTimeout> | null = null;
   // ── 压缩传输状态（v4.6.4）──
@@ -325,6 +405,26 @@ function establishConnection(
    *  v4.6.6：此时对端关闭通道 = 对端已收齐（回 ack 后正常 close），不再误报失败 */
   let allSent = false;
   let negotiateTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 传输"无进展"超时定时器（v4.7.7）：
+   *  建连成功后 timeoutTimer 已被清除，若数据因任何原因未到达/中断（发送端
+   *  send 异常、对端卡死等），此前会**永久等待**——下载端 UI 卡在"准备下载"
+   *  无进度不超时（实测 bug）。改为连接建立后启动、每收/发一片重置，
+   *  超时未完成 → onError + cleanup，由调用方回退。 */
+  let progressTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 连接建立后无任何数据进展的最大等待（ms）。18MB 安装包 256KB/片约 72 片，
+   *  正常 P2P 数秒内完成；30s 无进展可判定链路已死。调用方可传 progressTimeoutMs 缩短
+   *  （音乐 15s 尽快重试/回退）；慢速但持续有数据到达的传输每片重置，不会被误杀。 */
+  const progressTimeoutMs = opts.progressTimeoutMs ?? PROGRESS_TIMEOUT_MS;
+  function armProgressTimer() {
+    if (progressTimer) clearTimeout(progressTimer);
+    progressTimer = setTimeout(() => {
+      if (!completed) {
+        diagnose(`传输无进展超时（${progressTimeoutMs}ms 无数据）：received=${receivedBytes} total=${totalBytes} allSent=${allSent}`);
+        callbacks.onError?.(`P2P 传输超时（${opts.peerId}，无数据进展）`);
+        cleanup();
+      }
+    }, progressTimeoutMs);
+  }
   const timeoutTimer = setTimeout(() => {
     if (!completed && pc.connectionState !== "connected") {
       timedOut = true;
@@ -398,17 +498,22 @@ function establishConnection(
     clearTimeout(timeoutTimer);
     if (ackTimer) clearTimeout(ackTimer);
     if (negotiateTimer) clearTimeout(negotiateTimer);
+    if (progressTimer) clearTimeout(progressTimer);
     try {
       pc.close();
     } catch {
       /* 忽略 */
     }
-    liveConnections.delete(opts.peerId);
+    liveConnections.delete(key);
   }
 
   function onComplete() {
     if (completed) return;
     completed = true;
+    if (progressTimer) {
+      clearTimeout(progressTimer);
+      progressTimer = null;
+    }
     const ms = Date.now() - startTime;
     const speedBps = ms > 0 ? Math.round((receivedBytes * 8 * 1000) / ms) : 0;
     callbacks.onComplete?.({ bytes: receivedBytes, ms, speedBps });
@@ -423,9 +528,123 @@ function establishConnection(
     }
   }
 
+  // ── duplex-test 双向测速状态（v4.7.7 测试工具"3 种打洞方式 × 上行/下行"）──
+  // 同一连接上测两个方向：offerer 先推一程（self）→ 发 {"t":"duplex_switch"} →
+  // answerer 收到后推一程（peer）→ 发 {"t":"duplex_done"}。DataChannel ordered 保证
+  // meta/分片先于控制消息到达，方向切换无竞态。
+  const duplexMode = opts.mode === "duplex-test";
+  type SpeedStat = { bytes: number; ms: number; speedBps: number };
+  let duplexSelf: SpeedStat | null = null;
+  let duplexPeer: SpeedStat | null = null;
+  let duplexTotalBytes = 0;
+  let duplexTotalChunks = 0;
+  let duplexReceivedBytes = 0;
+  let duplexPeerStartedAt = 0;
+  /** switch 已发出（offerer）或已收到（answerer）：防止重复触发推数据 */
+  let duplexSwitched = false;
+  /** 双向全部完成（任一完成路径只结算一次） */
+  let duplexDone = false;
+
+  function duplexFinishSelf(ms: number, bytes: number): void {
+    if (duplexSelf) return;
+    duplexSelf = { bytes, ms, speedBps: ms > 0 ? Math.round((bytes * 8 * 1000) / ms) : 0 };
+    callbacks.onDirection?.("self", duplexSelf);
+  }
+  function duplexFinishPeer(ms: number, bytes: number): void {
+    if (duplexPeer) return;
+    duplexPeer = { bytes, ms, speedBps: ms > 0 ? Math.round((bytes * 8 * 1000) / ms) : 0 };
+    callbacks.onDirection?.("peer", duplexPeer);
+  }
+  function duplexComplete(): void {
+    if (duplexDone) return;
+    duplexDone = true;
+    // 复用 completed 标志：完成后通道关闭不再误报 onError（onclose/onerror 守卫）
+    completed = true;
+    if (progressTimer) {
+      clearTimeout(progressTimer);
+      progressTimer = null;
+    }
+    callbacks.onDuplexComplete?.({ self: duplexSelf, peer: duplexPeer });
+    setTimeout(cleanup, 500);
+  }
+
+  /** duplex-test：本机推一程测试数据（带背压；完成后记录 self 方向速率） */
+  async function duplexPush(): Promise<void> {
+    if (!dc || closed || duplexSelf) return;
+    const bytes = opts.totalBytes ?? 2 * 1024 * 1024;
+    const size = opts.chunkSize ?? DEFAULT_CHUNK_SIZE;
+    const chunks = Math.ceil(bytes / size);
+    const t0 = Date.now();
+    try {
+      dc.send(buildMeta(bytes, chunks, size, false));
+    } catch (e) {
+      callbacks.onError?.(`发送 meta 失败: ${String(e)}`);
+      cleanup();
+      return;
+    }
+    for (let i = 0; i < chunks; i++) {
+      if (closed || dc.readyState !== "open") {
+        callbacks.onError?.("P2P 通道中断");
+        cleanup();
+        return;
+      }
+      if (!(await sendWithBackpressure(encodeChunk(i, new Uint8Array(size))))) return;
+      armProgressTimer();
+    }
+    duplexFinishSelf(Date.now() - t0, bytes);
+  }
+
+  /** duplex-test：收到对端一帧（计进度；一程收齐记录 peer 方向速率） */
+  function duplexHandleBinary(raw: ArrayBuffer): void {
+    const bytes = new Uint8Array(raw);
+    const p = parseChunk(bytes);
+    if (duplexPeerStartedAt === 0) duplexPeerStartedAt = Date.now();
+    duplexReceivedBytes += p.data.length;
+    const percent =
+      duplexTotalBytes > 0 ? Math.min(100, Math.round((duplexReceivedBytes / duplexTotalBytes) * 100)) : 0;
+    callbacks.onProgress?.(duplexReceivedBytes, duplexTotalBytes, percent);
+    armProgressTimer();
+    if (duplexTotalChunks > 0 && p.index + 1 >= duplexTotalChunks) {
+      duplexFinishPeer(Date.now() - duplexPeerStartedAt, duplexReceivedBytes);
+      duplexTotalChunks = 0;
+      duplexReceivedBytes = 0;
+      duplexPeerStartedAt = 0;
+    }
+  }
+
+  /** duplex-test：offerer 推完一程 → 通知 answerer 开始推 */
+  function duplexSendSwitch(): void {
+    if (duplexSwitched) return;
+    duplexSwitched = true;
+    try {
+      dc?.send(JSON.stringify({ t: "duplex_switch" }));
+    } catch {
+      /* 通道已断则对端走超时/关闭兜底 */
+    }
+  }
+
   function wireChannel(channel: RTCDataChannel) {
     dc = channel;
+    // 背压阈值：bufferedAmount 低过该值触发 bufferedamountlow（发送端背压等待用）
+    try {
+      channel.bufferedAmountLowThreshold = SEND_BACKPRESSURE_BYTES;
+    } catch {
+      /* 旧内核不支持，忽略（背压退化为等满时 send 抛错 → 由 sendWithBackpressure 捕获） */
+    }
     channel.onopen = () => {
+      // 建连成功即启动"无进展超时"（此前建连后仅 offer 超时被清除、无任何兜底 →
+      // 数据因任何原因不到/中断时对端永久挂起，实测种子下载卡"准备下载"无进度）
+      armProgressTimer();
+      if (duplexMode) {
+        // duplex-test：offerer 先推一程（answerer 挂起收）→ 推完发 switch 交还发送权
+        if (isOfferer) {
+          void (async () => {
+            await duplexPush();
+            if (!closed && duplexSelf) duplexSendSwitch();
+          })();
+        }
+        return;
+      }
       // v4.7.5：发送端按 isSender 判定（原 isOfferer）——reverse 传输时持有端
       // 作 answerer 拿到 channel 后在 onopen 时 beginSend 推数据
       if (isSender) {
@@ -434,6 +653,42 @@ function establishConnection(
     };
     channel.onmessage = (e: MessageEvent) => {
       if (typeof e.data === "string") {
+        if (duplexMode) {
+          // duplex-test 控制消息：switch = 对端推完一程，轮到本机推；
+          // done = 对端推完且收尾（offerer 收到即双向完成）
+          if (e.data.includes('"t":"duplex_switch"')) {
+            if (!duplexSwitched) {
+              duplexSwitched = true;
+              void (async () => {
+                await duplexPush();
+                if (!closed && duplexSelf) {
+                  // 本机（answerer）推完 → 通知 offerer 收尾，双向完成
+                  try {
+                    dc?.send(JSON.stringify({ t: "duplex_done" }));
+                  } catch {
+                    /* 通道已断则忽略 */
+                  }
+                  duplexComplete();
+                }
+              })();
+            }
+            return;
+          }
+          if (e.data.includes('"t":"duplex_done"')) {
+            duplexComplete();
+            return;
+          }
+          const dmeta = parseMeta(e.data);
+          if (dmeta) {
+            duplexTotalBytes = dmeta.size;
+            duplexTotalChunks = dmeta.totalChunks;
+            duplexReceivedBytes = 0;
+            duplexPeerStartedAt = 0;
+            callbacks.onProgress?.(0, duplexTotalBytes, 0);
+            return;
+          }
+          return;
+        }
         if (isSender) {
           // 发送端：压缩协商回包（对端支持压缩 → 立即按压缩发；不支持 → 立即按不压缩发）+
           // 接收端收齐后的确认（发送端依赖它安全关闭，防丢尾包）
@@ -469,6 +724,7 @@ function establishConnection(
         if (meta) {
           totalBytes = meta.size;
           totalChunks = meta.totalChunks;
+          chunkBase = meta.baseChunk ?? 0;
           transferCompressed = meta.compress === true;
           if (transferCompressed) diagnose("压缩传输：对端启用分片压缩");
           callbacks.onProgress?.(0, totalBytes, 0);
@@ -477,6 +733,24 @@ function establishConnection(
         return;
       }
       // 二进制：ArrayBuffer / Buffer(ArrayBufferView) / Blob
+      if (duplexMode) {
+        if (e.data instanceof Blob) {
+          void e.data.arrayBuffer().then(duplexHandleBinary).catch(() => callbacks.onError?.("解析分片失败"));
+          return;
+        }
+        if (e.data instanceof ArrayBuffer) {
+          duplexHandleBinary(e.data);
+          return;
+        }
+        if (ArrayBuffer.isView(e.data)) {
+          const view = e.data as ArrayBufferView;
+          const copy = new Uint8Array(view.byteLength);
+          copy.set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
+          duplexHandleBinary(copy.buffer as ArrayBuffer);
+          return;
+        }
+        return;
+      }
       if (e.data instanceof Blob) {
         void e.data.arrayBuffer().then(handleBinary).catch(() => callbacks.onError?.("解析分片失败"));
         return;
@@ -536,12 +810,14 @@ function establishConnection(
     const percent = totalBytes > 0 ? Math.min(100, Math.round((receivedBytes / totalBytes) * 100)) : 0;
     callbacks.onProgress?.(receivedBytes, totalBytes, percent);
     try {
-      await opts.onChunk?.(data, index, totalChunks);
+      await opts.onChunk?.(data, index, totalChunks, chunkBase);
     } catch {
       callbacks.onError?.("接收分片落盘失败");
       cleanup();
       return;
     }
+    // 每成功落盘一片重置"无进展超时"（持续有数据到达 = 传输正常）
+    armProgressTimer();
     if (totalChunks > 0 && index + 1 >= totalChunks) {
       // 接收端收齐：先回 ack（发送端等它确认后才安全关闭，防丢尾包），再完成
       try {
@@ -574,6 +850,45 @@ function establishConnection(
     }
   }
 
+  /**
+   * 发送一片数据（带背压，v4.7.7）：
+   * - 缓冲超过阈值 → 先等 bufferedamountlow 排空再发（对端消费慢时保护 dc.send，
+   *   避免缓冲满抛 OperationError → 无 try/catch 时发送端静默死亡、对端永久等待）
+   * - 任何 send 异常 → onError + cleanup（发送端不静默死亡，对端可及时回退）
+   * 返回 false 表示失败/已关闭，调用方应停止发送。
+   */
+  async function sendWithBackpressure(buf: Uint8Array<ArrayBuffer>): Promise<boolean> {
+    const ch = dc;
+    if (!ch || closed) return false;
+    try {
+      if (ch.bufferedAmount > SEND_BACKPRESSURE_BYTES && ch.readyState === "open") {
+        await new Promise<void>((resolve) => {
+          let settled = false;
+          let waitTimer: ReturnType<typeof setTimeout> | null = null;
+          const done = () => {
+            if (settled) return;
+            settled = true;
+            if (waitTimer) clearTimeout(waitTimer);
+            ch.removeEventListener("bufferedamountlow", done);
+            resolve();
+          };
+          waitTimer = setTimeout(done, BACKPRESSURE_WAIT_MS);
+          ch.addEventListener("bufferedamountlow", done, { once: true });
+          // 竞态：注册监听前缓冲已排空 → 立即继续，不等事件（否则空等 BACKPRESSURE_WAIT_MS）
+          if (ch.bufferedAmount <= SEND_BACKPRESSURE_BYTES) done();
+        });
+        // 缓冲被对端消费 = 传输在进展，重置无进展超时
+        armProgressTimer();
+      }
+      ch.send(buf);
+      return true;
+    } catch (e) {
+      callbacks.onError?.(`发送分片失败: ${String(e)}`);
+      cleanup();
+      return false;
+    }
+  }
+
   async function sendFile(useCompress: boolean) {
     if (!dc || completed || sendStarted) return;
     sendStarted = true;
@@ -584,7 +899,14 @@ function establishConnection(
       return;
     }
     totalChunks = Math.ceil(opts.totalBytes / chunkSize);
-    dc.send(buildMeta(opts.totalBytes, totalChunks, chunkSize, useCompress));
+    try {
+      dc.send(buildMeta(opts.totalBytes, totalChunks, chunkSize, useCompress, opts.baseChunk ?? 0));
+    } catch (e) {
+      // meta 发送失败（通道已断/未就绪）→ 明确上报，不静默退出
+      callbacks.onError?.(`发送 meta 失败: ${String(e)}`);
+      cleanup();
+      return;
+    }
     if (useCompress) diagnose("压缩传输：已启用（协商成功）");
     receivedBytes = opts.totalBytes; // 发送端进度按总量直接完成
     for (let i = 0; i < totalChunks; i++) {
@@ -601,14 +923,18 @@ function establishConnection(
         cleanup();
         return;
       }
+      let frame: Uint8Array<ArrayBuffer>;
       if (useCompress) {
         const comp = await compressChunk(data);
         // 压缩后反而更大（已压缩格式如 MP3/FLAC）→ 发原片，保证压缩不劣于不压缩
         const ok = comp.length < data.length;
-        dc.send(encodeChunkC(i, ok ? comp : data, ok));
+        frame = encodeChunkC(i, ok ? comp : data, ok);
       } else {
-        dc.send(encodeChunk(i, data));
+        frame = encodeChunk(i, data);
       }
+      if (!(await sendWithBackpressure(frame))) return;
+      // 每发出一片重置"无进展超时"
+      armProgressTimer();
     }
     // 全部分片已发出：此后对端关闭通道视为"对端已收齐正常完成"（onclose/onerror 兜底判定成功）
     allSent = true;
@@ -671,7 +997,7 @@ function establishConnection(
       const c = e.candidate;
       diagLocal.push(`本地:${c.type}:${c.protocol}:${c.address}:${c.port}`);
       diagnose(`收集候选 ${c.type} ${c.protocol} ${c.address}:${c.port}`);
-      void signal("peer:ice", opts.peerId, { candidate: e.candidate.toJSON() }).catch(() => {});
+      void signal("peer:ice", opts.peerId, { candidate: e.candidate.toJSON(), tag: opts.tag }).catch(() => {});
     }
   };
   pc.onconnectionstatechange = () => {
@@ -688,7 +1014,7 @@ function establishConnection(
     diagnose(`ICE 状态=${pc.iceConnectionState}`);
   };
 
-  liveConnections.set(opts.peerId, controller);
+  liveConnections.set(key, controller);
 
   if (isOfferer) {
     const channel = pc.createDataChannel("p2p", { ordered: true });
@@ -697,7 +1023,7 @@ function establishConnection(
       try {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
-        await signal("peer:offer", opts.peerId, { sdp: pc.localDescription });
+        await signal("peer:offer", opts.peerId, { sdp: pc.localDescription, tag: opts.tag });
       } catch (e) {
         callbacks.onError?.(`创建 offer 失败: ${String(e)}`);
         cleanup();
@@ -711,7 +1037,7 @@ function establishConnection(
         await flushBufferedCandidates();
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        await signal("peer:answer", opts.peerId, { sdp: pc.localDescription });
+        await signal("peer:answer", opts.peerId, { sdp: pc.localDescription, tag: opts.tag });
       } catch (e) {
         callbacks.onError?.(`创建 answer 失败: ${String(e)}`);
         cleanup();
@@ -732,43 +1058,46 @@ export function handlePeerSignal(evt: Record<string, unknown>): void {
   const type = evt.type as P2PSignalType;
   const from = typeof evt.from_user_id === "string" ? evt.from_user_id : "";
   if (!from) return;
+  const tag = typeof evt.tag === "string" && evt.tag ? evt.tag : undefined;
+  const key = connKey(from, tag);
   const sdp = evt.sdp as RTCSessionDescriptionInit | undefined;
   const candidate = evt.candidate as RTCIceCandidateInit | undefined;
 
   switch (type) {
     case "peer:offer": {
-      // 优先精确匹配发起者；否则回退到"当前唯一挂起的接收"。
+      // 优先精确匹配（发起者 + tag）；否则回退到"当前唯一挂起的接收"。
       // 服务器选持有者优先 DJ 但不保证是 DJ（_pick_song_holder 可能选任一成员），
       // 此时 offer 的 from_user_id ≠ 听众挂起的 djUserId → 精确匹配不到 → 用唯一挂起兜底，
       // 否则 offer 被忽略、8s 后回退服务器中转（v4.6.0-beta 实测 P2P 形同虚设的根因之一）。
-      let opts = pendingReceivers.get(from);
+      let opts = pendingReceivers.get(key);
       if (!opts && pendingReceivers.size === 1) {
         const only = pendingReceivers.values().next().value;
         if (only) {
           opts = only;
-          pendingReceivers.delete(only.peerId);
+          const onlyKey = connKey(only.peerId, only.tag);
+          pendingReceivers.delete(onlyKey);
           // 清理 fallback 接收的"等待 offer"超时
-          const pt = pendingReceiverTimers.get(only.peerId);
+          const pt = pendingReceiverTimers.get(onlyKey);
           if (pt !== undefined) window.clearTimeout(pt);
-          pendingReceiverTimers.delete(only.peerId);
+          pendingReceiverTimers.delete(onlyKey);
         }
       }
       if (!opts) {
-        console.warn("[P2P] 收到 peer:offer 但无挂起接收，忽略:", from);
+        console.warn("[P2P] 收到 peer:offer 但无挂起接收，忽略:", key);
         return; // 没有挂起的接收 → 忽略
       }
-      pendingReceivers.delete(from);
+      pendingReceivers.delete(key);
       // offer 已到达 → 清理"等待 offer"超时（防误触发 onError）
-      const pt = pendingReceiverTimers.get(from);
+      const pt = pendingReceiverTimers.get(key);
       if (pt !== undefined) window.clearTimeout(pt);
-      pendingReceiverTimers.delete(from);
+      pendingReceiverTimers.delete(key);
       try {
         const controller = establishConnection(opts, opts.callbacks ?? {}, sdp);
-        liveConnections.set(from, controller);
+        liveConnections.set(key, controller);
         // 注入早于 offer 到达的候选（trickle ICE 竞态修复：否则关键 srflx 候选丢失）
-        const buffered = earlyCandidates.get(from);
+        const buffered = earlyCandidates.get(key);
         if (buffered && buffered.length) {
-          earlyCandidates.delete(from);
+          earlyCandidates.delete(key);
           for (const c of buffered) void controller.onIce(c);
         }
       } catch (e) {
@@ -777,25 +1106,25 @@ export function handlePeerSignal(evt: Record<string, unknown>): void {
       break;
     }
     case "peer:answer": {
-      void liveConnections.get(from)?.onAnswer(sdp);
+      void liveConnections.get(key)?.onAnswer(sdp);
       break;
     }
     case "peer:ice": {
-      const conn = liveConnections.get(from);
+      const conn = liveConnections.get(key);
       if (conn) {
         void conn.onIce(candidate);
       } else if (candidate) {
         // 连接尚未建立（offer 可能还在路上）→ 缓冲，offer 建连后统一注入
-        const arr = earlyCandidates.get(from) ?? [];
+        const arr = earlyCandidates.get(key) ?? [];
         arr.push(candidate);
-        earlyCandidates.set(from, arr);
+        earlyCandidates.set(key, arr);
       }
       break;
     }
     case "peer:bye": {
-      liveConnections.get(from)?.close();
-      liveConnections.delete(from);
-      earlyCandidates.delete(from);
+      liveConnections.get(key)?.close();
+      liveConnections.delete(key);
+      earlyCandidates.delete(key);
       break;
     }
     default:

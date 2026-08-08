@@ -1,24 +1,43 @@
 <script setup lang="ts">
 /**
- * P2P 连通性测试工具（Phase 1.2+）
+ * P2P 连通性测试工具（Phase 1.2+，v4.7.7 升级为"3 种打洞方式 × 双向测速"）
  *
- * 列出在线用户 → 选择目标发起 WebRTC 直连测试（跨 NAT 打洞 + 2MB 测速）。
- * - 发起方：p2pStartTest（offerer 推测试数据）
- * - 目标端：全局自动接受（music store 监听 p2p:test_request），无需打开本面板
- * - 结果：本地视角（建连/测速）+ 对方回传确认（p2p:test_result）
+ * 选择一位在线用户，一次点击跑 6 项测试（3 打洞方式 × 每管道上行/下行）：
+ *  1. A 打洞：本机（A）作 offerer 打通 → 测 A→B（上行）+ B→A（下行）
+ *  2. B 打洞：对端（B）作 offerer 打通 → 测 B→A（下行）+ A→B（上行）
+ *  3. AB 互相打洞：两端**同时**各打一条连接（A offerer + B offerer）→ 双向同时测
+ * 目标端自动配合（music store 监听 p2p:*_test_request），无需打开本面板。
+ * 结论：对比三种打洞方式的"双向总吞吐"，标记洞质量最好的一种。
  */
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useAuthStore } from "@/stores/auth";
-import { p2pOnline, p2pTestRequest, p2pReverseTestRequest, type P2POnlineUser } from "@/api/p2pTest";
-import { p2pStartTest, setP2PTestResultHandler, p2pReceive } from "@/p2p";
+import {
+  p2pOnline,
+  p2pTestRequest,
+  p2pReverseTestRequest,
+  p2pBidirTestRequest,
+  type P2POnlineUser,
+} from "@/api/p2pTest";
+import { p2pSend, p2pReceive, setP2PTestResultHandler } from "@/p2p";
 
-interface TestResult {
+/** 单个方向（上行/下行）测速结果 */
+interface DirStat {
   ok: boolean;
+  speedBps: number;
+  ms: number;
+  error: string;
+}
+/** 一种打洞方式的管道测试结果：up=A→B，down=B→A */
+interface PunchResult {
+  punchOk: boolean;
+  up: DirStat;
+  down: DirStat;
+}
+/** duplex 一程的速率统计（与 p2p 层 onDuplexComplete 的 stats 对应） */
+interface SpeedStat {
+  bytes: number;
   ms: number;
   speedBps: number;
-  bytes: number;
-  error: string;
-  label: string;
 }
 
 const auth = useAuthStore();
@@ -32,8 +51,22 @@ const loadError = ref("");
 const testing = ref<P2POnlineUser | null>(null);
 const progress = ref(0);
 const diagnostics = ref<string[]>([]);
-const localResult = ref<TestResult | null>(null);
-const remoteResult = ref<TestResult | null>(null);
+/** 当前阶段文案（进度展示） */
+const currentStage = ref("");
+/** 3 种打洞方式的结果 */
+const punchResults = ref<{ a: PunchResult; b: PunchResult; c: PunchResult }>({
+  a: { punchOk: false, up: emptyDir(), down: emptyDir() },
+  b: { punchOk: false, up: emptyDir(), down: emptyDir() },
+  c: { punchOk: false, up: emptyDir(), down: emptyDir() },
+});
+/** 目标端回传的确认（对方视角速率，可选展示） */
+const remoteResult = ref<DirStat | null>(null);
+/** 全部 6 项是否已出结果（用于展示结论） */
+const allDone = ref(false);
+
+/** 测试数据量：2MB/程（与旧版一致，够测速） */
+const TEST_BYTES = 2 * 1024 * 1024;
+const TEST_CHUNK = 64 * 1024;
 
 /** 在线用户 ID 短显（前 8 位）；字段缺失时容错，避免渲染崩溃 */
 function shortId(id: string | undefined): string {
@@ -45,6 +78,10 @@ function fmtSpeed(bps: number): string {
   if (bps >= 1024 * 1024) return `${(bps / 1024 / 1024).toFixed(2)} MB/s`;
   if (bps >= 1024) return `${(bps / 1024).toFixed(1)} KB/s`;
   return `${bps} B/s`;
+}
+
+function emptyDir(): DirStat {
+  return { ok: false, speedBps: 0, ms: 0, error: "" };
 }
 
 /** 一键复制诊断日志（全局 user-select:none，鼠标选中不便 → 提供复制按钮） */
@@ -85,116 +122,149 @@ async function refresh(): Promise<void> {
   }
 }
 
-/** 测试阶段：正向（本机 offerer）/ 反向（对端 offerer） */
-type TestPhase = "normal" | "reverse";
-let currentPhase: TestPhase = "normal";
-
-/** 记录本次测试最终结果（只写一次，双向容错判成功即定） */
-function setFinalResult(r: TestResult): void {
-  localResult.value = r;
-  testing.value = null;
+function dirFrom(s: SpeedStat): DirStat {
+  return { ok: true, speedBps: s.speedBps, ms: s.ms, error: "" };
 }
-
-function finishOk(stats: { ms: number; speedBps: number; bytes: number }, label: string): void {
-  setFinalResult({
-    ok: true,
-    ms: stats.ms,
-    speedBps: stats.speedBps,
-    bytes: stats.bytes,
-    error: "",
-    label,
-  });
-}
-
-function fail(err: string, label: string): void {
-  setFinalResult({
-    ok: false,
-    ms: 0,
-    speedBps: 0,
-    bytes: 0,
-    error: err,
-    label,
-  });
+function dirFail(err: string): DirStat {
+  return { ok: false, speedBps: 0, ms: 0, error: err };
 }
 
 /**
- * 发起单方向测试（v4.7.3 双向打洞容错）：
- * 1. normal：本机作为 offerer（p2pTestRequest 通知对端挂起接收 + p2pStartTest 主动推数据）
- * 2. 失败 → reverse：请求对端作为 offerer 反向推（p2pReverseTestRequest + 本机 p2pReceive 挂起接收）
- * 两边都失败才判失败；任一边成功即成功（NAT 打洞方向不对称，换方向常能打通）。
+ * 一次 duplex 双向测速（同一连接上测上行+下行）：
+ * - role="offerer"：本机打洞，先推（self）再收（peer）
+ * - role="answerer"：对端打洞，先收（peer）再推（self）
+ * offerer 延迟 400ms 发起，给对端收到请求并挂起的时间（防 offer 早到被丢弃）。
  */
-function runDirection(u: P2POnlineUser): void {
-  // 守卫：结果已定（双向中任一方成功）后，迟到的另一方向回调不得再覆盖/重复尝试
-  if (!testing.value) return;
-  const phase = currentPhase;
-  if (phase === "normal") {
-    // 正向：本机 offerer，主动推 2MB 测试数据
-    void p2pTestRequest(u.userId).catch((e) => {
-      console.warn("[P2PTest] 发送测试请求失败:", e);
-      // 请求都发不出去 → 尝试反向（对端可能在线但服务器暂未响应）
-      diagnostics.value.push("正向测试请求发送失败，尝试反向打洞");
-      currentPhase = "reverse";
-      runDirection(u);
-    });
-    p2pStartTest(u.userId, {
-      onDiagnose: (info) => {
-        diagnostics.value.push(info);
-      },
-      onOpen: () => {
-        // 建连成功（DataChannel 可传）——但不代表测速完成，等 onComplete
-      },
-      onProgress: (p) => {
-        progress.value = p;
-      },
-      onComplete: (stats) => {
-        finishOk(stats, "P2P 直连打通，2MB 测速完成（本机发起方向）");
-      },
-      onError: (err) => {
-        diagnostics.value.push(`正向打洞失败：${err}，尝试反向打洞`);
-        currentPhase = "reverse";
-        runDirection(u);
-      },
-    });
-  } else {
-    // 反向：本机 answerer，挂起等待对端 offer 推数据
-    diagnostics.value.push("反向打洞：请求对端作为发起方推测试数据…");
-    void p2pReverseTestRequest(u.userId).catch((e) => {
-      console.warn("[P2PTest] 发送反向测试请求失败:", e);
-      fail(String(e), "双向打洞均失败");
-    });
-    p2pReceive({
-      peerId: u.userId,
-      role: "answerer",
-      timeoutMs: 12_000,
-      onDiagnose: (info) => {
-        diagnostics.value.push(`[反向] ${info}`);
-      },
-      onChunk: async () => {},
-      callbacks: {
-        onProgress: (_received, _total, percent) => {
-          progress.value = percent;
+function duplexOnce(
+  u: P2POnlineUser,
+  cfg: { role: "offerer" | "answerer"; tag: string },
+): Promise<{ ok: true; self: SpeedStat; peer: SpeedStat } | { ok: false; error: string }> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (v: { ok: true; self: SpeedStat; peer: SpeedStat } | { ok: false; error: string }) => {
+      if (settled) return;
+      settled = true;
+      resolve(v);
+    };
+    const start = () => {
+      const opts = {
+        peerId: u.userId,
+        role: cfg.role,
+        mode: "duplex-test" as const,
+        tag: cfg.tag,
+        timeoutMs: 15_000,
+        bytes: TEST_BYTES,
+        chunkSize: TEST_CHUNK,
+        onDiagnose: (info: string) => {
+          diagnostics.value.push(`[${cfg.tag}] ${info}`);
         },
-        onComplete: (stats) => {
-          finishOk(stats, "P2P 直连打通，2MB 测速完成（对端发起方向）");
+        callbacks: {
+          onProgress: (p: number) => {
+            progress.value = p;
+          },
+          onDuplexComplete: (stats: { self: SpeedStat | null; peer: SpeedStat | null }) => {
+            if (stats.self && stats.peer) {
+              finish({ ok: true, self: stats.self, peer: stats.peer });
+            } else {
+              finish({ ok: false, error: "双向测速未完整完成" });
+            }
+          },
+          onError: (err: string) => {
+            finish({ ok: false, error: err });
+          },
         },
-        onError: (err) => {
-          fail(err, "双向打洞均失败（对端发起方向也失败）");
-        },
-      },
-    });
-  }
+      };
+      if (cfg.role === "offerer") p2pSend(opts);
+      else p2pReceive(opts);
+    };
+    if (cfg.role === "offerer") {
+      // 给对端收到 test_request / bidir_test_request 并挂起的时间（offer 竞态防护）
+      window.setTimeout(start, 400);
+    } else {
+      start();
+    }
+  });
 }
 
-function runTest(u: P2POnlineUser): void {
+async function runTest(u: P2POnlineUser): Promise<void> {
   if (testing.value) return;
   testing.value = u;
   progress.value = 0;
   diagnostics.value = [];
-  localResult.value = null;
+  allDone.value = false;
   remoteResult.value = null;
-  currentPhase = "normal";
-  runDirection(u);
+  punchResults.value = {
+    a: { punchOk: false, up: emptyDir(), down: emptyDir() },
+    b: { punchOk: false, up: emptyDir(), down: emptyDir() },
+    c: { punchOk: false, up: emptyDir(), down: emptyDir() },
+  };
+
+  // ── 阶段 1：A 打洞（本机 A 作 offerer，tag="a"）──
+  // self = A→B（上行），peer = B→A（下行）
+  currentStage.value = "A 打洞（1/3）";
+  await p2pTestRequest(u.userId, "a").catch((e) => {
+    console.warn("[P2PTest] 发送 A 打洞请求失败:", e);
+  });
+  const r1 = await duplexOnce(u, { role: "offerer", tag: "a" });
+  punchResults.value.a = {
+    punchOk: r1.ok,
+    up: r1.ok ? dirFrom(r1.self) : dirFail(r1.error),
+    down: r1.ok ? dirFrom(r1.peer) : dirFail(r1.error),
+  };
+  if (!r1.ok) diagnostics.value.push(`[A 打洞] 失败：${r1.error}`);
+
+  // ── 阶段 2：B 打洞（对端 B 作 offerer，tag="b"）──
+  // self = A→B（上行，本机后推），peer = B→A（下行，对端先推）
+  currentStage.value = "B 打洞（2/3）";
+  await p2pReverseTestRequest(u.userId, "b").catch((e) => {
+    console.warn("[P2PTest] 发送 B 打洞请求失败:", e);
+  });
+  const r2 = await duplexOnce(u, { role: "answerer", tag: "b" });
+  punchResults.value.b = {
+    punchOk: r2.ok,
+    up: r2.ok ? dirFrom(r2.self) : dirFail(r2.error),
+    down: r2.ok ? dirFrom(r2.peer) : dirFail(r2.error),
+  };
+  if (!r2.ok) diagnostics.value.push(`[B 打洞] 失败：${r2.error}`);
+
+  // ── 阶段 3：AB 互相打洞（两条连接同时打，tag="c1"/"c2"）──
+  // C1：本机 offerer → self = A→B（上行）；C2：本机 answerer → peer = B→A（下行）
+  currentStage.value = "AB 互相打洞（3/3）";
+  await p2pBidirTestRequest(u.userId, "c1", "c2").catch((e) => {
+    console.warn("[P2PTest] 发送 AB 互相打洞请求失败:", e);
+  });
+  const [r3a, r3b] = await Promise.all([
+    duplexOnce(u, { role: "offerer", tag: "c1" }),
+    duplexOnce(u, { role: "answerer", tag: "c2" }),
+  ]);
+  punchResults.value.c = {
+    punchOk: r3a.ok || r3b.ok,
+    up: r3a.ok ? dirFrom(r3a.self) : r3b.ok ? dirFrom(r3b.self) : dirFail(`C1:${r3a.error}`),
+    down: r3b.ok ? dirFrom(r3b.peer) : r3a.ok ? dirFrom(r3a.peer) : dirFail(`C2:${r3b.error}`),
+  };
+  if (!r3a.ok) diagnostics.value.push(`[AB-C1] 失败：${r3a.error}`);
+  if (!r3b.ok) diagnostics.value.push(`[AB-C2] 失败：${r3b.error}`);
+
+  currentStage.value = "全部完成";
+  allDone.value = true;
+  testing.value = null;
 }
+
+/** 结论：三种打洞方式双向总吞吐对比，标记质量最高的一种 */
+const conclusion = computed(() => {
+  if (!allDone.value) return "";
+  const rows = [
+    { key: "a", label: "A 打洞", total: punchResults.value.a.up.speedBps + punchResults.value.a.down.speedBps, ok: punchResults.value.a.punchOk },
+    { key: "b", label: "B 打洞", total: punchResults.value.b.up.speedBps + punchResults.value.b.down.speedBps, ok: punchResults.value.b.punchOk },
+    { key: "c", label: "AB 互相打洞", total: punchResults.value.c.up.speedBps + punchResults.value.c.down.speedBps, ok: punchResults.value.c.punchOk },
+  ];
+  const okRows = rows.filter((r) => r.ok);
+  if (!okRows.length) return "三种打洞方式均未能打通";
+  const best = okRows.reduce((a, b) => (b.total > a.total ? b : a));
+  const multi = okRows.filter((r) => r.total > 0).length;
+  if (multi < 2) return `仅 ${best.label} 打通（双向总 ${fmtSpeed(best.total)}）`;
+  return `双向总吞吐最高：${best.label}（${fmtSpeed(best.total)}）${best.key === "c" ? "，验证 AB 同时打洞的洞质量" : ""}`;
+});
 
 function goLogin(): void {
   emit("login");
@@ -202,15 +272,13 @@ function goLogin(): void {
 
 onMounted(() => {
   void refresh();
-  // 发起方注册结果处理器：目标端回传的确认结果
+  // 目标端回传的确认结果（对方视角速率，展示为参考）
   setP2PTestResultHandler((r) => {
     remoteResult.value = {
       ok: r.ok,
-      ms: r.ms,
       speedBps: r.speedBps,
-      bytes: r.bytes,
+      ms: r.ms,
       error: r.error ?? "",
-      label: r.ok ? "对方已确认打通" : `对方侧失败：${r.error ?? "未知错误"}`,
     };
   });
 });
@@ -229,7 +297,8 @@ onUnmounted(() => {
       </button>
     </div>
     <p class="p2p-test__desc">
-      选择一位在线用户发起 WebRTC 直连测试（跨 NAT 打洞 + 2MB 测速）。对方会自动接受，无需操作。
+      选择一位在线用户，一键测试 <b>3 种打洞方式 × 双向测速 = 6 项</b>：A 打洞、B 打洞、AB 互相打洞，
+      每种管道分别测上行（A→B）与下行（B→A）。对方会自动配合，无需操作。
       <span class="p2p-test__warn">注意：两台设备请用不同账号登录——同一账号会互相挤下线，导致列表加载失败。</span>
     </p>
 
@@ -265,46 +334,52 @@ onUnmounted(() => {
         {{ loadError || "暂无在线用户（需要其他客户端登录并在线）" }}
       </div>
 
-      <!-- 进度 / 本地结果 -->
+      <!-- 进度 -->
       <div v-if="testing" class="p2p-test__status">
         <div class="p2p-test__status-line">
-          正在测试 <b>{{ testing.username || shortId(testing.userId) }}</b>…
+          正在测试 <b>{{ testing.username || shortId(testing.userId) }}</b> — {{ currentStage }}
           <span v-if="progress > 0">{{ progress }}%</span>
         </div>
       </div>
 
-      <div
-        v-if="localResult"
-        class="p2p-test__result"
-        :class="localResult.ok ? 'p2p-test__result--ok' : 'p2p-test__result--fail'"
-      >
-        <div class="p2p-test__result-label">
-          {{ localResult.label }}
+      <!-- 3×2 结果矩阵 -->
+      <div v-if="allDone" class="p2p-test__matrix">
+        <div class="p2p-test__matrix-head">
+          <span class="p2p-test__matrix-cell p2p-test__matrix-label">打洞方式</span>
+          <span class="p2p-test__matrix-cell">上行 A→B</span>
+          <span class="p2p-test__matrix-cell">下行 B→A</span>
         </div>
-        <template v-if="localResult.ok">
-          <div class="p2p-test__result-row">
-            <span>耗时</span><b>{{ localResult.ms }} ms</b>
-          </div>
-          <div class="p2p-test__result-row">
-            <span>速率</span><b>{{ fmtSpeed(localResult.speedBps) }}</b>
-          </div>
-          <div class="p2p-test__result-row">
-            <span>数据</span><b>{{ (localResult.bytes / 1024 / 1024).toFixed(2) }} MB</b>
-          </div>
-        </template>
-        <div v-else class="p2p-test__result-error">{{ localResult.error }}</div>
+        <div
+          v-for="row in [
+            { key: 'a', label: 'A 打洞', p: punchResults.a },
+            { key: 'b', label: 'B 打洞', p: punchResults.b },
+            { key: 'c', label: 'AB 互相打洞', p: punchResults.c },
+          ]"
+          :key="row.key"
+          class="p2p-test__matrix-row"
+          :class="row.p.punchOk ? 'p2p-test__matrix-row--ok' : 'p2p-test__matrix-row--fail'"
+        >
+          <span class="p2p-test__matrix-cell p2p-test__matrix-label">{{ row.label }}</span>
+          <span class="p2p-test__matrix-cell">
+            <template v-if="row.p.up.ok">{{ fmtSpeed(row.p.up.speedBps) }}</template>
+            <template v-else>—</template>
+          </span>
+          <span class="p2p-test__matrix-cell">
+            <template v-if="row.p.down.ok">{{ fmtSpeed(row.p.down.speedBps) }}</template>
+            <template v-else>—</template>
+          </span>
+        </div>
+        <div v-if="conclusion" class="p2p-test__conclusion">{{ conclusion }}</div>
       </div>
 
       <!-- 对方回传确认 -->
-      <div
-        v-if="remoteResult"
-        class="p2p-test__result"
-        :class="remoteResult.ok ? 'p2p-test__result--ok' : 'p2p-test__result--fail'"
-      >
-        <div class="p2p-test__result-label">{{ remoteResult.label }}</div>
+      <div v-if="remoteResult" class="p2p-test__result p2p-test__result--info">
+        <div class="p2p-test__result-label">
+          {{ remoteResult.ok ? "对方已确认打通" : "对方侧失败" }}
+        </div>
         <template v-if="remoteResult.ok">
           <div class="p2p-test__result-row">
-            <span>对方速率</span><b>{{ fmtSpeed(remoteResult.speedBps) }}</b>
+            <span>对方视角速率</span><b>{{ fmtSpeed(remoteResult.speedBps) }}</b>
           </div>
         </template>
         <div v-else class="p2p-test__result-error">{{ remoteResult.error }}</div>
@@ -367,7 +442,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 260px;
+  max-height: 220px;
   overflow-y: auto;
 }
 .p2p-test__user {
@@ -434,6 +509,45 @@ onUnmounted(() => {
   gap: 6px;
   align-items: center;
 }
+.p2p-test__matrix {
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+.p2p-test__matrix-head,
+.p2p-test__matrix-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+}
+.p2p-test__matrix-head {
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.6);
+}
+.p2p-test__matrix-cell {
+  padding: 7px 10px;
+}
+.p2p-test__matrix-label {
+  font-weight: 500;
+}
+.p2p-test__matrix-row {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.p2p-test__matrix-row--ok {
+  background: rgba(52, 199, 89, 0.08);
+}
+.p2p-test__matrix-row--fail {
+  background: rgba(255, 59, 48, 0.08);
+  opacity: 0.8;
+}
+.p2p-test__conclusion {
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 8px 10px;
+  font-weight: 600;
+  background: rgba(79, 156, 249, 0.12);
+  color: #7fb4ff;
+}
 .p2p-test__result {
   border-radius: 8px;
   padding: 10px 12px;
@@ -441,13 +555,9 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 6px;
 }
-.p2p-test__result--ok {
-  background: rgba(52, 199, 89, 0.12);
-  border: 1px solid rgba(52, 199, 89, 0.4);
-}
-.p2p-test__result--fail {
-  background: rgba(255, 59, 48, 0.1);
-  border: 1px solid rgba(255, 59, 48, 0.4);
+.p2p-test__result--info {
+  background: rgba(255, 184, 77, 0.1);
+  border: 1px solid rgba(255, 184, 77, 0.35);
 }
 .p2p-test__result-label {
   font-weight: 600;
@@ -455,9 +565,6 @@ onUnmounted(() => {
 .p2p-test__result-row {
   display: flex;
   justify-content: space-between;
-  color: #f0f0f0;
-}
-.p2p-test__result-label {
   color: #f0f0f0;
 }
 .p2p-test__result-error {
