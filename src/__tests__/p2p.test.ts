@@ -424,4 +424,125 @@ describe("p2p 信令路由", () => {
     // 收齐后回 ack（发送端等它安全关闭）
     expect(sent.some((d) => typeof d === "string" && d.includes('"t":"ack"'))).toBe(true);
   });
+
+  it("reverse：answerer+sender 在收到的 channel 上发数据（v4.7.5 解耦）", async () => {
+    // 下载端正常方向打不通 → reverse：持有端作 answerer 拿到 DataChannel 后发数据。
+    // 验证发送逻辑按 isSender 判定（sender:"answerer" → 非 offerer 也 send）。
+    const sent: unknown[] = [];
+    let dcHandler: ((e: { channel: unknown }) => void) | null = null;
+    let openHandler: (() => void) | null = null;
+    const fakeChannel = {
+      send: (d: unknown) => void sent.push(d),
+      readyState: "open",
+      bufferedAmount: 0,
+      close: vi.fn(),
+      set onopen(fn: (() => void) | null) {
+        openHandler = fn;
+      },
+      get onopen() {
+        return openHandler;
+      },
+    };
+    const fakePc = {
+      close: vi.fn(),
+      setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+      createAnswer: vi.fn().mockResolvedValue({ type: "answer", sdp: "x" }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      set ondatachannel(fn: ((e: { channel: unknown }) => void) | null) {
+        dcHandler = fn;
+      },
+      get ondatachannel() {
+        return dcHandler;
+      },
+      onicecandidate: null,
+      onconnectionstatechange: null,
+      connectionState: "new",
+    };
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn().mockImplementation(() => fakePc),
+    );
+    const sendChunk = vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]));
+    p2pReceive({
+      peerId: "peer-A",
+      role: "answerer",
+      sender: "answerer", // reverse：持有端（answerer）发数据
+      totalBytes: 3,
+      chunkSize: 3,
+      sendChunk,
+      signal: vi.fn().mockResolvedValue(undefined),
+    });
+    handlePeerSignal({ type: "peer:offer", from_user_id: "peer-A", sdp: { type: "offer" } });
+    await vi.waitFor(() => expect(dcHandler).toBeTruthy());
+    dcHandler!({ channel: fakeChannel });
+    // channel open → answerer 侧按 isSender 判定主动发数据（meta + 分片）
+    await vi.waitFor(() => expect(openHandler).toBeTruthy());
+    openHandler!();
+    await vi.waitFor(() => expect(sent.length).toBeGreaterThanOrEqual(2));
+    expect(sendChunk).toHaveBeenCalled();
+    // 首条为 meta 控制消息
+    expect(JSON.parse(sent[0] as string).t).toBe("meta");
+  });
+
+  it("reverse：offerer+sender:answerer 只打洞不主动发数据，收片照常完成（v4.7.5 解耦）", async () => {
+    // 下载端作 offerer 反向打洞，但数据由对端（answerer+sender）发出。
+    // 验证本端 onopen 不 beginSend（isSender=false），收到分片后照常回 ack + 完成。
+    const sent: unknown[] = [];
+    let msgHandler: ((e: { data: unknown }) => void) | null = null;
+    let openHandler: (() => void) | null = null;
+    const fakeChannel = {
+      send: (d: unknown) => void sent.push(d),
+      readyState: "open",
+      bufferedAmount: 0,
+      close: vi.fn(),
+      set onopen(fn: (() => void) | null) {
+        openHandler = fn;
+      },
+      get onopen() {
+        return openHandler;
+      },
+      set onmessage(fn: ((e: { data: unknown }) => void) | null) {
+        msgHandler = fn;
+      },
+      get onmessage() {
+        return msgHandler;
+      },
+    };
+    const fakePc = {
+      close: vi.fn(),
+      createDataChannel: vi.fn().mockReturnValue(fakeChannel),
+      createOffer: vi.fn().mockResolvedValue({ type: "offer", sdp: "x" }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+      onicecandidate: null,
+      onconnectionstatechange: null,
+      connectionState: "connected",
+    };
+    vi.stubGlobal(
+      "RTCPeerConnection",
+      vi.fn().mockImplementation(() => fakePc),
+    );
+    const onComplete = vi.fn();
+    const sendChunk = vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]));
+    p2pSend({
+      peerId: "peer-A",
+      role: "offerer",
+      sender: "answerer", // reverse：本机作 offerer 但只收不发
+      totalBytes: 3,
+      chunkSize: 3,
+      sendChunk,
+      signal: vi.fn().mockResolvedValue(undefined),
+      onChunk: vi.fn().mockResolvedValue(undefined),
+      callbacks: { onComplete },
+    });
+    await vi.waitFor(() => expect(openHandler).toBeTruthy());
+    openHandler!();
+    // open 不触发发送：无 meta/分片发出，sendChunk 未被调用
+    expect(sendChunk).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(0);
+    // 对端发 meta + 分片 → 本端照常收片 + 回 ack + 完成
+    msgHandler!({ data: buildMeta(3, 1, 3) });
+    msgHandler!({ data: encodeChunk(0, new Uint8Array([1, 2, 3])) });
+    await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    expect(sent.some((d) => typeof d === "string" && d.includes('"t":"ack"'))).toBe(true);
+  });
 });

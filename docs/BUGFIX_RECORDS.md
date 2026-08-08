@@ -4,6 +4,36 @@
 
 ---
 
+## 2026-08-08
+
+### 8. P2P reverse 反向打洞 + 下载后播放出现 1s+ 预期外延迟（v4.7.6）
+
+**问题一：P2P reverse 反向打洞不稳定 / 无法反向传播**
+- **描述**：正常方向（持有端作 offerer）打洞失败时，reverse 反向打洞不稳定，且用户质疑"洞打起来了谁往谁传应该无所谓的吧"。
+- **根因（判断错误已纠正）**：WebRTC DataChannel 建立后是**全双工**的，谁持有数据谁 `send()`，与谁创建连接无关。但代码把"发送逻辑"绑死在了 `isOfferer`（`wireChannel` 里 `if (isOfferer) void beginSend()`）——reverse 时持有端作 answerer，channel 收到后**不会发数据**，传输卡死。
+- **解决**：
+  - `P2PStartOptions` 新增 `sender?: "offerer" | "answerer"`，解耦"协商发起方"与"数据发送方"：`isSender = sender==="offerer" ? isOfferer : !isOfferer`，`wireChannel` 的 onopen/onmessage/onclose/onerror 全部按 isSender 判定。
+  - reverse 传输：下载端作 `role:"offerer" + sender:"answerer"`（只打洞收数据），持有端作 `role:"answerer" + sender:"answerer"`（在收到的 channel 上发数据）。
+  - `onComplete` 改按 isSender 判定延迟清理：reverse 时接收端（offerer）延迟 500ms 清理，防掐断 answerer 侧发送端收 ack。
+  - 新增信令 `p2p:reverse_transfer_request`（Rust 命令 + ws_server.py 转发）：音乐传歌传 songId（`setupReverseServe`），安装包分享传 version（`serveReverseInstaller`）；下载端 `tryReverseReceive` 正常方向失败后反打一次（`p2pReverseTried` 防重复）。
+  - 更新下载 reverse 兜底：`trySeedDownload` 正常方向失败 → 通知种子端挂 answerer+sender → 本机 offerer 反打，仅一次，失败才回退服务器/GitHub（`settled` 防迟到 onError 打断）。
+  - P2P 曾建连成功但中断 → 重试上限 3 次（`P2P_RETRY_LIMIT`）而非立即回退服务器中转。
+- **影响范围**：`src/p2p.ts`、`src/stores/music.ts`、`src/components/SettingsPanel.vue`、`src/seed.ts`、`src/api/musicSync.ts`、`src-tauri/src/commands/p2p.rs`、`src-tauri/src/lib.rs`、`server-planning/ws_server.py`
+
+**问题二：下载后播放延迟比直接播放大得多（1s+，预期外）**
+- **描述**：不需要下载时同步延迟可接受；一旦走下载路径，播放延迟明显变大（可能 1s 甚至以上）。要求"就算下载一年半，也不应该影响播放时的同步"——预期内 = seek 延迟，预期外 = 下载路径多出的延迟。
+- **根因**：`finalizeTransfer` 合并完成后**串行等待一次 `music:request_state` 网络往返**（听众→服务器→DJ→服务器→听众，4 段网络链路 + DJ 处理）才由 `applySyncState` 切歌；随后又有 800ms 固定等待才 seek。下载路径 = 网络往返 + 播放器加载 + 800ms ≈ 1s+。
+- **解决**（合并后立即起播 + 并行精调）：
+  - 缺歌分支新增 `pendingSyncRaw`（暂存最近一次 DJ 广播的 position_ms / dj_server_time / ts / playing 原始数据）。
+  - 合并完成时用 `pendingSyncRaw` 按服务器时钟重算 DJ 当前进度（`position_ms + (serverNow - dj_server_time)`），**立即** `playSongAt(songId, targetSec)` 起播——Rust 新增 `music_play_song_at` 命令，`play_song` 的 skip_duration 直接从目标位置起播，无"从头播再 seek"的爆音。
+  - 并行 `musicSyncRequestState()` 精调：sync_state 到达后同歌分支 `seekIfFar`（带 2s 容忍度，位置相近不跳，无感）。
+  - 播放同步只取决于 seek 延迟，与下载时长完全无关；DJ 暂停中则起播后立即暂停（尊重 DJ 状态）。
+- **影响范围**：`src-tauri/src/commands/music.rs`、`src-tauri/src/lib.rs`、`src/api/music.ts`、`src/stores/music.ts`
+
+**测试：** Rust 276 passed；前端 58 文件 1149 用例通过（新增：reverse answerer+sender 发数据、offerer+sender:answerer 只收不发、reverse 失败回退、reverse 成功直接合并、下载完成即播 playSongAt 重算位置）。
+
+---
+
 ## 2026-08-02
 
 ### 7. 同步听歌：下载完成后跳回 2s/3s 从头播放（P2P 下载后偶发，v4.5.10 起）（v4.5.13）

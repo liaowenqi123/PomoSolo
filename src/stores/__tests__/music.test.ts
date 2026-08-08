@@ -15,6 +15,7 @@ const musicApi = vi.hoisted(() => ({
   musicGetDevices: vi.fn(),
   musicSetDevice: vi.fn(),
   musicPlaySong: vi.fn(),
+  musicPlaySongAt: vi.fn(),
   musicDeleteSong: vi.fn(),
   musicGetCustomTags: vi.fn(),
   musicAddCustomTag: vi.fn(),
@@ -50,6 +51,8 @@ const musicSyncApi = vi.hoisted(() => ({
   musicSyncTransferFailed: vi.fn(),
   musicSyncSetConfig: vi.fn(),
   musicSyncRequestState: vi.fn(),
+  // v4.7.5 reverse 反向打洞
+  musicSyncReverseRequest: vi.fn(),
   // v4.6.6 时钟对齐
   musicSyncMeasureTimeOffset: vi.fn(),
   // Phase 1 WebRTC 直传二进制分片
@@ -83,9 +86,10 @@ interface P2PReceiveOpts {
 interface P2PSendOpts {
   peerId: string;
   role: string;
+  sender?: string;
   totalBytes: number;
   sendChunk: (index: number, totalChunks: number) => Promise<Uint8Array>;
-  callbacks: { onComplete: () => void; onError: (err: string) => void };
+  callbacks: { onComplete: () => void; onError: (err: string) => void; onOpen?: () => void };
 }
 
 describe("useMusicStore", () => {
@@ -107,6 +111,7 @@ describe("useMusicStore", () => {
     musicApi.musicSetAutoNext.mockResolvedValue(undefined);
     musicSyncApi.musicSyncRequestDj.mockResolvedValue(undefined);
     musicSyncApi.musicSyncRequestState.mockResolvedValue(undefined);
+    musicSyncApi.musicSyncReverseRequest.mockResolvedValue(undefined);
     musicApi.musicUpdateTag.mockResolvedValue({ success: true });
     dataApi.readData.mockResolvedValue({});
     dataApi.writeData.mockResolvedValue(undefined);
@@ -883,7 +888,7 @@ describe("useMusicStore", () => {
     expect(s.songTransfer.state).toBe("downloading");
   });
 
-  it("handleTransferDone：正常完成 → 合并、标记本地已有；下载与播放分离（不立即播放）", async () => {
+  it("handleTransferDone：正常完成 → 合并、标记本地已有；立即起播 + 并行请求状态精调", async () => {
     const s = useMusicStore();
     s.setSyncEnabled(true);
     s.songTransfer = { state: "downloading", songName: "a.mp3", received: 10, total: 10, startedAt: Date.now(), retryCount: 0, channel: null };
@@ -894,13 +899,13 @@ describe("useMusicStore", () => {
     expect(musicApi.musicFinalizeSong).toHaveBeenCalledWith("a.mp3", 10);
     expect(s.missingSongName).toBeNull();
     expect(s.songTransfer.state).toBe("idle");
-    // 下载与播放分离：合并完成后不立即播放（播放器保持暂停"无感"），
-    // 请求 DJ 实时状态，等 sync_state 回发后由 applySyncState 一次性切歌 + 校准
-    expect(musicApi.musicPlaySong).not.toHaveBeenCalled();
+    // 合并完成后立即起播（v4.7.6：不再串行等 sync_state 网络往返，消除下载后 1s+ 预期外延迟）
+    expect(musicApi.musicPlaySong).toHaveBeenCalledWith("a.mp3");
+    // 并行请求 DJ 最新状态精调（sync_state 到达后同歌分支 seekIfFar，带 2s 容忍度）
     expect(musicSyncApi.musicSyncRequestState).toHaveBeenCalled();
   });
 
-  it("下载与播放分离：transfer_done 后 DJ sync_state 回发 → 一次性切歌 + 校准", async () => {
+  it("下载完成即播：合并后立即起播，sync_state 回发后校准到 DJ 进度", async () => {
     vi.useFakeTimers();
     try {
       const s = useMusicStore();
@@ -912,14 +917,14 @@ describe("useMusicStore", () => {
       musicApi.musicFinalizeSong.mockResolvedValue({ success: true });
       musicApi.musicPlaySong.mockResolvedValue(undefined);
       musicApi.musicSeek.mockResolvedValue(undefined);
-      // 下载完成：不立即播放
+      // 下载完成：立即起播（无暂存 DJ 进度 → 从头播，等 sync_state 精调），不等网络往返
       s.handleSyncWsEvent({ type: "music:transfer_done", song_id: "a.mp3", total_chunks: 10 });
       await vi.advanceTimersByTimeAsync(0);
-      expect(musicApi.musicPlaySong).not.toHaveBeenCalled();
+      expect(musicApi.musicPlaySong).toHaveBeenCalledWith("a.mp3");
       expect(musicSyncApi.musicSyncRequestState).toHaveBeenCalled();
       // 歌单已含 a.mp3（finalize 后 requestPlaylist 已刷新）
       s.handlePlaylist({ songs: ["a.mp3"] });
-      // DJ 回发 sync_state → 一次性切歌
+      // DJ 回发 sync_state → 切歌/同歌分支校准到 DJ 进度
       s.handleSyncWsEvent({
         type: "music:sync_state",
         song_id: "a.mp3",
@@ -928,8 +933,7 @@ describe("useMusicStore", () => {
         timestamp_server: Date.now(),
       });
       await vi.advanceTimersByTimeAsync(0);
-      expect(musicApi.musicPlaySong).toHaveBeenCalledWith("a.mp3");
-      // 800ms 后校准到 DJ 进度（seekIfFar 串行执行）
+      // 校准到 DJ 进度
       await vi.advanceTimersByTimeAsync(900);
       expect(musicApi.musicSeek).toHaveBeenCalled();
       const seekArg = musicApi.musicSeek.mock.calls[0][0] as number;
@@ -937,6 +941,40 @@ describe("useMusicStore", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("下载完成即播：用暂存 DJ 广播重算当前位置 playSongAt 直接起播（不等 sync_state 网络往返）", async () => {
+    const s = useMusicStore();
+    s.setSyncEnabled(true);
+    s.isDj = false;
+    s.trackName = "old.mp3";
+    s.playing = false;
+    // 歌单已加载且不含 a.mp3
+    s.handlePlaylist({ songs: [] });
+    musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+    musicApi.musicFinalizeSong.mockResolvedValue({ success: true });
+    musicApi.musicPlaySongAt.mockResolvedValue(undefined);
+    // DJ 广播：正在播 a.mp3（本地缺歌）→ 触发下载 + 暂存 DJ 原始进度（位置 10s）
+    const djBroadcastTs = Date.now();
+    s.handleSyncWsEvent({
+      type: "music:sync_state",
+      song_id: "a.mp3",
+      playing: true,
+      position_ms: 10000,
+      dj_server_time: djBroadcastTs,
+      timestamp_server: djBroadcastTs,
+    });
+    expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalled();
+    expect(s.songTransfer.songName).toBe("a.mp3");
+    // 传输完成 → 合并 → 用暂存原始数据重算 DJ 当前进度 → playSongAt 直接起播
+    s.handleSyncWsEvent({ type: "music:transfer_done", song_id: "a.mp3", total_chunks: 2 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(musicApi.musicPlaySongAt).toHaveBeenCalled();
+    const playAtArg = musicApi.musicPlaySongAt.mock.calls[0] as [string, number];
+    expect(playAtArg[0]).toBe("a.mp3");
+    expect(playAtArg[1]).toBeGreaterThanOrEqual(10);
+    // 起播不依赖 sync_state 往返：状态请求仍并行发出（到达后同歌分支精调）
+    expect(musicSyncApi.musicSyncRequestState).toHaveBeenCalled();
   });
 
   it("DJ 操作串行队列：并发 sync_state 堆积舍去中间，只执行最新操作", async () => {
@@ -1177,14 +1215,54 @@ describe("useMusicStore", () => {
     expect(s.songTransfer.channel).toBe("p2p");
   });
 
-  it("P2P 建连失败 → channel 标记为 server（回退服务器中转）", async () => {
+  it("P2P 建连失败 → 尝试 reverse 反向打洞（v4.7.5），reverse 也失败才回退服务器中转", async () => {
     const s = useMusicStore();
     s.djUserId = "dj-1";
     musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
     await s.startSongTransfer("song-x", 0);
     const opts = p2pApi.p2pReceive.mock.calls[0][0] as P2PReceiveOpts;
+    // 正常方向（DJ offerer）建连失败 → 通知 DJ 挂 answerer+sender，本机作 offerer 反打
     opts.callbacks.onError("P2P 建连超时");
+    // tryReverseReceive 异步：等待 reverse 请求 resolve 后本机才作 offerer 反打
+    await vi.waitFor(() => {
+      expect(musicSyncApi.musicSyncReverseRequest).toHaveBeenCalledWith("dj-1", "song-x");
+      expect(p2pApi.p2pSend).toHaveBeenCalledTimes(1);
+    });
+    // reverse 在途：尚未标记 server 中转
+    expect(s.songTransfer.channel).not.toBe("server");
+    const sendOpts = p2pApi.p2pSend.mock.calls[0][0] as P2PSendOpts;
+    expect(sendOpts.peerId).toBe("dj-1");
+    expect(sendOpts.role).toBe("offerer");
+    expect(sendOpts.sender).toBe("answerer"); // reverse：本机打洞，DJ 在 channel 上发数据
+    // reverse 也失败 → 回退服务器中转
+    sendOpts.callbacks.onError("reverse 打洞失败");
     expect(s.songTransfer.channel).toBe("server");
+  });
+
+  it("reverse 反向打洞成功 → channel 标记 p2p，收齐后直接合并", async () => {
+    const s = useMusicStore();
+    s.djUserId = "dj-1";
+    musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+    musicApi.musicFinalizeSong.mockResolvedValue({ success: true });
+    musicSyncApi.musicReceiveSongChunkBin.mockResolvedValue({ success: true });
+    await s.startSongTransfer("song-x", 0);
+    const opts = p2pApi.p2pReceive.mock.calls[0][0] as P2PReceiveOpts;
+    opts.callbacks.onError("P2P 建连超时"); // 正常方向失败 → reverse
+    await vi.waitFor(() => {
+      expect(p2pApi.p2pSend).toHaveBeenCalledTimes(1);
+    });
+    const sendOpts = p2pApi.p2pSend.mock.calls[0][0] as P2PSendOpts & {
+      onChunk: (chunk: Uint8Array, index: number, total: number) => Promise<void>;
+    };
+    sendOpts.callbacks.onOpen?.();
+    expect(s.songTransfer.channel).toBe("p2p");
+    // 收齐分片 → 直接合并（不经服务器 transfer_done）
+    await sendOpts.onChunk(new Uint8Array([1]), 0, 2);
+    await sendOpts.onChunk(new Uint8Array([2]), 1, 2);
+    sendOpts.callbacks.onComplete();
+    await vi.waitFor(() => {
+      expect(musicApi.musicFinalizeSong).toHaveBeenCalledWith("song-x", 2);
+    });
   });
 
   it("收到服务器中转分片 → channel 标记为 server（前端可观察）", async () => {

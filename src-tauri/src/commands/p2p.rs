@@ -155,6 +155,38 @@ pub async fn p2p_seed_fetch(
     .await
 }
 
+/// 下载端通知持有端挂起 reverse 传输（v4.7.5 反向打洞）：p2p:reverse_transfer_request
+///
+/// 下载端正常方向（持有端作 offerer）建连失败后调用，服务器向 to_user_id 转发。
+/// 持有端据此挂起 answerer+sender（在收到的 DataChannel 上发数据——DataChannel
+/// 建立后全双工，谁持有数据谁 send），下载端随后作 offerer 反向发起协商。
+/// 音乐传歌传 song_id；安装包分享传 version。两侧共用同一条信令。
+#[tauri::command]
+pub async fn p2p_reverse_transfer_request(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    to_user_id: String,
+    song_id: Option<String>,
+    version: Option<String>,
+) -> Result<(), String> {
+    if to_user_id.is_empty() || (song_id.is_none() && version.is_none()) {
+        return Err("反向传输请求参数不完整".to_string());
+    }
+    let token = require_token(&state).await?;
+    ws::send(
+        &app,
+        &state.ws,
+        &token,
+        "p2p:reverse_transfer_request",
+        serde_json::json!({
+            "to_user_id": to_user_id,
+            "song_id": song_id.unwrap_or_default(),
+            "version": version.unwrap_or_default(),
+        }),
+    )
+    .await
+}
+
 // ── P2P 连通性测试工具（Phase 1.2+）──
 
 /// 在线用户（P2P 测试目标候选）

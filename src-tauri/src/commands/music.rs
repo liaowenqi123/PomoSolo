@@ -115,7 +115,7 @@ fn spawn_progress_task(app: AppHandle) {
                 {
                     let mut player = music_state.player.lock().await;
                     if let Some(next_song) = player.get_next_song(true) {
-                        play_song_and_emit(&app, &mut player, &next_song).await;
+                        play_song_and_emit(&app, &mut player, &next_song, 0.0).await;
                     } else {
                         let _ = app.emit(
                             "music-no-music",
@@ -148,8 +148,13 @@ fn spawn_progress_task(app: AppHandle) {
 /// 播放歌曲并推送前端事件（track-change / play-state / song-missing / play-error）
 ///
 /// 多个命令共用（next/prev/play_song/自然结束切歌），统一错误处理与事件格式。
-async fn play_song_and_emit(app: &AppHandle, player: &mut AudioPlayer, song_name: &str) {
-    match player.play_song(song_name, 0.0) {
+async fn play_song_and_emit(
+    app: &AppHandle,
+    player: &mut AudioPlayer,
+    song_name: &str,
+    start_position: f64,
+) {
+    match player.play_song(song_name, start_position) {
         Ok(()) => {
             let _ = app.emit(
                 "music-track-change",
@@ -240,7 +245,7 @@ pub async fn music_next(app: AppHandle) -> Result<(), String> {
     let mut player = music_state.player.lock().await;
 
     match player.get_next_song(false) {
-        Some(next_song) => play_song_and_emit(&app, &mut player, &next_song).await,
+        Some(next_song) => play_song_and_emit(&app, &mut player, &next_song, 0.0).await,
         None => {
             let _ = app.emit("music-no-music", json!({ "message": "没有可播放的音乐" }));
         }
@@ -256,7 +261,7 @@ pub async fn music_prev(app: AppHandle) -> Result<(), String> {
     let mut player = music_state.player.lock().await;
 
     match player.get_prev_song() {
-        Some(prev_song) => play_song_and_emit(&app, &mut player, &prev_song).await,
+        Some(prev_song) => play_song_and_emit(&app, &mut player, &prev_song, 0.0).await,
         None => {
             let _ = app.emit("music-no-music", json!({ "message": "没有可播放的音乐" }));
         }
@@ -396,7 +401,29 @@ pub async fn music_play_song(app: AppHandle, song_name: String) -> Result<(), St
     // 刷新播放列表确保歌曲存在
     player.refresh_playlist();
 
-    play_song_and_emit(&app, &mut player, &song_name).await;
+    play_song_and_emit(&app, &mut player, &song_name, 0.0).await;
+
+    Ok(())
+}
+
+/// 从指定位置开始播放歌曲（v4.7.6 下载完成同步优化）。
+///
+/// 下载完成后立即按 DJ 当前进度起播（skip_duration 跳过前 N 秒样本），
+/// 避免"先从头播 800ms 再 seek"的爆音与额外延迟——播放时同步不再依赖
+/// 一次额外的 sync_state 网络往返。
+#[tauri::command]
+pub async fn music_play_song_at(
+    app: AppHandle,
+    song_name: String,
+    position_sec: f64,
+) -> Result<(), String> {
+    ensure_init(&app).await?;
+    let music_state = app.state::<MusicState>();
+    let mut player = music_state.player.lock().await;
+
+    player.refresh_playlist();
+
+    play_song_and_emit(&app, &mut player, &song_name, position_sec.max(0.0)).await;
 
     Ok(())
 }

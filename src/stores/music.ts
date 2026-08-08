@@ -23,6 +23,7 @@ import {
   musicGetDevices,
   musicSetDevice,
   musicPlaySong,
+  musicPlaySongAt,
   musicDeleteSong,
   musicGetCustomTags,
   musicAddCustomTag,
@@ -59,6 +60,7 @@ import {
   musicSyncSetConfig,
   musicSyncRequestState,
   musicSyncMeasureTimeOffset,
+  musicSyncReverseRequest,
   musicReadSongChunkBin,
   musicReceiveSongChunkBin,
 } from "@/api/musicSync";
@@ -66,7 +68,7 @@ import { useAuthStore } from "@/stores/auth";
 import { useSettingsStore } from "@/stores/settings";
 import { readData, writeData } from "@/api/data";
 import { p2pTestResult } from "@/api/p2pTest";
-import { serveInstaller } from "@/seed";
+import { serveInstaller, serveReverseInstaller } from "@/seed";
 import {
   dispatchP2PTestResult,
   handlePeerSignal,
@@ -167,6 +169,17 @@ export const useMusicStore = defineStore("music", () => {
   }
   /** 传歌期间暂存的 DJ 播放进度（秒），合并完成后用于立即 seek 校准 */
   let pendingSyncPosition = 0;
+  /** 传歌期间暂存的最近一次 DJ 广播原始数据（v4.7.6 下载完成即播优化）：
+   * 合并完成时无需再等一次 sync_state 网络往返（4 段网络链路），直接用该原始
+   * 数据按 dj_server_time 重算 DJ 当前进度（position_ms + 已流逝时间）立即起播，
+   * 使"下载后播放"的同步延迟与"无需下载"一致，与下载时长完全无关。 */
+  let pendingSyncRaw: {
+    songId: string;
+    positionMs: number;
+    djServerTime: number;
+    ts: number;
+    playing: boolean;
+  } | null = null;
   /** 未开启同步时缓存的最近一次 music:sync_state（开启同步后立即应用，解决"加入已有 DJ 的同步没反应"） */
   let lastSyncState: Record<string, unknown> | null = null;
   /** DJ/持有者侧：正在传输中的歌曲集合（防止并发 song_requested 开多个循环） */
@@ -181,6 +194,8 @@ export const useMusicStore = defineStore("music", () => {
   let p2pRetryCount = 0;
   /** 听众侧：本会话是否曾 P2P 建连成功（onOpen 触发过）——仅"曾成功但中断"才值得重试；从未成功直接回退 */
   let p2pHadConnected = false;
+  /** 听众侧：本会话是否已尝试过 reverse 反向打洞（正常方向从未建连成功时，本机作 offerer 反打一次，v4.7.5） */
+  let p2pReverseTried = false;
   /** 听众侧：当前歌曲传输已重试次数（每次超时重新下载 +1，耗尽后降级"无这首歌"） */
   let transferRetry = 0;
   /** 传输无进展超时阈值（ms）：卡住超过该时长立即断点续传（3s 足够判定"卡死"，越等越卡） */
@@ -568,11 +583,19 @@ export const useMusicStore = defineStore("music", () => {
     }
   }
 
-  /** 播放指定歌曲 */
-  async function playSong(songName: string) {
+  /**
+   * 播放指定歌曲。
+   * @param startSec >0 时从指定位置直接起播（v4.7.6 下载完成即播：
+   * 用 play_song 的 skip_duration 跳过前 N 秒样本，无"从头播再 seek"的爆音）。
+   */
+  async function playSong(songName: string, startSec = 0) {
     if (songName === trackName.value) return;
     try {
-      await musicPlaySong(songName);
+      if (startSec > 0) {
+        await musicPlaySongAt(songName, startSec);
+      } else {
+        await musicPlaySong(songName);
+      }
       // 播放成功：本地已确认有这首歌，清除"无这首歌"提示
       localHasSongs.add(songName);
       missingSongName.value = null;
@@ -661,12 +684,114 @@ export const useMusicStore = defineStore("music", () => {
               });
             return;
           }
+          // 从未成功建连 → reverse 反向打洞一次（本机作 offerer，DJ 作 answerer 发数据，
+          // v4.7.5）：打洞哪边容易哪边发起——正常方向（DJ offerer）打不通时，本机发起往往能通。
+          if (!p2pHadConnected && !p2pReverseTried && songTransfer.value.channel !== "server") {
+            p2pReverseTried = true;
+            console.warn("[MusicStore] P2P 正常方向建连失败，尝试 reverse 反向打洞:", err);
+            void tryReverseReceive(songId);
+            return;
+          }
           // 从未成功建连 / 重试耗尽 / 已回退 → 服务器中转（现有请求已在途，music:song_chunk 会继续）
           songTransfer.value.channel = "server";
           console.warn("[MusicStore] P2P 直连失败，回退服务器中转:", err);
         },
       },
     });
+  }
+
+  /**
+   * 听众侧：reverse 反向打洞接收（v4.7.5）。
+   * 正常方向（DJ 作 offerer）建连失败后调用：通知 DJ 挂起 answerer+sender，
+   * 本机作 offerer 发起协商（DataChannel 全双工，DJ 在收到的 channel 上发数据）。
+   */
+  async function tryReverseReceive(songId: string): Promise<void> {
+    if (!djUserId.value) {
+      songTransfer.value.channel = "server";
+      return;
+    }
+    try {
+      await musicSyncReverseRequest(djUserId.value, songId);
+    } catch (e) {
+      console.warn("[MusicStore] reverse 请求失败，回退服务器中转:", e);
+      songTransfer.value.channel = "server";
+      return;
+    }
+    // 等待通知期间服务器中转已接管则不再发起
+    if (songTransfer.value.channel === "server") return;
+    activeP2PReceive?.close();
+    activeP2PReceive = p2pSend({
+      peerId: djUserId.value,
+      role: "offerer",
+      sender: "answerer", // reverse：本机作 offerer 打洞，DJ（answerer）在 channel 上发数据
+      timeoutMs: 10_000,
+      onChunk: async (chunk, index, totalChunks) => {
+        const res = await musicReceiveSongChunkBin(songId, index, totalChunks, Array.from(chunk));
+        if (!res.success) throw new Error(res.error ?? "分片落盘失败");
+        songTransfer.value.state = "downloading";
+        songTransfer.value.total = totalChunks;
+        songTransfer.value.received += 1;
+        lastChunkAt = Date.now();
+      },
+      callbacks: {
+        onOpen: () => {
+          p2pHadConnected = true;
+          songTransfer.value.channel = "p2p";
+        },
+        onComplete: () => {
+          const total = songTransfer.value.total;
+          activeP2PReceive = null;
+          void finalizeTransfer(songId, total).catch(() => {});
+        },
+        onError: (err) => {
+          activeP2PReceive = null;
+          console.warn("[MusicStore] reverse P2P 失败，回退服务器中转:", err);
+          songTransfer.value.channel = "server";
+        },
+      },
+    });
+  }
+
+  /**
+   * DJ/持有端：响应 reverse 反向打洞（v4.7.5）。
+   * 收到下载端 p2p:reverse_transfer_request 后挂起 answerer+sender——
+   * 下载端作 offerer 发起协商，本机在收到的 DataChannel 上发数据。
+   */
+  async function setupReverseServe(songId: string, requesterId: string): Promise<void> {
+    if (songId !== trackName.value) return; // 已切歌则不再响应
+    try {
+      const first = await musicReadSongChunkBin(songId, 0);
+      if (!first.success || !first.total_chunks || !first.chunk_size) return;
+      const totalBytes = first.total_chunks * first.chunk_size;
+      const settingsStore = useSettingsStore();
+      const handle = p2pReceive({
+        peerId: requesterId,
+        role: "answerer",
+        sender: "answerer", // reverse：本机（持有端）作 answerer 发数据
+        totalBytes,
+        chunkSize: first.chunk_size,
+        timeoutMs: 10_000,
+        compress: settingsStore.settings.p2pCompress,
+        sendChunk: async (index) => {
+          if (songId !== trackName.value) throw new Error("DJ 已切歌");
+          const res = await musicReadSongChunkBin(songId, index);
+          if (!res.success || !res.data) throw new Error(res.error ?? "读取分片失败");
+          return new Uint8Array(res.data);
+        },
+        callbacks: {
+          onComplete: () => {
+            void musicSyncTransferDone(songId).catch(() => {});
+          },
+          onError: (err) => {
+            console.warn("[MusicStore] reverse 直传失败，走服务器中转:", err);
+          },
+        },
+      });
+      // 兜底：offer 一直不来则关闭挂起（防残留）
+      window.setTimeout(() => handle.close(), 12_000);
+    } catch (e) {
+      console.warn("[MusicStore] reverse 服务初始化失败:", e);
+    }
   }
 
   async function startSongTransfer(songId: string, fromChunk = 0) {
@@ -682,6 +807,7 @@ export const useMusicStore = defineStore("music", () => {
     transferRetry = 0;
     p2pRetryCount = 0;
     p2pHadConnected = false;
+    p2pReverseTried = false;
     songTransfer.value = {
       state: "requesting",
       songName: songId,
@@ -769,15 +895,38 @@ export const useMusicStore = defineStore("music", () => {
           return;
         }
         // immediate：下载与播放分离——
-        // 合并完成后【不立即 playSong】（播放器保持暂停"无感"），请求 DJ 实时状态，
-        // 等 sync_state 回发后由 applySyncState 一次性切歌 + 校准。
-        // 旧实现"playSong 从头播 + 800ms 后 seek(pendingSyncPosition) + 又 seekIfFar"
-        // 多次驱动播放器：seek fallback 的 skip_duration 惰性跳过窗口内 sink 空缓冲
-        // 会被 is_song_ended 误判"播完"自动切歌 → 跳到 DJ 进度后又跳回 2s/3s 从头播下一首。
+        // 合并完成后立即按"最近一次 DJ 广播重算的当前进度"直接起播
+        // （playSongAt 用 skip_duration 跳过前 N 秒样本，无"从头播再 seek"的
+        // 爆音与额外 seek 往返），同时并行请求一次最新 sync_state 精调。
+        // 关键：起播不再依赖 sync_state 网络往返（旧实现串行等 DJ 回发才切歌，
+        // 多出 4 段网络链路 + 播放器加载时间 → 下载后播放出现 1s+ 预期外延迟）。
+        // 播放同步只取决于 seek 延迟，与下载时长完全无关——下载一年半也不影响。
+        const raw = pendingSyncRaw && pendingSyncRaw.songId === songId ? pendingSyncRaw : null;
+        pendingSyncRaw = null;
+        let targetSec = 0;
+        let djPlaying = true;
+        if (raw) {
+          // 重算 DJ 当前进度：广播时刻位置 + 已流逝时间（服务器时钟对齐校准）
+          const base = raw.djServerTime > 0 ? raw.djServerTime : raw.ts;
+          targetSec = Math.floor((raw.positionMs + (base > 0 ? Math.max(0, serverNow() - base) : 0)) / 1000);
+          djPlaying = raw.playing;
+        }
+        runDjOp(-1, async () => {
+          if (songId !== trackName.value) {
+            // 直接从 DJ 当前进度起播（>0 时 Rust 侧 skip_duration 跳过前 N 秒）
+            await playSong(songId, targetSec);
+          } else if (targetSec > 0) {
+            seekIfFar(targetSec);
+          }
+          // 尊重 DJ 播放状态：DJ 暂停中则切歌后不播放
+          if (!djPlaying && playing.value) await togglePlay();
+        });
+        // 并行请求最新状态：sync_state 到达后 applySyncState 同歌分支 seekIfFar 精调
+        // （带 2s 容忍度，位置相近则不跳，无感）
         void musicSyncRequestState().catch(() => {});
-        // 兜底：服务器长时间不回 state（旧版不支持）→ 本地直接播放 + 校准
+        // 兜底：本地起播失败 / 服务器长时间不回 state（旧版不支持）→ 本地直接播放 + 校准
         window.setTimeout(() => {
-          if (trackName.value === songId) return; // 已由 DJ 状态驱动完成切歌
+          if (trackName.value === songId) return; // 已由本地/DJ 状态驱动完成切歌
           runDjOp(-1, async () => {
             if (songId !== trackName.value) await playSong(songId);
             if (pendingSyncPosition > 0) {
@@ -1301,6 +1450,8 @@ export const useMusicStore = defineStore("music", () => {
           songTransfer.value.state !== "idle" && songTransfer.value.songName === songId;
         if (!playlist.value.includes(songId) && (!localHasSongs.has(songId) || transferring)) {
           pendingSyncPosition = posSec;
+          // 暂存最近一次 DJ 广播原始数据：下载完成时据此重算 DJ 当前进度立即起播
+          pendingSyncRaw = { songId, positionMs, djServerTime, ts, playing: true };
           missingSongName.value = songId;
           // 下载与播放分离：缺歌期间播放器只收"暂停"信号（保持无感），
           // 下载完成后由 handleTransferDone 请求 DJ 状态，一次性切歌 + 校准
@@ -1309,6 +1460,7 @@ export const useMusicStore = defineStore("music", () => {
           return;
         }
         pendingSyncPosition = 0;
+        pendingSyncRaw = null;
         missingSongName.value = null;
         // 播放器副作用入队（串行）：切歌 → 稍后校准到 DJ 进度
         runDjOp(ts, async () => {
@@ -1382,12 +1534,15 @@ export const useMusicStore = defineStore("music", () => {
           songTransfer.value.state !== "idle" && songTransfer.value.songName === songId;
         if (!playlist.value.includes(songId) && (!localHasSongs.has(songId) || transferring)) {
           pendingSyncPosition = posSec;
+          // 暂存最近一次 DJ 广播原始数据：下载完成时据此重算 DJ 当前进度立即起播
+          pendingSyncRaw = { songId, positionMs, djServerTime, ts, playing: djPlaying };
           missingSongName.value = songId;
           if (playing.value) void togglePlay();
           void startSongTransfer(songId);
           return;
         }
         pendingSyncPosition = 0;
+        pendingSyncRaw = null;
         missingSongName.value = null;
         waitingForSongs.value = false;
         // 播放器副作用入队（串行）：切歌 → 按 DJ 播放状态暂停/恢复 → 稍后校准。
@@ -1506,6 +1661,22 @@ export const useMusicStore = defineStore("music", () => {
         // { from_user_id, version }：下载端请求本机（种子端）分享安装包 →
         // 本机作为 offerer 读留存的安装包分片推送（v4.6.6 补齐种子端）
         serveInstaller(evt);
+        break;
+      }
+      case "p2p:reverse_transfer_request": {
+        // { from_user_id, song_id, version }：下载端通知本机挂起 reverse 传输
+        // （v4.7.5 反向打洞：下载端正常方向失败后作 offerer 反向发起，
+        //  本机作 answerer 在收到的 DataChannel 上发数据）。音乐走 song_id；
+        // 安装包分享走 version（seed.ts serveReverseInstaller 处理）。
+        const from = typeof evt.from_user_id === "string" ? evt.from_user_id : "";
+        const songId = typeof evt.song_id === "string" ? evt.song_id : "";
+        const version = typeof evt.version === "string" ? evt.version : "";
+        if (!from) break;
+        if (songId) {
+          void setupReverseServe(songId, from);
+        } else if (version) {
+          serveReverseInstaller(evt);
+        }
         break;
       }
       case "music:dj_changed": {

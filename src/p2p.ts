@@ -46,6 +46,13 @@ export interface P2PStartOptions {
    * answerer = 接收端（等待对端 offer，通过 ondatachannel 收数据）
    */
   role: "offerer" | "answerer";
+  /**
+   * 数据发送方在协商中的角色（v4.7.5 reverse 传输）：默认 "offerer"。
+   * 解耦"协商发起方"与"数据发送方"——DataChannel 建立后是全双工的，
+   * 谁持有数据谁 send。reverse 打洞时下载端作 offerer 发起协商，
+   * 持有端作 answerer 在收到的 channel 上发数据：`sender: "answerer"`。
+   */
+  sender?: "offerer" | "answerer";
   /** 发送端提供：读第 index 片（0-based），返回原始字节 */
   sendChunk?: (index: number, totalChunks: number) => Promise<Uint8Array>;
   /** 发送端已知文件总字节数（接收端从 meta 获得） */
@@ -288,6 +295,10 @@ function establishConnection(
 ): PeerConnectionController {
   const pc = createPeerConnection(opts, callbacks);
   const isOfferer = opts.role === "offerer";
+  // v4.7.5 reverse 传输：数据发送方与协商发起方解耦。默认 sender="offerer"
+  // （谁发起协商谁发数据，向后兼容）；reverse 时 sender="answerer"
+  // （下载端作 offerer 打洞，持有端作 answerer 在收到的 channel 上发数据）。
+  const isSender = (opts.sender ?? "offerer") === "offerer" ? isOfferer : !isOfferer;
   // remoteDescription 设置前的候选缓冲：addIceCandidate 在 remoteDescription 为 null 时
   // 抛 InvalidStateError，若被上层 catch 吞掉 → 关键候选永久丢失 → 打洞失败。
   // setRemoteDescription 成功后统一 flush（trickle ICE 竞态修复）。
@@ -401,11 +412,13 @@ function establishConnection(
     const ms = Date.now() - startTime;
     const speedBps = ms > 0 ? Math.round((receivedBytes * 8 * 1000) / ms) : 0;
     callbacks.onComplete?.({ bytes: receivedBytes, ms, speedBps });
-    if (isOfferer) {
+    if (isSender) {
+      // 发送端：ack 已确认，立即关闭
       cleanup();
     } else {
       // 接收端：延迟关闭连接，给发送端留出收到 ack 的时间。
-      // v4.6.6：立即 pc.close() 会让 ack 未送达/触发对端 onclose → 发送端误报"通道关闭/错误"
+      // v4.7.5：按 isSender 判定（原按 isOfferer）——reverse 传输时接收端是
+      // offerer，若立即关闭会掐断 answerer 侧发送端收 ack 的通道（ack 丢 → 误报超时）
       setTimeout(cleanup, 500);
     }
   }
@@ -413,14 +426,17 @@ function establishConnection(
   function wireChannel(channel: RTCDataChannel) {
     dc = channel;
     channel.onopen = () => {
-      if (isOfferer) {
+      // v4.7.5：发送端按 isSender 判定（原 isOfferer）——reverse 传输时持有端
+      // 作 answerer 拿到 channel 后在 onopen 时 beginSend 推数据
+      if (isSender) {
         void beginSend();
       }
     };
     channel.onmessage = (e: MessageEvent) => {
       if (typeof e.data === "string") {
-        if (isOfferer) {
-          // 压缩协商回包：对端支持压缩 → 立即按压缩发；不支持 → 立即按不压缩发（不等超时）
+        if (isSender) {
+          // 发送端：压缩协商回包（对端支持压缩 → 立即按压缩发；不支持 → 立即按不压缩发）+
+          // 接收端收齐后的确认（发送端依赖它安全关闭，防丢尾包）
           const helloAck = parseHelloAck(e.data);
           if (helloAck.compress !== undefined) {
             if (negotiateTimer) {
@@ -435,13 +451,12 @@ function establishConnection(
             }
             return;
           }
-          // 接收端收齐后的确认（发送端依赖它安全关闭，防丢尾包）
           if (e.data.includes('"t":"ack"')) {
             onComplete();
           }
           return;
         }
-        // answerer：对端询问压缩能力 → 回 hello-ack（本端可解压才报支持）
+        // 接收端：对端询问压缩能力 → 回 hello-ack（本端可解压才报支持）
         if (e.data.includes('"t":"hello"')) {
           try {
             dc?.send(JSON.stringify({ t: "hello-ack", compress: compressionSupported() }));
@@ -480,7 +495,7 @@ function establishConnection(
     };
     channel.onclose = () => {
       if (!completed) {
-        if (isOfferer && allSent) {
+        if (isSender && allSent) {
           // 数据已全部发出、对端已收齐并正常关闭通道 → 视为传输成功
           onComplete();
         } else {
@@ -491,7 +506,7 @@ function establishConnection(
     };
     channel.onerror = () => {
       if (!completed) {
-        if (isOfferer && allSent) {
+        if (isSender && allSent) {
           // 全部数据发出后对端关闭导致的级联错误 → 视为传输成功（数据已收齐）
           onComplete();
         } else {

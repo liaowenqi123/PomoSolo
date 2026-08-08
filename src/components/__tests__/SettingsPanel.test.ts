@@ -793,7 +793,7 @@ describe("SettingsPanel.vue", () => {
     expect(p2pApi.p2pReceive).not.toHaveBeenCalled();
   });
 
-  it("P2P 建连失败应中止并回退 downloadAndInstall", async () => {
+  it("P2P 建连失败应尝试 reverse 反向打洞，再失败才回退 downloadAndInstall", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "check_update") {
         return Promise.resolve({
@@ -811,17 +811,33 @@ describe("SettingsPanel.vue", () => {
       receiveOpts = opts;
       return { close: vi.fn() };
     });
+    let sendOpts: Record<string, unknown> | null = null;
+    p2pApi.p2pSend.mockImplementation((opts: Record<string, unknown>) => {
+      sendOpts = opts;
+      return { close: vi.fn() };
+    });
     const wrapper = mountComponent();
     await setupAvailableDownload(wrapper);
 
     await updateBtn(wrapper).trigger("click");
     await flushPromises();
 
+    // 正常方向（种子端 offerer）失败 → 通知种子端 reverse，本机作 offerer 反向打洞
     const callbacks = receiveOpts!.callbacks as { onError: (err: string) => void };
     callbacks.onError("NAT 打洞失败");
     await flushPromises();
+    expect(invokeMock).toHaveBeenCalledWith("p2p_reverse_transfer_request", {
+      toUserId: "peer-uuid",
+      songId: "",
+      version: "4.6.0-beta.0",
+    });
+    expect(sendOpts).toMatchObject({ peerId: "peer-uuid", role: "offerer", sender: "answerer" });
+    expect(invokeMock).not.toHaveBeenCalledWith("update_seed_download_abort");
 
-    // 中止种子会话 + 回退服务器/GitHub
+    // reverse 也失败 → 中止种子会话 + 回退服务器/GitHub
+    const sendCallbacks = sendOpts!.callbacks as { onError: (err: string) => void };
+    sendCallbacks.onError("reverse 打洞失败");
+    await flushPromises();
     expect(invokeMock).toHaveBeenCalledWith("update_seed_download_abort");
     expect(invokeMock).toHaveBeenCalledWith("download_and_install", {
       source: "github",

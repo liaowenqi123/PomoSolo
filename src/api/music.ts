@@ -157,6 +157,15 @@ export function musicPlaySong(songName: string): Promise<void> {
   return invoke<void>("music_play_song", { songName });
 }
 
+/**
+ * 从指定位置开始播放歌曲（v4.7.6 下载完成同步优化）。
+ * 下载完成后立即按 DJ 当前进度起播，避免"从头播再 seek"的爆音与额外延迟。
+ * 后端：`music_play_song_at(song_name, position_sec)`
+ */
+export function musicPlaySongAt(songName: string, positionSec: number): Promise<void> {
+  return invoke<void>("music_play_song_at", { songName, positionSec });
+}
+
 /** 删除歌曲 */
 export function musicDeleteSong(songName: string): Promise<{ success: boolean; error?: string }> {
   return invoke<{ success: boolean; error?: string }>("music_delete_song", { songName });

@@ -240,6 +240,7 @@ def handle_message(user_id, msg):
         "p2p:seed_unregister": handle_p2p_seed_unregister,
         "p2p:seed_list": handle_p2p_seed_list,
         "p2p:seed_fetch": handle_p2p_seed_fetch,
+        "p2p:reverse_transfer_request": handle_p2p_reverse_transfer_request,
         "ping": handle_ping,
     }
     handler = handlers.get(mtype)
@@ -854,6 +855,25 @@ def handle_p2p_seed_fetch(user_id, msg):
     send_to_user(to_user_id, {
         "type": "p2p:seed_request",
         "from_user_id": user_id,
+        "version": version,
+    })
+
+
+def handle_p2p_reverse_transfer_request(user_id, msg):
+    """P2P 反向传输请求（v4.7.5 反向打洞）：下载端通知持有端挂起 answerer+sender。
+
+    下载端正常方向（持有端作 offerer）建连失败后发送，向持有端（to_user_id）转发：
+    持有端挂起 answerer+sender（DataChannel 全双工，在收到的 channel 上发数据），
+    下载端随后作 offerer 反向发起协商。音乐传歌带 song_id；安装包分享带 version。"""
+    to_user_id = msg.get("to_user_id")
+    song_id = msg.get("song_id") or ""
+    version = msg.get("version") or ""
+    if not to_user_id or to_user_id == user_id or (not song_id and not version):
+        return
+    send_to_user(to_user_id, {
+        "type": "p2p:reverse_transfer_request",
+        "from_user_id": user_id,
+        "song_id": song_id,
         "version": version,
     })
 

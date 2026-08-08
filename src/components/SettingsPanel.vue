@@ -32,7 +32,8 @@ import {
 } from "@/api/update";
 import { open } from "@tauri-apps/plugin-dialog";
 import { seedList, seedFetch, type P2PSeedPeer } from "@/api/seed";
-import { p2pReceive } from "@/p2p";
+import { musicSyncReverseRequest } from "@/api/musicSync";
+import { p2pReceive, p2pSend } from "@/p2p";
 import { startSeedSharing, stopSeedSharing } from "@/seed";
 import { useTauriEvent } from "@/api/events";
 import { cloudGetSession, type Session } from "@/api/auth";
@@ -430,41 +431,86 @@ async function trySeedDownload(info: UpdateInfo): Promise<boolean> {
     : "正在从在线种子直连下载（P2P）";
 
   return await new Promise<boolean>((resolve) => {
+    // 收片落盘（正常方向 / reverse 反向打洞共用）：Rust 收齐后自动校验签名并启动安装器
+    const onChunk = async (chunk: Uint8Array, index: number, totalChunks: number) => {
+      try {
+        await updateSeedDownloadChunk(Array.from(chunk), index, totalChunks);
+      } catch (e) {
+        throw new Error(`分片落盘失败: ${String(e)}`);
+      }
+    };
+    // 结果只结算一次：reverse 尝试期间正常方向的迟到 onError（等待 offer 超时）
+    // 不得再触发 abort/resolve 打断 reverse 下载
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (ok) {
+        updateStatusText.value = "P2P 下载完成，即将安装重启";
+        updateStatusType.value = "success";
+        resolve(true);
+      } else {
+        void updateSeedDownloadAbort().catch(() => {});
+        resolve(false);
+      }
+    };
+    // v4.7.5 reverse 反向打洞：正常方向（种子端作 offerer）不通时，通知种子端
+    // 挂起 answerer+sender，本机作 offerer 反向发起协商（DataChannel 全双工，
+    // 种子端在收到的 channel 上发数据）。只尝试一次，失败即回退服务器/GitHub。
+    let reverseTried = false;
+    const tryReverse = (): boolean => {
+      if (reverseTried || settled) return true;
+      reverseTried = true;
+      updateStatusText.value = "正常方向打洞不通，尝试反向打洞直连...";
+      void musicSyncReverseRequest(peerId, undefined, version)
+        .then(() => {
+          p2pSend({
+            peerId,
+            role: "offerer",
+            sender: "answerer",
+            timeoutMs: 10_000,
+            onChunk,
+            callbacks: {
+              onComplete: () => finish(true),
+              onError: (rerr) => {
+                console.warn("[Update] reverse P2P 种子下载失败，回退服务器/GitHub:", rerr);
+                finish(false);
+              },
+            },
+          });
+        })
+        .catch((e) => {
+          console.warn("[Update] reverse 通知种子端失败，回退服务器/GitHub:", e);
+          finish(false);
+        });
+      return true;
+    };
+
     void updateSeedDownloadBegin(version, signature)
       .then(async () => {
         // 通知种子端发起 WebRTC offer（v4.6.6 补齐种子端；失败不阻塞，等 p2pReceive 超时兜底）
         await seedFetch(version, peerId).catch((e) => {
           console.warn("[Update] 通知种子端发起失败，将等待超时兜底:", e);
         });
-        p2pReceive({
+        const pending = p2pReceive({
           peerId,
           role: "answerer",
           timeoutMs: 10_000,
-          onChunk: async (chunk, index, totalChunks) => {
-            try {
-              await updateSeedDownloadChunk(Array.from(chunk), index, totalChunks);
-            } catch (e) {
-              throw new Error(`分片落盘失败: ${String(e)}`);
-            }
-          },
+          onChunk,
           callbacks: {
-            onComplete: () => {
-              // Rust 收齐后自动校验签名并启动安装器（emit downloaded → 应用退出）
-              updateStatusText.value = "P2P 下载完成，即将安装重启";
-              updateStatusType.value = "success";
-              resolve(true);
-            },
+            onComplete: () => finish(true),
             onError: (err) => {
-              console.warn("[Update] P2P 种子下载失败，回退服务器/GitHub:", err);
-              void updateSeedDownloadAbort().catch(() => {});
-              resolve(false);
+              console.warn("[Update] P2P 种子下载失败，尝试 reverse 反向打洞:", err);
+              // 关闭正常方向的挂起（防迟到的等待超时再触发 onError 打断 reverse）
+              pending.close();
+              tryReverse();
             },
           },
         });
       })
       .catch((e) => {
         console.warn("[Update] 初始化种子下载失败，回退服务器/GitHub:", e);
-        resolve(false);
+        finish(false);
       });
   });
 }

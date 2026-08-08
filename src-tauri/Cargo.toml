@@ -1,6 +1,6 @@
 [package]
 name = "pomo-solo"
-version = "4.7.5"
+version = "4.7.6"
 description = "PomoSolo - 番茄钟应用"
 authors = ["liaowenqi123"]
 edition = "2021"

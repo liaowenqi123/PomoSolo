@@ -113,6 +113,27 @@ export function musicSyncRequestSong(songId: string, fromChunk = 0, p2p = false)
 }
 
 /**
+ * 下载端通知持有端挂起 reverse 传输（v4.7.5 反向打洞）。
+ *
+ * 下载端正常方向（持有端作 offerer）建连失败后调用：服务器向持有端转发
+ * `p2p:reverse_transfer_request`，持有端挂起 answerer+sender（DataChannel
+ * 全双工，在收到的 channel 上发数据），下载端随后作 offerer 反向发起协商。
+ * 音乐传歌传 songId；安装包分享传 version。
+ * 后端：`p2p_reverse_transfer_request(to_user_id, song_id?, version?)`
+ */
+export function musicSyncReverseRequest(
+  toUserId: string,
+  songId?: string,
+  version?: string,
+): Promise<void> {
+  return invoke<void>("p2p_reverse_transfer_request", {
+    toUserId,
+    songId: songId ?? "",
+    version: version ?? "",
+  });
+}
+
+/**
  * P2P 传歌（WebRTC 直连，二进制分片）：持有者（DJ）侧读取歌曲分片原始字节。
  * 与 `musicReadSongChunk` 等价但返回二进制（不经 base64），供 DataChannel 直传。
  * 后端：`music_read_song_chunk_bin(song_name, chunk_index) -> { success, total_chunks, chunk_size, data }`

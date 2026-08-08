@@ -13,7 +13,7 @@ import {
   updateSeedReadChunk,
   updateSeedHasInstaller,
 } from "@/api/update";
-import { p2pSend } from "@/p2p";
+import { p2pSend, p2pReceive } from "@/p2p";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
@@ -97,6 +97,53 @@ export function serveInstaller(evt: Record<string, unknown>): void {
       });
     } catch (e) {
       console.warn("[Seed] 响应种子请求失败:", e);
+    }
+  })();
+}
+
+/**
+ * 种子端：响应 reverse 反向打洞分享（v4.7.5）。
+ * 下载端正常方向（本机作 offerer）建连失败后发 p2p:reverse_transfer_request，
+ * 本机挂起 answerer+sender——下载端作 offerer 发起协商，本机在收到的
+ * DataChannel 上发数据（DataChannel 全双工，谁持有数据谁 send）。
+ */
+export function serveReverseInstaller(evt: Record<string, unknown>): void {
+  const fromUserId = typeof evt.from_user_id === "string" ? evt.from_user_id : "";
+  const version = typeof evt.version === "string" ? evt.version : "";
+  if (!fromUserId || !version) return;
+  void (async () => {
+    try {
+      const first = await updateSeedReadChunk(version, 0);
+      if (!first.success || !first.total_chunks || !first.chunk_size) return;
+      const totalChunks = first.total_chunks;
+      const chunkSize = first.chunk_size;
+      const handle = p2pReceive({
+        peerId: fromUserId,
+        role: "answerer",
+        sender: "answerer", // reverse：本机作 answerer 发数据
+        totalBytes: totalChunks * chunkSize,
+        chunkSize,
+        timeoutMs: 10_000,
+        sendChunk: async (index) => {
+          const res = await updateSeedReadChunk(version, index);
+          if (!res.success || !res.data) throw new Error(res.error ?? "读取安装包分片失败");
+          return new Uint8Array(res.data);
+        },
+        callbacks: {
+          onComplete: (stats) => {
+            console.log(
+              `[Seed] 已通过 reverse 分享安装包 ${version}（${(stats.speedBps / 1048576).toFixed(1)} MB/s）`,
+            );
+          },
+          onError: (err) => {
+            console.warn("[Seed] reverse 分享安装包失败:", err);
+          },
+        },
+      });
+      // 兜底：offer 一直不来则关闭挂起（防残留）
+      window.setTimeout(() => handle.close(), 12_000);
+    } catch (e) {
+      console.warn("[Seed] reverse 响应失败:", e);
     }
   })();
 }

@@ -187,6 +187,7 @@ pub fn run() {
             commands::music::music_get_devices,
             commands::music::music_set_device,
             commands::music::music_play_song,
+            commands::music::music_play_song_at,
             commands::music::music_delete_song,
             commands::music::music_get_custom_tags,
             commands::music::music_add_custom_tag,
@@ -242,6 +243,7 @@ pub fn run() {
             commands::p2p::p2p_seed_unregister,
             commands::p2p::p2p_seed_list,
             commands::p2p::p2p_seed_fetch,
+            commands::p2p::p2p_reverse_transfer_request,
             // P2P 连通性测试工具（在线列表 / 测试请求 / 结果回传）
             commands::p2p::p2p_online,
             commands::p2p::p2p_test_request,
