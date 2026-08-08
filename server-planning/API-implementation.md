@@ -1104,3 +1104,58 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 
 **协议变更清单（本版）**：新增 `p2p:reverse_test_request`（fire-and-forget，同 `p2p:test_request` 语义）；
 `p2p:seed_list` 响应 peers 字段结构变化。其余消息零改动。
+
+---
+
+## 【服务器已部署】v4.7.6 P2P reverse 反向打洞（2026-08-08）
+
+> 需求（用户）："为什么打洞的 reverse 不能反向传播，洞打起来了谁往谁传应该无所谓的吧"——
+> WebRTC DataChannel 建立后是**全双工**的，谁持有数据谁 `send()`，与谁创建连接（offerer）无关。
+> 修复前 `wireChannel` 把"发送逻辑"绑死在 `isOfferer`，reverse 时持有端作 answerer 拿到通道后从不发数据。
+
+**1. `p2p:reverse_transfer_request`（服务器已部署，路由 + handler）**
+- 客户端（下载端）正常方向打洞失败且从未建连成功 → 发 `p2p:reverse_transfer_request { to_user_id:B, song_id?, version?, parallel? }`
+  - 传歌：携带 `song_id`（B 端校验 songId===trackName 后作 answerer+sender 反推）
+  - 安装包分享：携带 `version`（种子端 `serveReverseInstaller` 同理反推）
+  - **`parallel`（v4.7.7 新增）**：>1 时 B 端按 K=parallel 条并行连接分片反推；0/缺省 = 单连接（兼容旧持有端）
+- 服务器定向转发给 B：`{ type:"p2p:reverse_transfer_request", from_user_id:A, from_username }`（B 离线静默丢弃）
+- 客户端流程：A 发起方向失败 → `musicSyncReverseRequest(djUserId, songId, version, parallel)` → A 作
+  `offerer+sender:"answerer"`（只打洞收数据）→ B 作 `answerer+sender:"answerer"`（在收到的通道上发数据）
+- 兼容性：旧版客户端不认识该消息 → 服务器转发后静默忽略，A 端 reverse 方向正常超时 → 回退服务器中转（行为等同旧版）
+
+**2. `sender` 角色解耦（客户端）**
+- `P2PStartOptions.sender?: "offerer" | "answerer"`（默认 offerer 向后兼容）
+- `isSender = sender==="offerer" ? isOfferer : !isOfferer`；onopen/onmessage/onclose/onerror 全按 isSender 判定
+- `onComplete` 按 isSender 判定：接收端（reverse 时是 offerer）延迟 500ms cleanup，防掐断 answerer 侧发送端收 ack
+
+**协议变更清单（本版）**：新增 `p2p:reverse_transfer_request`（fire-and-forget，同 `p2p:test_request` 语义）。其余消息零改动。
+
+---
+
+## 【服务器已部署】v4.7.7 种子卡死/reverse 中断修复 + 3×2 双向测速工具 + reverse 多连接并行（2026-08-08）
+
+**1. `p2p:bidir_test_request`（服务器已部署，路由 + handler）**
+- 用途：P2P 测试工具一键 6 项 = 3 种打洞方式（A 打洞 / B 打洞 / AB 互相打洞）× 每管道上行/下行测速
+- 客户端 A 发 `p2p:bidir_test_request { to_user_id:B, tag1, tag2 }` → 服务器定向转发给 B：
+  `{ type:"p2p:bidir_test_request", from_user_id:A, from_username, tag1, tag2 }`
+- B 收到后**同时挂 answerer(tag1) + offerer(tag2)** 两条 duplex 连接（AB 互相打洞，同 peer 多连接靠 tag 区分）
+- `tag` 同时补进 `p2p:test_request` / `p2p:reverse_test_request` 转发（同 peer 多连接信令路由键 `peerId:tag`）
+- 兼容性：旧版客户端不认识 → 服务器转发后静默忽略，A 端对应项超时判失败（该项显示失败，不影响其它项）
+
+**2. `p2p:reverse_transfer_request` 新增 `parallel` 字段**
+- 下载端 `musicSyncReverseRequest(djUserId, songId, undefined, K)` 请求 K 条并行连接（默认 2、上限 4）
+- 持有端 `setupReverseServe(songId, requesterId, parallel)`：均分 K 段（tag p0..pK-1、`baseChunk=base`）挂 K 条
+  answerer+sender；下载端 K 条 offerer 并行接收，收齐全部段才 `reportDone`
+- **多连接并行原理**：单条 DataChannel 受浏览器 SCTP 固定小窗口 + 对端延迟 SACK 限制（方向角色决定吞吐），
+  并行 N 条各自独立 SCTP 窗口，总吞吐 ≈ N × 单条
+- **降级链路**：旧持有端忽略 parallel → 并行 offer 超时 → 回退单连接 reverse（K=1）→ 再失败才回退服务器中转
+- 服务器只透传 `parallel` 数字，不参与分片逻辑（分片/合并全在客户端）
+
+**3. 传输稳定性修复（客户端，服务器零改动）**
+- 发送端背压：`sendWithBackpressure`（`bufferedAmount` > 512KB 等 `bufferedamountlow` 排空，10s 上限），
+  防缓冲满 `dc.send` 抛 `OperationError`（发送端静默死亡的根因）；任何 send 异常 → `onError` + 清理
+- 无进展超时兜底：建连成功但数据停滞（默认 30s、音乐 15s）→ `onError`，避免永久卡死；慢速但有进展不误杀
+- 传歌看门狗跳过 p2p 通道（`channel==="p2p"` return），防 3s 看门狗误杀慢速 reverse
+
+**协议变更清单（本版）**：新增 `p2p:bidir_test_request`；`p2p:test_request` / `p2p:reverse_test_request`
+转发携带 `tag`；`p2p:reverse_transfer_request` 携带可选 `parallel`。其余消息零改动。
