@@ -42,6 +42,7 @@ vi.mock("@/stores/garden", () => ({
 }));
 
 import GardenPlot from "../garden/GardenPlot.vue";
+import CropSprite from "../garden/CropSprite.vue";
 
 function makePlot(overrides: Partial<{
   id: number;
@@ -298,7 +299,7 @@ describe("GardenPlot.vue", () => {
     expect(fill.attributes("style")).toContain("width: 40%");
   });
 
-  it("成熟作物应添加 .mature class", () => {
+  it("成熟作物应添加 .mature class（作物容器 + 进度文字）", () => {
     storeMocks.plots[0] = makePlot({
       id: 0,
       crop: "carrot",
@@ -307,11 +308,12 @@ describe("GardenPlot.vue", () => {
     });
     const wrapper = mountComponent();
     const cropPlot = wrapper.findAll(".garden-plot")[0];
-    expect(cropPlot.classes()).toContain("mature");
     expect(cropPlot.classes()).toContain("has-crop");
+    expect(cropPlot.find(".crop-wrap").classes()).toContain("mature");
+    expect(cropPlot.find(".plot-progress-text").classes()).toContain("mature");
   });
 
-  it("有作物的格子应显示作物图标", () => {
+  it("有作物的格子应渲染 CropSprite 且 crop prop 正确", () => {
     storeMocks.plots[0] = makePlot({
       id: 0,
       crop: "carrot",
@@ -320,7 +322,40 @@ describe("GardenPlot.vue", () => {
     });
     const wrapper = mountComponent();
     const cropPlot = wrapper.findAll(".garden-plot")[0];
-    expect(cropPlot.find(".plot-crop-icon").text()).toBe("🥕");
+    const sprite = cropPlot.findComponent(CropSprite);
+    expect(sprite.exists()).toBe(true);
+    expect(sprite.props("crop")).toBe("carrot");
+  });
+
+  it("生长阶段按 progress 划分：0-33% 幼苗、33-66% 成株、66%+ 成熟", () => {
+    // 幼苗（0%）
+    storeMocks.plots[0] = makePlot({ id: 0, crop: "carrot", progress: 0, plantedAt: "2025-01-01" });
+    let wrapper = mountComponent();
+    expect(wrapper.findAll(".garden-plot")[0].findComponent(CropSprite).props("stage")).toBe(1);
+    wrapper.unmount();
+
+    // 成株（40%）
+    storeMocks.plots[0] = makePlot({ id: 0, crop: "carrot", progress: 10, plantedAt: "2025-01-01" });
+    wrapper = mountComponent();
+    expect(wrapper.findAll(".garden-plot")[0].findComponent(CropSprite).props("stage")).toBe(2);
+    wrapper.unmount();
+
+    // 成熟（100%）
+    storeMocks.plots[0] = makePlot({ id: 0, crop: "carrot", progress: 25, plantedAt: "2025-01-01" });
+    wrapper = mountComponent();
+    expect(wrapper.findAll(".garden-plot")[0].findComponent(CropSprite).props("stage")).toBe(3);
+  });
+
+  it("成熟时 progress 文本显示『🌾 可收获』", () => {
+    storeMocks.plots[0] = makePlot({
+      id: 0,
+      crop: "carrot",
+      progress: 25, // 100%
+      plantedAt: "2025-01-01",
+    });
+    const wrapper = mountComponent();
+    const cropPlot = wrapper.findAll(".garden-plot")[0];
+    expect(cropPlot.find(".plot-progress-text").text()).toBe("🌾 可收获");
   });
 
   it("有作物的格子应显示 progress 文本 {progress}/{growTime}分钟", () => {

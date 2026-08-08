@@ -13,6 +13,7 @@ import {
   PLOT_UNLOCK_CONFIG,
   type Plot,
 } from "@/stores/garden";
+import CropSprite from "./CropSprite.vue";
 
 const store = useGardenStore();
 
@@ -43,6 +44,20 @@ function getProgress(plot: Plot): number {
 /** 是否成熟 */
 function isMature(plot: Plot): boolean {
   return getProgress(plot) >= 100;
+}
+
+/**
+ * 生长阶段：0-33% 幼苗，33-66% 成株，66%+ 成熟。
+ * 由 CropSprite 渲染对应阶段的 SVG 造型。
+ */
+function getStage(plot: Plot): 1 | 2 | 3 {
+  if (!plot.crop) return 1;
+  const config = CROP_CONFIG[plot.crop];
+  if (!config) return 1;
+  const pct = plot.progress / config.growTime;
+  if (pct >= 0.66) return 3;
+  if (pct >= 0.33) return 2;
+  return 1;
 }
 
 /**
@@ -151,12 +166,20 @@ function canUnlock(index: number): boolean {
 
       <!-- 已种植作物 -->
       <template v-else-if="plot.crop">
-        <span class="plot-crop-icon">{{ CROP_CONFIG[plot.crop]?.icon }}</span>
+        <Transition name="crop" mode="out-in">
+          <div
+            :key="plot.crop"
+            class="crop-wrap"
+            :class="{ mature: isMature(plot) }"
+          >
+            <CropSprite :crop="plot.crop" :stage="getStage(plot)" />
+          </div>
+        </Transition>
         <div class="plot-progress">
           <div class="plot-progress-fill" :style="{ width: getProgress(plot) + '%' }"></div>
         </div>
-        <span class="plot-progress-text">
-          {{ plot.progress }}/{{ CROP_CONFIG[plot.crop]?.growTime }}分钟
+        <span class="plot-progress-text" :class="{ mature: isMature(plot) }">
+          {{ isMature(plot) ? "🌾 可收获" : `${plot.progress}/${CROP_CONFIG[plot.crop]?.growTime}分钟` }}
         </span>
       </template>
 
@@ -280,9 +303,57 @@ function canUnlock(index: number): boolean {
   color: #fff;
 }
 
-.plot-crop-icon {
-  font-size: 32px;
-  margin-bottom: 4px;
+/* ===== 作物 SVG + 生长动画（v3.1：手绘 Q 版植物） ===== */
+
+.crop-wrap {
+  width: 100%;
+  height: 74%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  transform-origin: 50% 100%;
+  animation: cropSway 3.5s ease-in-out infinite;
+}
+
+.crop-wrap.mature {
+  animation: cropSway 3.5s ease-in-out infinite, matureGlow 1.6s ease-in-out infinite;
+}
+
+/* 种植弹入 */
+.crop-enter-active {
+  animation: cropPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* 收获弹出 */
+.crop-leave-active {
+  animation: cropFade 0.3s ease forwards;
+}
+
+@keyframes cropPop {
+  0% { transform: scale(0); opacity: 0; }
+  70% { transform: scale(1.12); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes cropFade {
+  to { transform: scale(0.5); opacity: 0; }
+}
+
+/* 生长中轻微摇曳（以根部为轴） */
+@keyframes cropSway {
+  0%, 100% { transform: rotate(-1.5deg); }
+  50% { transform: rotate(1.5deg); }
+}
+
+/* 成熟金色光晕 */
+@keyframes matureGlow {
+  0%, 100% { filter: drop-shadow(0 0 2px rgba(255, 213, 79, 0.55)); }
+  50% { filter: drop-shadow(0 0 9px rgba(255, 213, 79, 0.95)); }
+}
+
+.plot-progress-text.mature {
+  color: #ffd54f;
+  font-weight: 700;
 }
 
 .plot-progress {
