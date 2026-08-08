@@ -348,5 +348,11 @@ function handleClose() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* 固定高度：空/有文本时高度一致，不撑高/压缩上方菜地 */
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 </style>

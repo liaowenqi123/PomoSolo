@@ -142,13 +142,14 @@ function handleBackdropClick(e: MouseEvent) {
 
 <style scoped>
 .shop-modal {
-  position: fixed;
+  position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: var(--z-modal);
+  border-radius: 16px;
 }
 
 .shop-modal__panel {

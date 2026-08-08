@@ -691,5 +691,6 @@ export interface Recipe {
 | 2026-08-08 | v3.3 定稿：巨大化 UI 用覆盖层动画（不依赖 grid 跨格）；期望收益 ≈ 分散种（防"最优种法"）；**时钟↔菜园子隔离架构**（单向三信号：grow / 断了 / 完成，时钟不区分中断原因） |
 | 2026-08-08 | **Phase B 落地**（设计师 commit 672a6eb + 客户端适配 ba1d087）：`garden_plant_quick` / `garden_harvest_all` / `garden_seed_from_crop` / `garden_check_state` / 连击对齐 ×1.2 + 阈值 2 / 每日配额 120 分钟 / 段位 + 微黄 / 枯萎救援二次清除；客户端接入 record_focus、快捷种植交互、一键全收 UI、枯萎双态展示 |
 | 2026-08-08 | **v4.7.4 发版：菜园子 Phase B 测试补强**（commit 584e6ac）：专注模式↔菜园子关系测试（完成→recordFocus(true)，中断/重置/惩罚→recordFocus(false)，完成后关闭不惩罚不重置连击）×6、api 新命令封装测试 ×5 + snake_case 清单、store plantQuick/harvestAll 测试 ×7、GardenPlot 枯萎态交互隔离 + 长按隔离测试 ×6、GardenMain v3 状态条渲染 + 一键全收失败提示 ×9；前端 1112 → 1145 全过 |
+| 2026-08-08 | **v4.7.5 发版：六项 UI/交互修复**：① P2P 更新检查后主动查询种子并显示可用数量（无种子时提示回退源）；② 快捷种植 async 竞态修复（pressSeq 序号防旧回调干扰新长按）；③ 一键全收提示固定高度不挤高菜地（min-height + flex）；④ 签到成功提示改为 absolute 浮层叠加按钮上方 + 3s 自动消失；⑤ 签到/商店/成就弹窗蒙版 absolute + 圆角裁剪；⑥ 主界面四角淡灰尖角根除——改用 clip-path GPU 硬裁剪替代 overflow:hidden+border-radius（WebView2 合成层裁剪失效根源）+ 移除半透明 fallback 背景双重叠加变暗 |
 
 > ~~⚠️ **待办**：v1 代码中 `apply_growth` 当前实现 ×1.5、`COMBO_ACTIVE_THRESHOLD=3`，与 v3 定稿（×1.2、阈值 2）不一致，Phase B 实施时一并调整。~~ → **✅ 已在 Phase B 落地**（`COMBO_ACTIVE_THRESHOLD=2`、`apply_growth` ×1.2 向上取整）。

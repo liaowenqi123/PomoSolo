@@ -132,6 +132,10 @@ async function handleSignIn() {
   } finally {
     signing.value = false;
   }
+  // 3 秒后自动清空反馈（不撑高布局，叠加在按钮上方）
+  setTimeout(() => {
+    feedbackMsg.value = "";
+  }, 3000);
 }
 
 function handleBackdropClick(e: MouseEvent) {
@@ -206,13 +210,14 @@ function handleBackdropClick(e: MouseEvent) {
 
 <style scoped>
 .signin-modal {
-  position: fixed;
+  position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: var(--z-modal);
+  border-radius: 16px;
 }
 
 .signin-modal__panel {
@@ -222,6 +227,7 @@ function handleBackdropClick(e: MouseEvent) {
   border-radius: 14px;
   padding: 20px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  position: relative;
 }
 
 .signin-modal__header {
@@ -364,17 +370,24 @@ function handleBackdropClick(e: MouseEvent) {
 }
 
 .signin-feedback {
-  margin-top: 10px;
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: rgba(76, 175, 80, 0.18);
-  color: #66bb6a;
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  right: 20px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(76, 175, 80, 0.95);
+  color: #fff;
   font-size: 13px;
+  font-weight: 600;
   text-align: center;
+  /* 不撑高面板：叠加在按钮上方 */
+  pointer-events: none;
+  z-index: 1;
 }
 
 .signin-feedback--error {
-  background: rgba(233, 69, 96, 0.18);
-  color: #e94560;
+  background: rgba(233, 69, 96, 0.95);
+  color: #fff;
 }
 </style>

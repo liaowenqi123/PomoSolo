@@ -716,6 +716,11 @@ watch(
   overflow: hidden;
   position: relative;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  /* v4.7.5：用 clip-path 做 GPU 级圆角硬裁剪。
+     WebView2/Chromium 中 overflow:hidden + border-radius 对合成层子元素
+     （渐变背景/transform 动画）的裁剪会失效，导致四角露出方角渐变，即
+     "四角淡灰尖角"遗留 bug 的根源。clip-path 对所有子层强制生效。 */
+  clip-path: inset(0 round 20px);
 }
 
 /* 迷你模式激活时：缩小外层容器以匹配窗口尺寸 180x220，
@@ -729,17 +734,17 @@ watch(
   overflow: visible;
   box-shadow: none;
   border: none;
+  clip-path: none;
 }
 
 /* ============ 内层容器 - 实际背景 ============ */
-/* 与 .window-frame 相同的 border-radius + overflow:hidden，
-   确保内层渐变背景、Modal/遮罩层的暗色背景都被裁剪在圆角内，
-   避免圆角处出现方形不透明痕迹，以及遮罩暗色扩散到圆角外。
-   不会产生双层圆角缝隙：.container 填满 .window-frame，二者圆角一致。 */
+/* v4.7.5：移除 border-radius -- 由 .window-frame 统一做圆角裁剪，
+   消除双层 border-radius 造成的亚像素缝隙（四角淡灰尖角遗留 bug）。
+   overflow:hidden 保留，用于裁剪内部 Modal/遮罩层。
+   .window-frame 已添加同色 fallback 背景填缝兜底。 */
 .container {
   width: 100%;
   height: 100%;
-  border-radius: 20px;
   overflow: hidden;
   background: linear-gradient(
     135deg,

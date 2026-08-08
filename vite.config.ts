@@ -3,12 +3,12 @@ import vue from "@vitejs/plugin-vue";
 import { fileURLToPath, URL } from "node:url";
 
 // Tauri 期望前端在固定端口，且使用固定的 IP
-// 用 1430（Tauri 官方默认），避开 Windows 动态端口排除范围（5173 在 5141-5240 内会被 EACCES）
+// 用 18421，避开 Windows Hyper-V/WSL 动态端口排除范围（万以上端口极少被保留）
 export default defineConfig({
   plugins: [vue()],
   clearScreen: false,
   server: {
-    port: 1430,
+    port: 18421,
     strictPort: true,
     host: "0.0.0.0",
   },

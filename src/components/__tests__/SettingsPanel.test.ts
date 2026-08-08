@@ -499,11 +499,11 @@ describe("SettingsPanel.vue", () => {
     expect(btns[1].classes()).not.toContain("update-source-seg__btn--active");
   });
 
-  it("应显示更新源提示文案（断连可切换）", () => {
+  it("应显示更新源提示文案（P2P 种子优先）", () => {
     const wrapper = mountComponent();
     const hint = wrapper.find(".update-source-hint");
     expect(hint.exists()).toBe(true);
-    expect(hint.text()).toContain("切换更新源后重试");
+    expect(hint.text()).toContain("P2P 种子");
   });
 
   it("点击『服务器』应调用 settings.update('updateSource', 'server') 并切换激活态", async () => {

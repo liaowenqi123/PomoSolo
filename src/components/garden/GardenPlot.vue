@@ -74,10 +74,18 @@ function handleClick(plot: Plot, index: number, event: MouseEvent) {
 const LONG_PRESS_MS = 500;
 let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 let pressTarget: { plot: Plot; index: number; clientX: number; clientY: number } | null = null;
+/**
+ * 交互序号：每次 mousedown 递增。handleMouseUp 的 async plantQuick
+ * 完成后检查此序号，若期间发生了新的 mousedown 则不再 emit plant
+ * （修复：快捷种植 async 等待期间用户开始新长按，旧回调 emit plant
+ *  会打开轮盘并立即被新交互的 click 关闭，表现为"轮盘呼不出"）
+ */
+let pressSeq = 0;
 
 function handleMouseDown(plot: Plot, index: number, event: MouseEvent) {
   // 仅空地触发快捷种植/长按轮盘
   if (plot.locked || plot.wilted || plot.crop) return;
+  pressSeq++;
   pressTarget = { plot, index, clientX: event.clientX, clientY: event.clientY };
   longPressTimer = setTimeout(() => {
     longPressTimer = null;
@@ -98,9 +106,11 @@ async function handleMouseUp(): Promise<void> {
   if (!pressTarget) return;
   const { index, clientX, clientY } = pressTarget;
   pressTarget = null;
-  // 点按（< 长按阈值）→ 快捷种植最优种子；没种子/失败 → 回退打开轮盘
+  const mySeq = pressSeq;
+  // 点按（< 长按阈值）-> 快捷种植最优种子；没种子/失败 -> 回退打开轮盘
   const ok = await store.plantQuick(index);
-  if (!ok) {
+  // 期间发生了新的 mousedown（新长按/新点按）-> 不再 emit plant，避免干扰
+  if (!ok && mySeq === pressSeq) {
     emit("plant", index, clientX, clientY);
   }
 }

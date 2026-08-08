@@ -174,6 +174,8 @@ const updateChannel = ref<"idle" | "p2p" | "http">("idle");
 let statusTimer: ReturnType<typeof setTimeout> | null = null;
 /** checkUpdate 返回的完整更新信息（含签名，P2P 种子下载用） */
 const latestUpdateInfo = ref<UpdateInfo | null>(null);
+/** P2P 在线种子数（检查更新时主动查询，-1=未查询/查询中） */
+const p2pSeedCount = ref(-1);
 /** 分享安装包状态提示 */
 const seedStatusText = ref("");
 
@@ -188,6 +190,7 @@ useTauriEvent<UpdateStatusPayload>("update-status", (e) => {
       updateProgressVisible.value = false;
       updatePaused.value = false;
       updateChannel.value = "idle";
+      p2pSeedCount.value = -1;
       break;
     case "available":
       updateStatusText.value = `发现新版本 v${payload.version}，点击下载`;
@@ -325,6 +328,23 @@ async function handleUpdateBtnClick(): Promise<void> {
       local.value.updateSource,
       local.value.allowBetaUpdates,
     );
+    // 发现新版本时主动查询 P2P 种子，让用户知道 P2P 通道是否可用
+    if (latestUpdateInfo.value) {
+      p2pSeedCount.value = -1; // 标记查询中
+      try {
+        const peers = await seedList(latestUpdateInfo.value.version);
+        p2pSeedCount.value = peers.length;
+        if (peers.length > 0) {
+          const names = peers.map((p) => p.username).filter(Boolean).join("、");
+          updateStatusText.value = `发现新版本 v${latestUpdateInfo.value.version}，${peers.length} 个 P2P 种子可用${names ? `（${names}）` : ""}，点击下载`;
+        } else {
+          updateStatusText.value = `发现新版本 v${latestUpdateInfo.value.version}，无在线 P2P 种子，将从${local.value.updateSource === "server" ? "服务器" : "GitHub"}下载`;
+        }
+      } catch {
+        p2pSeedCount.value = 0;
+        // 查询失败不影响下载，静默处理
+      }
+    }
   } else {
     updateBtnDisabled.value = true;
     updateBtnText.value = "准备下载...";
@@ -985,7 +1005,7 @@ function statusLabel(status: number): string {
               </div>
             </div>
             <p class="update-source-hint">
-              GitHub 下载快但可能不稳定；服务器稳定但较慢。若更新下载中断，可切换更新源后重试。
+              GitHub 下载快但可能不稳定；服务器稳定但较慢。下载时自动优先寻找 P2P 种子直连下载（需他人开启分享），无种子时回退至此处选择的源。
             </p>
             <div class="settings-row settings-row--toggle">
               <label class="settings-row__label">接收 Beta 版本更新</label>
