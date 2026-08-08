@@ -6,6 +6,28 @@
 
 ## 2026-08-08
 
+### 10. 传歌百分比越界（200w%/112%）+ reverse 并行反复从 0 重传 + 曲名反向滚动（v4.7.8）
+
+**实测场景（用户）**：① P2P 测试/传歌显示的百分比涨到 200w% 这种巨大数字；② P2P 传歌稳步传到一半突然卡住 → P2P 直连标签消失 → 从 0 开始（无标签）→ 又变 P2P（又从 0）→ 又变服务器中转（又从 0）→ 服务器中转超 100%（112%）→ 突然跳 0% 无标签；③ P2P 直传模式下曲名滚动"反向滚动"。
+
+**① 百分比越界（展示层 + 计数层双修）**
+- **展示**：`MusicPlayer.trackDisplay` 的 `pct = received/total*100` 无钳制。跨通道切换/多次重启传输后 `received` 会累计超过 `total`（服务器中转 112% 的直接原因；极端累积时即 200w%）。修复：`Math.max(0, Math.min(100, ...))` 钳制，`total<=0` 显示 0%。
+- **计数**：`received` 语义统一为"当前传输会话已保存分片数"并**钳制到 total**——正向 P2P（`setupP2PReceive`）、并行 reverse（`tryReverseReceive`）、服务器中转（`handleSongChunk`）三处 `received` 都改为 `min(received+1, total)`；P2P→服务器回退时 `received/total` 归零（服务器从头重发分片）。
+
+**② reverse 并行传歌反复从 0 重传（多线程没写好的核心根因）**
+- **根因**：`tryReverseReceive` 并行 K 条连接，**任一条 `onError` 即 `finish(false)` 整体从 0 重启**。实测场景（汤圆 4.7.6 旧持有端不认 parallel）：下载端 K=2 并行 offer，旧持有端只有 1 个 answerer → 连接 A 被匹配并**传完全部数据**（用户看到"稳步在传"），连接 B 的 offer 无匹配被丢弃 → 10s 建连超时 → `onError` → `finish(false)` → **已传完的数据整体弃掉，从 0 重传** → 又走 K=1 重试 → 失败 → 服务器中转（同样从 0）→ 循环。
+- **修复**（`tryReverseReceive` 重写）：
+  1. **收齐即完成**：`globalTotal`（文件全局分片总数）确定后，`received >= globalTotal` 即 `finish(true)` 合并——不等全部 K 条连接完成，死连接的迟到 onError 被 `settled` 守卫忽略；
+  2. **单条失败不弃整体**：改 `failedCount`，全部 K 条失败（或全部完成+失败但分片未收齐）才回退单连接 reverse → 服务器中转；
+  3. **新增协议字段 `meta.globalChunks`**：持有端在每条段的 meta 声明文件全局分片总数（权威值），接收端启动即知真实总数——否则各段 meta 只带段数、取 max 估算，段间 meta 到达时序不同时可能**提前合并出残缺文件**（旧持有端不携带 → 退回 max 估算，单连接场景估算即真实总数，安全）。
+- **P2P 重试语义**：正向 P2P 重试仍从 0 重发（P2P 无续传），但并行容错修好后重试不再频繁触发。
+
+**③ 曲名"反向滚动"**
+- **根因**：传输状态文本（"⏳ 获取歌曲中… x%（第 N 次续传）"）每收一片就变化 → `trackDisplay` watch → `updateTrackOverflow` 频繁改 `--track-marquee-end`/`isTrackOverflow` → 动画目标/内容抖动、`active` class 反复摘挂导致动画**重启回跳到起点** → 表现为"反向滚动"。
+- **修复**：传输状态展示期间**不做 marquee**（`isTransferStatus` 判定，仅真实曲名——稳定文本——启用滚动）；`--track-marquee-end` 照常更新保证恢复曲名后立即可用。
+
+**测试**：前端 +6（music store：并行单条失败不立即回退×2、旧持有端单连接场景收齐即合并且迟到失败不重启、received 钳制；MusicPlayer：百分比越界钳 100%；p2p：buildMeta/parseMeta globalChunks 往返）。1161 全过、vue-tsc 零错误。
+
 ### 9. 种子 P2P 下载卡死（0 进展/永久"准备下载"）+ reverse 传歌 2-5% 中断（v4.7.7）
 
 **实测场景**：汤圆(4.7.6 种子) → cici(4.7.5 下载端) 种子更新：显示"正在从汤圆直连下载..."但无进度条、始终"准备下载"，P2P 能打洞却不下数据；同时 reverse 传歌传 2% 或 5% 就断、变服务器中转（正向 10MB/s 丝滑，反向慢/断）。

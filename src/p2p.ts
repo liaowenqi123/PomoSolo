@@ -85,8 +85,17 @@ export interface P2PStartOptions {
    * index 落盘（接收端分片按全局 index 写，天然支持交错到达）。默认 0 = 整文件单连接。
    */
   baseChunk?: number;
+  /**
+   * 发送端声明**文件全局分片总数**（v4.7.8 多连接并行用，默认 0）：
+   * 并行传输时每条连接 meta 携带同一个 globalChunks，接收端据此在启动阶段即知
+   * 全局总数（= 文件总片数），用于"收齐即完成"判定——否则各段 meta 只带段数，
+   * 接收端只能取 max(base+段数) 估算，段间 meta 到达时序不同时可能提前合并
+   * （seg 先传完而另一段 meta 未到 → 误以为全收齐 → 合并出残缺文件）。
+   * 旧持有端（4.7.6 及更早）不携带 → 接收端退回升级 max 估算 + 全部连接结束判定。
+   */
+  globalChunks?: number;
   /** 接收端落盘：收到第 index 片（并行传输时 index 为段内局部序号，baseChunk 为全局偏移） */
-  onChunk?: (chunk: Uint8Array, index: number, totalChunks: number, baseChunk?: number) => Promise<void>;
+  onChunk?: (chunk: Uint8Array, index: number, totalChunks: number, baseChunk?: number, globalChunks?: number) => Promise<void>;
   /** STUN 服务器（获取 NAT 映射地址用）；空数组 = 只走 host 候选 */
   stunUrls?: string[];
   /** 单片字节数（默认 128KB） */
@@ -224,6 +233,8 @@ export interface ChunkMeta {
   compress?: boolean;
   /** 并行传输（v4.7.7）：本连接负责的全局起始分片序号；缺省 0 = 整文件单连接 */
   baseChunk?: number;
+  /** 并行传输（v4.7.8）：文件全局分片总数；各段 meta 携带同一个值，供接收端收齐判定 */
+  globalChunks?: number;
 }
 
 /** 构建 meta 控制消息（JSON 字符串）；compress=true 时带压缩标志（旧版对端解析忽略未知字段） */
@@ -233,6 +244,7 @@ export function buildMeta(
   chunkSize: number,
   compress = false,
   baseChunk = 0,
+  globalChunks = 0,
 ): string {
   return JSON.stringify({
     t: "meta",
@@ -241,6 +253,7 @@ export function buildMeta(
     chunkSize,
     ...(compress ? { compress: 1 } : {}),
     ...(baseChunk > 0 ? { baseChunk } : {}),
+    ...(globalChunks > 0 ? { globalChunks } : {}),
   });
 }
 
@@ -256,6 +269,8 @@ export function parseMeta(text: string): ChunkMeta | null {
         compress: o.compress === 1,
         // 与 buildMeta 对称：baseChunk>0 才携带（缺省=单连接整文件，旧版对端无此字段）
         ...(typeof o.baseChunk === "number" && o.baseChunk > 0 ? { baseChunk: o.baseChunk } : {}),
+        // globalChunks>0 才携带（旧持有端无此字段）
+        ...(typeof o.globalChunks === "number" && o.globalChunks > 0 ? { globalChunks: o.globalChunks } : {}),
       };
     }
   } catch {
@@ -391,6 +406,8 @@ function establishConnection(
   let receivedBytes = 0;
   /** 并行传输（v4.7.7）：本连接负责的全局起始分片序号（来自对端 meta.baseChunk） */
   let chunkBase = 0;
+  /** 并行传输（v4.7.8）：文件全局分片总数（来自对端 meta.globalChunks；旧持有端不携带=0） */
+  let metaGlobalChunks = 0;
   const startTime = Date.now();
   let ackTimer: ReturnType<typeof setTimeout> | null = null;
   // ── 压缩传输状态（v4.6.4）──
@@ -725,6 +742,7 @@ function establishConnection(
           totalBytes = meta.size;
           totalChunks = meta.totalChunks;
           chunkBase = meta.baseChunk ?? 0;
+          metaGlobalChunks = meta.globalChunks ?? 0;
           transferCompressed = meta.compress === true;
           if (transferCompressed) diagnose("压缩传输：对端启用分片压缩");
           callbacks.onProgress?.(0, totalBytes, 0);
@@ -810,7 +828,12 @@ function establishConnection(
     const percent = totalBytes > 0 ? Math.min(100, Math.round((receivedBytes / totalBytes) * 100)) : 0;
     callbacks.onProgress?.(receivedBytes, totalBytes, percent);
     try {
-      await opts.onChunk?.(data, index, totalChunks, chunkBase);
+      // 旧持有端（meta 无 globalChunks）保持 4 参调用形态（onChunk 兼容旧签名）
+      if (metaGlobalChunks > 0) {
+        await opts.onChunk?.(data, index, totalChunks, chunkBase, metaGlobalChunks);
+      } else {
+        await opts.onChunk?.(data, index, totalChunks, chunkBase);
+      }
     } catch {
       callbacks.onError?.("接收分片落盘失败");
       cleanup();
@@ -900,7 +923,7 @@ function establishConnection(
     }
     totalChunks = Math.ceil(opts.totalBytes / chunkSize);
     try {
-      dc.send(buildMeta(opts.totalBytes, totalChunks, chunkSize, useCompress, opts.baseChunk ?? 0));
+      dc.send(buildMeta(opts.totalBytes, totalChunks, chunkSize, useCompress, opts.baseChunk ?? 0, opts.globalChunks ?? 0));
     } catch (e) {
       // meta 发送失败（通道已断/未就绪）→ 明确上报，不静默退出
       callbacks.onError?.(`发送 meta 失败: ${String(e)}`);

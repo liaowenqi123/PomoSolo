@@ -371,6 +371,19 @@ describe("MusicPlayer.vue", () => {
     wrapper.unmount();
   });
 
+  it("传输百分比越界（received>total）→ 钳制为 100%（回归：实测 112%/200w%）", () => {
+    mockStore = makeStore({
+      playing: false,
+      trackName: "old.mp3",
+      songTransfer: { state: "downloading", songName: "new.mp3", received: 9999, total: 48 },
+    });
+    const wrapper = mountComponent();
+    const text = wrapper.find(".music-player__track-name").text();
+    expect(text).toContain("100%");
+    expect(text).not.toContain("20831%");
+    wrapper.unmount();
+  });
+
   it("传输状态残留但歌已播放 → 曲名正常显示歌名（不被进度提示锁定）", () => {
     // 回归：传完/本地已有导致 songTransfer 未及时复位时，曲名不能被"获取歌曲中 2%"占住
     mockStore = makeStore({

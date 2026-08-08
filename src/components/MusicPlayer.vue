@@ -55,7 +55,9 @@ const trackDisplay = computed(() => {
   if (transferActive) {
     const retry = transfer.retryCount > 0 ? `（第 ${transfer.retryCount}/${TRANSFER_MAX_RETRY_HINT} 次续传）` : "";
     if (transfer.total > 0) {
-      const pct = Math.floor((transfer.received / transfer.total) * 100);
+      // 钳制到 [0,100]：received/total 可能因跨通道切换/重传累积而越界（实测 112%、200w%），
+      // 展示层一律不超 100%
+      const pct = Math.max(0, Math.min(100, Math.floor((transfer.received / transfer.total) * 100)));
       return `⏳ 获取歌曲中… ${pct}%${retry}`;
     }
     return `⏳ 获取歌曲中…《${transfer.songName}》${retry}`;
@@ -84,14 +86,26 @@ const trackNameRef = ref<HTMLElement | null>(null);
 const isTrackOverflow = ref(false);
 let trackNameObserver: ResizeObserver | null = null;
 
+/**
+ * 传输状态展示中（"⏳ 获取歌曲中… x%（第 N 次续传）"）：该文本每收一片就变化，
+ * 若对它做 marquee，动画目标/内容频繁变化会表现为"反向滚动/回跳"（实测）。
+ * 传输状态本身很短且是临时文案，不滚动；只有真实曲名（稳定文本）启用滚动。
+ */
+const isTransferStatus = computed(() => {
+  const t = store.songTransfer;
+  return (t.state === "requesting" || t.state === "downloading") && !store.playing;
+});
+
 function updateTrackOverflow(): void {
   const el = trackNameRef.value;
   if (!el) return;
-  isTrackOverflow.value = el.scrollWidth > el.clientWidth + 1;
-  // v4.7.5：滚动终点余量 = 容器实际宽度。原硬编码 160px 在曲名比窗口宽超 160px
-  // 或徽章/按钮挤窄窗口时，滚动到底后尾部整体滑出窗口 → "永远看不到"。
-  // translateX(-100% + 容器宽) 恰好让尾部停靠窗口右缘，保证全部内容可见。
+  // 先更新滚动终点余量（容器宽），传输状态时也更新以便恢复曲名后立即可用
   el.style.setProperty("--track-marquee-end", `${el.clientWidth}px`);
+  if (isTransferStatus.value) {
+    isTrackOverflow.value = false;
+    return;
+  }
+  isTrackOverflow.value = el.scrollWidth > el.clientWidth + 1;
 }
 
 onMounted(() => {

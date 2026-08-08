@@ -655,7 +655,8 @@ export const useMusicStore = defineStore("music", () => {
         if (!res.success) throw new Error(res.error ?? "分片落盘失败");
         songTransfer.value.state = "downloading";
         songTransfer.value.total = totalChunks;
-        songTransfer.value.received += 1;
+        // 钳制到 total：防止跨会话 received 累积越界（百分比 >100%）
+        songTransfer.value.received = Math.min(songTransfer.value.received + 1, totalChunks);
         lastChunkAt = Date.now();
       },
       callbacks: {
@@ -699,6 +700,9 @@ export const useMusicStore = defineStore("music", () => {
             return;
           }
           // 从未成功建连 / 重试耗尽 / 已回退 → 服务器中转（现有请求已在途，music:song_chunk 会继续）
+          // 重新计片：服务器从头重发分片，received/total 归零避免跨通道累计（>100% 的根因之一）
+          songTransfer.value.received = 0;
+          songTransfer.value.total = 0;
           songTransfer.value.channel = "server";
           console.warn("[MusicStore] P2P 直连失败，回退服务器中转:", err);
         },
@@ -735,6 +739,7 @@ export const useMusicStore = defineStore("music", () => {
     activeP2PReceive?.close();
     const handles: P2PHandle[] = [];
     let doneCount = 0;
+    let failedCount = 0;
     let settled = false;
     // 全局 totalChunks 未知（各段 meta 只带段数）→ 收片时取各段全局上界（base+段数）的最大值
     let globalTotal = 0;
@@ -753,8 +758,17 @@ export const useMusicStore = defineStore("music", () => {
         void tryReverseReceive(songId, 1);
       } else {
         console.warn("[MusicStore] reverse P2P 失败，回退服务器中转:", "并行或单连接均失败");
+        songTransfer.value.received = 0;
+        songTransfer.value.total = 0;
         songTransfer.value.channel = "server";
       }
+    };
+    // 已收齐全部全局分片（received 已覆盖 globalTotal）→ 立即完成。
+    // 关键修复（v4.7.7 实测"传到一半卡住→标签消失→从0重传"的根因）：
+    // 并行任一条连接超时/失败不得把已完成的数据拖垮——数据收齐即为完成，
+    // 死连接的迟到 onError/onComplete 被 settled 守卫忽略。
+    const tryComplete = () => {
+      if (globalTotal > 0 && songTransfer.value.received >= globalTotal) finish(true);
     };
     for (let k = 0; k < K; k++) {
       const tag = K > 1 ? `p${k}` : undefined;
@@ -767,18 +781,27 @@ export const useMusicStore = defineStore("music", () => {
         // v4.7.7：反向打洞能打通但慢速（每片间隔可能超 3s）→ 无进展超时放宽到 15s，
         // 避免 3s 看门狗把"能通的慢速反向"误判卡死、掐断转服务器中转
         progressTimeoutMs: 15_000,
-        onChunk: async (chunk, index, totalChunks, baseChunk) => {
+        onChunk: async (chunk, index, totalChunks, baseChunk, globalChunks) => {
           // 并行：帧 index 为段内局部序号 → 全局 index = base + index（part 文件按全局 index 写）
           const globalIndex = (baseChunk ?? 0) + index;
           // Rust 校验 total_chunks（chunk_index < total_chunks）→ 传全局上界，全局 index 必过
           const totalForVerify = (baseChunk ?? 0) + totalChunks;
-          globalTotal = Math.max(globalTotal, totalForVerify);
+          // 持有端 4.7.8+ 在 meta 声明文件全局分片总数（权威，启动阶段即知，杜绝段间
+          // meta 时序差异导致的提前合并）；旧持有端不携带 → 取各段全局上界最大值
+          if (typeof globalChunks === "number" && globalChunks > 0) {
+            globalTotal = globalChunks;
+          } else {
+            globalTotal = Math.max(globalTotal, totalForVerify);
+          }
           const res = await musicReceiveSongChunkBin(songId, globalIndex, totalForVerify, Array.from(chunk));
           if (!res.success) throw new Error(res.error ?? "分片落盘失败");
           songTransfer.value.state = "downloading";
           songTransfer.value.total = Math.max(songTransfer.value.total, globalTotal);
-          songTransfer.value.received += 1;
+          // received 钳制到全局上界：跨会话/跨通道切换时防止累计越界（百分比 >100% 的根因之一）
+          const cap = Math.max(songTransfer.value.total, globalTotal);
+          songTransfer.value.received = cap > 0 ? Math.min(songTransfer.value.received + 1, cap) : songTransfer.value.received + 1;
           lastChunkAt = Date.now();
+          tryComplete();
         },
         callbacks: {
           onOpen: () => {
@@ -787,11 +810,20 @@ export const useMusicStore = defineStore("music", () => {
           },
           onComplete: () => {
             doneCount += 1;
-            if (doneCount >= K) finish(true);
+            tryComplete();
+            // 全部连接都已结束（完成+失败）但分片未收齐 → 部分段缺失，回退
+            if (!settled && doneCount + failedCount >= K && songTransfer.value.received < globalTotal) {
+              finish(false);
+            }
           },
           onError: (err) => {
             console.warn("[MusicStore] reverse 连接失败:", err);
-            finish(false);
+            failedCount += 1;
+            tryComplete();
+            // 单条失败不立即放弃（其余连接可能仍在推进）；全部失败或已无可推进连接时才回退
+            if (!settled && (failedCount >= K || (doneCount + failedCount >= K && songTransfer.value.received < globalTotal))) {
+              finish(false);
+            }
           },
         },
       });
@@ -837,6 +869,8 @@ export const useMusicStore = defineStore("music", () => {
           sender: "answerer", // reverse：本机（持有端）作 answerer 发数据
           tag,
           baseChunk: base,
+          // 声明文件全局分片总数：各段 meta 携带同一值，下载端据此"收齐即完成"（4.7.8）
+          globalChunks: totalChunks,
           totalBytes: segCount * chunkSize, // 估算：最后一段不满，接收端按段 totalChunks 判定收齐
           chunkSize,
           timeoutMs: 10_000,
@@ -934,7 +968,8 @@ export const useMusicStore = defineStore("music", () => {
     if (!ok) return;
     songTransfer.value.state = "downloading";
     songTransfer.value.total = totalChunks;
-    songTransfer.value.received += 1;
+    // 钳制到 total：断点续传（received 起始=fromChunk）或跨通道切换后，防止 received 累计越界（>100%）
+    songTransfer.value.received = Math.min(songTransfer.value.received + 1, totalChunks);
     lastChunkAt = Date.now();
   }
 

@@ -111,6 +111,16 @@ describe("p2p meta 控制消息", () => {
     // 缺省 baseChunk=0 → meta 不带该字段（单连接整文件，向后兼容），解析回 0
     expect((parseMeta(buildMeta(6, 2, 3))?.baseChunk ?? 0)).toBe(0);
   });
+
+  it("buildMeta/parseMeta 带 globalChunks（v4.7.8 并行段声明文件全局总数）", () => {
+    // 并行连接 k 的 meta 同时声明文件全局分片总数（各段同一值），接收端据此"收齐即完成"
+    const text = buildMeta(6, 2, 3, false, 10, 20); // 全局起始 10、本段 2 片、文件共 20 片
+    const meta = parseMeta(text);
+    expect(meta?.baseChunk).toBe(10);
+    expect(meta?.globalChunks).toBe(20);
+    // 缺省 globalChunks=0 → meta 不带该字段（旧持有端/单连接），解析回 0
+    expect((parseMeta(buildMeta(6, 2, 3, false, 10))?.globalChunks ?? 0)).toBe(0);
+  });
 });
 
 describe("p2p 信令路由", () => {

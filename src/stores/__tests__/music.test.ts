@@ -1235,8 +1235,14 @@ describe("useMusicStore", () => {
     expect(sendOpts.peerId).toBe("dj-1");
     expect(sendOpts.role).toBe("offerer");
     expect(sendOpts.sender).toBe("answerer"); // reverse：本机打洞，DJ 在 channel 上发数据
-    // 并行连接失败（可能持有端为旧版/未按段挂多条）→ 回退单连接 reverse 再试一次
+    // 并行连接失败一条 → 其余连接仍可能推进，不立即回退（v4.7.7 修复：
+    // 之前任一条失败即整体从 0 重传，实测"传到一半被死连接拖垮"的根因）
     sendOpts.callbacks.onError("reverse 并行打洞失败");
+    expect(s.songTransfer.channel).not.toBe("server");
+    expect(musicSyncApi.musicSyncReverseRequest).toHaveBeenCalledTimes(1);
+    // 第二条并行连接也失败 → 全部失败才回退单连接 reverse 再试一次
+    const sendOpts1 = p2pApi.p2pSend.mock.calls[1][0] as P2PSendOpts;
+    sendOpts1.callbacks.onError("reverse 并行打洞失败");
     await vi.waitFor(() => {
       expect(musicSyncApi.musicSyncReverseRequest).toHaveBeenLastCalledWith("dj-1", "song-x", undefined, 1);
       expect(p2pApi.p2pSend).toHaveBeenCalledTimes(3);
@@ -1261,24 +1267,80 @@ describe("useMusicStore", () => {
       expect(p2pApi.p2pSend).toHaveBeenCalledTimes(2);
     });
     const sendOpts0 = p2pApi.p2pSend.mock.calls[0][0] as P2PSendOpts & {
-      onChunk: (chunk: Uint8Array, index: number, total: number, base?: number) => Promise<void>;
+      onChunk: (chunk: Uint8Array, index: number, total: number, base?: number, globalChunks?: number) => Promise<void>;
     };
     const sendOpts1 = p2pApi.p2pSend.mock.calls[1][0] as P2PSendOpts & {
-      onChunk: (chunk: Uint8Array, index: number, total: number, base?: number) => Promise<void>;
+      onChunk: (chunk: Uint8Array, index: number, total: number, base?: number, globalChunks?: number) => Promise<void>;
     };
     sendOpts0.callbacks.onOpen?.();
     expect(s.songTransfer.channel).toBe("p2p");
-    // 两条并行连接各自收齐一段：段0 全局 0..2，段1 全局 2..4（baseChunk 由 meta 携带）
-    await sendOpts0.onChunk(new Uint8Array([1]), 0, 2);
-    await sendOpts0.onChunk(new Uint8Array([2]), 1, 2);
+    // 两条并行连接各自收齐一段：段0 全局 0..2，段1 全局 2..4（baseChunk 由 meta 携带；
+    // 4.7.8 持有端各段 meta 同时声明 globalChunks=4 → 收齐判定用权威总数，不提前合并）
+    await sendOpts0.onChunk(new Uint8Array([1]), 0, 2, 0, 4);
+    await sendOpts0.onChunk(new Uint8Array([2]), 1, 2, 0, 4);
     sendOpts0.callbacks.onComplete();
-    await sendOpts1.onChunk(new Uint8Array([3]), 0, 2, 2);
-    await sendOpts1.onChunk(new Uint8Array([4]), 1, 2, 2);
+    await sendOpts1.onChunk(new Uint8Array([3]), 0, 2, 2, 4);
+    await sendOpts1.onChunk(new Uint8Array([4]), 1, 2, 2, 4);
     sendOpts1.callbacks.onComplete();
-    // 全部段收齐 → 直接合并（全局 total = max(base+段数) = 4）
+    // 全部段收齐 → 直接合并（全局 total = 4）
     await vi.waitFor(() => {
       expect(musicApi.musicFinalizeSong).toHaveBeenCalledWith("song-x", 4);
     });
+  });
+
+  it("reverse 并行：一条连接传完全部数据（旧持有端单连接场景），另一条迟到失败 → 不丢弃已收数据直接合并", async () => {
+    const s = useMusicStore();
+    s.djUserId = "dj-1";
+    musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+    musicApi.musicFinalizeSong.mockResolvedValue({ success: true });
+    musicSyncApi.musicReceiveSongChunkBin.mockResolvedValue({ success: true });
+    await s.startSongTransfer("song-x", 0);
+    const opts = p2pApi.p2pReceive.mock.calls[0][0] as P2PReceiveOpts;
+    opts.callbacks.onError("P2P 建连超时"); // 正常方向失败 → reverse
+    await vi.waitFor(() => expect(p2pApi.p2pSend).toHaveBeenCalledTimes(2));
+    const sendOpts0 = p2pApi.p2pSend.mock.calls[0][0] as P2PSendOpts & {
+      onChunk: (chunk: Uint8Array, index: number, total: number, base?: number, globalChunks?: number) => Promise<void>;
+    };
+    const sendOpts1 = p2pApi.p2pSend.mock.calls[1][0] as P2PSendOpts & {
+      onChunk: (chunk: Uint8Array, index: number, total: number, base?: number, globalChunks?: number) => Promise<void>;
+    };
+    sendOpts0.callbacks.onOpen?.();
+    expect(s.songTransfer.channel).toBe("p2p");
+    // 旧持有端（4.7.6）忽略 parallel → 只有一条连接被匹配，传完全部 0..3 片（meta totalChunks=4，
+    // 无 globalChunks → 退回 max 估算；单连接场景估算即真实总数，不会提前合并）
+    await sendOpts0.onChunk(new Uint8Array([1]), 0, 4);
+    await sendOpts0.onChunk(new Uint8Array([2]), 1, 4);
+    await sendOpts0.onChunk(new Uint8Array([3]), 2, 4);
+    await sendOpts0.onChunk(new Uint8Array([4]), 3, 4);
+    // 数据收齐即合并，不等第二条死连接（v4.7.7 修复：之前等 doneCount>=K，死连接超时才把
+    // 已传完的数据弃掉整体从 0 重传 → 实测"传到一半卡住→标签消失→从0开始"）
+    await vi.waitFor(() => {
+      expect(musicApi.musicFinalizeSong).toHaveBeenCalledWith("song-x", 4);
+    });
+    // 第二条连接（offer 无匹配被丢弃）迟到超时失败 → 已完成的传输不受影响，不重启
+    sendOpts1.callbacks.onError("reverse 连接超时");
+    expect(p2pApi.p2pSend).toHaveBeenCalledTimes(2);
+    expect(musicSyncApi.musicSyncReverseRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("reverse 并行：received 钳制到全局上界，不累计越界（百分比不超 100）", async () => {
+    const s = useMusicStore();
+    s.djUserId = "dj-1";
+    musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+    musicApi.musicFinalizeSong.mockResolvedValue({ success: true });
+    musicSyncApi.musicReceiveSongChunkBin.mockResolvedValue({ success: true });
+    await s.startSongTransfer("song-x", 0);
+    const opts = p2pApi.p2pReceive.mock.calls[0][0] as P2PReceiveOpts;
+    opts.callbacks.onError("P2P 建连超时");
+    await vi.waitFor(() => expect(p2pApi.p2pSend).toHaveBeenCalledTimes(2));
+    const sendOpts0 = p2pApi.p2pSend.mock.calls[0][0] as P2PSendOpts & {
+      onChunk: (chunk: Uint8Array, index: number, total: number, base?: number, globalChunks?: number) => Promise<void>;
+    };
+    sendOpts0.callbacks.onOpen?.();
+    // 段0：全局 0..1（base 0）；段1 meta 未到前 received 不会超过已确认的上界
+    await sendOpts0.onChunk(new Uint8Array([1]), 0, 2, 0, 4);
+    await sendOpts0.onChunk(new Uint8Array([2]), 1, 2, 0, 4);
+    expect(s.songTransfer.received).toBeLessThanOrEqual(s.songTransfer.total);
   });
 
   it("收到服务器中转分片 → channel 标记为 server（前端可观察）", async () => {
