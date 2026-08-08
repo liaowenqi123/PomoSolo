@@ -689,6 +689,7 @@ export interface Recipe {
 | 2026-08-08 | v3.1 取舍定稿：商人砍现金收购（与市场不重叠），聚焦物物交换/加工品出口；新增巨大化（3×3）、生动性方案（动画/季节/音效分层） |
 | 2026-08-08 | v3.2 修正：巨大化改**概率触发**（15%，非必然）；新增机制叠加控制（一次收获一种特殊状态/经济双轨隔离/产出锁定）与渐进引入节奏（按天数解锁系统，防认知过载） |
 | 2026-08-08 | v3.3 定稿：巨大化 UI 用覆盖层动画（不依赖 grid 跨格）；期望收益 ≈ 分散种（防"最优种法"）；**时钟↔菜园子隔离架构**（单向三信号：grow / 断了 / 完成，时钟不区分中断原因） |
-| 2026-08-08 | **Phase B 落地**（设计师 commit 672a6eb + 客户端适配）：`garden_plant_quick` / `garden_harvest_all` / `garden_seed_from_crop` / `garden_check_state` / 连击对齐 ×1.2 + 阈值 2 / 每日配额 120 分钟 / 段位 + 微黄 / 枯萎救援二次清除；客户端接入 record_focus、快捷种植交互、一键全收 UI、枯萎双态展示（commit 待定） |
+| 2026-08-08 | **Phase B 落地**（设计师 commit 672a6eb + 客户端适配 ba1d087）：`garden_plant_quick` / `garden_harvest_all` / `garden_seed_from_crop` / `garden_check_state` / 连击对齐 ×1.2 + 阈值 2 / 每日配额 120 分钟 / 段位 + 微黄 / 枯萎救援二次清除；客户端接入 record_focus、快捷种植交互、一键全收 UI、枯萎双态展示 |
+| 2026-08-08 | **v4.7.4 发版：菜园子 Phase B 测试补强**（commit 待定）：专注模式↔菜园子关系测试（完成→recordFocus(true)，中断/重置/惩罚→recordFocus(false)，完成后关闭不惩罚不重置连击）×6、api 新命令封装测试 ×5 + snake_case 清单、store plantQuick/harvestAll 测试 ×7、GardenPlot 枯萎态交互隔离 + 长按隔离测试 ×6、GardenMain v3 状态条渲染 + 一键全收失败提示 ×9；前端 1112 → 1145 全过 |
 
 > ~~⚠️ **待办**：v1 代码中 `apply_growth` 当前实现 ×1.5、`COMBO_ACTIVE_THRESHOLD=3`，与 v3 定稿（×1.2、阈值 2）不一致，Phase B 实施时一并调整。~~ → **✅ 已在 Phase B 落地**（`COMBO_ACTIVE_THRESHOLD=2`、`apply_growth` ×1.2 向上取整）。

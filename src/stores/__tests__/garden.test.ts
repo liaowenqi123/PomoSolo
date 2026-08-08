@@ -5,7 +5,9 @@ import { setActivePinia, createPinia } from "pinia";
 const apiMocks = {
   gardenRead: vi.fn(),
   gardenPlant: vi.fn(),
+  gardenPlantQuick: vi.fn(),
   gardenHarvest: vi.fn(),
+  gardenHarvestAll: vi.fn(),
   gardenBuySeed: vi.fn(),
   gardenSellCrop: vi.fn(),
   gardenUnlockPlot: vi.fn(),
@@ -21,7 +23,9 @@ const apiMocks = {
 vi.mock("../../api/garden", () => ({
   gardenRead: (...args: unknown[]) => apiMocks.gardenRead(...args),
   gardenPlant: (...args: unknown[]) => apiMocks.gardenPlant(...args),
+  gardenPlantQuick: (...args: unknown[]) => apiMocks.gardenPlantQuick(...args),
   gardenHarvest: (...args: unknown[]) => apiMocks.gardenHarvest(...args),
+  gardenHarvestAll: (...args: unknown[]) => apiMocks.gardenHarvestAll(...args),
   gardenBuySeed: (...args: unknown[]) => apiMocks.gardenBuySeed(...args),
   gardenSellCrop: (...args: unknown[]) => apiMocks.gardenSellCrop(...args),
   gardenUnlockPlot: (...args: unknown[]) => apiMocks.gardenUnlockPlot(...args),
@@ -238,6 +242,96 @@ describe("useGardenStore", () => {
 
     expect(ok).toBe(false);
     expect(store.lastError).toBe("harvest err");
+  });
+
+  // ===== plantQuick（v3 快捷种植）=====
+  it("plantQuick 成功时调用 gardenPlantQuick(plotIndex)、返回 true 并应用 gardenData", async () => {
+    const newGarden = { ...DEFAULT_GARDEN, coins: 50 };
+    apiMocks.gardenPlantQuick.mockResolvedValue({
+      success: true,
+      crop: "carrot",
+      gardenData: newGarden,
+    });
+
+    const store = useGardenStore();
+    const ok = await store.plantQuick(2);
+
+    expect(apiMocks.gardenPlantQuick).toHaveBeenCalledWith(2);
+    expect(ok).toBe(true);
+    expect(store.coins).toBe(50);
+  });
+
+  it("plantQuick 失败时（success=false）返回 false", async () => {
+    apiMocks.gardenPlantQuick.mockResolvedValue({ success: false });
+
+    const store = useGardenStore();
+    const ok = await store.plantQuick(2);
+
+    expect(ok).toBe(false);
+  });
+
+  it("plantQuick 异常时设置 lastError、返回 false", async () => {
+    apiMocks.gardenPlantQuick.mockRejectedValue(new Error("no seed"));
+
+    const store = useGardenStore();
+    const ok = await store.plantQuick(2);
+
+    expect(ok).toBe(false);
+    expect(store.lastError).toBe("no seed");
+  });
+
+  // ===== harvestAll（v3 一键全收）=====
+  it("harvestAll 成功时返回 {harvested, totalCoins} 并应用 gardenData", async () => {
+    const newGarden = { ...DEFAULT_GARDEN, coins: 10 };
+    apiMocks.gardenHarvestAll.mockResolvedValue({
+      success: true,
+      harvested: [{ crop: "carrot", name: "胡萝卜", icon: "🥕", count: 2 }],
+      totalCoins: 10,
+      gardenData: newGarden,
+    });
+
+    const store = useGardenStore();
+    const result = await store.harvestAll();
+
+    expect(apiMocks.gardenHarvestAll).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      harvested: [{ crop: "carrot", name: "胡萝卜", icon: "🥕", count: 2 }],
+      totalCoins: 10,
+    });
+    expect(store.coins).toBe(10);
+  });
+
+  it("harvestAll 无成熟作物时返回空聚合（harvested=[]）", async () => {
+    apiMocks.gardenHarvestAll.mockResolvedValue({
+      success: true,
+      harvested: [],
+      totalCoins: 0,
+      gardenData: DEFAULT_GARDEN,
+    });
+
+    const store = useGardenStore();
+    const result = await store.harvestAll();
+
+    expect(result).toEqual({ harvested: [], totalCoins: 0 });
+  });
+
+  it("harvestAll 失败时（success=false）返回 null", async () => {
+    apiMocks.gardenHarvestAll.mockResolvedValue({ success: false });
+
+    const store = useGardenStore();
+    const result = await store.harvestAll();
+
+    expect(result).toBe(null);
+  });
+
+  it("harvestAll 异常时返回 null 并设置 lastError", async () => {
+    apiMocks.gardenHarvestAll.mockRejectedValue(new Error("harvest all err"));
+
+    const store = useGardenStore();
+    const result = await store.harvestAll();
+
+    expect(result).toBe(null);
+    expect(store.lastError).toBe("harvest all err");
   });
 
   // ===== buySeed =====

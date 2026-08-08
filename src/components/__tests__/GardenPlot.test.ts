@@ -10,6 +10,7 @@ const storeMocks = {
     progress: number;
     plantedAt: string | null;
     locked?: boolean;
+    wilted?: boolean;
   }>,
   coins: 0,
   tip: "",
@@ -49,6 +50,7 @@ function makePlot(overrides: Partial<{
   progress: number;
   plantedAt: string | null;
   locked?: boolean;
+  wilted?: boolean;
 }>) {
   return {
     id: 0,
@@ -209,6 +211,113 @@ describe("GardenPlot.vue", () => {
       expect(wrapper.emitted("plant")).toBeTruthy();
       expect(wrapper.emitted("plant")![0]).toEqual([0, 50, 60]);
       emptyPlot.trigger("mouseup");
+      expect(storeMocks.plantQuick).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // ===== 枯萎态（v3 枯萎救援：违规惩罚后转枯萎，专注完成救活）=====
+
+  it("枯萎作物应显示 🥀 图标与『专注救活』文字", () => {
+    storeMocks.plots[0] = makePlot({
+      id: 0,
+      crop: "carrot",
+      progress: 10,
+      plantedAt: "2025-01-01",
+      wilted: true,
+    });
+    const wrapper = mountComponent();
+    const wiltedPlot = wrapper.findAll(".garden-plot")[0];
+    expect(wiltedPlot.classes()).toContain("wilted");
+    expect(wiltedPlot.find(".plot-wilted-icon").text()).toBe("🥀");
+    expect(wiltedPlot.find(".plot-wilted-text").text()).toBe("专注救活");
+  });
+
+  it("枯萎作物点击应提示救活，且不触发收获/种植", async () => {
+    storeMocks.plots[0] = makePlot({
+      id: 0,
+      crop: "carrot",
+      progress: 10,
+      plantedAt: "2025-01-01",
+      wilted: true,
+    });
+    const wrapper = mountComponent();
+    const wiltedPlot = wrapper.findAll(".garden-plot")[0];
+    await wiltedPlot.trigger("click");
+    expect(storeMocks.tip).toContain("作物枯萎了");
+    expect(wrapper.emitted("harvest")).toBeFalsy();
+    expect(wrapper.emitted("plant")).toBeFalsy();
+  });
+
+  it("枯萎作物 mousedown+mouseup 不应触发快捷种植或轮盘", async () => {
+    storeMocks.plots[0] = makePlot({
+      id: 0,
+      crop: "carrot",
+      progress: 10,
+      plantedAt: "2025-01-01",
+      wilted: true,
+    });
+    const wrapper = mountComponent();
+    const wiltedPlot = wrapper.findAll(".garden-plot")[0];
+    await wiltedPlot.trigger("mousedown", { clientX: 100, clientY: 200 });
+    await wiltedPlot.trigger("mouseup");
+    await wrapper.vm.$nextTick();
+    expect(storeMocks.plantQuick).not.toHaveBeenCalled();
+    expect(wrapper.emitted("plant")).toBeFalsy();
+  });
+
+  it("枯萎作物长按 500ms 不应打开种植轮盘", () => {
+    vi.useFakeTimers();
+    try {
+      storeMocks.plots[0] = makePlot({
+        id: 0,
+        crop: "carrot",
+        progress: 10,
+        plantedAt: "2025-01-01",
+        wilted: true,
+      });
+      const wrapper = mountComponent();
+      const wiltedPlot = wrapper.findAll(".garden-plot")[0];
+      wiltedPlot.trigger("mousedown", { clientX: 50, clientY: 60 });
+      vi.advanceTimersByTime(500);
+      expect(wrapper.emitted("plant")).toBeFalsy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // ===== 长按隔离：非空地不弹轮盘 =====
+
+  it("有作物（未成熟）格子长按不应打开种植轮盘", () => {
+    vi.useFakeTimers();
+    try {
+      storeMocks.plots[0] = makePlot({
+        id: 0,
+        crop: "carrot",
+        progress: 5,
+        plantedAt: "2025-01-01",
+      });
+      const wrapper = mountComponent();
+      const cropPlot = wrapper.findAll(".garden-plot")[0];
+      cropPlot.trigger("mousedown", { clientX: 50, clientY: 60 });
+      vi.advanceTimersByTime(500);
+      expect(wrapper.emitted("plant")).toBeFalsy();
+      cropPlot.trigger("mouseup");
+      expect(storeMocks.plantQuick).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("锁定格子长按不应打开种植轮盘", () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = mountComponent();
+      const lockedPlot = wrapper.findAll(".garden-plot")[6];
+      lockedPlot.trigger("mousedown", { clientX: 50, clientY: 60 });
+      vi.advanceTimersByTime(500);
+      expect(wrapper.emitted("plant")).toBeFalsy();
       expect(storeMocks.plantQuick).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();

@@ -418,4 +418,117 @@ describe("App.vue", () => {
     expect(vm.planRunning).toBe(false);
     expect(timer.phase).toBe("ready");
   });
+
+  // ===== 菜园子联动（v3 隔离架构：完成/中断统一信号）=====
+
+  it("番茄钟自然完成后应调用 garden.recordFocus(true)", async () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = await mountApp();
+      const timer = useTimerStore();
+      const garden = useGardenStore();
+      const recordFocusSpy = vi.spyOn(garden, "recordFocus").mockResolvedValue(true);
+      timer.start();
+      await vi.advanceTimersByTimeAsync(25 * 60 * 1000);
+      await flushPromises();
+      expect(recordFocusSpy).toHaveBeenCalledTimes(1);
+      expect(recordFocusSpy).toHaveBeenCalledWith(true);
+      timer.reset();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("专注模式运行中点击重置（惩罚路径）应调用 garden.recordFocus(false)", async () => {
+    const wrapper = await mountApp();
+    const timer = useTimerStore();
+    const garden = useGardenStore();
+    const recordFocusSpy = vi.spyOn(garden, "recordFocus").mockResolvedValue(true);
+    vi.spyOn(garden, "punish").mockResolvedValue({
+      hasLoss: false,
+      losses: [],
+      totalMinutes: 0,
+    });
+    timer.start();
+    await toggleFocusMode(wrapper, true);
+    await wrapper.find(".btn-reset").trigger("click");
+    await flushPromises();
+    expect(recordFocusSpy).toHaveBeenCalledWith(false);
+    expect(timer.phase).toBe("ready");
+  });
+
+  it("专注模式未完成番茄钟就手动关闭应调用 garden.recordFocus(false)", async () => {
+    const wrapper = await mountApp();
+    const timer = useTimerStore();
+    const garden = useGardenStore();
+    const recordFocusSpy = vi.spyOn(garden, "recordFocus").mockResolvedValue(true);
+    vi.spyOn(garden, "punish").mockResolvedValue({
+      hasLoss: false,
+      losses: [],
+      totalMinutes: 0,
+    });
+    timer.start();
+    await toggleFocusMode(wrapper, true);
+    await toggleFocusMode(wrapper, false);
+    await flushPromises();
+    expect(recordFocusSpy).toHaveBeenCalledWith(false);
+  });
+
+  it("番茄钟完成后手动关闭专注模式不应再 recordFocus(false)（承诺已兑现）", async () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = await mountApp();
+      const timer = useTimerStore();
+      const garden = useGardenStore();
+      const recordFocusSpy = vi.spyOn(garden, "recordFocus").mockResolvedValue(true);
+      const punishSpy = vi.spyOn(garden, "punish").mockResolvedValue({
+        hasLoss: false,
+        losses: [],
+        totalMinutes: 0,
+      });
+      await toggleFocusMode(wrapper, true);
+      timer.start();
+      await vi.advanceTimersByTimeAsync(25 * 60 * 1000);
+      expect(timer.completionId).toBe(1);
+      await toggleFocusMode(wrapper, false);
+      await flushPromises();
+      // 完成时已发过 true；关闭（承诺兑现）不应再发 false
+      expect(recordFocusSpy).toHaveBeenCalledTimes(1);
+      expect(recordFocusSpy).toHaveBeenCalledWith(true);
+      expect(punishSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("非专注模式运行中普通重置应调用 garden.recordFocus(false)（放弃专注=断了）", async () => {
+    const wrapper = await mountApp();
+    const timer = useTimerStore();
+    const garden = useGardenStore();
+    const recordFocusSpy = vi.spyOn(garden, "recordFocus").mockResolvedValue(true);
+    timer.start();
+    await wrapper.find(".btn-reset").trigger("click");
+    await flushPromises();
+    expect(recordFocusSpy).toHaveBeenCalledWith(false);
+    expect(timer.phase).toBe("ready");
+  });
+
+  it("前台娱乐检测触发惩罚时应调用 garden.recordFocus(false)", async () => {
+    const wrapper = await mountApp();
+    const timer = useTimerStore();
+    const garden = useGardenStore();
+    const recordFocusSpy = vi.spyOn(garden, "recordFocus").mockResolvedValue(true);
+    vi.spyOn(garden, "punish").mockResolvedValue({
+      hasLoss: true,
+      losses: [{ crop: "carrot", name: "胡萝卜", icon: "🥕", progress: 10, growTime: 25 }],
+      totalMinutes: 10,
+    });
+    timer.start();
+    await toggleFocusMode(wrapper, true);
+    const fgWarning = wrapper.findComponent({ name: "ForegroundWarning" });
+    await fgWarning.vm.$emit("punishment");
+    await flushPromises();
+    expect(recordFocusSpy).toHaveBeenCalledWith(false);
+    expect(timer.phase).toBe("ready");
+  });
 });

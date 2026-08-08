@@ -131,6 +131,60 @@ describe("GardenMain.vue", () => {
     expect(wrapper.find(".garden-header__title").text()).toBe("🌱 菜园子");
   });
 
+  // ===== v3 状态条（连击 / 微黄 / 段位）=====
+
+  it("连击时状态条显示连击文本", () => {
+    storeMocks.comboCount = 3;
+    storeMocks.comboActive = false;
+    const wrapper = mountComponent();
+    const statusbar = wrapper.find(".garden-statusbar");
+    expect(statusbar.exists()).toBe(true);
+    expect(statusbar.text()).toContain("🔥连击×3");
+  });
+
+  it("连击激活时状态条显示加速标记", () => {
+    storeMocks.comboCount = 2;
+    storeMocks.comboActive = true;
+    const wrapper = mountComponent();
+    expect(wrapper.find(".garden-statusbar").text()).toContain("🔥连击×2(加速)");
+  });
+
+  it("微黄（languishLevel=1）时状态条显示『有点蔫了』提示", () => {
+    storeMocks.languishLevel = 1;
+    const wrapper = mountComponent();
+    const statusbar = wrapper.find(".garden-statusbar");
+    expect(statusbar.exists()).toBe(true);
+    expect(statusbar.text()).toContain("菜园有点蔫了");
+  });
+
+  it("休眠（languishLevel=2）时状态条显示休眠提示", () => {
+    storeMocks.languishLevel = 2;
+    const wrapper = mountComponent();
+    expect(wrapper.find(".garden-statusbar").text()).toContain("菜园在休眠");
+  });
+
+  it("无连击且无微黄时不渲染状态条", () => {
+    storeMocks.comboCount = 0;
+    storeMocks.languishLevel = 0;
+    const wrapper = mountComponent();
+    expect(wrapper.find(".garden-statusbar").exists()).toBe(false);
+  });
+
+  it("段位 > 0 时头部显示 LvN 徽章与段位名", () => {
+    storeMocks.tierCurrent = 1;
+    const wrapper = mountComponent();
+    const tierBadge = wrapper.find(".garden-header__tier");
+    expect(tierBadge.exists()).toBe(true);
+    expect(tierBadge.text()).toContain("Lv1");
+    expect(tierBadge.text()).toContain("初绿");
+  });
+
+  it("段位 = 0 时不显示段位徽章", () => {
+    storeMocks.tierCurrent = 0;
+    const wrapper = mountComponent();
+    expect(wrapper.find(".garden-header__tier").exists()).toBe(false);
+  });
+
   it("应渲染四个导航按钮", () => {
     const wrapper = mountComponent();
     const navBtns = wrapper.findAll(".garden-nav-btn");
@@ -163,6 +217,16 @@ describe("GardenMain.vue", () => {
     await flushPromises();
     await wrapper.vm.$nextTick();
     expect(storeMocks.tip).toContain("没有成熟作物可收获");
+  });
+
+  it("一键全收失败（harvestAll 返回 null）时应显示 lastError 提示", async () => {
+    storeMocks.harvestAll = vi.fn().mockResolvedValue(null);
+    storeMocks.lastError = "收获失败：后端错误";
+    const wrapper = mountComponent();
+    await wrapper.findAll(".garden-nav-btn")[0].trigger("click");
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+    expect(storeMocks.tip).toContain("收获失败：后端错误");
   });
 
   it("应渲染 GardenPlot 子组件", () => {
