@@ -6,7 +6,8 @@
  * 协调土地格子、商店、背包、签到、成就墙、种植轮盘子组件。
  * 所有数据操作通过 useGardenStore 调用后端。
  */
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, onUnmounted, computed } from "vue";
+import { listen } from "@tauri-apps/api/event";
 import { useGardenStore } from "@/stores/garden";
 import { hideGardenWindow } from "@/api/window";
 import GardenPlot from "./GardenPlot.vue";
@@ -15,6 +16,7 @@ import GardenBag from "./GardenBag.vue";
 import GardenSignin from "./GardenSignin.vue";
 import GardenAchievement from "./GardenAchievement.vue";
 import GardenPlantWheel from "./GardenPlantWheel.vue";
+import GardenTutorial from "./GardenTutorial.vue";
 
 const store = useGardenStore();
 
@@ -22,6 +24,7 @@ const store = useGardenStore();
 const shopVisible = ref(false);
 const signinVisible = ref(false);
 const achievementVisible = ref(false);
+const tutorialVisible = ref(false);
 
 // ===== 种植轮盘状态 =====
 const wheelVisible = ref(false);
@@ -30,10 +33,25 @@ const wheelY = ref(0);
 const wheelPlotIndex = ref(-1);
 
 // ===== 生命周期 =====
+let unlistenRefresh: (() => void) | null = null;
+
 onMounted(async () => {
   await store.load();
   // v3 隔离架构：打开窗口时检查段位/微黄/解锁状态
   await store.checkState();
+  // 跨窗口实时同步：主窗口/计时器改动菜园数据（惩罚枯萎/生长/专注救活）后广播 garden-refresh，
+  // 这里重新拉取数据渲染，避免"枯萎了但界面不更新、要重启才看到"（对应旧版 garden-refresh IPC）。
+  try {
+    unlistenRefresh = await listen("garden-refresh", () => {
+      void store.load();
+    });
+  } catch (err) {
+    console.warn("[GardenMain] garden-refresh listen failed:", err);
+  }
+});
+
+onUnmounted(() => {
+  unlistenRefresh?.();
 });
 
 // ===== v3 状态条 getters =====
@@ -139,23 +157,32 @@ function handleClose() {
       </div>
       <h2 class="garden-header__title">🌱 菜园子</h2>
       <div class="garden-header__actions">
-        <button class="garden-nav-btn" title="一键全收成熟作物" @click="handleHarvestAll">
-          🌾
-        </button>
-        <button
-          class="garden-nav-btn"
-          :class="{ signed: !store.canSignInToday }"
-          title="每日签到"
-          @click="signinVisible = true"
-        >
-          📅
-        </button>
-        <button class="garden-nav-btn" title="商店" @click="shopVisible = true">
-          🛒
-        </button>
-        <button class="garden-nav-btn" title="成就墙" @click="achievementVisible = true">
-          🏆
-        </button>
+        <div class="garden-toolbar">
+          <button
+            class="garden-nav-btn"
+            title="一键全收成熟作物"
+            @click="handleHarvestAll"
+          >
+            🌾
+          </button>
+          <button
+            class="garden-nav-btn"
+            :class="{ signed: !store.canSignInToday }"
+            title="每日签到"
+            @click="signinVisible = true"
+          >
+            📅
+          </button>
+          <button class="garden-nav-btn" title="商店" @click="shopVisible = true">
+            🛒
+          </button>
+          <button class="garden-nav-btn" title="成就墙" @click="achievementVisible = true">
+            🏆
+          </button>
+          <button class="garden-nav-btn tutorial" title="菜园子教程" @click="tutorialVisible = true">
+            📖
+          </button>
+        </div>
       </div>
     </div>
 
@@ -195,6 +222,9 @@ function handleClose() {
       @select="handleWheelSelect"
       @close="handleWheelClose"
     />
+
+    <!-- 教程 -->
+    <GardenTutorial :visible="tutorialVisible" @update:visible="tutorialVisible = $event" />
   </div>
 </template>
 
@@ -307,30 +337,49 @@ function handleClose() {
 
 .garden-header__actions {
   display: flex;
-  gap: 6px;
+}
+
+/* 紧凑工具条：收纳功能按钮，视觉更轻 */
+.garden-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
 }
 
 .garden-nav-btn {
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   border: none;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
-  font-size: 18px;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 16px;
   cursor: pointer;
   transition: background 0.2s ease, transform 0.15s ease;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
 }
 
 .garden-nav-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.16);
   transform: translateY(-1px);
 }
 
 .garden-nav-btn.signed {
-  background: rgba(76, 175, 80, 0.3);
+  background: rgba(76, 175, 80, 0.28);
+}
+
+/* 教程按钮：浅蓝点缀，与功能按钮区分 */
+.garden-nav-btn.tutorial {
+  background: rgba(66, 165, 245, 0.18);
+}
+.garden-nav-btn.tutorial:hover {
+  background: rgba(66, 165, 245, 0.32);
 }
 
 .garden-bag-area {

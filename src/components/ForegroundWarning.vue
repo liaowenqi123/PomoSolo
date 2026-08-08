@@ -181,11 +181,15 @@ watch(
       <p v-if="lastResult" class="warning-window">
         窗口：{{ lastResult.windowTitle }}
       </p>
+      <p class="warning-honesty">
+        请诚实使用专注工具：只有真正回到专注状态时才点击「不是娱乐」。
+        随意虚报会误导检测判断，让应用无法准确守护你的专注。
+      </p>
       <p class="warning-count">
         警告次数：{{ warningCount + 1 }} / {{ maxWarnings }}
       </p>
       <p v-if="warningCount + 1 >= maxWarnings" class="warning-punishment-hint">
-        再点"知道了"将触发惩罚！
+        本次点击"知道了"将触发惩罚！
       </p>
     </div>
     <template #footer>
@@ -238,6 +242,18 @@ watch(
   color: rgba(255, 255, 255, 0.6);
   margin: 0 0 8px;
   word-break: break-all;
+}
+
+/* 诚实使用呼吁（深色弹窗内用显式亮色） */
+.warning-honesty {
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 0 0 4px;
+  text-align: left;
 }
 
 .warning-count {

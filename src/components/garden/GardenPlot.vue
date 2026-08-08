@@ -158,10 +158,15 @@ function canUnlock(index: number): boolean {
         </div>
       </template>
 
-      <!-- 枯萎作物（v3：可被专注救活） -->
+      <!-- 枯萎作物（v3：可被专注救活，显示枯萎植物） -->
       <template v-else-if="plot.wilted">
-        <span class="plot-wilted-icon">🥀</span>
-        <span class="plot-wilted-text">专注救活</span>
+        <div v-if="plot.crop" class="wilted-plant">
+          <CropSprite :crop="plot.crop" :stage="getStage(plot)" wilted />
+        </div>
+        <div class="wilted-tag">
+          <span class="plot-wilted-icon">🥀</span>
+          <span class="plot-wilted-text">专注救活</span>
+        </div>
       </template>
 
       <!-- 已种植作物 -->
@@ -270,11 +275,27 @@ function canUnlock(index: number): boolean {
   border-color: rgba(139, 90, 43, 0.5);
   cursor: pointer;
 }
+
+/* 枯萎植物容器（模拟 crop-wrap 高度，展示垂头枯黄的作物） */
+.wilted-plant {
+  width: 100%;
+  height: 82%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+/* 枯萎标签行 */
+.wilted-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .garden-plot.wilted .plot-wilted-icon {
-  font-size: 30px;
+  font-size: 14px;
   filter: grayscale(0.4);
-  opacity: 0.8;
-  margin-bottom: 2px;
+  opacity: 0.85;
 }
 .garden-plot.wilted .plot-wilted-text {
   font-size: 10px;
@@ -307,16 +328,14 @@ function canUnlock(index: number): boolean {
 
 .crop-wrap {
   width: 100%;
-  height: 74%;
+  height: 82%;
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  transform-origin: 50% 100%;
-  animation: cropSway 3.5s ease-in-out infinite;
 }
 
 .crop-wrap.mature {
-  animation: cropSway 3.5s ease-in-out infinite, matureGlow 1.6s ease-in-out infinite;
+  animation: matureGlow 1.6s ease-in-out infinite;
 }
 
 /* 种植弹入 */
@@ -339,12 +358,6 @@ function canUnlock(index: number): boolean {
   to { transform: scale(0.5); opacity: 0; }
 }
 
-/* 生长中轻微摇曳（以根部为轴） */
-@keyframes cropSway {
-  0%, 100% { transform: rotate(-1.5deg); }
-  50% { transform: rotate(1.5deg); }
-}
-
 /* 成熟金色光晕 */
 @keyframes matureGlow {
   0%, 100% { filter: drop-shadow(0 0 2px rgba(255, 213, 79, 0.55)); }
@@ -356,8 +369,13 @@ function canUnlock(index: number): boolean {
   font-weight: 700;
 }
 
+/* 进度条与文字固定在格子底部，与 SVG 土壤下缘衔接 */
 .plot-progress {
-  width: 80%;
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 78%;
   height: 6px;
   background: rgba(0, 0, 0, 0.4);
   border-radius: 3px;
@@ -371,9 +389,13 @@ function canUnlock(index: number): boolean {
 }
 
 .plot-progress-text {
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
   font-size: 10px;
   color: rgba(255, 255, 255, 0.7);
-  margin-top: 3px;
+  white-space: nowrap;
 }
 
 .lock-content {

@@ -15,8 +15,16 @@ use rand::thread_rng;
 use serde_json::{json, Map, Value};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
+use tauri::Emitter;
 
 use crate::modules::data_manager;
+
+/// 广播菜园子数据变更事件。
+/// 菜园子窗口监听 `garden-refresh` 后重新拉取数据渲染，
+/// 实现"主窗口/计时器改动 → 菜园子窗口实时同步"（对应旧版 garden-refresh IPC 通知）。
+fn notify_garden_refresh(app: &AppHandle) {
+    let _ = app.emit("garden-refresh", ());
+}
 
 // ===== 日期/时间工具 =====
 
@@ -1432,6 +1440,7 @@ pub async fn garden_unlock_easteregg(app: AppHandle) -> Result<Value, String> {
 
     if newly_unlocked {
         data_manager::write_garden_data(&app, &data)?;
+        notify_garden_refresh(&app);
     }
 
     let cfg = ACHIEVEMENT_CONFIG
@@ -1572,6 +1581,7 @@ pub async fn garden_record_focus(app: AppHandle, completed: bool) -> Result<Valu
     let info = record_focus_completion(&mut data, completed);
 
     data_manager::write_garden_data(&app, &data)?;
+    notify_garden_refresh(&app);
 
     Ok(json!({
         "success": true,
@@ -1697,6 +1707,7 @@ pub async fn garden_grow(app: AppHandle, minutes: u32) -> Result<Value, String> 
     let info = apply_growth(&mut data, minutes);
 
     data_manager::write_garden_data(&app, &data)?;
+    notify_garden_refresh(&app);
     // 返回 GardenOperationResult 形状（前端 applyResult 期望 success 字段）
     Ok(json!({
         "success": true,

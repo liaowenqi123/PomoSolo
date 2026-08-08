@@ -83,6 +83,14 @@ vi.mock("../garden/GardenPlantWheel.vue", () => ({
     template: '<div class="garden-plantwheel-stub" v-if="visible"></div>',
   },
 }));
+vi.mock("../garden/GardenTutorial.vue", () => ({
+  default: {
+    name: "GardenTutorialStub",
+    props: ["visible"],
+    emits: ["update:visible"],
+    template: '<div class="garden-tutorial-stub" v-if="visible"></div>',
+  },
+}));
 
 import GardenMain from "../garden/GardenMain.vue";
 
@@ -188,12 +196,13 @@ describe("GardenMain.vue", () => {
   it("应渲染四个导航按钮", () => {
     const wrapper = mountComponent();
     const navBtns = wrapper.findAll(".garden-nav-btn");
-    expect(navBtns).toHaveLength(4);
-    // 一键全收 / 签到 / 商店 / 成就墙
+    expect(navBtns).toHaveLength(5);
+    // 一键全收 / 签到 / 商店 / 成就墙 / 教程
     expect(navBtns[0].attributes("title")).toBe("一键全收成熟作物");
     expect(navBtns[1].attributes("title")).toBe("每日签到");
     expect(navBtns[2].attributes("title")).toBe("商店");
     expect(navBtns[3].attributes("title")).toBe("成就墙");
+    expect(navBtns[4].attributes("title")).toBe("菜园子教程");
   });
 
   it("点击一键全收按钮应调用 harvestAll 并提示收获汇总", async () => {
