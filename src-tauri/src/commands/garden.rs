@@ -136,6 +136,23 @@ pub fn crop_cfg(key: &str) -> Option<&'static CropCfg> {
     CROP_CONFIG.iter().find(|c| c.key == key)
 }
 
+/// 推荐最优种子（快捷种植用）：从库存（seeds 对象）中选价值最高的作物 key。
+/// CROP_CONFIG 按 value 升序排列 → 反向遍历，第一个有库存的就是价值最高。
+fn pick_best_seed(seeds: &Value) -> Option<String> {
+    let seeds_obj = seeds.as_object()?;
+    CROP_CONFIG
+        .iter()
+        .rev()
+        .find(|cfg| {
+            seeds_obj
+                .get(cfg.key)
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                > 0
+        })
+        .map(|cfg| cfg.key.to_string())
+}
+
 // ===== 专注连击配置 =====
 
 /// 专注连击激活阈值：连续完成 N 个番茄钟后进入加成状态（v3 定稿：2，降低门槛）
@@ -539,6 +556,88 @@ pub async fn garden_plant(app: AppHandle, plot_id: u32, crop: String) -> Result<
     }))
 }
 
+/// 快捷种植：在指定空地直接种下"最优种子"（v3 设计，Phase B 补齐）
+///
+/// 推荐算法：按作物价值降序（CROP_CONFIG 升序排列 → 反向遍历），取库存中第一个
+/// 数量 > 0 的种子。隔离架构下菜园子不反问时钟，"预计剩余专注时间内成熟"由
+/// 用户自行判断（长按仍可打开轮盘自选）。
+/// 返回 GardenOperationResult 形状 + `crop` 字段（实际种下的作物 key）。
+#[tauri::command]
+pub async fn garden_plant_quick(app: AppHandle, plot_id: u32) -> Result<Value, String> {
+    let mut data = data_manager::read_garden_data(&app)?;
+    let obj = data.as_object_mut().ok_or("garden data 不是对象")?;
+
+    // 校验土地状态（锁定 / 已有作物 / 枯萎）
+    {
+        let plots = obj
+            .get("plots")
+            .and_then(|v| v.as_array())
+            .ok_or("plots 不是数组")?;
+        if plot_id as usize >= plots.len() {
+            return Err("土地不存在".to_string());
+        }
+        let plot = &plots[plot_id as usize];
+        if plot.get("locked").and_then(|v| v.as_bool()).unwrap_or(false) {
+            return Err("土地未解锁".to_string());
+        }
+        if plot.get("crop").and_then(|v| v.as_str()).is_some() {
+            return Err("土地上已有作物".to_string());
+        }
+        if plot.get("wilted").and_then(|v| v.as_bool()).unwrap_or(false) {
+            return Err("作物枯萎中，完成一个番茄钟救活".to_string());
+        }
+    }
+
+    // 推荐最优种子：库存中价值最高的作物
+    let seeds_value = obj
+        .get("seeds")
+        .cloned()
+        .unwrap_or_else(|| Value::Object(Map::new()));
+    let crop = pick_best_seed(&seeds_value).ok_or("没有可种的种子，请先到商店购买")?;
+
+    // 扣减种子
+    {
+        let seeds = obj
+            .entry("seeds".to_string())
+            .or_insert(Value::Object(Map::new()));
+        if let Some(seeds_obj) = seeds.as_object_mut() {
+            let prev = seeds_obj.get(&crop).and_then(|v| v.as_u64()).unwrap_or(0);
+            seeds_obj.insert(crop.clone(), Value::from(prev.saturating_sub(1)));
+        }
+    }
+
+    // 写入种植信息
+    {
+        let plots = obj
+            .entry("plots".to_string())
+            .or_insert(Value::Array(vec![]));
+        if let Some(arr) = plots.as_array_mut() {
+            if (plot_id as usize) < arr.len() {
+                arr[plot_id as usize] = json!({
+                    "id": plot_id,
+                    "crop": crop,
+                    "progress": 0,
+                    "plantedAt": now_iso_utc(),
+                    "locked": false
+                });
+            }
+        }
+    }
+
+    // 更新种植统计 + 检查成就
+    update_achievement_stats(&mut data, "plant", "", 0);
+    let unlocked = check_and_unlock_achievements(&mut data);
+
+    data_manager::write_garden_data(&app, &data)?;
+
+    Ok(json!({
+        "success": true,
+        "crop": crop,
+        "gardenData": data,
+        "unlockedAchievements": unlocked.iter().map(|c| achievement_to_json(c)).collect::<Vec<_>>()
+    }))
+}
+
 /// 收获：将指定土地的作物收获
 /// 参照旧版 gardenHarvest：
 /// 1. 成熟判断 progress >= growTime
@@ -615,6 +714,125 @@ pub async fn garden_harvest(app: AppHandle, plot_id: u32) -> Result<Value, Strin
 
     Ok(json!({
         "success": true,
+        "gardenData": data,
+        "unlockedAchievements": unlocked.iter().map(|c| achievement_to_json(c)).collect::<Vec<_>>()
+    }))
+}
+
+/// 一键全收：收获所有成熟且非枯萎的作物（v3 设计，Phase B 补齐）
+///
+/// 逐株复用 garden_harvest 的收获规则（crops+1 / 金币 += value/2 / 清空土地 /
+/// 成就统计 harvest+1 + coins），无成熟作物时返回空 harvested（success 仍为 true）。
+/// 返回 { success, harvested: [{crop,name,icon,count}], totalCoins, gardenData, unlockedAchievements }。
+#[tauri::command]
+pub async fn garden_harvest_all(app: AppHandle) -> Result<Value, String> {
+    let mut data = data_manager::read_garden_data(&app)?;
+
+    // 收集所有成熟且非枯萎的 (plot_id, crop)（只读借用）
+    let mut to_harvest: Vec<(u32, String)> = Vec::new();
+    {
+        let obj = data.as_object().ok_or("garden data 不是对象")?;
+        let plots = obj
+            .get("plots")
+            .and_then(|v| v.as_array())
+            .ok_or("plots 不是数组")?;
+        for plot in plots {
+            let id = plot.get("id").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+            let crop = plot
+                .get("crop")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let progress = plot.get("progress").and_then(|v| v.as_u64()).unwrap_or(0);
+            let wilted = plot.get("wilted").and_then(|v| v.as_bool()).unwrap_or(false);
+            if let Some(c) = crop {
+                if let Some(cfg) = crop_cfg(&c) {
+                    if progress >= cfg.grow_time && !wilted {
+                        to_harvest.push((id, c));
+                    }
+                }
+            }
+        }
+    }
+
+    // 逐株收获（obj 作用域限定在此块内，避免与后续 data 统计冲突）
+    let mut harvested_crops: Vec<String> = Vec::new();
+    let mut total_coins: u64 = 0;
+    {
+        let obj = data.as_object_mut().ok_or("garden data 不是对象")?;
+        for (plot_id, crop) in to_harvest {
+            let cfg = crop_cfg(&crop).unwrap();
+
+            // crops[crop] += 1
+            {
+                let crops = obj
+                    .entry("crops".to_string())
+                    .or_insert_with(|| Value::Object(Map::new()));
+                if let Some(crops_obj) = crops.as_object_mut() {
+                    let prev = crops_obj.get(&crop).and_then(|v| v.as_u64()).unwrap_or(0);
+                    crops_obj.insert(crop.clone(), Value::from(prev + 1));
+                }
+            }
+
+            // 金币 += value / 2
+            let reward = cfg.value / 2;
+            let prev_coins = obj.get("coins").and_then(|v| v.as_u64()).unwrap_or(0);
+            obj.insert("coins".to_string(), Value::from(prev_coins + reward));
+            total_coins += reward;
+
+            // 清空土地
+            if let Some(plots) = obj.get_mut("plots").and_then(|v| v.as_array_mut()) {
+                if let Some(plot) = plots.get_mut(plot_id as usize) {
+                    *plot = json!({
+                        "id": plot_id,
+                        "crop": null,
+                        "progress": 0,
+                        "plantedAt": null,
+                        "locked": false
+                    });
+                }
+            }
+
+            harvested_crops.push(crop);
+        }
+    }
+
+    // 成就统计（循环后统一更新，避免 obj 借用冲突）
+    for crop in &harvested_crops {
+        update_achievement_stats(&mut data, "harvest", crop, 0);
+    }
+    update_achievement_stats(&mut data, "coins", "", total_coins);
+
+    let unlocked = check_and_unlock_achievements(&mut data);
+
+    data_manager::write_garden_data(&app, &data)?;
+
+    // 聚合 harvested
+    let mut harvested_map: Vec<(String, u64)> = Vec::new();
+    for crop in harvested_crops {
+        if let Some(entry) = harvested_map.iter_mut().find(|(c, _)| *c == crop) {
+            entry.1 += 1;
+        } else {
+            harvested_map.push((crop, 1));
+        }
+    }
+    let harvested = harvested_map
+        .into_iter()
+        .filter_map(|(crop, count)| {
+            crop_cfg(&crop).map(|cfg| {
+                json!({
+                    "crop": crop,
+                    "name": cfg.name,
+                    "icon": cfg.icon,
+                    "count": count
+                })
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(json!({
+        "success": true,
+        "harvested": harvested,
+        "totalCoins": total_coins,
         "gardenData": data,
         "unlockedAchievements": unlocked.iter().map(|c| achievement_to_json(c)).collect::<Vec<_>>()
     }))
@@ -1847,6 +2065,28 @@ mod tests {
     #[test]
     fn crop_config_has_five_crops() {
         assert_eq!(CROP_CONFIG.len(), 5);
+    }
+
+    // ===== pick_best_seed（快捷种植推荐）=====
+
+    #[test]
+    fn pick_best_seed_prefers_highest_value() {
+        // 玫瑰 value=80 最高（carrot=10/tomato=20/sunflower=50/rose=80/osmanthus=150）
+        let seeds = json!({ "carrot": 3, "sunflower": 2, "rose": 1 });
+        assert_eq!(pick_best_seed(&seeds).unwrap(), "rose");
+        // 只留低阶作物 → 选 value 最高的胡萝卜
+        let seeds2 = json!({ "carrot": 5, "tomato": 0 });
+        assert_eq!(pick_best_seed(&seeds2).unwrap(), "carrot");
+        // 金桂树 value=150 最高
+        let seeds3 = json!({ "tomato": 1, "osmanthus": 1 });
+        assert_eq!(pick_best_seed(&seeds3).unwrap(), "osmanthus");
+    }
+
+    #[test]
+    fn pick_best_seed_empty_returns_none() {
+        assert!(pick_best_seed(&json!({})).is_none());
+        assert!(pick_best_seed(&json!({ "carrot": 0, "tomato": 0, "rose": 0 })).is_none());
+        assert!(pick_best_seed(&json!({ "unknown": 5 })).is_none());
     }
 
     // ===== achievement_progress =====

@@ -15,6 +15,7 @@ const storeMocks = {
   tip: "",
   data: { achievements: {} as Record<string, { unlocked: boolean; unlockedAt: string }> },
   selectSeed: vi.fn(),
+  plantQuick: vi.fn().mockResolvedValue(true),
 };
 
 vi.mock("@/stores/garden", () => ({
@@ -66,6 +67,8 @@ describe("GardenPlot.vue", () => {
     storeMocks.coins = 0;
     storeMocks.tip = "";
     storeMocks.data.achievements = {};
+    storeMocks.plantQuick.mockReset();
+    storeMocks.plantQuick.mockResolvedValue(true);
   });
 
   const mountComponent = (props: { selectedPlotIndex?: number | null } = {}) => {
@@ -173,12 +176,43 @@ describe("GardenPlot.vue", () => {
     expect(wrapper.emitted("harvest")).toBeFalsy();
   });
 
-  it("空地点击应 emit plant 事件带索引和鼠标坐标", async () => {
+  it("空地点按应调用快捷种植 plantQuick(index)，成功时不打开轮盘", async () => {
+    storeMocks.plantQuick = vi.fn().mockResolvedValue(true);
     const wrapper = mountComponent();
     const emptyPlot = wrapper.findAll(".garden-plot")[0];
-    await emptyPlot.trigger("click", { clientX: 100, clientY: 200 });
+    await emptyPlot.trigger("mousedown", { clientX: 100, clientY: 200 });
+    await emptyPlot.trigger("mouseup");
+    await wrapper.vm.$nextTick();
+    expect(storeMocks.plantQuick).toHaveBeenCalledWith(0);
+    expect(wrapper.emitted("plant")).toBeFalsy();
+  });
+
+  it("空地点按且快捷种植失败（无种子）时应回退打开种植轮盘", async () => {
+    storeMocks.plantQuick = vi.fn().mockResolvedValue(false);
+    const wrapper = mountComponent();
+    const emptyPlot = wrapper.findAll(".garden-plot")[0];
+    await emptyPlot.trigger("mousedown", { clientX: 100, clientY: 200 });
+    await emptyPlot.trigger("mouseup");
+    await wrapper.vm.$nextTick();
+    expect(storeMocks.plantQuick).toHaveBeenCalledWith(0);
     expect(wrapper.emitted("plant")).toBeTruthy();
     expect(wrapper.emitted("plant")![0]).toEqual([0, 100, 200]);
+  });
+
+  it("空地点按住 500ms 长按应打开种植轮盘且不触发快捷种植", () => {
+    vi.useFakeTimers();
+    try {
+      const wrapper = mountComponent();
+      const emptyPlot = wrapper.findAll(".garden-plot")[0];
+      emptyPlot.trigger("mousedown", { clientX: 50, clientY: 60 });
+      vi.advanceTimersByTime(500);
+      expect(wrapper.emitted("plant")).toBeTruthy();
+      expect(wrapper.emitted("plant")![0]).toEqual([0, 50, 60]);
+      emptyPlot.trigger("mouseup");
+      expect(storeMocks.plantQuick).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("有作物未成熟点击应设置 store.tip 为提示文字", async () => {

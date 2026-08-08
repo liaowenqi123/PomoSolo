@@ -11,7 +11,9 @@ import { ref, computed } from "vue";
 import {
   gardenRead,
   gardenPlant,
+  gardenPlantQuick,
   gardenHarvest,
+  gardenHarvestAll,
   gardenBuySeed,
   gardenSellCrop,
   gardenSellAll,
@@ -498,9 +500,38 @@ export const useGardenStore = defineStore("garden", () => {
     return runGardenOp(() => gardenPlant(plotIndex, seedId));
   }
 
+  /**
+   * 快捷种植：在空地直接种下"最优种子"（库存中价值最高，v3 设计）。
+   * 无库存种子时失败，lastError 提示先到商店购买。
+   */
+  function plantQuick(plotIndex: number): Promise<boolean> {
+    return runGardenOp(() => gardenPlantQuick(plotIndex));
+  }
+
   /** 收获指定土地上的作物 */
   function harvest(plotIndex: number): Promise<boolean> {
     return runGardenOp(() => gardenHarvest(plotIndex));
+  }
+
+  /** 一键全收所有成熟作物，返回 {harvested, totalCoins} 或 null（失败/无成熟） */
+  async function harvestAll(): Promise<{
+    harvested: { crop: string; name: string; icon: string; count: number }[];
+    totalCoins: number;
+  } | null> {
+    try {
+      const result = await gardenHarvestAll();
+      applyResult(result);
+      if (result.success) {
+        return {
+          harvested: result.harvested ?? [],
+          totalCoins: result.totalCoins ?? 0,
+        };
+      }
+      return null;
+    } catch (e) {
+      lastError.value = e instanceof Error ? e.message : String(e);
+      return null;
+    }
   }
 
   /** 购买种子 */
@@ -682,7 +713,9 @@ export const useGardenStore = defineStore("garden", () => {
     isUnlocked,
     load,
     plant,
+    plantQuick,
     harvest,
+    harvestAll,
     buySeed,
     sellCrop,
     sellAll,

@@ -97,6 +97,22 @@ async function handleHarvest(plotIndex: number) {
   await store.harvest(plotIndex);
 }
 
+/** 一键全收所有成熟作物（v3 设计：成熟作物全部入库 + 汇总提示） */
+async function handleHarvestAll() {
+  const result = await store.harvestAll();
+  if (!result) {
+    store.tip = store.lastError || "收获失败";
+    return;
+  }
+  if (result.harvested.length === 0) {
+    store.tip = "没有成熟作物可收获";
+    return;
+  }
+  const total = result.harvested.reduce((sum, h) => sum + h.count, 0);
+  const summary = result.harvested.map((h) => `${h.icon}×${h.count}`).join(" ");
+  store.tip = `🎉 收获 ${total} 株（${summary}），金币 +${result.totalCoins}`;
+}
+
 /** 解锁土地 */
 async function handleUnlock(plotIndex: number) {
   await store.unlockPlot(plotIndex);
@@ -123,6 +139,9 @@ function handleClose() {
       </div>
       <h2 class="garden-header__title">🌱 菜园子</h2>
       <div class="garden-header__actions">
+        <button class="garden-nav-btn" title="一键全收成熟作物" @click="handleHarvestAll">
+          🌾
+        </button>
         <button
           class="garden-nav-btn"
           :class="{ signed: !store.canSignInToday }"

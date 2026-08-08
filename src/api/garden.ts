@@ -63,6 +63,12 @@ export interface PunishmentLoss {
   progress: number;
   /** 该作物总生长分钟数 */
   growTime: number;
+  /**
+   * 是否可救活（v1 枯萎救援）：
+   * - true：未成熟作物 → 转为枯萎态，完成一个番茄钟可救活（进度保留）
+   * - false：已枯萎作物再次遭惩罚 → 永久清除（不可挽回）
+   */
+  revivable?: boolean;
 }
 
 /** 惩罚结果（对应 Rust garden_punishment 返回值） */
@@ -133,6 +139,34 @@ export function gardenHarvest(
   plotIndex: number,
 ): Promise<GardenOperationResult> {
   return invoke<unknown>("garden_harvest", { plotId: plotIndex }).then(wrapResult);
+}
+
+/**
+ * 快捷种植：在空地直接种下"最优种子"（库存中价值最高）。
+ * 后端：`garden_plant_quick(plot_id: u32) -> { success, crop, gardenData, ... }`
+ */
+export function gardenPlantQuick(
+  plotIndex: number,
+): Promise<GardenOperationResult & { crop?: string }> {
+  return invoke<GardenOperationResult & { crop?: string }>("garden_plant_quick", {
+    plotId: plotIndex,
+  });
+}
+
+/** 一键全收结果 */
+export interface GardenHarvestAllResult extends GardenOperationResult {
+  /** 各作物收获数量 [{crop,name,icon,count}] */
+  harvested?: { crop: string; name: string; icon: string; count: number }[];
+  /** 收获总金币 */
+  totalCoins?: number;
+}
+
+/**
+ * 一键全收：收获所有成熟且非枯萎的作物。
+ * 后端：`garden_harvest_all() -> { success, harvested, totalCoins, gardenData, ... }`
+ */
+export function gardenHarvestAll(): Promise<GardenHarvestAllResult> {
+  return invoke<GardenHarvestAllResult>("garden_harvest_all");
 }
 
 // ===== 商店 =====

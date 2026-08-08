@@ -87,6 +87,13 @@ const totalMinutes = computed(() => props.result?.totalMinutes ?? 0);
             <div class="loss-info">
               <div class="loss-name">{{ loss.name }}</div>
               <div class="loss-time">已生长 {{ loss.progress }}/{{ loss.growTime }} 分钟</div>
+              <!-- v1 枯萎救援：revivable=true 可救活（进度保留）；false 永久失去 -->
+              <div v-if="loss.revivable === false" class="loss-status loss-status--gone">
+                💀 永久失去
+              </div>
+              <div v-else class="loss-status loss-status--revive">
+                💧 已转为枯萎，完成一个番茄钟可救活
+              </div>
             </div>
           </li>
         </ul>
@@ -179,6 +186,18 @@ const totalMinutes = computed(() => props.result?.totalMinutes ?? 0);
   font-size: 12px;
   color: rgba(255, 255, 255, 0.55);
   margin-top: 2px;
+}
+
+/* 枯萎救援状态（v1）：可救活 / 永久失去 */
+.loss-status {
+  font-size: 11px;
+  margin-top: 3px;
+}
+.loss-status--revive {
+  color: #ffd54f;
+}
+.loss-status--gone {
+  color: #ff8a8a;
 }
 
 .punishment-loss-summary {

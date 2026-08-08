@@ -65,8 +65,44 @@ function handleClick(plot: Plot, index: number, event: MouseEvent) {
     return;
   }
 
-  // 空地：触发种植
-  emit("plant", index, event.clientX, event.clientY);
+  // 空地：由 mousedown/mouseup 处理（点按快捷种植，长按出轮盘）
+}
+
+// ===== 快捷种植（v3：点空地默认种最优种子，长按才出轮盘）=====
+
+/** 长按判定时长（ms）：超过则打开选种轮盘 */
+const LONG_PRESS_MS = 500;
+let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+let pressTarget: { plot: Plot; index: number; clientX: number; clientY: number } | null = null;
+
+function handleMouseDown(plot: Plot, index: number, event: MouseEvent) {
+  // 仅空地触发快捷种植/长按轮盘
+  if (plot.locked || plot.wilted || plot.crop) return;
+  pressTarget = { plot, index, clientX: event.clientX, clientY: event.clientY };
+  longPressTimer = setTimeout(() => {
+    longPressTimer = null;
+    if (pressTarget) {
+      const { index: i, clientX, clientY } = pressTarget;
+      pressTarget = null;
+      // 长按 → 打开选种轮盘
+      emit("plant", i, clientX, clientY);
+    }
+  }, LONG_PRESS_MS);
+}
+
+async function handleMouseUp(): Promise<void> {
+  if (longPressTimer) {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+  }
+  if (!pressTarget) return;
+  const { index, clientX, clientY } = pressTarget;
+  pressTarget = null;
+  // 点按（< 长按阈值）→ 快捷种植最优种子；没种子/失败 → 回退打开轮盘
+  const ok = await store.plantQuick(index);
+  if (!ok) {
+    emit("plant", index, clientX, clientY);
+  }
 }
 
 /** 解锁按钮点击 */
@@ -104,6 +140,8 @@ function canUnlock(index: number): boolean {
         mature: !plot.locked && !!plot.crop && isMature(plot) && !plot.wilted,
         selected: props.selectedPlotIndex === index,
       }"
+      @mousedown="!plot.locked ? handleMouseDown(plot, index, $event) : undefined"
+      @mouseup="!plot.locked ? handleMouseUp() : undefined"
       @click="!plot.locked ? handleClick(plot, index, $event) : undefined"
     >
       <!-- 锁定土地 -->

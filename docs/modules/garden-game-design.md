@@ -1,7 +1,7 @@
-# 菜园子游戏性重构 — 完整设计蓝图 v2
+# 菜园子游戏性重构 — 完整设计蓝图 v3.3
 
 > 归属：客户端部门 → 菜园子游戏性设计师
-> 状态：活跃维护（v1 已实现，v2 设计定稿）
+> 状态：活跃维护（**Phase A ✅ 已实现 · Phase B ✅ 已落地** · Phase C/D 待排期）
 > 本文件是菜园子游戏性设计的**完整蓝图 + 部门间交流窗口**。
 > 所有设计决策、数值、交互、阶段计划都在此记录，供客户端/服务器部门评审与协作。
 
@@ -552,42 +552,52 @@ export interface Recipe {
 
 ## 3. 后端命令变更
 
-| 命令 | 类型 | 说明 |
-|------|------|------|
-| `garden_record_focus(completed)` | 新增（v1 已实现） | 连击 + 枯萎救援 + 微黄恢复 |
-| `garden_harvest_all()` | 新增 | 一键收获所有成熟作物（含变异判定） |
-| `garden_plant_quick(plot_id)` | 新增 | 快捷种植（后端推荐种子） |
-| `garden_touch()` | 新增 | 打开菜园时调用：更新 lastSeenAt、触发流星雨/商人刷新判定 |
-| `garden_apply_languish()` | 新增 | 读离线时长 → 设置 languish.level |
-| `garden_buy_decoration(id)` | 新增 | 段位装扮购买（金币/星星币出口） |
-| `garden_apply_pet()` | 新增 | 专注结束时调用：5% 出小动物 |
-| `garden_market_prices()` | 新增 | 查询今日行情（确定性 seed 生成，可预览） |
-| `garden_market_sell(item, count)` | 新增 | 按今日市场价卖出（炒股出口） |
-| `garden_merchant_refresh()` | 新增 | 刷新/生成商人收购单（确定性 + 随机混合） |
-| `garden_merchant_trade(offer_index)` | 新增 | 接受商人收购单（金币/物物交换） |
-| `garden_recipe_list()` | 新增 | 查询合成配方表 |
-| `garden_craft(recipe_id, count)` | 新增 | 合成加工品（消耗原料 → 产物 + 星星币） |
-| `garden_seed_from_crop(crop, count)` | 新增 | 留种：1 作物 → 1 种子（HayDay 繁殖） |
-| `garden_grow` | 修改 | 应用每日生长配额（120 分钟封顶） |
-| `garden_harvest` | 修改 | 变异判定（3%+连击×1%）+ 繁殖产出 |
-| `apply_punishment` | 已有（v1 改） | 保留枯萎救援逻辑 |
+> ✅ = 已实现并注册（Phase A/B 落地）；🔜 = 待实施（Phase C/D）
+
+| 命令 | 类型 | 说明 | 状态 |
+|------|------|------|------|
+| `garden_record_focus(completed)` | 新增 | 连击 + 枯萎救援 + 微黄恢复 | ✅ Phase B |
+| `garden_harvest_all()` | 新增 | 一键收获所有成熟作物，返回 `{harvested:[{crop,name,icon,count}], totalCoins}` | ✅ Phase B |
+| `garden_plant_quick(plot_id)` | 新增 | 快捷种植（后端推荐库存中价值最高种子，返回 `crop` 字段） | ✅ Phase B |
+| `garden_check_state()` | 新增 | 打开菜园时调用：写入并返回 `tier` / `languish` / `unlocks` | ✅ Phase B |
+| `garden_seed_from_crop(crop, count)` | 新增 | 留种：1 作物 → 1 种子（HayDay 繁殖） | ✅ Phase B |
+| `garden_touch()` | 新增 | 打开菜园时调用：更新 lastSeenAt、触发流星雨/商人刷新判定 | 🔜 Phase C |
+| `garden_apply_languish()` | 新增 | 读离线时长 → 设置 languish.level | 🔜（已并入 check_state） |
+| `garden_buy_decoration(id)` | 新增 | 段位装扮购买（金币/星星币出口） | 🔜 Phase D |
+| `garden_apply_pet()` | 新增 | 专注结束时调用：5% 出小动物 | 🔜 Phase D |
+| `garden_market_prices()` | 新增 | 查询今日行情（确定性 seed 生成，可预览） | 🔜 Phase C |
+| `garden_market_sell(item, count)` | 新增 | 按今日市场价卖出（炒股出口） | 🔜 Phase C |
+| `garden_merchant_refresh()` | 新增 | 刷新/生成商人收购单（确定性 + 随机混合） | 🔜 Phase C |
+| `garden_merchant_trade(offer_index)` | 新增 | 接受商人收购单（金币/物物交换） | 🔜 Phase C |
+| `garden_recipe_list()` | 新增 | 查询合成配方表 | 🔜 Phase C |
+| `garden_craft(recipe_id, count)` | 新增 | 合成加工品（消耗原料 → 产物 + 星星币） | 🔜 Phase C |
+| `garden_grow(minutes)` | 修改 | 应用 ×1.2 连击加成 + 每日生长配额（120 分钟封顶）+ 枯萎不生长 | ✅ Phase B |
+| `garden_harvest(plot_id)` | 修改 | 变异判定（3%+连击×1%，Phase C）+ 繁殖产出 | ✅ 基础 / 🔜 变异 |
+| `apply_punishment` | 已有（v1 改） | v1 未成熟→`wilted=true`（可救活，进度保留）；已枯萎再次遭惩罚→永久清除（`revivable:false`） | ✅ Phase A |
+
+> **隔离架构**：`garden_record_focus(false)` 是时钟区所有中断路径（关闭/手动/被检测违规）的**唯一信号**，菜园子内部自行决定后果（连击清零/微黄/枯萎），时钟区不区分中断原因。
 
 ---
 
 ## 4. 前端改动清单
 
-| 文件 | 改动 |
-|------|------|
-| `stores/garden.ts` | 新增 ComboState/LanguishState/TierState/DailyCap/MarketPrice/Recipe 类型与 getters |
-| `GardenPlot.vue` | 快捷种植（点击默认种）、枯萎/微黄/闪光视觉态 |
-| `GardenMain.vue` | 顶部状态条（生长/待收/连击）、段位徽章、底部导航（土地/背包/合成/市场/商店） |
-| 主界面组件 | 32px 角标 + 状态点（需与客户端部门确认挂载点） |
-| `api/garden.ts` | 新增命令封装（市场/商人/合成/留种） |
-| 新增 `GardenMarket.vue` | 市场页签：今日价格 + 涨跌 + 7 日走势 |
-| 新增 `GardenMerchant.vue` | 商人弹窗：限时倒计时 + 收购单列表 |
-| 新增 `GardenCraft.vue` | 合成台：配方卡 + 合成按钮 |
-| 新增 `GardenShare.vue` | 成绩单卡片生成（Canvas） |
-| 新增 `GardenDecoration.vue` | 段位装扮购买/展示 |
+> ✅ = 已落地（Phase B）；🔜 = 待实施（Phase C/D）
+
+| 文件 | 改动 | 状态 |
+|------|------|------|
+| `stores/garden.ts` | 新增 `plantQuick` / `harvestAll` action；接入 `combo` / `languish` / `tier` 状态 getters | ✅ |
+| `GardenPlot.vue` | 快捷种植（点按种最优种子，**长按 500ms** 才出轮盘）、枯萎视觉态 | ✅ |
+| `GardenMain.vue` | 顶部状态条（连击/微黄）、段位徽章、导航新增 🌾 一键全收按钮 | ✅ |
+| `App.vue` | 专注完成 → `recordFocus(true)`；中断/违规/重置 → `recordFocus(false)`（隔离架构接入） | ✅ |
+| `PunishmentResultModal.vue` | 枯萎救援展示：可救活（💧 转枯萎）/ 永久失去（💀）双态 | ✅ |
+| `api/garden.ts` | 新增 `gardenPlantQuick` / `gardenHarvestAll` 封装；`PunishmentLoss.revivable` 字段 | ✅ |
+| 主界面组件 | 32px 角标 + 状态点（需与客户端部门确认挂载点） | 🔜 本轮不做（用户拍板） |
+| `api/garden.ts` | 市场/商人/合成/留种命令封装 | 🔜 Phase C |
+| 新增 `GardenMarket.vue` | 市场页签：今日价格 + 涨跌 + 7 日走势 | 🔜 Phase C |
+| 新增 `GardenMerchant.vue` | 商人弹窗：限时倒计时 + 收购单列表 | 🔜 Phase C |
+| 新增 `GardenCraft.vue` | 合成台：配方卡 + 合成按钮 | 🔜 Phase C |
+| 新增 `GardenShare.vue` | 成绩单卡片生成（Canvas） | 🔜 Phase D |
+| 新增 `GardenDecoration.vue` | 段位装扮购买/展示 | 🔜 Phase D |
 
 ---
 
@@ -595,18 +605,20 @@ export interface Recipe {
 
 ### Phase A（已完成 v1）✅
 - 专注连击 ×1.2 + 枯萎救援（`garden_record_focus` + `apply_growth`）
-- 枯萎救援（`apply_punishment` → wilted 态，专注救活）
+- 枯萎救援（`apply_punishment` → wilted 态，专注救活；再次违规则永久清除 `revivable:false`）
 - 后端纯函数 + 全部 Rust 单测
 
-### Phase B（轻量交互 + 繁殖 + 封顶 + 解锁节奏框架）
-- 主界面角标 + 状态点
-- 快捷种植 / 一键全收 / **留种繁殖**（1 作物 → 1 种子）
-- 每日生长配额（120 分钟封顶）
-- 段位系统（`tier`）+ 微黄状态（`languish` level 1）
-- **解锁节奏框架**（`UnlockState`：按天数/里程碑解锁市场/合成/商人/巨大化/彩蛋）
-- 测试：封顶边界、段位计算、快捷种植推荐、留种、解锁时机
+### Phase B（已落地）✅
+- 快捷种植（点按种最优种子，长按 500ms 出轮盘）+ 一键全收（`garden_plant_quick` / `garden_harvest_all`）
+- 留种繁殖（`garden_seed_from_crop`：1 作物 → 1 种子）
+- 每日生长配额（120 分钟封顶，`apply_growth` 已实现）
+- 段位系统（`tier`，7/14/30 天 → Lv1/2/3）+ 微黄状态（`languish` level 1/2，`garden_check_state` 打开窗口时计算）
+- 时钟 ↔ 菜园子隔离架构接入：App.vue 专注完成/中断统一 `record_focus`
+- 枯萎救援 UI：PunishmentResultModal 双态展示（💧 可救活 / 💀 永久失去）
+- 测试：封顶边界、段位计算、快捷种植推荐、留种、收割聚合（Rust + vitest 全覆盖）
+- **本轮不做**（用户拍板）：主界面 32px 角标 + 状态点
 
-### Phase C（市场 + 商人 + 合成 + 巨大化）
+### Phase C（市场 + 商人 + 合成 + 巨大化）🔜
 - **本地市场**：确定性行情生成（±30%）+ 7 日走势（内嵌商店页签）
 - **随机商人**：定时刷新、物物交换/加工品收购、限时倒计时（砍现金收购）
 - **合成台**：配方表 + 加工品 + 星星币
@@ -615,7 +627,7 @@ export interface Recipe {
 - **机制叠加控制**：一次收获只结算一种特殊状态、经济双轨隔离、产出物类型锁定
 - 测试：确定性种子可复现、商人刷新逻辑、合成配方校验、巨大化概率注入/边界
 
-### Phase D（彩蛋 + 生动性 + 分享 + 装扮）
+### Phase D（彩蛋 + 生动性 + 分享 + 装扮）🔜
 - 偷菜小动物（`events.petLastAt`）
 - 流星雨（`garden_touch` 判定）
 - 休眠状态（`languish` level 2）
@@ -652,17 +664,17 @@ export interface Recipe {
 
 ### 7.1 给客户端部门（主界面）
 > 日期：2026-08-08
-1. 主界面右下角需要一个 32px 菜园角标 + 状态点（挂载点确认）
-2. 专注结束回调需调用 `garden_record_focus(true)`（v1 已就绪）；专注中断/放弃调用 `garden_record_focus(false)`
+1. 主界面右下角需要一个 32px 菜园角标 + 状态点（挂载点确认）→ **本轮不做（用户拍板），Phase B 收尾时归档**
+2. 专注结束回调需调用 `garden_record_focus(true)`（v1 已就绪）；专注中断/放弃调用 `garden_record_focus(false)` → **✅ 已接入**：App.vue 专注完成 watch → `recordFocus(true)`；`runPunishment()` / 运行中重置 → `recordFocus(false)`
 
 ### 7.2 给客户端部门（计时器/前台检测）
 > 日期：2026-08-08
-1. `apply_punishment` 已在违规时调用，v2 枯萎逻辑已内置，无需改动
-2. 专注结束事件需再调用一次 `garden_apply_pet()`（彩蛋判定）
+1. `apply_punishment` 已在违规时调用，v2 枯萎逻辑已内置 → **✅ 无改动**（枯萎救援 + `revivable:false` 二次清除已内置）
+2. 专注结束事件需再调用一次 `garden_apply_pet()`（彩蛋判定）→ 🔜 Phase D
 
 ### 7.3 给服务器部门
 > 日期：2026-08-08
-1. Phase D 需要自习室好友展示"段位徽章 + 今日收获数"：需在用户资料/自习室成员数据结构中新增 2 个字段
+1. Phase D 需要自习室好友展示"段位徽章 + 今日收获数"：需在用户资料/自习室成员数据结构中新增 2 个字段 → 🔜 Phase D
 2. 市场行情/商人/合成全部本地化（确定性 seed 生成，无服务器依赖），当前无紧急依赖
 
 ---
@@ -677,5 +689,6 @@ export interface Recipe {
 | 2026-08-08 | v3.1 取舍定稿：商人砍现金收购（与市场不重叠），聚焦物物交换/加工品出口；新增巨大化（3×3）、生动性方案（动画/季节/音效分层） |
 | 2026-08-08 | v3.2 修正：巨大化改**概率触发**（15%，非必然）；新增机制叠加控制（一次收获一种特殊状态/经济双轨隔离/产出锁定）与渐进引入节奏（按天数解锁系统，防认知过载） |
 | 2026-08-08 | v3.3 定稿：巨大化 UI 用覆盖层动画（不依赖 grid 跨格）；期望收益 ≈ 分散种（防"最优种法"）；**时钟↔菜园子隔离架构**（单向三信号：grow / 断了 / 完成，时钟不区分中断原因） |
+| 2026-08-08 | **Phase B 落地**（设计师 commit 672a6eb + 客户端适配）：`garden_plant_quick` / `garden_harvest_all` / `garden_seed_from_crop` / `garden_check_state` / 连击对齐 ×1.2 + 阈值 2 / 每日配额 120 分钟 / 段位 + 微黄 / 枯萎救援二次清除；客户端接入 record_focus、快捷种植交互、一键全收 UI、枯萎双态展示（commit 待定） |
 
-> ⚠️ **待办**：v1 代码中 `apply_growth` 当前实现 ×1.5、`COMBO_ACTIVE_THRESHOLD=3`，与 v3 定稿（×1.2、阈值 2）不一致，Phase B 实施时一并调整。
+> ~~⚠️ **待办**：v1 代码中 `apply_growth` 当前实现 ×1.5、`COMBO_ACTIVE_THRESHOLD=3`，与 v3 定稿（×1.2、阈值 2）不一致，Phase B 实施时一并调整。~~ → **✅ 已在 Phase B 落地**（`COMBO_ACTIVE_THRESHOLD=2`、`apply_growth` ×1.2 向上取整）。

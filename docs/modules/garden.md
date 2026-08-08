@@ -1,7 +1,7 @@
 # 菜园子模块文档（Garden）
 
-> 适用版本：PomoSolo v4.0.0（Tauri 2 + Vue 3 + Pinia）
-> 最后更新：2026-07-29
+> 适用版本：PomoSolo v4.7.x（Tauri 2 + Vue 3 + Pinia）
+> 最后更新：2026-08-08（v3 玩法重构 Phase B 适配）
 
 ---
 
@@ -9,16 +9,28 @@
 
 菜园子是 PomoSolo 的游戏化激励模块，作为一个**独立 Tauri 窗口**运行（与主番茄钟窗口分离）。它把"专注"转化为可视化收益：专注时长累计可解锁成就，签到/种植/收获形成金币经济循环，娱乐应用惩罚会扣减资源。
 
+> **v3 玩法重构（Phase B 已落地，2026-08-08）**：由游戏设计师重构玩法（设计蓝图见 [garden-game-design.md](garden-game-design.md)），核心变化：
+> - **时钟 ↔ 菜园子隔离架构**：时钟只发三个单向信号（`garden_grow` / `garden_record_focus(false)` 断了 / `garden_record_focus(true)` 完成），不区分中断原因
+> - **快捷种植**：点空地默认种"最优种子"（库存中价值最高），长按 500ms 才出选种轮盘
+> - **一键全收**：🌾 按钮收获所有成熟非枯萎作物（顶部状态条/导航）
+> - **连击系统**：专注完成连击 +1（×1.2 生长加成，≥2 连击激活），中断清零
+> - **每日生长配额**：120 分钟封顶，跨日重置
+> - **段位 tier**（7/14/30 连续签到天 → Lv1/2/3）+ **微黄 languish**（离线 >24h 微黄 / >7 天休眠）
+> - **枯萎救援升级**：违规惩罚不再直接清空——未成熟作物转枯萎态（`wilted`，进度保留，完成 1 个番茄钟救活）；已枯萎再遭惩罚才永久清除（`revivable:false`）
+> - **留种繁殖**（`garden_seed_from_crop`：1 作物 → 1 种子）
+
 ### 功能子系统
 
 | 子系统 | 入口组件 | 说明 |
 |--------|----------|------|
-| 土地种植 | `GardenPlot.vue` | 12 块土地（3 列 × 4 行），前 6 块默认解锁，后 6 块需金币/成就解锁 |
-| 种植轮盘 | `GardenPlantWheel.vue` | 点击空地弹出的 Canvas 径向选种菜单（5 扇区） |
+| 土地种植 | `GardenPlot.vue` | 12 块土地（3 列 × 4 行），前 6 块默认解锁，后 6 块需金币/成就解锁；**点按快捷种植、长按 500ms 出轮盘**；枯萎/成熟/选中视觉态 |
+| 种植轮盘 | `GardenPlantWheel.vue` | 长按空地弹出的 Canvas 径向选种菜单（5 扇区） |
 | 背包 | `GardenBag.vue` | 显示种子与已收获作物，传统模式下点击种子选中用于种植 |
 | 商店 | `GardenShop.vue` | 购买种子 / 出售作物双标签页弹窗 |
 | 每日签到 | `GardenSignin.vue` | 连续签到、累计签到、本周记录、每日/每周/里程碑奖励 |
-| 成就墙 | `GardenAchievement.vue` | 25 个成就（7 分类 + 1 隐藏），含进度条与奖励展示 |
+| 成就墙 | `GardenAchievement.vue` | 25 个成就（7 分类 + 1 隐藏彩蛋），含进度条与奖励展示 |
+| 一键全收 | `GardenMain.vue` 导航 | 🌾 收获所有成熟非枯萎作物，汇总提示 + 成就统计 |
+| v3 状态条 | `GardenMain.vue` | 连击显示（🔥连击×N 加速）+ 微黄提示（🌱 菜园有点蔫了）+ 段位徽章（LvN 名称） |
 
 ### 经济循环
 
@@ -26,9 +38,11 @@
 专注 ──累计时长──▶ 触发专注类成就（奖励种子/金币）
 签到 ──每日──▶ 种子 + 金币（连续签到里程碑额外奖励）
 商店 ──金币──▶ 购买种子 ──种植──▶ 等待生长 ──收获──▶ 作物
-商店 ──作物──▶ 出售换金币
-专注模式（奖惩机制）──▶ 计时器运行中每分钟 garden_grow 成长
-惩罚（专注模式中断：3 次娱乐警告 / 运行中重置 / 手动关闭）──▶ 清空所有未成熟作物（garden_punishment）+ 损失明细弹窗
+商店 ──作物──▶ 出售换金币 / 留种繁殖（1 作物 → 1 种子）
+专注模式（奖惩机制）──▶ 计时器运行中每分钟 garden_grow 成长（×1.2 连击加成 + 每日 120 分钟配额）
+连击 ──完成番茄钟──▶ 连击+1（≥2 激活 ×1.2 加成）；中断 ──▶ 连击清零
+惩罚（专注模式中断：3 次娱乐警告 / 运行中重置 / 手动关闭）──▶ 未成熟作物转枯萎（可救活）+ 损失明细弹窗；已枯萎再惩罚 → 永久清除
+留种（garden_seed_from_crop）──▶ 消耗作物换种子，日常循环自持，不依赖金币买种
 ```
 
 ---
@@ -56,16 +70,18 @@ GardenMain.vue（主界面，协调所有子组件）
                     ┌─────────────────────────────────────────┐
                     │            GardenMain.vue               │
                     │  (顶层 .garden-frame，圆角 + 拖动区)     │
-                    │                                         │
+                    │  (导航: 🌾一键全收/📅签到/🛒商店/🏆成就)  │
+                    │  (v3 状态条: 连击/微黄/段位徽章)          │
    ┌────────────────┼────────────────┬───────────┬───────────┐│
    │                │                │           │           ││
    ▼                ▼                ▼           ▼           ▼│
 GardenPlot    GardenBag       GardenShop   GardenSignin  GardenAchievement
  (土地网格)    (背包)          (商店弹窗)   (签到弹窗)    (成就墙弹窗)
-   │ click                          │           │              │
-   │ plant/harvest/unlock           │           │              │
-   ▼                                ▼           ▼              ▼
- GardenPlantWheel ◀──轮盘模式触发── handlePlant()
+   │ mousedown/mouseup            │           │              │
+   │ plantQuick(点按)/plant(长按) │           │              │
+   │ harvest / unlock             │           │              │
+   ▼                              ▼           ▼              ▼
+ GardenPlantWheel ◀──长按触发── (点按快捷种植失败回退)
  (Canvas 径向选种)
    │ select seedKey
    ▼
@@ -73,24 +89,31 @@ GardenPlot    GardenBag       GardenShop   GardenSignin  GardenAchievement
 │                  useGardenStore (Pinia)                       │
 │  src/stores/garden.ts                                         │
 │  state: data(GardenState) / selectedSeed / tip / plantWheelMode│
-│  actions: load / plant / harvest / buySeed / sellCrop /        │
-│           unlockPlot / signIn / addFocus / punish              │
+│  actions: load / checkState / plant / plantQuick / harvest /   │
+│           harvestAll / buySeed / sellCrop / unlockPlot /       │
+│           signIn / addFocus / punish / recordFocus             │
 └──────────────────────┬───────────────────────────────────────┘
                        │ invoke()
                        ▼
 ┌──────────────────────────────────────────────────────────────┐
 │              src/api/garden.ts (Tauri invoke 封装)             │
-│  gardenRead / gardenPlant / gardenHarvest / gardenBuySeed /    │
+│  gardenRead / gardenPlant / gardenPlantQuick /                 │
+│  gardenHarvest / gardenHarvestAll / gardenBuySeed /            │
 │  gardenSellCrop / gardenUnlockPlot / gardenSignin /            │
-│  gardenUpdateFocus / gardenPunishment                          │
+│  gardenUpdateFocus / gardenPunishment / gardenGrow /           │
+│  gardenRecordFocus / gardenCheckState / gardenSeedFromCrop /   │
+│  gardenUnlockEasteregg                                         │
 └──────────────────────┬───────────────────────────────────────┘
                        │ Tauri IPC
                        ▼
 ┌──────────────────────────────────────────────────────────────┐
 │        src-tauri/src/commands/garden.rs (Rust)                │
-│  #[tauri::command] garden_read / garden_write /                │
-│  garden_plant / garden_harvest / garden_buy / garden_sell /    │
-│  garden_unlock / garden_signin                                 │
+│  garden_read / garden_write / garden_plant / garden_plant_quick│
+│  garden_harvest / garden_harvest_all / garden_buy / garden_sell│
+│  garden_sell_all / garden_unlock / garden_signin /             │
+│  garden_update_focus / garden_punishment / garden_grow /       │
+│  garden_record_focus / garden_check_state /                    │
+│  garden_seed_from_crop / garden_unlock_easteregg               │
 └──────────────────────┬───────────────────────────────────────┘
                        │
                        ▼
@@ -113,15 +136,16 @@ GardenPlot    GardenBag       GardenShop   GardenSignin  GardenAchievement
 | garden 窗口配置 | `src-tauri/tauri.conf.json` | 28-40 | label=garden, 400×520, resizable:false |
 | 入口 HTML | `garden.html` | 1-12 | 挂载点 `#app`，加载 `/src/garden.ts` |
 | 入口脚本 | `src/garden.ts` | 1-8 | createApp + createPinia + mount |
-| 主界面框架 | `GardenMain.vue` | 88-148 | template 结构；圆角/拖动区/关闭按钮 |
-| `.garden-frame` 圆角 | `GardenMain.vue` | 152-162 | border-radius:16px + overflow:hidden |
-| 拖动区 | `GardenMain.vue` | 91, 165-173 | data-tauri-drag-region + -webkit-app-region |
-| 弹窗状态管理 | `GardenMain.vue` | 22-30 | shopVisible / signinVisible / achievementVisible / wheel* |
-| 种植分支（轮盘 vs 传统） | `GardenMain.vue` | 40-55 | plantWheelMode 决定走轮盘还是 selectedSeed |
-| 土地网格 | `GardenPlot.vue` | 151-164 | grid-template-columns: repeat(3, 1fr) |
-| 滚动条样式 | `GardenPlot.vue` | 166-182 | ::-webkit-scrollbar 系列 |
-| 格子点击逻辑 | `GardenPlot.vue` | 49-64 | locked→忽略；有crop→收获/提示；空地→plant |
-| 解锁条件判断 | `GardenPlot.vue` | 73-84 | coins 类型看金币；achievement 类型看成就解锁 |
+| 主界面框架 | `GardenMain.vue` | 126-198 | template 结构；圆角/拖动区/关闭按钮 |
+| v3 状态条 getters | `GardenMain.vue` | 39-58 | languishTip / tierName / comboText |
+| 一键全收处理 | `GardenMain.vue` | 100-114 | handleHarvestAll → store.harvestAll + 汇总提示 |
+| 弹窗状态管理 | `GardenMain.vue` | 21-30 | shopVisible / signinVisible / achievementVisible / wheel* |
+| 种植分支（轮盘 vs 传统） | `GardenMain.vue` | 63-78 | plantWheelMode 决定走轮盘还是 selectedSeed |
+| 快捷种植交互 | `GardenPlot.vue` | 71-106 | 点按 plantQuick（失败回退轮盘）/ 长按 500ms 轮盘 |
+| 格子点击逻辑 | `GardenPlot.vue` | 49-69 | locked→忽略；wilted→提示救活；有crop→收获/提示；空地→快捷种植 |
+| 解锁条件判断 | `GardenPlot.vue` | 114-126 | coins 类型看金币；achievement 类型看成就解锁 |
+| 土地网格 | `GardenPlot.vue` | 201-215 | grid-template-columns: repeat(3, 1fr) |
+| 滚动条样式 | `GardenPlot.vue` | 218-233 | ::-webkit-scrollbar 系列 |
 | 种植轮盘绘制 | `GardenPlantWheel.vue` | 55-150 | Canvas 2D 绘制扇形/图标/数量 |
 | 轮盘定位 | `GardenPlantWheel.vue` | 201-215 | 基于 clientX/Y，钳制在 .garden-frame 边界内 |
 | 轮盘扇区命中 | `GardenPlantWheel.vue` | 153-173 | atan2 计算角度，中心区域返回 -1 |
@@ -130,13 +154,19 @@ GardenPlot    GardenBag       GardenShop   GardenSignin  GardenAchievement
 | 签到弹窗 | `GardenSignin.vue` | 144-205 | 连续/累计天数、本周圆点、今日奖励列表 |
 | 签到数据读取 | `GardenSignin.vue` | 42-45 | store.data.signIn.{continuousDays,totalDays,weekRecords} |
 | 今日是否可签到 | `stores/garden.ts` | 316-319 | signIn.lastDate !== today (toISOString) |
-| Store 定义 | `stores/garden.ts` | 284-513 | state/getters/actions 全集 |
+| Store 定义 | `stores/garden.ts` | 284-513 | state/getters/actions 全集（含 plantQuick / harvestAll / recordFocus） |
 | `toGardenState` 容错 | `stores/garden.ts` | 246-282 | 字段缺失时回填 DEFAULT_GARDEN |
 | 静态配置表 | `stores/garden.ts` | 44-162 | CROP_CONFIG / ACHIEVEMENT_CONFIG / 奖励表 |
-| API 封装 | `api/garden.ts` | 70-177 | invoke 命令封装与类型声明 |
-| API 命令未注册警告 | `api/garden.ts` | 17-18 | 注释说明 lib.rs 暂未注册命令 |
+| API 封装 | `api/garden.ts` | 全文件 | invoke 命令封装与类型声明 |
 | Rust 签到实现 | `commands/garden.rs` | 197-291 | garden_signin 含键名修正与兼容逻辑 |
 | 签到键名修正 | `commands/garden.rs` | 206-216 | 强制写 "signIn"（camelCase），非对象则重置 |
+| 快捷种植命令 | `commands/garden.rs` | 559-639 | garden_plant_quick：校验土地 → pick_best_seed → 扣种 → 写入 |
+| 一键全收命令 | `commands/garden.rs` | 726-839 | garden_harvest_all：收集成熟非枯萎 → 逐株收获 → 聚合 harvested |
+| 留种繁殖命令 | `commands/garden.rs` | 1942-2003 | garden_seed_from_crop：1 作物 → 1 种子 |
+| 连击纯函数 | `commands/garden.rs` | 1456-1583 | record_focus_completion（连击/救活/恢复微黄）+ garden_record_focus |
+| 生长纯函数 | `commands/garden.rs` | 1585-1708 | apply_growth（×1.2 加成 + 120 分钟配额 + 枯萎不生长）+ garden_grow |
+| 段位/微黄计算 | `commands/garden.rs` | 1710-1790 | TIER_DAYS / calc_tier / calc_languish |
+| 状态检查命令 | `commands/garden.rs` | 1789-1940 | check_garden_state + garden_check_state（tier/languish/unlocks） |
 | 日期工具函数 | `commands/garden.rs` | 13-77 | epoch→YMD / 星期几（UTC） |
 
 ---
@@ -381,6 +411,8 @@ signin_obj.insert("totalDays".to_string(), Value::from(new_total));
 
 ### 4.9【补充发现】前端 API 与 Rust 命令名/参数名不匹配
 
+> ✅ **已解决（v3 Phase B 适配时确认）**：本节是 Tauri 迁移早期的遗留记录。如今 `api/garden.ts` 全部命令已按 Rust 实际命令对齐（见第 3 节命令清单与 [api/garden.ts](../../src/api/garden.ts) 顶部对照注释），`garden_update_focus` / `garden_punishment` / `garden_grow` 均已在 `lib.rs` 注册。保留本节作为历史踩坑参考。
+
 > 此问题在 `api/garden.ts` 顶部注释已声明（第 17-18 行："当前 src-tauri/src/lib.rs 暂未注册这些命令，调用会失败"）。以下是详细对照，供后续对齐使用。
 
 **现象**：前端调用 `garden_buy_seed` / `garden_sell_crop` / `garden_unlock_plot` 等命令时，Rust 后端实际注册的是 `garden_buy` / `garden_sell` / `garden_unlock`，命令名和参数名都对不上，`invoke` 直接抛错。
@@ -409,6 +441,8 @@ signin_obj.insert("totalDays".to_string(), Value::from(new_total));
 ---
 
 ### 4.10【补充发现】Plot 数据结构前后端不一致
+
+> ✅ **已解决（v3 Phase B 适配时确认）**：Rust 端 `garden_plant` / `garden_harvest` / `garden_plant_quick` 均写入前端 `Plot` 结构化字段（`locked` / `crop` / `progress` / `plantedAt`），不再使用 `state` 字符串状态机。`Plot` 还新增了 `wilted` 字段（v3 枯萎态）。保留本节作为历史踩坑参考。
 
 **现象**：即使命令对齐，种植/收获后前端 `Plot` 字段也对不上——前端读 `plot.locked` / `plot.progress` / `plot.plantedAt`，Rust 写的是 `plot.state`（"growing"/"empty"/"locked"）。
 
@@ -446,6 +480,37 @@ export interface GardenState {
   signIn: SignInState;              // 签到状态
   achievements: AchievementMap;     // 成就解锁记录
   achievementStats: AchievementStats; // 成就统计指标
+  // ===== v3 玩法（Phase B）新增字段 =====
+  combo?: ComboState;               // 专注连击 { count, best, active }
+  languish?: LanguishState;         // 微黄/休眠 { level: 0|1|2, lastSeenAt }
+  tier?: TierState;                 // 段位 { current, best }
+  dailyCap?: DailyCap;              // 每日生长配额 { date, growthMinutes }
+  lastSeenAt?: string | null;       // 上次打开菜园时间（微黄判定依据）
+}
+```
+
+#### ComboState / LanguishState / TierState / DailyCap（v3 新增）
+
+```typescript
+export interface ComboState {
+  count: number;      // 当前连击数（完成番茄钟 +1，中断清零）
+  best: number;       // 历史最高连击
+  active: boolean;    // 是否激活 ×1.2 生长加成（count >= COMBO_ACTIVE_THRESHOLD=2）
+}
+
+export interface LanguishState {
+  level: 0 | 1 | 2;   // 0正常 / 1微黄(离线>24h) / 2休眠(离线>7天)
+  lastSeenAt: string | null; // 上次打开菜园时间
+}
+
+export interface TierState {
+  current: number;    // 当前段位 0-3（连续签到 7/14/30 天 → Lv1/2/3）
+  best: number;       // 历史最高段位
+}
+
+export interface DailyCap {
+  date: string;          // 记录日期 YYYY-MM-DD
+  growthMinutes: number; // 当日已生长分钟（上限 120，跨日重置）
 }
 ```
 
@@ -458,6 +523,7 @@ export interface Plot {
   progress: number;                 // 生长进度（分钟）
   plantedAt: string | null;         // 种植时间戳
   locked?: boolean;                 // 是否锁定
+  wilted?: boolean;                 // v3 枯萎态：违规惩罚后作物转枯萎（进度保留，完成番茄钟救活）
 }
 ```
 
@@ -549,10 +615,35 @@ export interface GardenOperationResult {
 }
 
 // 惩罚结果
+export interface PunishmentLoss {
+  crop: string;                    // 作物 key
+  name: string;                    // 作物中文名
+  icon: string;                    // 作物 emoji 图标
+  progress: number;                // 已生长分钟数
+  growTime: number;                // 该作物总生长分钟数
+  revivable?: boolean;             // v3 枯萎救援：true=转枯萎可救活；false=永久清除
+}
+
 export interface PunishmentResult {
   hasLoss: boolean;
-  losses: Array<{ type: string; amount: number }>;
+  losses: PunishmentLoss[];
   totalMinutes: number;
+}
+
+// 一键全收结果（v3）
+export interface GardenHarvestAllResult extends GardenOperationResult {
+  harvested?: { crop: string; name: string; icon: string; count: number }[];
+  totalCoins?: number;
+}
+
+// 快捷种植结果（v3）：额外返回 crop 字段（实际种下的作物 key）
+export type GardenPlantQuickResult = GardenOperationResult & { crop?: string };
+
+// 状态检查结果（v3）
+export interface GardenCheckStateResult extends GardenOperationResult {
+  tier?: { current: number; best: number };
+  languish?: { level: number };
+  unlocks?: Record<string, string>;
 }
 ```
 
@@ -563,6 +654,11 @@ Rust 端不定义强类型 struct，而是直接操作 `serde_json::Value`，手
 签到相关写入字段：
 - 顶层键：`"signIn"`（不是 `signin`）
 - 子字段：`lastDate` / `continuousDays` / `totalDays` / `weekRecords`
+
+**v3 玩法（Phase B）新增写入字段**（全部 camelCase）：
+- 顶层键：`combo` `{count, best, active}` / `languish` `{level, lastSeenAt}` / `tier` `{current, best}` / `dailyCap` `{date, growthMinutes}` / `lastSeenAt`
+- 常量：`COMBO_ACTIVE_THRESHOLD = 2`（连击激活阈值）、`DAILY_GROWTH_CAP_MINUTES = 120`（每日配额）、`TIER_DAYS = [7, 14, 30]`（段位阈值）
+- Plot 新增：`wilted: bool`（枯萎态；`apply_growth` 对枯萎作物不生长）
 
 日期工具函数（`commands/garden.rs` 第 13-77 行）：
 - `today_date_string()` → `"YYYY-MM-DD"`（UTC）

@@ -234,7 +234,7 @@ onUnmounted(() => {
   window.removeEventListener("keydown", handleKeydown);
 });
 
-// ===== 完成事件 → 记录统计 =====
+// ===== 完成事件 → 记录统计 + 菜园连击（v3 隔离架构：完成信号 garden_record_focus(true)）=====
 watch(
   () => timer.completionId,
   async (id, prevId) => {
@@ -244,6 +244,8 @@ watch(
       timer.todayCount = stats.todayCount;
       timer.totalMinutes = stats.totalMinutes;
       void garden.addFocus(minutes);
+      // v3：work 番茄钟完成 → 连击+1、救活枯萎、恢复微黄（菜园子内部自己消化）
+      void garden.recordFocus(true);
     }
   },
 );
@@ -346,6 +348,8 @@ async function runPunishment(): Promise<void> {
   const result = await garden.punish(0);
   punishmentResult.value = result;
   showPunishmentResult.value = true;
+  // v3 隔离架构：专注断了（违规/关闭/手动，统一一个信号）→ 连击清零（菜园子内部自消化）
+  void garden.recordFocus(false);
   // 计划模式下中断 → 停止整个计划
   if (timer.appMode === "plan") {
     stopPlan();
@@ -404,6 +408,10 @@ function onResetClick(): void {
   }
   if (timer.appMode === "plan" && planRunning.value) {
     stopPlan();
+  }
+  // 普通番茄钟未完成即重置 = 放弃当前专注 → 连击清零（v3 隔离架构统一"断了"信号）
+  if (timer.phase === "running") {
+    void garden.recordFocus(false);
   }
   timer.reset();
 }
