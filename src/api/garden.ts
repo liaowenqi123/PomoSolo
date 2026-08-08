@@ -230,9 +230,50 @@ export function gardenPunishment(
  * 作物成长（计时器 tick 时调用，让所有种植中的作物 progress += minutes）。
  * 后端：`garden_grow(minutes: u32) -> Result<Value, String>`
  * 返回更新后的 garden data（裸 Value，需 wrapResult 包装）。
+ * v3 隔离架构：前端只在专注进行中调用，告诉菜园子"涨了几分钟"。
  */
 export function gardenGrow(minutes: number): Promise<GardenOperationResult> {
   return invoke<unknown>("garden_grow", { minutes }).then(wrapResult);
+}
+
+/**
+ * 记录专注会话结果（v3 隔离架构核心信号）。
+ * 后端：`garden_record_focus(completed: bool)`
+ * - completed=true：专注完成 → 连击+1、救活枯萎、恢复微黄
+ * - completed=false：专注断了（关闭/手动/违规，统一一个信号）→ 连击清零
+ */
+export function gardenRecordFocus(
+  completed: boolean,
+): Promise<GardenOperationResult & { revivedCount?: number }> {
+  return invoke<GardenOperationResult & { revivedCount?: number }>(
+    "garden_record_focus",
+    { completed },
+  );
+}
+
+/**
+ * 检查并同步菜园状态（打开菜园窗口时调用）。
+ * 后端：`garden_check_state()`
+ * 计算段位 tier / 微黄 languish / 渐进解锁 unlocks，并持久化。
+ */
+export interface GardenCheckStateResult extends GardenOperationResult {
+  tier?: { current: number; best: number };
+  languish?: { level: number };
+  unlocks?: Record<string, string>;
+}
+export function gardenCheckState(): Promise<GardenCheckStateResult> {
+  return invoke<GardenCheckStateResult>("garden_check_state");
+}
+
+/**
+ * 留种繁殖：1 作物 → 1 种子（HayDay 式，作物变作物）。
+ * 后端：`garden_seed_from_crop(crop, count)`
+ */
+export function gardenSeedFromCrop(
+  crop: string,
+  count?: number,
+): Promise<GardenOperationResult> {
+  return invoke<unknown>("garden_seed_from_crop", { crop, count }).then(wrapResult);
 }
 
 /**

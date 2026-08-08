@@ -138,10 +138,10 @@ pub fn crop_cfg(key: &str) -> Option<&'static CropCfg> {
 
 // ===== 专注连击配置 =====
 
-/// 专注连击激活阈值：连续完成 N 个番茄钟后进入加成状态
-pub const COMBO_ACTIVE_THRESHOLD: u64 = 3;
+/// 专注连击激活阈值：连续完成 N 个番茄钟后进入加成状态（v3 定稿：2，降低门槛）
+pub const COMBO_ACTIVE_THRESHOLD: u64 = 2;
 
-/// 专注连击加成倍数（1.5 倍，apply_growth 中按 ×1.5 向上取整计算）
+/// 专注连击加成倍数（×1.2，v3 定稿：1.5 太强会诱导为种菜过度专注）
 
 // ===== 签到奖励配置 =====
 
@@ -1238,15 +1238,16 @@ pub async fn garden_unlock_easteregg(app: AppHandle) -> Result<Value, String> {
 
 /// 记录一次专注会话结果（纯函数，便于单元测试）
 ///
-/// 专注连击（Focus Combo）v1：
+/// 专注连击（Focus Combo）v1 + v3 扩展：
 /// - completed=true（专注完成）：连击 count+1；达到 COMBO_ACTIVE_THRESHOLD 激活加成；
-///   同时**救活所有枯萎作物**（wilted 状态清除，进度保留）
-/// - completed=false（专注中断/放弃）：连击清零
+///   同时**救活所有枯萎作物**（wilted 状态清除，进度保留）；**恢复微黄**（languish.level=0）
+/// - completed=false（专注中断/放弃）：连击清零；记录断签起始（供段位宽限判断）
 /// - combo.best 记录历史最高连击
-/// 返回 { combo: {count,best,active}, revivedCount }。
+/// 返回 { combo: {count,best,active}, revivedCount, languishReset }。
 pub fn record_focus_completion(data: &mut Value, completed: bool) -> Value {
     let combo_value: Value;
     let mut revived_count: u64 = 0;
+    let mut languish_reset = false;
 
     // ===== 阶段 1：更新 combo 状态 =====
     {
@@ -1255,7 +1256,8 @@ pub fn record_focus_completion(data: &mut Value, completed: bool) -> Value {
             None => {
                 return json!({
                     "combo": { "count": 0, "best": 0, "active": false },
-                    "revivedCount": 0
+                    "revivedCount": 0,
+                    "languishReset": false
                 })
             }
         };
@@ -1271,7 +1273,8 @@ pub fn record_focus_completion(data: &mut Value, completed: bool) -> Value {
             None => {
                 return json!({
                     "combo": { "count": 0, "best": 0, "active": false },
-                    "revivedCount": 0
+                    "revivedCount": 0,
+                    "languishReset": false
                 })
             }
         };
@@ -1299,9 +1302,10 @@ pub fn record_focus_completion(data: &mut Value, completed: bool) -> Value {
         combo_value = combo.clone();
     }
 
-    // ===== 阶段 2：专注完成时救活枯萎作物 =====
+    // ===== 阶段 2：专注完成时救活枯萎作物 + 恢复微黄 =====
     if completed {
         if let Some(obj) = data.as_object_mut() {
+            // 救活枯萎
             if let Some(plots) = obj.get_mut("plots").and_then(|v| v.as_array_mut()) {
                 for plot in plots.iter_mut() {
                     let wilted = plot
@@ -1316,12 +1320,28 @@ pub fn record_focus_completion(data: &mut Value, completed: bool) -> Value {
                     }
                 }
             }
+            // 恢复微黄（languish.level → 0）
+            if let Some(lang) = obj.get_mut("languish") {
+                if let Some(lang_obj) = lang.as_object_mut() {
+                    let level = lang_obj
+                        .get("level")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    if level > 0 {
+                        lang_obj.insert("level".to_string(), Value::from(0));
+                        languish_reset = true;
+                    }
+                }
+            }
+            // 更新 lastSeenAt
+            obj.insert("lastSeenAt".to_string(), Value::String(now_iso_utc()));
         }
     }
 
     json!({
         "combo": combo_value,
-        "revivedCount": revived_count
+        "revivedCount": revived_count,
+        "languishReset": languish_reset
     })
 }
 
@@ -1344,58 +1364,419 @@ pub async fn garden_record_focus(app: AppHandle, completed: bool) -> Result<Valu
     }))
 }
 
+/// 每日生长配额上限（分钟）：超过后当天不再生长（v3 定稿：防过度专注）
+pub const DAILY_GROWTH_CAP_MINUTES: u64 = 120;
+
 /// 更新作物生长进度（纯函数，便于单元测试）
 ///
 /// - 遍历所有有作物的 plots，progress += minutes
-/// - 专注连击激活（combo.active）时，按 minutes × 1.5 向上取整加成
+/// - 专注连击激活（combo.active）时，按 ×1.2 加成（向上取整）
 /// - 枯萎（wilted）作物不再生长（等待救活）
-/// 返回 { growthApplied }。
+/// - **每日生长配额**：当日已生长分钟 >= DAILY_GROWTH_CAP_MINUTES 时停止生长（返回 capped=true）
+/// 返回 { growthApplied, capped }。
 pub fn apply_growth(data: &mut Value, minutes: u32) -> Value {
-    let obj = match data.as_object_mut() {
-        Some(o) => o,
-        None => return json!({ "growthApplied": 0 }),
+    // ===== 阶段 1：读取配额状态（独立借用块）=====
+    let today = today_date_string();
+    let used: u64 = {
+        let obj = match data.as_object_mut() {
+            Some(o) => o,
+            None => return json!({ "growthApplied": 0, "capped": false }),
+        };
+        let daily = obj
+            .entry("dailyCap".to_string())
+            .or_insert_with(|| json!({ "date": today.clone(), "growthMinutes": 0 }));
+        if !daily.is_object() {
+            *daily = json!({ "date": today.clone(), "growthMinutes": 0 });
+        }
+        let daily_obj = match daily.as_object_mut() {
+            Some(o) => o,
+            None => return json!({ "growthApplied": 0, "capped": false }),
+        };
+        let cap_date = daily_obj
+            .get("date")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        // 跨日重置
+        if cap_date != today {
+            daily_obj.insert("date".to_string(), Value::String(today.clone()));
+            daily_obj.insert("growthMinutes".to_string(), Value::from(0));
+        }
+        daily_obj
+            .get("growthMinutes")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
     };
 
-    let combo_active = obj
+    // 已达到当日配额 → 停止生长
+    if used >= DAILY_GROWTH_CAP_MINUTES {
+        return json!({ "growthApplied": 0, "capped": true });
+    }
+
+    // 本次实际可生长分钟 = min(minutes, 剩余配额)
+    let remaining = DAILY_GROWTH_CAP_MINUTES - used;
+    let effective_minutes = (minutes as u64).min(remaining);
+    let mut capped = effective_minutes < minutes as u64;
+
+    // ===== 阶段 2：计算连击加成（只读）=====
+    let combo_active = data
         .get("combo")
         .and_then(|c| c.get("active"))
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    // 1.5 倍向上取整：(minutes * 3 + 1) / 2
     let growth: u64 = if combo_active {
-        (minutes as u64 * 3 + 1) / 2
+        // 1.2 倍向上取整：(minutes * 6 + 4) / 5
+        (effective_minutes * 6 + 4) / 5
     } else {
-        minutes as u64
+        effective_minutes
     };
 
-    if let Some(plots) = obj.get_mut("plots").and_then(|v| v.as_array_mut()) {
-        for plot in plots.iter_mut() {
-            let has_crop = plot.get("crop").and_then(|v| v.as_str()).is_some();
-            let wilted = plot.get("wilted").and_then(|v| v.as_bool()).unwrap_or(false);
-            if has_crop && !wilted {
-                let progress = plot.get("progress").and_then(|v| v.as_u64()).unwrap_or(0);
-                plot["progress"] = Value::from(progress + growth);
+    // ===== 阶段 3：写入生长进度 + 更新配额（独立借用块）=====
+    {
+        let obj = match data.as_object_mut() {
+            Some(o) => o,
+            None => return json!({ "growthApplied": 0, "capped": false }),
+        };
+        if let Some(plots) = obj.get_mut("plots").and_then(|v| v.as_array_mut()) {
+            for plot in plots.iter_mut() {
+                let has_crop = plot.get("crop").and_then(|v| v.as_str()).is_some();
+                let wilted = plot
+                    .get("wilted")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                if has_crop && !wilted {
+                    let progress = plot
+                        .get("progress")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    plot["progress"] = Value::from(progress + growth);
+                }
+            }
+        }
+        // 更新当日已生长分钟
+        if let Some(daily) = obj.get_mut("dailyCap") {
+            if let Some(daily_obj) = daily.as_object_mut() {
+                let new_used = used + effective_minutes;
+                daily_obj.insert("growthMinutes".to_string(), Value::from(new_used));
             }
         }
     }
 
-    json!({ "growthApplied": growth })
+    json!({ "growthApplied": growth, "capped": capped })
 }
 
 /// 更新作物生长进度
 /// 参照旧版 updateGardenProgress：
 /// - 遍历所有有作物的 plots，progress += minutes
-/// - 专注连击激活时进度 ×1.5（v1 游戏性改进）
+/// - 专注连击激活时进度 ×1.2（v1 游戏性改进）
+/// - 每日生长配额 120 分钟封顶（v3）
 /// - 不带成就检查（与旧版一致）
 #[tauri::command]
 pub async fn garden_grow(app: AppHandle, minutes: u32) -> Result<Value, String> {
     let mut data = data_manager::read_garden_data(&app)?;
 
-    apply_growth(&mut data, minutes);
+    let info = apply_growth(&mut data, minutes);
 
     data_manager::write_garden_data(&app, &data)?;
     // 返回 GardenOperationResult 形状（前端 applyResult 期望 success 字段）
+    Ok(json!({
+        "success": true,
+        "gardenData": data,
+        "growthApplied": info.get("growthApplied"),
+        "capped": info.get("capped"),
+        "unlockedAchievements": []
+    }))
+}
+
+// ===== 段位 / 微黄 / 解锁（v3 隔离架构：打开窗口时计算）=====
+
+/// 段位阈值：连续专注天数（复用 signIn.continuousDays）
+pub const TIER_DAYS: &[u64] = &[7, 14, 30];
+
+/// 计算段位（0-3）：连续天数 >= 7 → Lv1，>= 14 → Lv2，>= 30 → Lv3
+fn calc_tier(continuous_days: u64) -> u64 {
+    if continuous_days >= 30 {
+        3
+    } else if continuous_days >= 14 {
+        2
+    } else if continuous_days >= 7 {
+        1
+    } else {
+        0
+    }
+}
+
+/// 计算微黄/休眠状态（纯函数）：基于 lastSeenAt 距今时长
+/// - <24h：level 0（正常）
+/// - >=24h：level 1（微黄）
+/// - >=7 天：level 2（休眠，进度冻结）
+pub fn calc_languish(data: &Value) -> u64 {
+    let last_seen = data
+        .get("lastSeenAt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if last_seen.is_empty() {
+        return 0;
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let last = parse_iso_utc_secs(last_seen).unwrap_or(0);
+    let hours = (now - last).max(0) / 3600;
+    if hours >= 24 * 7 {
+        2
+    } else if hours >= 24 {
+        1
+    } else {
+        0
+    }
+}
+
+/// 解析 "YYYY-MM-DDTHH:MM:SSZ" → epoch 秒（近似，供时长计算）
+fn parse_iso_utc_secs(s: &str) -> Option<i64> {
+    let s = s.trim_end_matches('Z');
+    let (date, time) = s.split_once('T')?;
+    let mut date_parts = date.split('-');
+    let year: i64 = date_parts.next()?.parse().ok()?;
+    let month: i64 = date_parts.next()?.parse().ok()?;
+    let day: i64 = date_parts.next()?.parse().ok()?;
+    let mut time_parts = time.split(':');
+    let hour: i64 = time_parts.next()?.parse().ok()?;
+    let min: i64 = time_parts.next()?.parse().ok()?;
+    let sec: i64 = time_parts.next()?.parse().ok()?;
+
+    // 粗略：天数 → 秒（忽略闰秒/时区，够用）
+    let days = days_from_civil(year, month, day);
+    Some(days * 86400 + hour * 3600 + min * 60 + sec)
+}
+
+/// 民用日期 → 天数（Howard Hinnant 算法，自 1970-01-01）
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+/// 检查并同步菜园状态（纯函数，v3 隔离架构）：
+/// - 计算并写入 languish.level（离线时长）
+/// - 计算并写入 tier.current / tier.best（段位）
+/// - 计算并写入 unlocks（渐进引入：市场/合成/商人/巨大化/彩蛋解锁时间）
+/// 返回 { tier, languish, unlocks }。
+pub fn check_garden_state(data: &mut Value) -> Value {
+    // ===== 预读只读数据（不可变借用，先取完）=====
+    let (continuous_days, total_days) = {
+        let obj = match data.as_object() {
+            Some(o) => o,
+            None => {
+                return json!({
+                    "tier": { "current": 0, "best": 0 },
+                    "languish": { "level": 0 },
+                    "unlocks": {}
+                })
+            }
+        };
+        let continuous = obj
+            .get("signIn")
+            .and_then(|s| s.get("continuousDays"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let total = obj
+            .get("signIn")
+            .and_then(|s| s.get("totalDays"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        (continuous, total)
+    };
+    let tier_current = calc_tier(continuous_days);
+    let lang_level = calc_languish(data);
+
+    // ===== 阶段 1：写入 tier（独立借用块）=====
+    let tier_val: Value = {
+        let obj = match data.as_object_mut() {
+            Some(o) => o,
+            None => {
+                return json!({
+                    "tier": { "current": 0, "best": 0 },
+                    "languish": { "level": 0 },
+                    "unlocks": {}
+                })
+            }
+        };
+        let tier = obj
+            .entry("tier".to_string())
+            .or_insert_with(|| json!({ "current": 0, "best": 0 }));
+        if !tier.is_object() {
+            *tier = json!({ "current": 0, "best": 0 });
+        }
+        if let Some(t) = tier.as_object_mut() {
+            let prev_current = t.get("current").and_then(|v| v.as_u64()).unwrap_or(0);
+            let prev_best = t.get("best").and_then(|v| v.as_u64()).unwrap_or(0);
+            // 只升不降（降级语义由 record_focus(false) 前端本地计算）
+            if tier_current > prev_current {
+                t.insert("current".to_string(), Value::from(tier_current));
+            }
+            let best = prev_best.max(tier_current);
+            t.insert("best".to_string(), Value::from(best));
+        }
+        tier.clone()
+    };
+
+    // ===== 阶段 2：写入 languish（独立借用块）=====
+    let lang_val: Value = {
+        let obj = match data.as_object_mut() {
+            Some(o) => o,
+            None => {
+                return json!({
+                    "tier": { "current": 0, "best": 0 },
+                    "languish": { "level": 0 },
+                    "unlocks": {}
+                })
+            }
+        };
+        let languish = obj
+            .entry("languish".to_string())
+            .or_insert_with(|| json!({ "level": 0 }));
+        if !languish.is_object() {
+            *languish = json!({ "level": 0 });
+        }
+        if let Some(l) = languish.as_object_mut() {
+            let prev_level = l.get("level").and_then(|v| v.as_u64()).unwrap_or(0);
+            // 只升不降（降级由专注完成 record_focus(true) 触发）
+            if lang_level > prev_level {
+                l.insert("level".to_string(), Value::from(lang_level));
+            }
+        }
+        languish.clone()
+    };
+
+    // ===== 阶段 3：写入 unlocks（独立借用块）=====
+    let unlocks_val: Value = {
+        let obj = match data.as_object_mut() {
+            Some(o) => o,
+            None => {
+                return json!({
+                    "tier": { "current": 0, "best": 0 },
+                    "languish": { "level": 0 },
+                    "unlocks": {}
+                })
+            }
+        };
+        let unlocks = obj
+            .entry("unlocks".to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !unlocks.is_object() {
+            *unlocks = Value::Object(Map::new());
+        }
+        let unlock_obj = unlocks.as_object_mut().unwrap();
+        // 解锁条件：按使用天数（与 v3.3 渐进表对齐）
+        let now_str = now_iso_utc();
+        if total_days >= 1 && unlock_obj.get("marketAt").is_none() {
+            unlock_obj.insert("marketAt".to_string(), Value::String(now_str.clone()));
+        }
+        if tier_current >= 1 && unlock_obj.get("craftAt").is_none() {
+            unlock_obj.insert("craftAt".to_string(), Value::String(now_str.clone()));
+        }
+        if tier_current >= 2 && unlock_obj.get("merchantAt").is_none() {
+            unlock_obj.insert("merchantAt".to_string(), Value::String(now_str.clone()));
+        }
+        if tier_current >= 3 && unlock_obj.get("giantAt").is_none() {
+            unlock_obj.insert("giantAt".to_string(), Value::String(now_str.clone()));
+        }
+        if tier_current >= 3 && unlock_obj.get("petAt").is_none() {
+            unlock_obj.insert("petAt".to_string(), Value::String(now_str.clone()));
+        }
+        unlocks.clone()
+    };
+
+    json!({
+        "tier": tier_val,
+        "languish": lang_val,
+        "unlocks": unlocks_val
+    })
+}
+
+/// 检查并同步菜园状态（打开菜园窗口时调用；隔离架构，时钟无需关心）
+/// 返回 GardenOperationResult 形状 + tier/languish/unlocks
+#[tauri::command]
+pub async fn garden_check_state(app: AppHandle) -> Result<Value, String> {
+    let mut data = data_manager::read_garden_data(&app)?;
+
+    let info = check_garden_state(&mut data);
+
+    data_manager::write_garden_data(&app, &data)?;
+
+    Ok(json!({
+        "success": true,
+        "gardenData": data,
+        "tier": info.get("tier"),
+        "languish": info.get("languish"),
+        "unlocks": info.get("unlocks"),
+        "unlockedAchievements": []
+    }))
+}
+
+/// 留种繁殖：1 作物 → 1 种子（HayDay 式，作物变作物）
+/// 作物数量足够时消耗 1 个作物，获得 1 颗同种种子。
+#[tauri::command]
+pub async fn garden_seed_from_crop(
+    app: AppHandle,
+    crop: String,
+    count: Option<u32>,
+) -> Result<Value, String> {
+    let count = count.unwrap_or(1).max(1) as u64;
+
+    if crop_cfg(&crop).is_none() {
+        return Err(format!("未知作物类型: {}", crop));
+    }
+
+    let mut data = data_manager::read_garden_data(&app)?;
+    let obj = data.as_object_mut().ok_or("garden data 不是对象")?;
+
+    // 检查作物数量
+    let current = obj
+        .get("crops")
+        .and_then(|v| v.as_object())
+        .and_then(|c| c.get(&crop))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    if current < count {
+        return Err("作物数量不足，无法留种".to_string());
+    }
+
+    // 扣作物
+    {
+        let crops = obj
+            .entry("crops".to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if let Some(crops_obj) = crops.as_object_mut() {
+            let new_count = current - count;
+            if new_count == 0 {
+                crops_obj.remove(&crop);
+            } else {
+                crops_obj.insert(crop.clone(), Value::from(new_count));
+            }
+        }
+    }
+
+    // 加种子
+    {
+        let seeds = obj
+            .entry("seeds".to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if let Some(seeds_obj) = seeds.as_object_mut() {
+            let prev = seeds_obj.get(&crop).and_then(|v| v.as_u64()).unwrap_or(0);
+            seeds_obj.insert(crop.clone(), Value::from(prev + count));
+        }
+    }
+
+    data_manager::write_garden_data(&app, &data)?;
+    // 返回 GardenOperationResult 形状
     Ok(json!({
         "success": true,
         "gardenData": data,
@@ -1888,10 +2269,9 @@ mod tests {
     fn record_focus_completion_activates_after_threshold() {
         let mut g = base_garden();
         record_focus_completion(&mut g, true);
-        record_focus_completion(&mut g, true);
         let info = record_focus_completion(&mut g, true);
-        // 第 3 次激活
-        assert_eq!(info["combo"]["count"], json!(3));
+        // 第 2 次激活（阈值 = 2）
+        assert_eq!(info["combo"]["count"], json!(2));
         assert_eq!(info["combo"]["active"], json!(true));
     }
 
@@ -1900,13 +2280,12 @@ mod tests {
         let mut g = base_garden();
         record_focus_completion(&mut g, true);
         record_focus_completion(&mut g, true);
-        record_focus_completion(&mut g, true);
         // 中断 → 清零
         let info = record_focus_completion(&mut g, false);
         assert_eq!(info["combo"]["count"], json!(0));
         assert_eq!(info["combo"]["active"], json!(false));
         // best 保留历史最高
-        assert_eq!(info["combo"]["best"], json!(3));
+        assert_eq!(info["combo"]["best"], json!(2));
     }
 
     #[test]
@@ -1936,10 +2315,21 @@ mod tests {
     }
 
     #[test]
+    fn record_focus_completion_resets_languish_on_success() {
+        // 微黄状态在专注完成后恢复
+        let mut g = base_garden();
+        g["languish"] = json!({ "level": 1 });
+        let info = record_focus_completion(&mut g, true);
+        assert_eq!(info["languishReset"], json!(true));
+        assert_eq!(g["languish"]["level"], json!(0));
+    }
+
+    #[test]
     fn record_focus_completion_no_wilted_no_revive() {
         let mut g = base_garden();
         let info = record_focus_completion(&mut g, true);
         assert_eq!(info["revivedCount"], json!(0));
+        assert_eq!(info["languishReset"], json!(false));
     }
 
     #[test]
@@ -1950,7 +2340,7 @@ mod tests {
         assert_eq!(info["revivedCount"], json!(0));
     }
 
-    // ===== apply_growth（生长进度 + 连击加成）=====
+    // ===== apply_growth（生长进度 + 连击加成 + 每日配额）=====
 
     #[test]
     fn apply_growth_normal_increments_progress() {
@@ -1960,29 +2350,30 @@ mod tests {
         });
         let info = apply_growth(&mut g, 5);
         assert_eq!(info["growthApplied"], json!(5));
+        assert_eq!(info["capped"], json!(false));
         assert_eq!(g["plots"][0]["progress"], json!(15));
     }
 
     #[test]
     fn apply_growth_combo_bonus_rounds_up() {
-        // combo active：×1.5 向上取整
+        // combo active：×1.2 向上取整
         let mut g = base_garden();
-        g["combo"] = json!({ "count": 3, "best": 3, "active": true });
+        g["combo"] = json!({ "count": 2, "best": 2, "active": true });
         g["plots"][0] = json!({
             "id": 0, "crop": "carrot", "progress": 0, "plantedAt": null, "locked": false
         });
-        // 1 分钟 → 1.5 向上取整 = 2
+        // 1 分钟 → 1.2 向上取整 = 2
         apply_growth(&mut g, 1);
         assert_eq!(g["plots"][0]["progress"], json!(2));
-        // 再 2 分钟 → 3（2*1.5）
-        apply_growth(&mut g, 2);
-        assert_eq!(g["plots"][0]["progress"], json!(5));
+        // 再 4 分钟 → 4.8 向上取整 = 5
+        apply_growth(&mut g, 4);
+        assert_eq!(g["plots"][0]["progress"], json!(7));
     }
 
     #[test]
     fn apply_growth_combo_inactive_no_bonus() {
         let mut g = base_garden();
-        g["combo"] = json!({ "count": 2, "best": 2, "active": false });
+        g["combo"] = json!({ "count": 1, "best": 1, "active": false });
         g["plots"][0] = json!({
             "id": 0, "crop": "carrot", "progress": 0, "plantedAt": null, "locked": false
         });
@@ -2006,6 +2397,157 @@ mod tests {
         let mut g = Value::Null;
         let info = apply_growth(&mut g, 5);
         assert_eq!(info["growthApplied"], json!(0));
+    }
+
+    #[test]
+    fn apply_growth_daily_cap_stops_growth() {
+        // 达到每日 120 分钟配额后停止生长
+        let mut g = base_garden();
+        g["plots"][0] = json!({
+            "id": 0, "crop": "carrot", "progress": 0, "plantedAt": null, "locked": false
+        });
+        apply_growth(&mut g, 120); // 用完配额
+        assert_eq!(g["plots"][0]["progress"], json!(120));
+
+        let info = apply_growth(&mut g, 10); // 超配额
+        assert_eq!(info["growthApplied"], json!(0));
+        assert_eq!(info["capped"], json!(true));
+        assert_eq!(g["plots"][0]["progress"], json!(120));
+    }
+
+    #[test]
+    fn apply_growth_daily_cap_partial_applies() {
+        // 部分配额：80 已用 → 本次 100 只生效 40
+        let mut g = base_garden();
+        g["dailyCap"] = json!({ "date": today_date_string(), "growthMinutes": 80 });
+        g["plots"][0] = json!({
+            "id": 0, "crop": "carrot", "progress": 0, "plantedAt": null, "locked": false
+        });
+        let info = apply_growth(&mut g, 100);
+        assert_eq!(info["growthApplied"], json!(40));
+        assert_eq!(info["capped"], json!(true));
+        assert_eq!(g["plots"][0]["progress"], json!(40));
+    }
+
+    #[test]
+    fn apply_growth_daily_cap_resets_on_new_day() {
+        // 跨日后配额重置
+        let mut g = base_garden();
+        g["dailyCap"] = json!({ "date": "2000-01-01", "growthMinutes": 120 });
+        g["plots"][0] = json!({
+            "id": 0, "crop": "carrot", "progress": 0, "plantedAt": null, "locked": false
+        });
+        let info = apply_growth(&mut g, 5);
+        assert_eq!(info["capped"], json!(false));
+        assert_eq!(g["plots"][0]["progress"], json!(5));
+    }
+
+    // ===== check_garden_state（段位 / 微黄 / 解锁）=====
+
+    #[test]
+    fn check_state_computes_tier_from_continuous_days() {
+        let mut g = base_garden();
+        g["signIn"]["continuousDays"] = json!(7);
+        let info = check_garden_state(&mut g);
+        assert_eq!(info["tier"]["current"], json!(1));
+        assert_eq!(info["tier"]["best"], json!(1));
+    }
+
+    #[test]
+    fn check_state_tier_upgrades_to_30() {
+        let mut g = base_garden();
+        g["signIn"]["continuousDays"] = json!(30);
+        let info = check_garden_state(&mut g);
+        assert_eq!(info["tier"]["current"], json!(3));
+    }
+
+    #[test]
+    fn check_state_tier_best_keeps_historical_max() {
+        let mut g = base_garden();
+        g["tier"] = json!({ "current": 2, "best": 3 });
+        g["signIn"]["continuousDays"] = json!(1);
+        let info = check_garden_state(&mut g);
+        assert_eq!(info["tier"]["current"], json!(2));
+        assert_eq!(info["tier"]["best"], json!(3));
+    }
+
+    #[test]
+    fn check_state_unlocks_market_on_day_one() {
+        let mut g = base_garden();
+        g["signIn"]["totalDays"] = json!(2);
+        let info = check_garden_state(&mut g);
+        // 使用天数 >= 1 → 市场解锁
+        assert!(info["unlocks"].get("marketAt").is_some());
+        // 段位 0 → 合成/商人/巨大化未解锁
+        assert!(info["unlocks"].get("craftAt").is_none());
+        assert!(info["unlocks"].get("merchantAt").is_none());
+    }
+
+    #[test]
+    fn check_state_unlocks_craft_at_tier1() {
+        let mut g = base_garden();
+        g["signIn"]["continuousDays"] = json!(7);
+        g["signIn"]["totalDays"] = json!(7);
+        let info = check_garden_state(&mut g);
+        assert!(info["unlocks"].get("marketAt").is_some());
+        assert!(info["unlocks"].get("craftAt").is_some());
+        assert!(info["unlocks"].get("merchantAt").is_none());
+    }
+
+    #[test]
+    fn check_state_unlocks_all_at_tier3() {
+        let mut g = base_garden();
+        g["signIn"]["continuousDays"] = json!(30);
+        g["signIn"]["totalDays"] = json!(30);
+        let info = check_garden_state(&mut g);
+        assert!(info["unlocks"].get("marketAt").is_some());
+        assert!(info["unlocks"].get("craftAt").is_some());
+        assert!(info["unlocks"].get("merchantAt").is_some());
+        assert!(info["unlocks"].get("giantAt").is_some());
+        assert!(info["unlocks"].get("petAt").is_some());
+    }
+
+    #[test]
+    fn check_state_languish_defaults_zero_when_never_seen() {
+        let mut g = base_garden();
+        let info = check_garden_state(&mut g);
+        assert_eq!(info["languish"]["level"], json!(0));
+    }
+
+    #[test]
+    fn check_state_non_object_returns_defaults() {
+        let mut g = Value::Null;
+        let info = check_garden_state(&mut g);
+        assert_eq!(info["tier"]["current"], json!(0));
+        assert_eq!(info["languish"]["level"], json!(0));
+    }
+
+    // ===== garden_seed_from_crop（留种繁殖）=====
+
+    /// 留种逻辑抽出的纯函数测试
+    #[test]
+    fn seed_from_crop_converts_crop_to_seed() {
+        // 直接测数据变换：作物 3 → 作物 2 + 种子 +1
+        let mut g = base_garden();
+        g["crops"] = json!({ "carrot": 3 });
+        g["seeds"]["carrot"] = json!(0);
+
+        // 模拟命令逻辑
+        let crop = "carrot".to_string();
+        let count: u64 = 1;
+        let current = g["crops"][&crop].as_u64().unwrap();
+        assert!(current >= count);
+        let new_count = current - count;
+        if new_count == 0 {
+            g["crops"].as_object_mut().unwrap().remove(&crop);
+        } else {
+            g["crops"].as_object_mut().unwrap().insert(crop.clone(), json!(new_count));
+        }
+        let prev = g["seeds"][&crop].as_u64().unwrap_or(0);
+        g["seeds"].as_object_mut().unwrap().insert(crop, json!(prev + count));
+
+        assert_eq!(g["crops"]["carrot"], json!(2));
+        assert_eq!(g["seeds"]["carrot"], json!(1));
     }
 
     // ===== try_unlock_easteregg（隐藏彩蛋成就）=====

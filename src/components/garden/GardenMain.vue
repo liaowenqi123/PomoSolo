@@ -6,7 +6,7 @@
  * 协调土地格子、商店、背包、签到、成就墙、种植轮盘子组件。
  * 所有数据操作通过 useGardenStore 调用后端。
  */
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed } from "vue";
 import { useGardenStore } from "@/stores/garden";
 import { hideGardenWindow } from "@/api/window";
 import GardenPlot from "./GardenPlot.vue";
@@ -32,6 +32,29 @@ const wheelPlotIndex = ref(-1);
 // ===== 生命周期 =====
 onMounted(async () => {
   await store.load();
+  // v3 隔离架构：打开窗口时检查段位/微黄/解锁状态
+  await store.checkState();
+});
+
+// ===== v3 状态条 getters =====
+/** 微黄提示文案 */
+const languishTip = computed(() => {
+  const level = store.languishLevel;
+  if (level === 2) return "🌱 菜园在休眠，完成一个番茄钟唤醒它";
+  if (level === 1) return "🌱 你的菜园有点蔫了，完成一个番茄钟就能恢复生机";
+  return "";
+});
+
+/** 段位名称 */
+const tierName = computed(() => {
+  const names = ["萌芽", "初绿", "繁茂", "丰收"];
+  return names[store.tierCurrent] ?? names[0];
+});
+
+/** 连击显示 */
+const comboText = computed(() => {
+  if (store.comboCount === 0) return "";
+  return store.comboActive ? `🔥连击×${store.comboCount}(加速)` : `🔥连击×${store.comboCount}`;
 });
 
 // ===== 事件处理 =====
@@ -94,6 +117,9 @@ function handleClose() {
     <div class="garden-header">
       <div class="garden-header__coins">
         💰 <span class="garden-header__coin-count">{{ store.coins }}</span>
+        <span v-if="store.tierCurrent > 0" class="garden-header__tier" :title="`段位 Lv${store.tierCurrent} ${tierName}`">
+          Lv{{ store.tierCurrent }} {{ tierName }}
+        </span>
       </div>
       <h2 class="garden-header__title">🌱 菜园子</h2>
       <div class="garden-header__actions">
@@ -112,6 +138,12 @@ function handleClose() {
           🏆
         </button>
       </div>
+    </div>
+
+    <!-- v3 状态条：连击 / 微黄 -->
+    <div v-if="comboText || languishTip" class="garden-statusbar" :class="{ wilted: store.languishLevel > 0 }">
+      <span v-if="comboText">{{ comboText }}</span>
+      <span v-if="languishTip" class="garden-statusbar__languish">{{ languishTip }}</span>
     </div>
 
     <GardenPlot
@@ -159,6 +191,38 @@ function handleClose() {
   position: relative;
   overflow: hidden;
   border-radius: 16px;
+}
+
+/* v3 状态条 */
+.garden-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 4px 10px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  margin: 2px 10px 0;
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.85);
+}
+.garden-statusbar.wilted {
+  background: rgba(255, 193, 7, 0.12);
+}
+.garden-statusbar__languish {
+  color: #ffd54f;
+}
+
+/* 段位徽章 */
+.garden-header__tier {
+  margin-left: 8px;
+  font-size: 10px;
+  color: #ffd54f;
+  background: rgba(255, 213, 79, 0.15);
+  border: 1px solid rgba(255, 213, 79, 0.3);
+  border-radius: 8px;
+  padding: 1px 6px;
 }
 
 /* 顶部拖动区 */

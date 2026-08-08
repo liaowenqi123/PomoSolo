@@ -11,10 +11,17 @@ const storeMocks = {
   seeds: { carrot: 5 },
   canSignInToday: true,
   load: vi.fn().mockResolvedValue(undefined),
+  checkState: vi.fn().mockResolvedValue(true),
   plant: vi.fn().mockResolvedValue(true),
   harvest: vi.fn().mockResolvedValue(true),
   unlockPlot: vi.fn().mockResolvedValue(true),
   signIn: vi.fn().mockResolvedValue(true),
+  // v3 状态条 getters
+  comboCount: 0,
+  comboActive: false,
+  languishLevel: 0,
+  tierCurrent: 0,
+  tierBest: 0,
 };
 
 vi.mock("@/stores/garden", () => ({
@@ -88,6 +95,8 @@ describe("GardenMain.vue", () => {
     storeMocks.canSignInToday = true;
     storeMocks.load.mockReset();
     storeMocks.load.mockResolvedValue(undefined);
+    storeMocks.checkState.mockReset();
+    storeMocks.checkState.mockResolvedValue(true);
     storeMocks.plant.mockReset();
     storeMocks.plant.mockResolvedValue(true);
     storeMocks.harvest.mockReset();
@@ -96,6 +105,11 @@ describe("GardenMain.vue", () => {
     storeMocks.unlockPlot.mockResolvedValue(true);
     storeMocks.signIn.mockReset();
     storeMocks.signIn.mockResolvedValue(true);
+    storeMocks.comboCount = 0;
+    storeMocks.comboActive = false;
+    storeMocks.languishLevel = 0;
+    storeMocks.tierCurrent = 0;
+    storeMocks.tierBest = 0;
   });
 
   const mountComponent = () => {

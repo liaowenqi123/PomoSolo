@@ -49,6 +49,12 @@ function isMature(plot: Plot): boolean {
 function handleClick(plot: Plot, index: number, event: MouseEvent) {
   if (plot.locked) return;
 
+  // 枯萎作物：提示需要专注救活
+  if (plot.wilted) {
+    store.tip = "🌱 作物枯萎了，完成一个番茄钟救活它";
+    return;
+  }
+
   // 有作物：成熟则收获，未成熟提示
   if (plot.crop) {
     if (isMature(plot)) {
@@ -92,9 +98,10 @@ function canUnlock(index: number): boolean {
       class="garden-plot"
       :class="{
         locked: plot.locked,
-        empty: !plot.locked && !plot.crop,
+        empty: !plot.locked && !plot.crop && !plot.wilted,
         'has-crop': !plot.locked && !!plot.crop,
-        mature: !plot.locked && !!plot.crop && isMature(plot),
+        wilted: !plot.locked && !!plot.wilted,
+        mature: !plot.locked && !!plot.crop && isMature(plot) && !plot.wilted,
         selected: props.selectedPlotIndex === index,
       }"
       @click="!plot.locked ? handleClick(plot, index, $event) : undefined"
@@ -126,6 +133,12 @@ function canUnlock(index: number): boolean {
             </button>
           </template>
         </div>
+      </template>
+
+      <!-- 枯萎作物（v3：可被专注救活） -->
+      <template v-else-if="plot.wilted">
+        <span class="plot-wilted-icon">🥀</span>
+        <span class="plot-wilted-text">专注救活</span>
       </template>
 
       <!-- 已种植作物 -->
@@ -218,6 +231,23 @@ function canUnlock(index: number): boolean {
   background: rgba(255, 193, 7, 0.25);
   border-color: rgba(255, 193, 7, 0.5);
   animation: matureGlow 1.6s ease-in-out infinite;
+}
+
+/* 枯萎作物视觉（v3） */
+.garden-plot.wilted {
+  background: rgba(101, 67, 33, 0.35);
+  border-color: rgba(139, 90, 43, 0.5);
+  cursor: pointer;
+}
+.garden-plot.wilted .plot-wilted-icon {
+  font-size: 30px;
+  filter: grayscale(0.4);
+  opacity: 0.8;
+  margin-bottom: 2px;
+}
+.garden-plot.wilted .plot-wilted-text {
+  font-size: 10px;
+  color: rgba(255, 213, 79, 0.85);
 }
 
 @keyframes matureGlow {

@@ -12,6 +12,10 @@ const apiMocks = {
   gardenSignin: vi.fn(),
   gardenUpdateFocus: vi.fn(),
   gardenPunishment: vi.fn(),
+  gardenGrow: vi.fn(),
+  gardenRecordFocus: vi.fn(),
+  gardenCheckState: vi.fn(),
+  gardenSeedFromCrop: vi.fn(),
 };
 
 vi.mock("../../api/garden", () => ({
@@ -24,6 +28,10 @@ vi.mock("../../api/garden", () => ({
   gardenSignin: (...args: unknown[]) => apiMocks.gardenSignin(...args),
   gardenUpdateFocus: (...args: unknown[]) => apiMocks.gardenUpdateFocus(...args),
   gardenPunishment: (...args: unknown[]) => apiMocks.gardenPunishment(...args),
+  gardenGrow: (...args: unknown[]) => apiMocks.gardenGrow(...args),
+  gardenRecordFocus: (...args: unknown[]) => apiMocks.gardenRecordFocus(...args),
+  gardenCheckState: (...args: unknown[]) => apiMocks.gardenCheckState(...args),
+  gardenSeedFromCrop: (...args: unknown[]) => apiMocks.gardenSeedFromCrop(...args),
 }));
 
 import {
@@ -573,5 +581,118 @@ describe("useGardenStore", () => {
     for (let i = 6; i <= 11; i++) {
       expect(DEFAULT_GARDEN.plots[i].locked).toBe(true);
     }
+  });
+
+  // ===== v3 初始状态 =====
+  it("v3 初始状态：combo/languish/tier 默认值", () => {
+    const store = useGardenStore();
+    expect(store.comboCount).toBe(0);
+    expect(store.comboActive).toBe(false);
+    expect(store.languishLevel).toBe(0);
+    expect(store.tierCurrent).toBe(0);
+    expect(store.tierBest).toBe(0);
+    expect(store.isUnlocked("market")).toBe(false);
+  });
+
+  it("isUnlocked 按 unlocks 字段判断", () => {
+    const store = useGardenStore();
+    setData(store, {
+      unlocks: { marketAt: "2026-08-08T00:00:00Z" },
+    });
+    expect(store.isUnlocked("market")).toBe(true);
+    expect(store.isUnlocked("craft")).toBe(false);
+  });
+
+  // ===== recordFocus =====
+  it("recordFocus(true) 调用 gardenRecordFocus(true) 并应用结果", async () => {
+    const newGarden = {
+      ...DEFAULT_GARDEN,
+      combo: { count: 2, best: 2, active: true },
+    };
+    apiMocks.gardenRecordFocus = vi.fn().mockResolvedValue({
+      success: true,
+      gardenData: newGarden,
+    });
+
+    const store = useGardenStore();
+    const ok = await store.recordFocus(true);
+
+    expect(apiMocks.gardenRecordFocus).toHaveBeenCalledWith(true);
+    expect(ok).toBe(true);
+    expect(store.comboCount).toBe(2);
+    expect(store.comboActive).toBe(true);
+  });
+
+  it("recordFocus(false) 调用 gardenRecordFocus(false)，失败时返回 false", async () => {
+    apiMocks.gardenRecordFocus = vi.fn().mockResolvedValue({ success: false });
+
+    const store = useGardenStore();
+    const ok = await store.recordFocus(false);
+
+    expect(apiMocks.gardenRecordFocus).toHaveBeenCalledWith(false);
+    expect(ok).toBe(false);
+  });
+
+  it("recordFocus 异常时设置 lastError 并返回 false", async () => {
+    apiMocks.gardenRecordFocus = vi.fn().mockRejectedValue(new Error("focus err"));
+
+    const store = useGardenStore();
+    const ok = await store.recordFocus(true);
+
+    expect(ok).toBe(false);
+    expect(store.lastError).toBe("focus err");
+  });
+
+  // ===== checkState =====
+  it("checkState 调用 gardenCheckState 并应用 tier/languish/unlocks", async () => {
+    const newGarden = {
+      ...DEFAULT_GARDEN,
+      tier: { current: 1, best: 1 },
+      languish: { level: 0 },
+      unlocks: { marketAt: "x", craftAt: "x" },
+    };
+    apiMocks.gardenCheckState = vi.fn().mockResolvedValue({
+      success: true,
+      gardenData: newGarden,
+    });
+
+    const store = useGardenStore();
+    const ok = await store.checkState();
+
+    expect(ok).toBe(true);
+    expect(store.tierCurrent).toBe(1);
+    expect(store.tierBest).toBe(1);
+    expect(store.isUnlocked("market")).toBe(true);
+    expect(store.isUnlocked("craft")).toBe(true);
+  });
+
+  it("checkState 失败时返回 false", async () => {
+    apiMocks.gardenCheckState = vi.fn().mockRejectedValue(new Error("state err"));
+
+    const store = useGardenStore();
+    const ok = await store.checkState();
+
+    expect(ok).toBe(false);
+  });
+
+  // ===== seedFromCrop =====
+  it("seedFromCrop 调用 gardenSeedFromCrop(crop, count)", async () => {
+    apiMocks.gardenSeedFromCrop = vi.fn().mockResolvedValue({ success: true });
+
+    const store = useGardenStore();
+    const ok = await store.seedFromCrop("carrot", 2);
+
+    expect(apiMocks.gardenSeedFromCrop).toHaveBeenCalledWith("carrot", 2);
+    expect(ok).toBe(true);
+  });
+
+  it("seedFromCrop 异常时返回 false", async () => {
+    apiMocks.gardenSeedFromCrop = vi.fn().mockRejectedValue(new Error("seed err"));
+
+    const store = useGardenStore();
+    const ok = await store.seedFromCrop("carrot");
+
+    expect(ok).toBe(false);
+    expect(store.lastError).toBe("seed err");
   });
 });

@@ -288,7 +288,7 @@ describe("App.vue", () => {
       const wrapper = await mountApp();
       const timer = useTimerStore();
       const garden = useGardenStore();
-      const growSpy = vi.spyOn(garden, "grow").mockResolvedValue();
+      const growSpy = vi.spyOn(garden, "grow").mockResolvedValue(true);
       timer.start();
       await toggleFocusMode(wrapper, true);
       await vi.advanceTimersByTimeAsync(60000);
@@ -310,7 +310,7 @@ describe("App.vue", () => {
       const wrapper = await mountApp();
       const timer = useTimerStore();
       const garden = useGardenStore();
-      const growSpy = vi.spyOn(garden, "grow").mockResolvedValue();
+      const growSpy = vi.spyOn(garden, "grow").mockResolvedValue(true);
       timer.start();
       // 未开启专注模式
       await vi.advanceTimersByTimeAsync(120000);

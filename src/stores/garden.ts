@@ -20,6 +20,9 @@ import {
   gardenUpdateFocus,
   gardenPunishment,
   gardenGrow,
+  gardenRecordFocus,
+  gardenCheckState,
+  gardenSeedFromCrop,
   type GardenData,
   type GardenOperationResult,
   type PunishmentResult,
@@ -178,6 +181,10 @@ export interface Plot {
   progress: number;
   plantedAt: string | null;
   locked?: boolean;
+  /** 枯萎状态（v1 违规惩罚，专注完成可救活） */
+  wilted?: boolean;
+  /** 闪光变异（v3 彩蛋） */
+  mutated?: boolean;
 }
 
 /** 签到状态 */
@@ -213,6 +220,35 @@ export interface GardenState {
   signIn: SignInState;
   achievements: AchievementMap;
   achievementStats: AchievementStats;
+  combo?: ComboState;
+  languish?: LanguishState;
+  tier?: TierState;
+  dailyCap?: DailyCap;
+  unlocks?: Record<string, string>;
+}
+
+/** 专注连击状态（v3） */
+export interface ComboState {
+  count: number;
+  best: number;
+  active: boolean;
+}
+
+/** 微黄/休眠状态（v3） */
+export interface LanguishState {
+  level: 0 | 1 | 2;
+}
+
+/** 段位状态（v3） */
+export interface TierState {
+  current: number;
+  best: number;
+}
+
+/** 每日生长配额（v3） */
+export interface DailyCap {
+  date: string;
+  growthMinutes: number;
 }
 
 /** 默认菜园子数据（参考 utils.js createDefaultData().garden） */
@@ -242,6 +278,11 @@ export const DEFAULT_GARDEN: GardenState = {
     totalCoinsEarned: 0,
     cropTypesCollected: [],
   },
+  combo: { count: 0, best: 0, active: false },
+  languish: { level: 0 },
+  tier: { current: 0, best: 0 },
+  dailyCap: { date: "", growthMinutes: 0 },
+  unlocks: {},
 };
 
 /**
@@ -322,6 +363,32 @@ function toGardenState(raw: GardenData): GardenState {
             ...((g.achievementStats as Partial<AchievementStats>) ?? {}),
           }
         : { ...DEFAULT_GARDEN.achievementStats },
+    combo: g.combo && typeof g.combo === "object"
+      ? {
+          count: (g.combo as ComboState).count ?? 0,
+          best: (g.combo as ComboState).best ?? 0,
+          active: (g.combo as ComboState).active ?? false,
+        }
+      : { ...DEFAULT_GARDEN.combo! },
+    languish: g.languish && typeof g.languish === "object"
+      ? { level: ((g.languish as LanguishState).level ?? 0) as 0 | 1 | 2 }
+      : { ...DEFAULT_GARDEN.languish! },
+    tier: g.tier && typeof g.tier === "object"
+      ? {
+          current: (g.tier as TierState).current ?? 0,
+          best: (g.tier as TierState).best ?? 0,
+        }
+      : { ...DEFAULT_GARDEN.tier! },
+    dailyCap: g.dailyCap && typeof g.dailyCap === "object"
+      ? {
+          date: (g.dailyCap as DailyCap).date ?? "",
+          growthMinutes: (g.dailyCap as DailyCap).growthMinutes ?? 0,
+        }
+      : { ...DEFAULT_GARDEN.dailyCap! },
+    unlocks:
+      g.unlocks && typeof g.unlocks === "object"
+        ? (g.unlocks as Record<string, string>)
+        : {},
   };
 }
 
@@ -345,6 +412,27 @@ export const useGardenStore = defineStore("garden", () => {
   const signInState = computed(() => data.value.signIn);
   const achievements = computed(() => data.value.achievements);
   const achievementStats = computed(() => data.value.achievementStats);
+
+  // ===== v3 新增 Getters（连击/微黄/段位/解锁）=====
+  const combo = computed(() => data.value.combo ?? DEFAULT_GARDEN.combo!);
+  const comboCount = computed(() => combo.value.count);
+  const comboActive = computed(() => combo.value.active);
+  const languishLevel = computed(() => data.value.languish?.level ?? 0);
+  const tierCurrent = computed(() => data.value.tier?.current ?? 0);
+  const tierBest = computed(() => data.value.tier?.best ?? 0);
+  const unlocks = computed(() => data.value.unlocks ?? {});
+
+  /** 系统是否已解锁（渐进引入） */
+  function isUnlocked(key: "market" | "craft" | "merchant" | "giant" | "pet"): boolean {
+    const map: Record<string, string> = {
+      market: "marketAt",
+      craft: "craftAt",
+      merchant: "merchantAt",
+      giant: "giantAt",
+      pet: "petAt",
+    };
+    return !!unlocks.value[map[key]];
+  }
 
   /** 已解锁成就数量 */
   const unlockedAchievementCount = computed(() => {
@@ -473,17 +561,58 @@ export const useGardenStore = defineStore("garden", () => {
     }
   }
 
-  /** 作物成长（计时器每分钟调用一次，让所有种植中的作物 progress += minutes） */
-  async function grow(minutes: number): Promise<void> {
+  /** 作物成长（计时器 tick 时调用，让所有种植中的作物 progress += minutes）
+   *  v3 隔离架构：前端只在专注进行中调用，告诉菜园子"涨了几分钟"。 */
+  async function grow(minutes: number): Promise<boolean> {
     try {
       const result = await gardenGrow(minutes);
       if (result.success) {
         applyResult(result);
+        return true;
       }
+      return false;
     } catch (e) {
       // 静默失败，不打断计时器
       console.warn("[garden] grow failed:", e);
+      return false;
     }
+  }
+
+  /** 记录专注会话结果（v3 隔离架构核心信号）
+   *  completed=true：完成（连击+1、救活枯萎、恢复微黄）
+   *  completed=false：断了（关闭/手动/违规统一信号，连击清零） */
+  async function recordFocus(completed: boolean): Promise<boolean> {
+    try {
+      const result = await gardenRecordFocus(completed);
+      if (result.success) {
+        applyResult(result);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      lastError.value = e instanceof Error ? e.message : String(e);
+      return false;
+    }
+  }
+
+  /** 检查并同步菜园状态（打开菜园窗口时调用：段位/微黄/解锁） */
+  async function checkState(): Promise<boolean> {
+    try {
+      const result = await gardenCheckState();
+      if (result.success && result.gardenData) {
+        applyResult(result);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      lastError.value = e instanceof Error ? e.message : String(e);
+      return false;
+    }
+  }
+
+  /** 留种繁殖：1 作物 → 1 种子（HayDay 式） */
+  function seedFromCrop(cropId: string, count?: number): Promise<boolean> {
+    return runGardenOp(() => gardenSeedFromCrop(cropId, count));
   }
 
   /** 选中种子（传统模式） */
@@ -543,6 +672,14 @@ export const useGardenStore = defineStore("garden", () => {
     unlockedAchievementCount,
     totalAchievementCount,
     canSignInToday,
+    combo,
+    comboCount,
+    comboActive,
+    languishLevel,
+    tierCurrent,
+    tierBest,
+    unlocks,
+    isUnlocked,
     load,
     plant,
     harvest,
@@ -554,6 +691,9 @@ export const useGardenStore = defineStore("garden", () => {
     addFocus,
     punish,
     grow,
+    recordFocus,
+    checkState,
+    seedFromCrop,
     selectSeed,
     getAchievementProgress,
     getNextMilestone,
