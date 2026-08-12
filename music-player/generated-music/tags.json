@@ -1,0 +1,114 @@
+{
+  "_customTags": {
+    "relax 放松": "#7ec8ff",
+    "study 学习": "#64b4ff",
+    "workout 运动": "#ff9664",
+    "reading 阅读": "#b4a0ff",
+    "focus 专注": "#ffb84d",
+    "night 深夜": "#6e7bff",
+    "coding 编程": "#4dd0a8",
+    "sleep 睡眠": "#9db8ff",
+    "cafe 咖啡": "#c8906e",
+    "creativity 创作": "#ff8ac2"
+  },
+  "云上漂流 Cloud Drift.mp3": {
+    "name": "relax 放松",
+    "color": "#7ec8ff"
+  },
+  "午后暖阳 Afternoon Sunbeam.mp3": {
+    "name": "relax 放松",
+    "color": "#7ec8ff"
+  },
+  "清风拂面 Gentle Breeze.mp3": {
+    "name": "relax 放松",
+    "color": "#7ec8ff"
+  },
+  "笔尖沙沙 Pen Scratch.mp3": {
+    "name": "study 学习",
+    "color": "#64b4ff"
+  },
+  "知识星河 Galaxy of Knowledge.mp3": {
+    "name": "study 学习",
+    "color": "#64b4ff"
+  },
+  "图书馆时光 Library Hours.mp3": {
+    "name": "study 学习",
+    "color": "#64b4ff"
+  },
+  "热血跑道 Racing Track.mp3": {
+    "name": "workout 运动",
+    "color": "#ff9664"
+  },
+  "力量觉醒 Power Awakening.mp3": {
+    "name": "workout 运动",
+    "color": "#ff9664"
+  },
+  "心跳加速 Accelerated Heartbeat.mp3": {
+    "name": "workout 运动",
+    "color": "#ff9664"
+  },
+  "书页之间 Between the Pages.mp3": {
+    "name": "reading 阅读",
+    "color": "#b4a0ff"
+  },
+  "静谧书房 Quiet Study Nook.mp3": {
+    "name": "reading 阅读",
+    "color": "#b4a0ff"
+  },
+  "深度专注 Deep Focus.mp3": {
+    "name": "focus 专注",
+    "color": "#ffb84d"
+  },
+  "心流时刻 Flow State.mp3": {
+    "name": "focus 专注",
+    "color": "#ffb84d"
+  },
+  "时间之沙 Sand of Time.mp3": {
+    "name": "focus 专注",
+    "color": "#ffb84d"
+  },
+  "午夜霓虹 Midnight Neon.mp3": {
+    "name": "night 深夜",
+    "color": "#6e7bff"
+  },
+  "星光低语 Starry Whisper.mp3": {
+    "name": "night 深夜",
+    "color": "#6e7bff"
+  },
+  "代码之光 Code Glow.mp3": {
+    "name": "coding 编程",
+    "color": "#4dd0a8"
+  },
+  "逻辑迷宫 Logic Labyrinth.mp3": {
+    "name": "coding 编程",
+    "color": "#4dd0a8"
+  },
+  "键盘交响乐 Keyboard Symphony.mp3": {
+    "name": "coding 编程",
+    "color": "#4dd0a8"
+  },
+  "月光摇篮 Moonlight Cradle.mp3": {
+    "name": "sleep 睡眠",
+    "color": "#9db8ff"
+  },
+  "深海入眠 Deep Sea Slumber.mp3": {
+    "name": "sleep 睡眠",
+    "color": "#9db8ff"
+  },
+  "咖啡时光 Coffee Time.mp3": {
+    "name": "cafe 咖啡",
+    "color": "#c8906e"
+  },
+  "烘焙香气 Roasted Aroma.mp3": {
+    "name": "cafe 咖啡",
+    "color": "#c8906e"
+  },
+  "灵感火花 Spark of Inspiration.mp3": {
+    "name": "creativity 创作",
+    "color": "#ff8ac2"
+  },
+  "笔绘星河 Painting the Galaxy.mp3": {
+    "name": "creativity 创作",
+    "color": "#ff8ac2"
+  }
+}
