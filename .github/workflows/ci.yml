@@ -168,7 +168,10 @@ jobs:
           $latestPath = Join-Path $env:RUNNER_TEMP "latest.json"
           [System.IO.File]::WriteAllText($keyPath, $env:SERVER_SSH_KEY, $utf8NoBom)
           [System.IO.File]::WriteAllText($latestPath, $json, $utf8NoBom)
+          # Windows OpenSSH 要求私钥不能被其他用户读取：去除继承权限，仅授权当前用户
+          icacls "$keyPath" /inheritance:r /grant:r "$($env:USERNAME):F" > $null
           scp -i "$keyPath" -o StrictHostKeyChecking=accept-new -o BatchMode=yes "$exe" "$sig" "$latestPath" "${env:SERVER_USER}@${env:SERVER_HOST}:/home/ubuntu/frontend/updates/"
+          if ($LASTEXITCODE -ne 0) { throw "scp 上传失败，退出码 $LASTEXITCODE" }
           Write-Host "Uploaded $basename + .sig + latest.json to server"
 
   release:
