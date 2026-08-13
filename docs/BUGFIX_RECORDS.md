@@ -6,6 +6,15 @@
 
 ## 2026-08-13
 
+### 19. 服务器域名迁移到 api.pomogrow.top + CI 双推安装包（v4.7.11）
+
+**背景**：原服务器用 IP（`http://115.159.49.112`）+ HTTP；域名 `pomogrow.top` 备案通过后，统一迁移到 `https://api.pomogrow.top`（HTTPS），并让 CI 构建完成后同时上传安装包到 GitHub 和服务器（服务器↔GitHub 线路慢/不通，只能从本地 runner 双推）。
+
+**实现**：
+1. 客户端：`SERVER_URL` → `https://api.pomogrow.top`，更新源 `latest.json` / `latest-beta.json` / `notice.json` 全切到 `api.pomogrow.top`，WS 走 `wss://api.pomogrow.top/ws`；
+2. CI（`.github/workflows/ci.yml`）：打 tag 时从本地 runner 生成服务器版 `latest.json`（url 指向 `api.pomogrow.top`）并 scp 安装包 + 签名 + `latest.json` 到服务器 `/home/ubuntu/frontend/updates/`（新增 `SERVER_HOST` / `SERVER_USER` / `SERVER_SSH_KEY` secrets）；
+3. 证书：certbot 签发覆盖 `pomogrow.top` + `api.pomogrow.top` 的证书，deploy hook 自动续期复制 + 重启容器（停用原 1Panel DNS 续期 + `sync-le-cert.sh`，避免旧证书覆盖）。
+
 ### 18. 新增「一键预处理全部歌曲」统一旧歌响度（v4.7.10）
 
 **背景**：v4.7.10 起下载时才对音乐做响度归一化，旧版本已下载的 mp3/m4a 响度仍不一致。

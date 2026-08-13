@@ -420,7 +420,7 @@ PomoSolo 支持两种 API 模式：
 ### 7.5 网络层
 
 - 已从 Supabase 迁移至自建服务器：access token（JWT，15 分钟）+ refresh token（30 天滚动），过期自动续期；refresh token 存储于服务端 `sessions` 表，登出即失效
-- `SERVER_URL` 当前为 HTTP（`http://115.159.49.112`），JWT 通过 WS query 传递，建议域名备案后切换 HTTPS
+- `SERVER_URL` 已切换 HTTPS（`https://api.pomogrow.top`），JWT 通过 WS query 传递（`wss://api.pomogrow.top/ws`）
 - DeepSeek API 调用走 HTTPS，但无证书 pinning（标准 `reqwest` 默认信任系统证书）
 
 ### 7.6 进程层

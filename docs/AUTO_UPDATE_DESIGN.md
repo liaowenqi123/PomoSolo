@@ -3,15 +3,15 @@
 > **状态**：历史设计文档（Electron + Supabase 时代）。Tauri 版自动更新从 v4.5.15 起
 > 改为**客户端自实现更新器**（`src-tauri/src/commands/update.rs`），支持在设置中选择更新源：
 > - GitHub（默认）：`https://github.com/liaowenqi123/PomoSolo/releases/latest/download/latest.json`，下载快但国内可能不稳定
-> - 服务器：`http://115.159.49.112/updates/latest.json`，稳定但仅 3Mbps 较慢
+> - 服务器：`https://api.pomogrow.top/updates/latest.json`，稳定但仅 3Mbps 较慢
 >
 > 流程：请求所选源 `latest.json`（version/url/signature）→ 版本比较 → 下载安装包（进度事件
 > `update-status: downloading`）→ 校验 Ed25519 签名（公钥来自 `tauri.conf.json` plugins.updater.pubkey）
 > → 启动安装器并退出应用。`tauri-plugin-updater` 的 endpoints 编译期固定无法运行时切换，故未复用其检查/安装路径。
 >
 > ⚠️ **插件 endpoints 必须只含 https（v4.5.16 闪退修复）**：`tauri-plugin-updater` 仍注册在 `lib.rs` 但完全不参与
-> 检查/下载/安装。它的 `plugins.updater.endpoints` 配置在**插件初始化时**校验，**非 https 端点（如 `http://115.159.49.112/...`）
-> 会直接 panic → 应用启动即闪退**（v4.5.15 曾踩坑，进程起来几秒消失 / WebView2 报 localhost 拒绝连接）。
+> 检查/下载/安装。它的 `plugins.updater.endpoints` 配置在**插件初始化时**校验，**非 https 端点会直接 panic → 应用启动即闪退**
+> （v4.5.15 曾用 `http://115.159.49.112/...` 踩坑，进程起来几秒消失 / WebView2 报 localhost 拒绝连接）。
 > 因此该配置只保留 https 占位地址（GitHub），两个真实更新源地址硬编码在 `update.rs` 中，运行时切换与插件配置无关。
 >
 > ⚠️ **latest.json 解析必须按 tauri 规范（v4.5.17 修复）**：`update.rs` 的 `LatestJson` 从 `platforms.windows-x86_64.{url,signature}`
@@ -39,7 +39,7 @@
 > v4.5.19 起 `fetch_latest_json(source, allow_beta)` 按渠道分流：
 > - GitHub Beta 渠道：调 GitHub API `releases?per_page=100`（含 prerelease），用 `is_newer` 语义找版本号
 >   最大的 release，取其 `latest.json` 资产下载地址（未认证限流 60 次/时/IP，检查频率低够用）；
-> - 服务器 Beta 渠道：独立文件 `http://115.159.49.112/updates/latest-beta.json`（正式/测试互不覆盖，已部署 4.6.0-beta.0）；
+> - 服务器 Beta 渠道：独立文件 `https://api.pomogrow.top/updates/latest-beta.json`（正式/测试互不覆盖，已部署 4.6.0-beta.0）；
 > - `download_and_install` 同步新增 `allow_beta` 参数（前端下载时透传，否则下载阶段会重新拉正式版 latest.json）。
 >
 > ⚠️ **签名验证修复（v4.5.20，最重要）**：自 v4.5.15 自实现更新器起，`verify_installer` 从未验证通过过任何真实安装包
@@ -55,7 +55,7 @@
 >
 > ⚠️ **服务器公告 / 官方指引（v4.5.21）**：为彻底解决"更新出错时用户不知道怎么做（曾逼用户删除重装）"的问题，
 > 新增公告机制：
-> - 服务器静态文件 `http://115.159.49.112/updates/notice.json`（**零服务器代码改动**），字段：
+> - 服务器静态文件 `https://api.pomogrow.top/updates/notice.json`（**零服务器代码改动**），字段：
 >   `active`（总开关）、`level`（warning/error/info）、`text`（指引文案）、`url`（指引链接）、
 >   `min_version`/`max_version`（生效版本范围，语义化比较，空=不限）；
 > - 前端**更新出错**（签名验证失败/下载失败等 `update-status: error`）时，经 Rust 命令

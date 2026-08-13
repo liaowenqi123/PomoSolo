@@ -482,26 +482,26 @@ docker run -d \
 
 ### 应用更新静态托管（v4.5.15 起）
 
-客户端自动更新源优先走服务器：`http://115.159.49.112/updates/latest.json`（80 端口，无需 HTTPS）。
+客户端自动更新源优先走服务器：`https://api.pomogrow.top/updates/latest.json`。
 
 - 目录：宿主机 `/home/ubuntu/frontend/updates/`（已 bind mount 到容器 `/app/updates`，ro 挂载不影响宿主机写）
 - 文件：`latest.json` + 安装包（`.exe`/`.sig`），由**客户端发版时从本机 scp 同步**（不经过 GitHub，下载更快）
 - 已放占位 `latest.json` 验证访问（本机 + 公网均 200），客户端首次 scp 后覆盖即可
-- latest.json 格式（Tauri updater 标准）：`{"version":"x.y.z","notes":"...","pub_date":"...","platforms":{"windows-x86_64":{"url":"http://115.159.49.112/updates/xxx.exe","signature":"..."}}}`
+- latest.json 格式（Tauri updater 标准）：`{"version":"x.y.z","notes":"...","pub_date":"...","platforms":{"windows-x86_64":{"url":"https://api.pomogrow.top/updates/xxx.exe","signature":"..."}}}`
 
 ### HTTPS（443 端口，2026-08-04 起）
 
 容器 `-p 443:443`，443 上提供 TLS。
 
-- **正式证书（Let's Encrypt，2026-08-04 配置）**：域名 `pomogrow.top`，`/home/ubuntu/frontend/certs/fullchain.pem` + `privkey.pem`（有效期 2026-08-04 ~ 2026-11-02，90 天需续期），`server.py` 优先加载 LE 命名、兼容自签命名（cert.pem/key.pem 为 fallback）
+- **正式证书（Let's Encrypt，certbot 管理）**：域名 `pomogrow.top` + `api.pomogrow.top`，`/home/ubuntu/frontend/certs/fullchain.pem` + `privkey.pem`（certbot 自动续期，deploy hook 复制 + 重启），`server.py` 优先加载 LE 命名、兼容自签命名（cert.pem/key.pem 为 fallback）
 - 同一 Handler：HTTPS 上静态文件 / API / WS 全部可用
 - **已实测（2026-08-04）**：
-  - 域名 HTTPS 严格校验：`curl https://pomogrow.top/updates/latest.json` → 200（DNS 已解析，证书链完整可信，零告警）
+  - 域名 HTTPS 严格校验：`curl https://api.pomogrow.top/updates/latest.json` → 200（DNS 已解析，证书链完整可信，零告警）
   - 公网 IP HTTPS：`curl -k https://115.159.49.112/` → 200（443 已放行；证书域名不匹配，浏览器/严格校验会告警，属正常）
   - TLS 握手防卡死：`SecureHTTPServer` 将 TLS 握手放入连接线程（10s 超时），避免半开连接阻塞 accept 主循环导致 443 整体超时
 - **待办**：
   - 域名 `pomogrow.top` **ICP 备案**：主备案号 **沪ICP备2026039658号** 已通过并上线（2026-08-06，页脚展示 + 链接 `https://beian.miit.gov.cn/`）；副备案号待批，通过后补充
-  - 证书自动续期：1Panel 已配置（DNS 自动 + 拨杆开启），续期结果推送到宿主根目录 `/`。**同步兜底**：`/home/ubuntu/sync-le-cert.sh`（root cron 每 6h）检测根目录证书变化 → 同步到 `/home/ubuntu/frontend/certs/` → 重启 `frontend-web` 重新加载证书，日志 `/var/log/pomosolo-cert-sync.log`
+  - 证书自动续期：**certbot**（HTTP-01 webroot）+ deploy hook（`/etc/letsencrypt/renewal-hooks/deploy/frontend-web.sh`，续期后自动复制到 `/home/ubuntu/frontend/certs/` 并重启 `frontend-web`）。原 1Panel DNS 续期 + `sync-le-cert.sh`（root cron）已停用，避免旧证书（仅 `pomogrow.top`）覆盖含 `api.pomogrow.top` 的新证书
 
 ---
 
@@ -732,21 +732,21 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 >
 > ⚠️ **v4.5.20 签名验证修复（2026-08-04，最重要的修复）**：自 v4.5.15 自实现更新器起签名验证从未通过过（现象：下载完报"安装包签名验证失败"）。根因是客户端 `verify_installer` 三重错误：公钥偏移取错（[3..35] 应为 [10..42] → 提取垃圾公钥）、签名格式（tauri 的 signature 是 base64(minisign 文本) 非裸 64 字节）、算法（tauri 是 Ed25519(blake2b-512(文件)) 预哈希非直签）。v4.5.20 已重写验证逻辑（+blake2 依赖），**latest.json 格式无需改动**。**服务器部门无需动作**；但**已装 4.5.15~4.5.19 的客户端需手动下载 v4.5.20 安装包覆盖安装一次**（错误公钥无法自动修复）。
 >
-> ⚠️ **v4.5.21 服务器公告 notice.json（2026-08-06）**：为让更新出错的老用户知道该怎么做（此前 4.5.15~4.5.19 因签名 bug 被迫删除重装，对用户打击极大），新增静态公告文件 `http://115.159.49.112/updates/notice.json`（**零服务器代码改动**）。客户端更新失败（`update-status: error`）时经 Rust 命令 `fetch_notice(version)` 拉取，按 `min_version`~`max_version` 语义化版本范围过滤（空=不限），展示官方指引 + 链接。字段：`{"active":true,"level":"warning","text":"...","url":"...","min_version":"4.5.15","max_version":"4.5.19"}`。**服务器部门已部署面向 4.5.15~4.5.19 用户的"请手动升级 v4.5.20 覆盖安装"指引**（url 指向服务器安装包）；后续发版如需向特定版本段用户广播，仅需更新此文件。
+> ⚠️ **v4.5.21 服务器公告 notice.json（2026-08-06）**：为让更新出错的老用户知道该怎么做（此前 4.5.15~4.5.19 因签名 bug 被迫删除重装，对用户打击极大），新增静态公告文件 `https://api.pomogrow.top/updates/notice.json`（**零服务器代码改动**）。客户端更新失败（`update-status: error`）时经 Rust 命令 `fetch_notice(version)` 拉取，按 `min_version`~`max_version` 语义化版本范围过滤（空=不限），展示官方指引 + 链接。字段：`{"active":true,"level":"warning","text":"...","url":"...","min_version":"4.5.15","max_version":"4.5.19"}`。**服务器部门已部署面向 4.5.15~4.5.19 用户的"请手动升级 v4.5.20 覆盖安装"指引**（url 指向服务器安装包）；后续发版如需向特定版本段用户广播，仅需更新此文件。
 
 **1. 静态目录 `/updates/`（本次需要服务器做的事）**
 
-- 在服务器上开放一个静态目录，使以下 URL 可访问（80 端口即可，无需 HTTPS——安装包下载有签名校验，防篡改由签名保证）：
-  - `http://115.159.49.112/updates/latest.json`
-  - `http://115.159.49.112/updates/PomoSolo_<version>_x64-setup.exe`
-  - `http://115.159.49.112/updates/PomoSolo_<version>_x64-setup.exe.sig`
+- 在服务器上开放一个静态目录，使以下 URL 可访问（443 HTTPS，证书覆盖 `api.pomogrow.top`；安装包下载有签名校验，防篡改由签名保证）：
+  - `https://api.pomogrow.top/updates/latest.json`
+  - `https://api.pomogrow.top/updates/PomoSolo_<version>_x64-setup.exe`
+  - `https://api.pomogrow.top/updates/PomoSolo_<version>_x64-setup.exe.sig`
 - 建议目录：`/home/ubuntu/frontend/updates/`（与 server.py 同目录，server.py 静态文件服务或 nginx 指过去都行）
 - 文件由**客户端部门每次发版时从本机同步**上去（scp 上传 exe + sig + latest.json），服务器不需要去 GitHub 拉取（就是慢才改走本机直传）
 
 **2. `latest.json` 格式**（与 GitHub Release 完全一致，仅 `url` 指向服务器本机）
 
 ```json
-{"version":"4.5.14","notes":"...","pub_date":"2026-08-02T14:26:57Z","platforms":{"windows-x86_64":{"url":"http://115.159.49.112/updates/PomoSolo_4.5.14_x64-setup.exe","signature":"<sig 内容>"}}}
+{"version":"4.5.14","notes":"...","pub_date":"2026-08-02T14:26:57Z","platforms":{"windows-x86_64":{"url":"https://api.pomogrow.top/updates/PomoSolo_4.5.14_x64-setup.exe","signature":"<sig 内容>"}}}
 ```
 
 - 注意：**文件必须无 BOM**（tauri serde_json 解析 BOM 会失败，此前 GitHub 上踩过坑）
@@ -1034,7 +1034,7 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 - `fetch_latest_json` 包一层 `fetch_latest_json_once`：GitHub 源拉取 latest.json 失败
   （检查阶段）→ 自动用服务器源重拉一次，不再直接报错让用户卡住。
 - ⚠️ **服务器部署要求**：服务器 `/updates/latest.json` 与 `latest-beta.json` 的
-  `url` 必须指向**服务器安装包**（如 `http://115.159.49.112/updates/PomoSolo_4.7.1_x64-setup.exe`），
+  `url` 必须指向**服务器安装包**（如 `https://api.pomogrow.top/updates/PomoSolo_4.7.1_x64-setup.exe`），
   否则"GitHub 检查失败 → 回退服务器检查 → 但下载仍指向 GitHub"会二次失败。
 - 服务器 `/updates/` 从 v4.7.1 起**存放安装包文件**（与 v4.7.0 仅元数据不同）。
   GitHub 正常时仍走 GitHub Releases 直链，仅失败时回退服务器。

@@ -2,7 +2,7 @@
 
 **一款功能丰富的番茄钟专注应用 —— Tauri v2 + Vue 3 + 纯 Rust 后端。**
 
-[![Release](https://img.shields.io/badge/Release-v4.7.10-ff6b6b)](https://github.com/liaowenqi123/PomoSolo/releases)
+[![Release](https://img.shields.io/badge/Release-v4.7.11-ff6b6b)](https://github.com/liaowenqi123/PomoSolo/releases)
 [![Tauri](https://img.shields.io/badge/Tauri-v2-blue)](https://tauri.app)
 [![Vue](https://img.shields.io/badge/Vue-3.5-42b883)](https://vuejs.org)
 [![Rust](https://img.shields.io/badge/Rust-2021-orange)](https://www.rust-lang.org)

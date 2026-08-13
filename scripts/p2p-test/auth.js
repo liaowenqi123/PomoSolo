@@ -4,7 +4,7 @@
  */
 import process from "node:process";
 
-const SERVER = process.env.P2P_SERVER ?? "http://115.159.49.112";
+const SERVER = process.env.P2P_SERVER ?? "https://api.pomogrow.top";
 
 async function api(path, body) {
   const res = await fetch(`${SERVER}${path}`, {

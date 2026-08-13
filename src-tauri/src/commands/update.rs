@@ -6,7 +6,7 @@
 //!
 //! ⚠️ 插件 endpoints 配置只保留 https 占位地址（GitHub）：
 //!   tauri-plugin-updater 仍注册但完全不参与检查/下载/安装；其 endpoints 在插件初始化时
-//!   校验，非 https 端点（如 http://115.159.49.112/...）会直接 panic 导致应用启动闪退
+//!   校验，非 https 端点（如旧 IP 的 http://115.159.49.112/...）会直接 panic 导致应用启动闪退
 //!   （v4.5.15 踩坑，v4.5.16 修复）。真实更新源地址见下方 UpdateSource::latest_json_url，
 //!   运行时切换与插件配置无关。
 //!

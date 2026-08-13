@@ -2,8 +2,8 @@
  * P2P 双端实测：经真实服务器 WS 信令牵线，WebRTC DataChannel 直连传文件并测速率。
  *
  * 用法（环境变量）：
- *   P2P_SERVER     http://115.159.49.112          （REST 认证用）
- *   P2P_WS         ws://115.159.49.112:3001        （WS 信令）
+ *   P2P_SERVER     https://api.pomogrow.top          （REST 认证用）
+ *   P2P_WS         wss://api.pomogrow.top             （WS 信令）
  *   P2P_USERNAME   测试用户名（自己）
  *   P2P_PASSWORD   密码
  *   P2P_ME_ID      自己的 user id
@@ -20,8 +20,8 @@ import { RTCPeerConnection, RTCIceCandidate } from "werift";
 import { ensureUser } from "./auth.js";
 import { Signaling } from "./signaling.js";
 
-const SERVER = process.env.P2P_SERVER ?? "http://115.159.49.112";
-const WS_BASE = process.env.P2P_WS ?? "ws://115.159.49.112";
+const SERVER = process.env.P2P_SERVER ?? "https://api.pomogrow.top";
+const WS_BASE = process.env.P2P_WS ?? "wss://api.pomogrow.top";
 const USERNAME = process.env.P2P_USERNAME ?? "";
 const PASSWORD = process.env.P2P_PASSWORD ?? "";
 const ME_ID = process.env.P2P_ME_ID ?? "";

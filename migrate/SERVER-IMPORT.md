@@ -149,7 +149,7 @@ JOIN id_map m ON m.old_id = r.creator_id;
 
 ```bash
 # 用老账号登录新服务器（密码不变）
-curl -X POST http://115.159.49.112/api/v1/auth/login \
+curl -X POST https://api.pomogrow.top/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username": "<老用户名>", "password": "<老密码>"}'
 
