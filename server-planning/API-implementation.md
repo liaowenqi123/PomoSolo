@@ -500,7 +500,7 @@ docker run -d \
   - 公网 IP HTTPS：`curl -k https://115.159.49.112/` → 200（443 已放行；证书域名不匹配，浏览器/严格校验会告警，属正常）
   - TLS 握手防卡死：`SecureHTTPServer` 将 TLS 握手放入连接线程（10s 超时），避免半开连接阻塞 accept 主循环导致 443 整体超时
 - **待办**：
-  - 域名 `pomogrow.top` **ICP 备案**（合规要求，不影响当前 DNS/HTTPS 实测）：备案通过后客户端更新源可正式切 `https://pomogrow.top/updates/latest.json`（已可访问，零告警真 HTTPS）
+  - 域名 `pomogrow.top` **ICP 备案**：主备案号 **沪ICP备2026039658号** 已通过并上线（2026-08-06，页脚展示 + 链接 `https://beian.miit.gov.cn/`）；副备案号待批，通过后补充
   - 证书自动续期：1Panel 已配置（DNS 自动 + 拨杆开启），续期结果推送到宿主根目录 `/`。**同步兜底**：`/home/ubuntu/sync-le-cert.sh`（root cron 每 6h）检测根目录证书变化 → 同步到 `/home/ubuntu/frontend/certs/` → 重启 `frontend-web` 重新加载证书，日志 `/var/log/pomosolo-cert-sync.log`
 
 ---
