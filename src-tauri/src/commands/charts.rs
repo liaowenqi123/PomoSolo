@@ -9,8 +9,9 @@
 //! - get_download_status -> 下载队列状态
 
 use serde_json::{json, Value};
+use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::state::{ChartsState, MusicState};
 
@@ -344,6 +345,91 @@ pub async fn download_song(
             "status": "failed",
             "error": "序列化下载结果失败"
         })
+    }))
+}
+
+/// 一键预处理所有已下载歌曲：统一响度（RMS 归一化）
+///
+/// 兼容旧版本下载的、尚未做响度归一化的 mp3/m4a：
+/// 遍历 music 目录，逐首 decode → 响度归一化 → 重新编码为 mp3（192kbps）。
+/// 通过 `preprocess-progress` 事件向前端报告进度（current/total/name）。
+#[tauri::command]
+pub async fn preprocess_all_songs(app: AppHandle) -> Result<Value, String> {
+    let music_dir = get_music_dir(&app)?;
+
+    let mut files: Vec<PathBuf> = Vec::new();
+    if let Ok(entries) = fs::read_dir(&music_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            if ext == "mp3" || ext == "m4a" {
+                files.push(path);
+            }
+        }
+    }
+
+    let total = files.len();
+    let mut processed = 0usize;
+    let mut failed = 0usize;
+
+    for (i, file) in files.iter().enumerate() {
+        let name = file
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+        let _ = app.emit(
+            "preprocess-progress",
+            json!({ "current": i + 1, "total": total, "name": name }),
+        );
+
+        let target = file.with_extension("mp3");
+        // m4a 且已有同名 mp3 时跳过，避免覆盖
+        if target != *file && target.exists() {
+            eprintln!("[Preprocess] 跳过 {}：已存在同名 mp3", name);
+            continue;
+        }
+
+        let tmp = file.with_extension("preprocess.tmp");
+        match crate::modules::downloader::normalize_audio_to_mp3(file, &tmp) {
+            Ok(()) => {
+                if target != *file {
+                    let _ = fs::remove_file(file);
+                }
+                match fs::rename(&tmp, &target) {
+                    Ok(()) => processed += 1,
+                    Err(e) => {
+                        eprintln!("[Preprocess] 替换文件失败 {}: {}", name, e);
+                        let _ = fs::remove_file(&tmp);
+                        failed += 1;
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("[Preprocess] 预处理失败 {}: {}", name, e);
+                let _ = fs::remove_file(&tmp);
+                failed += 1;
+            }
+        }
+    }
+
+    let _ = app.emit(
+        "preprocess-progress",
+        json!({ "current": total, "total": total, "name": "", "done": true }),
+    );
+
+    Ok(json!({
+        "success": true,
+        "processed": processed,
+        "failed": failed,
+        "total": total
     }))
 }
 

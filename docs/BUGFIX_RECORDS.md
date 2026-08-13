@@ -4,6 +4,63 @@
 
 ---
 
+## 2026-08-13
+
+### 18. 新增「一键预处理全部歌曲」统一旧歌响度（v4.7.10）
+
+**背景**：v4.7.10 起下载时才对音乐做响度归一化，旧版本已下载的 mp3/m4a 响度仍不一致。
+
+**实现**（`src-tauri/src/commands/charts.rs` + `modules/downloader.rs` + `Charts.vue`）：
+1. 后端 `preprocess_all_songs` 命令：遍历 music 目录所有 mp3/m4a，逐首 decode → 响度归一化 → 重编码为 mp3（192kbps），并 emit `preprocess-progress`（current/total/name）进度事件；
+2. 复用 `normalize_audio_to_mp3`（原 `convert_m4a_to_mp3_builtin`，改为按扩展名探测，symphonia 增加 `mp3` 解码特性）；
+3. 前端 `Charts.vue` 工具栏新增「🎚 统一响度」按钮，点击后显示逐首进度（N/M + 曲名），完成后 toast 汇总成功/失败数。
+
+### 17. 下载页面「单首一直 loading」改为任务队列 + 虚假进度条（待发版）
+
+**实测场景（用户）**：下载歌曲时单首一直 loading，用户看不到进度、无法连续下载，体验差。
+
+**修复**（前端，`src/stores/downloadQueue.ts` + `DownloadDialog.vue` + `Charts.vue`）：
+1. 新增 Pinia 队列 store：多首可排队、串行下载，每首显示状态（排队/下载中/完成/失败）；
+2. 每首配一条「虚假进度条」——随时间约 +1%/秒前进、封顶 90%，任务真正完成才跳到 100%，把"正在处理"的情绪价值给到用户（不反映真实阶段，避免瞬时步骤一闪而过）；
+3. `DownloadDialog` 由「单首下载」改为「下载队列」弹窗，榜单下载与手动下载都进同一队列；关闭弹窗后下载仍在后台继续。
+
+### 16. 音乐响度不一致——下载时内置 RMS 归一化（纯 Rust，无 ffmpeg）（待发版）
+
+**实测场景（用户）**：B站抓取的音乐每首响度不一，有的太响、有的太轻（拉满音量仍觉得轻）。
+
+**方案**：下载转码阶段预处理，把整段 PCM 规整到统一响度；纯 Rust 内置实现，不引入 ffmpeg loudnorm（保持"无外挂二进制"的设计，解码也用内置 symphonia）。
+
+**实现**（`src-tauri/src/modules/downloader.rs`）：
+1. `convert_m4a_to_mp3_builtin` 由单遍流式「解码→编码」改为两遍：先解码全部为 i16 交错 PCM，再做响度归一化，最后分块编码；
+2. 新增 `compute_loudness_gain`（单遍整数累加平方和+峰值，避免逐样本 f64）：目标 RMS -14 dBFS（偏响，用户可随时调小音量），增益限幅 [-12, +18] dB，并做削波保护；
+3. 新增 `apply_gain` 施加线性增益 + 限幅防溢出。
+
+**性能**：归一化预处理（RMS+增益）实测约 248ms（debug，4 分钟立体声 21.2M 样本），release 约 1/10；相对下载+转码（秒级）可忽略。
+
+### 15. 音乐下载偶发「未找到音乐」（B站搜索无重试）（待发版）
+
+**实测场景（用户）**：点下载偶发提示「未找到音乐」，多点两下就能成功；怀疑当时网络抖动/没连上网。
+
+**根因**：`search_bilibili` 把任何失败（请求失败 / HTTP 非 2xx / 空响应 / JSON 解析失败 / API code!=0）都 `return Ok(Vec::new())`，被调用方判为「无结果」→ 前端提示「未找到相关视频」。网络抖动时单次失败即误判，且无重试。
+
+**修复**：拆出 `search_bilibili_once`（失败返回 Err，仅 code==0 返回 Ok），`search_bilibili` 对其做 3 次重试（退避 500ms/1000ms），重试耗尽才返回空。新增单测覆盖。
+
+### 14. 签到周视图跨自然周残留旧勾（改为「最近 7 天」滚动窗口）（待发版）
+
+**实测场景（用户）**：上周日签过到，到了下周周日那格仍打勾；今天一签到，表切到这周，旧勾又消失。
+
+**根因**：`weekRecords` 按星期几（0=周日..6=周六）固定索引，只有「断签」才清零，跨自然周更替时不重置，导致上周勾残留；前端又按「周一~周日」固定重排，切周时视觉混乱。
+
+**修复**：`weekRecords` 语义改为「最近 7 天」滚动窗口（index 0 = 6 天前 … index 6 = 今天），新增 `weekStartDay` 锚点；每次签到按天数差滚动窗口（`roll_week_records` 纯函数），跨周自然滚动不再残留。前端 `GardenSignin.vue` 的 `weekDots` 改为「今天永远是最后一位」。新增 Rust 单测 + 前端测试更新。
+
+### 13. 签到偶发点击无反应（前后端时区不一致）（待发版）
+
+**实测场景（用户）**：番茄中菜园签到偶尔点击无反应，用户未反馈具体原因。
+
+**根因**：签到「今天」判定用 UTC——前端 `canSignInToday` 用 `toISOString()`（UTC 日期），后端 `today_date_string()`/`week_day_index()` 也用 UTC。UTC+8 凌晨 0:00–7:59（本地已是新一天，UTC 仍停在前一天）时，前端 UTC 日期与 `lastDate` 相等 → `canSignInToday=false` → 按钮禁用、点击无反应（实际本地已该签到）；若只改前端不改后端，又会因后端仍按 UTC 记昨天，导致同一本地日重复签到。
+
+**修复**：后端引入 `time` crate（`local-offset`），`today_date_string`/`date_string_offset`/`week_day_index` 全部改用本地时区；前端 `canSignInToday` 改用本地日期字符串（`getFullYear/getMonth/getDate` 拼 YYYY-MM-DD），与后端对齐。
+
 ## 2026-08-08
 
 ### 12. 前台警告第三次文案误导 + 缺少诚实使用呼吁（v4.7.9）

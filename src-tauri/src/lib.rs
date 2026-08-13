@@ -205,6 +205,7 @@ pub fn run() {
             commands::charts::download_song,
             commands::charts::get_download_status,
             commands::charts::charts_set_api_key,
+            commands::charts::preprocess_all_songs,
             // 同步听歌（自建服务器实时）
             commands::music_sync::music_sync_play,
             commands::music_sync::music_sync_pause,

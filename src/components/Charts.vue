@@ -5,14 +5,10 @@
  *
  * 弹窗形式，展示网易云/QQ 音乐热歌榜，支持下载（通过 Rust 后端调用 Python 子进程）。
  */
-import { ref, computed, watch } from "vue";
-import {
-  chartsFetch,
-  downloadSong,
-  type ChartSource,
-  type ChartSong,
-  type DownloadStatus,
-} from "@/api/charts";
+import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { listen } from "@tauri-apps/api/event";
+import { chartsFetch, preprocessAllSongs, type ChartSource, type ChartSong } from "@/api/charts";
+import { useDownloadQueue } from "@/stores/downloadQueue";
 import DownloadDialog from "./DownloadDialog.vue";
 
 const props = defineProps<{
@@ -28,7 +24,7 @@ const isLoading = ref(false);
 const songs = ref<ChartSong[]>([]);
 const errorMsg = ref<string | null>(null);
 const downloadMode = ref(false);
-const downloadingSongs = ref<Set<string>>(new Set());
+const queue = useDownloadQueue();
 const toast = ref<{ message: string; type: "success" | "error" | "info" } | null>(null);
 
 // 自定义免责声明弹窗（替代 window.confirm）
@@ -37,6 +33,10 @@ const showDisclaimer = ref(false);
 const showDownloadDialog = ref(false);
 const downloadDialogTitle = ref("");
 const downloadDialogArtist = ref("");
+
+// 一键预处理（统一已下载歌曲响度）
+const preprocessing = ref(false);
+const preprocessInfo = ref<{ current: number; total: number; name: string } | null>(null);
 
 const sourceLabel = computed(() => (currentSource.value === "netease" ? "网易云" : "QQ音乐"));
 
@@ -76,34 +76,38 @@ function toggleSource() {
   void fetchCharts();
 }
 
-async function handleDownload(title: string, artist: string) {
-  const songKey = `${title} - ${artist}`;
-  if (downloadingSongs.value.has(songKey)) return;
+function handleDownload(title: string, artist: string) {
+  if (queue.isQueued(title, artist)) {
+    showToast(`ℹ️ "${title}" 已在下载队列中`, "info");
+    return;
+  }
+  queue.enqueue(title, artist);
+  // 打开下载队列弹窗，让用户看到队列推进
+  downloadDialogTitle.value = "";
+  downloadDialogArtist.value = "";
+  showDownloadDialog.value = true;
+  showToast(`✅ "${title}" 已加入下载队列`, "success");
+}
 
-  downloadingSongs.value.add(songKey);
+/** 一键预处理所有已下载歌曲，统一响度 */
+async function handlePreprocessAll() {
+  if (preprocessing.value) return;
+  preprocessing.value = true;
+  preprocessInfo.value = { current: 0, total: 0, name: "" };
   try {
-    const result = await downloadSong(title, artist);
-    if (result.success) {
-      // Rust 退出码 0 -> "downloaded"，2 -> "exists"
-      if (result.status === "exists") {
-        showToast(`ℹ️ "${title}" 已存在，无需下载`, "info");
-      } else {
-        showToast(`✅ "${title}" 下载成功`, "success");
-      }
-    } else {
-      if (result.status === "no_video") {
-        showToast(`❌ "${title}" 未找到相关视频`, "error");
-      } else if (result.status === "no_instrumental") {
-        showToast(`❌ "${title}" 未找到纯音乐版本`, "error");
-      } else {
-        showToast(`❌ ${result.error || "下载失败"}`, "error");
-      }
-    }
+    const result = await preprocessAllSongs();
+    showToast(
+      result.failed === 0
+        ? `✅ 已统一 ${result.processed} 首歌曲响度`
+        : `⚠️ 预处理完成：成功 ${result.processed}，失败 ${result.failed}`,
+      result.failed === 0 ? "success" : "error",
+    );
   } catch (e) {
-    console.error("[Charts] 下载失败:", e);
-    showToast(`❌ 下载失败`, "error");
+    console.error("[Charts] 预处理失败:", e);
+    showToast("❌ 预处理失败", "error");
   } finally {
-    downloadingSongs.value.delete(songKey);
+    preprocessing.value = false;
+    preprocessInfo.value = null;
   }
 }
 
@@ -141,22 +145,6 @@ function openSongDownload(title: string, artist: string) {
   showDownloadDialog.value = true;
 }
 
-/** 下载弹窗完成后的回调，显示 toast 反馈 */
-function handleDownloaded(payload: { title: string; artist: string; status: DownloadStatus }) {
-  const { title, status } = payload;
-  if (status === "downloaded") {
-    showToast(`✅ "${title}" 下载成功`, "success");
-  } else if (status === "exists") {
-    showToast(`ℹ️ "${title}" 已存在，无需下载`, "info");
-  } else if (status === "no_video") {
-    showToast(`❌ "${title}" 未找到相关视频`, "error");
-  } else if (status === "no_instrumental") {
-    showToast(`❌ "${title}" 未找到纯音乐版本`, "error");
-  } else {
-    showToast(`❌ 下载失败`, "error");
-  }
-}
-
 function medalClass(rank: number): string {
   if (rank === 1) return "medal-gold";
   if (rank === 2) return "medal-silver";
@@ -169,6 +157,26 @@ function handleBackdropClick(e: MouseEvent) {
     emit("close");
   }
 }
+
+// 预处理进度事件监听（后端逐首 emit preprocess-progress）
+let unlistenPreprocess: (() => void) | null = null;
+onMounted(() => {
+  listen<{ current: number; total: number; name: string }>(
+    "preprocess-progress",
+    (e) => {
+      preprocessInfo.value = e.payload;
+    },
+  )
+    .then((un) => {
+      unlistenPreprocess = un;
+    })
+    .catch((err) => {
+      console.warn("[Charts] preprocess-progress listen failed:", err);
+    });
+});
+onUnmounted(() => {
+  unlistenPreprocess?.();
+});
 
 // 弹窗打开时自动拉取
 watch(
@@ -216,6 +224,14 @@ watch(
           {{ isLoading ? "加载中..." : "🔄 刷新" }}
         </button>
 
+        <button
+          class="charts-preprocess-btn"
+          :disabled="preprocessing"
+          @click="handlePreprocessAll"
+        >
+          {{ preprocessing ? "🎚 统一响度中..." : "🎚 统一响度" }}
+        </button>
+
         <label class="charts-download-toggle">
           <input
             type="checkbox"
@@ -232,6 +248,13 @@ watch(
         >
           📥 手动下载
         </button>
+      </div>
+
+      <div v-if="preprocessing && preprocessInfo" class="charts-preprocess-progress">
+        <span>🎚 统一响度中 {{ preprocessInfo.current }}/{{ preprocessInfo.total }}</span>
+        <span v-if="preprocessInfo.name" class="charts-preprocess-progress__name">
+          {{ preprocessInfo.name }}
+        </span>
       </div>
 
       <div class="charts-table-container">
@@ -261,11 +284,11 @@ watch(
               <td v-if="downloadMode" class="charts-td-download">
                 <button
                   class="charts-download-btn"
-                  :class="{ downloading: downloadingSongs.has(`${song.title} - ${song.artist}`) }"
-                  :disabled="downloadingSongs.has(`${song.title} - ${song.artist}`)"
+                  :class="{ downloading: queue.isQueued(song.title, song.artist) }"
+                  :disabled="queue.isQueued(song.title, song.artist)"
                   @click="handleDownload(song.title, song.artist)"
                 >
-                  {{ downloadingSongs.has(`${song.title} - ${song.artist}`) ? "⏳" : "⬇" }}
+                  {{ queue.isQueued(song.title, song.artist) ? "⏳" : "⬇" }}
                 </button>
               </td>
             </tr>
@@ -317,7 +340,6 @@ watch(
       :initial-title="downloadDialogTitle"
       :initial-artist="downloadDialogArtist"
       @close="showDownloadDialog = false"
-      @downloaded="handleDownloaded"
     />
     </div>
   </Transition>
@@ -413,6 +435,45 @@ watch(
 .charts-refresh-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.charts-preprocess-btn {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 193, 7, 0.15);
+  color: #ffd54f;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.2s;
+}
+
+.charts-preprocess-btn:hover:not(:disabled) {
+  background: rgba(255, 193, 7, 0.25);
+}
+
+.charts-preprocess-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.charts-preprocess-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px;
+  font-size: 12px;
+  color: #ffd54f;
+  background: rgba(255, 193, 7, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.charts-preprocess-progress__name {
+  color: rgba(255, 255, 255, 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
 }
 
 .charts-download-toggle {

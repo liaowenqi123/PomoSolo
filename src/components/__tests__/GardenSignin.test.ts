@@ -100,29 +100,25 @@ describe("GardenSignin.vue", () => {
   it("今天对应的圆点应有 .today class", () => {
     const wrapper = mountComponent({ visible: true });
     const dots = wrapper.findAll(".signin-dot");
-    const todayIdx = new Date().getDay();
-    // weekDots 重排序: [一, 二, 三, 四, 五, 六, 日] 对应索引 [1,2,3,4,5,6,0]
-    const order = [1, 2, 3, 4, 5, 6, 0];
-    const todayIdxInOrder = order.indexOf(todayIdx);
-    expect(dots[todayIdxInOrder].classes()).toContain("today");
+    // 滚动窗口：今天永远是最后一位（index 6）
+    expect(dots[6].classes()).toContain("today");
   });
 
   it("已签到的圆点应有 .signed class", () => {
-    // 第 1 天 (周一) 已签到
+    // 滚动窗口 index 1（= 5 天前）已签到
     storeMocks.data.signIn.weekRecords = [false, true, false, false, false, false, false];
     const wrapper = mountComponent({ visible: true });
     const dots = wrapper.findAll(".signin-dot");
-    // weekDots 重排序: [一, 二, 三, 四, 五, 六, 日] 对应索引 [1,2,3,4,5,6,0]
-    // 周一在第一位（order[0]=1）
-    expect(dots[0].classes()).toContain("signed");
-    expect(dots[1].classes()).not.toContain("signed");
+    // weekRecords 按 index 0~6 直接渲染（index 6 = 今天）
+    expect(dots[1].classes()).toContain("signed");
+    expect(dots[0].classes()).not.toContain("signed");
   });
 
   it("已签到的圆点应显示 ✓", () => {
     storeMocks.data.signIn.weekRecords = [false, true, false, false, false, false, false];
     const wrapper = mountComponent({ visible: true });
     const dots = wrapper.findAll(".signin-dot");
-    expect(dots[0].find(".signin-dot__mark").text()).toBe("✓");
+    expect(dots[1].find(".signin-dot__mark").text()).toBe("✓");
   });
 
   it("未签到的圆点应显示 ·", () => {

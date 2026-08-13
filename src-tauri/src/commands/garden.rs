@@ -63,36 +63,85 @@ fn epoch_secs_to_ymd(secs: i64) -> (i64, i64, i64) {
     (year, month, day)
 }
 
-/// 获取今天的日期字符串 (YYYY-MM-DD)，使用 UTC（与前端 toISOString 一致）
-fn today_date_string() -> String {
-    let secs = SystemTime::now()
+/// 获取本地时区相对 UTC 的偏移秒数（无法获取时回退 0 = UTC）
+fn local_offset_secs() -> i64 {
+    use time::OffsetDateTime;
+    OffsetDateTime::now_local()
+        .map(|d| d.offset().whole_seconds() as i64)
+        .unwrap_or(0)
+}
+
+/// 当前本地时间的 epoch 秒数（UTC 秒数 + 本地时区偏移）
+fn local_now_secs() -> i64 {
+    let utc_secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
-    let (year, month, day) = epoch_secs_to_ymd(secs);
+    utc_secs + local_offset_secs()
+}
+
+/// 获取今天的日期字符串 (YYYY-MM-DD)，使用本地时区（修复 UTC 导致的凌晨签到判定错位）
+fn today_date_string() -> String {
+    let (year, month, day) = epoch_secs_to_ymd(local_now_secs());
     format!("{:04}-{:02}-{:02}", year, month, day)
 }
 
-/// 获取相对今天偏移 N 天的日期字符串 (YYYY-MM-DD)，使用 UTC
+/// 获取相对今天偏移 N 天的日期字符串 (YYYY-MM-DD)，使用本地时区
 fn date_string_offset(offset_days: i64) -> String {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let target_secs = secs + offset_days * 86400;
+    let target_secs = local_now_secs() + offset_days * 86400;
     let (year, month, day) = epoch_secs_to_ymd(target_secs);
     format!("{:04}-{:02}-{:02}", year, month, day)
 }
 
-/// 获取今天是星期几（0=周日, 1=周一...6=周六），基于 UTC
+/// 获取今天是星期几（0=周日, 1=周一...6=周六），基于本地时区
 fn week_day_index() -> u32 {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    let days = secs.div_euclid(86400);
+    let days = local_now_secs().div_euclid(86400);
     // 1970-01-01 是周四，在 0=周日 体系中 = 4
     ((days + 4).rem_euclid(7)) as u32
+}
+
+/// 获取当前本地时间的天数序号（自 1970-01-01 起的天数，本地时区）
+/// 用于签到「最近 7 天滚动窗口」的锚点计算，避免跨自然周残留旧勾。
+fn local_day_number() -> i64 {
+    local_now_secs().div_euclid(86400)
+}
+
+/// 将「最近 7 天」签到窗口滚动到新的起始天数（纯函数，便于单测）。
+///
+/// - `records`: 旧窗口（index 0 = prev_start_day ... index 6 = prev_start_day + 6）
+/// - `prev_start_day`: 旧窗口起始天数序号（0 表示无锚点/首次）
+/// - `new_start_day`: 新窗口起始天数序号
+///
+/// 返回固定 7 元素布尔数组（index 0 = new_start_day ... index 6 = new_start_day + 6）。
+/// 窗口右移时保留与新窗口重叠的签到状态，右侧新进入的天补 false。
+fn roll_week_records(records: &[Value], prev_start_day: i64, new_start_day: i64) -> Vec<bool> {
+    let mut arr: Vec<bool> = records
+        .iter()
+        .map(|v| v.as_bool().unwrap_or(false))
+        .collect();
+    while arr.len() < 7 {
+        arr.push(false);
+    }
+    if arr.len() > 7 {
+        arr.truncate(7);
+    }
+
+    let shift = new_start_day - prev_start_day;
+    if shift > 0 && shift < 7 {
+        // 窗口右移 shift 天：保留重叠部分（左移），右侧补 false
+        for i in 0..(7 - shift as usize) {
+            arr[i] = arr[i + shift as usize];
+        }
+        for i in (7 - shift as usize)..7 {
+            arr[i] = false;
+        }
+    } else if shift != 0 {
+        // 无锚点 / 时钟回拨 / 窗口完全过期：全清
+        for v in arr.iter_mut() {
+            *v = false;
+        }
+    }
+    arr
 }
 
 /// 生成当前 UTC 时间的 RFC3339 字符串（YYYY-MM-DDTHH:MM:SSZ）
@@ -1062,7 +1111,7 @@ pub async fn garden_unlock(app: AppHandle, plot_id: u32) -> Result<Value, String
 /// - 基础奖励：+1 胡萝卜种子 +5 金币
 /// - WEEKLY_REWARDS：按今天星期几发放
 /// - CONTINUOUS_REWARDS：达到 3/7/14/30 天里程碑额外发放
-/// - 连续断签重置 continuousDays=1 并清空 weekRecords
+/// - 连续断签重置 continuousDays=1；weekRecords 为「最近 7 天」滚动窗口（今天恒为最后一位）
 /// - 周六随机种子：从 CROP_CONFIG 5 种均匀抽 1 颗
 /// - 更新 achievementStats.coins，触发 signin7/30/100 成就
 /// 返回 { success, gardenData, rewards, unlockedAchievements }
@@ -1122,31 +1171,33 @@ pub async fn garden_signin(app: AppHandle) -> Result<Value, String> {
     };
     let new_total = prev_total + 1;
 
-    // 断签重置 weekRecords
-    let need_reset_week = !last_date.is_empty() && last_date != yesterday;
-
     // 更新签到状态
     signin_obj.insert("lastDate".to_string(), Value::String(date.clone()));
     signin_obj.insert("continuousDays".to_string(), Value::from(new_continuous));
     signin_obj.insert("totalDays".to_string(), Value::from(new_total));
 
-    // 更新本周签到记录（0=周日...6=周六）
+    // 更新「最近 7 天」签到记录（滚动窗口：index 0 = 6 天前 ... index 6 = 今天）
+    // 今天永远是最后一位；窗口随日期自然滚动，跨自然周不再残留旧勾。
     let week_day = week_day_index() as usize;
-    let week_records = signin_obj
-        .entry("weekRecords".to_string())
-        .or_insert(Value::Array(vec![Value::Bool(false); 7]));
-    if let Some(arr) = week_records.as_array_mut() {
-        if need_reset_week {
-            // 断签：重置全 false
-            *arr = (0..7).map(|_| Value::Bool(false)).collect();
-        }
-        while arr.len() < 7 {
-            arr.push(Value::Bool(false));
-        }
-        if week_day < arr.len() {
-            arr[week_day] = Value::Bool(true);
-        }
-    }
+    let today_day = local_day_number();
+    let week_start_day = today_day - 6;
+    let prev_week_start = signin_obj
+        .get("weekStartDay")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    let prev_records = signin_obj
+        .get("weekRecords")
+        .and_then(|v| v.as_array())
+        .map(|a| a.as_slice())
+        .unwrap_or(&[]);
+    let mut records = roll_week_records(prev_records, prev_week_start, week_start_day);
+    // 今天（最后一位）打勾
+    records[6] = true;
+    signin_obj.insert(
+        "weekRecords".to_string(),
+        Value::Array(records.into_iter().map(Value::Bool).collect()),
+    );
+    signin_obj.insert("weekStartDay".to_string(), Value::from(week_start_day));
 
     // ===== 发放奖励 =====
     let mut total_coins_earned: u64 = 0;
@@ -2291,6 +2342,63 @@ mod tests {
         // 算法：(days + 4) % 7，周四在 0=周日 体系中 = 4
         let days = 19729i64;
         assert_eq!(((days + 4).rem_euclid(7)), 0); // 周日
+    }
+
+    // ===== 签到滚动窗口 =====
+
+    #[test]
+    fn roll_week_records_no_anchor_clears_all() {
+        // 首次签到（无锚点 prev_start=0，new_start 很大）→ 全清
+        let prev: Vec<Value> = vec![false; 7].into_iter().map(Value::Bool).collect();
+        let out = roll_week_records(&prev, 0, 20000);
+        assert_eq!(out, vec![false; 7]);
+    }
+
+    #[test]
+    fn roll_week_records_shift_one_preserves_overlap() {
+        // 旧窗口 index 6（周日）签到过；窗口右移 1 天（今天变周一）
+        // 旧 index 6 的签到应滚到新窗口 index 5，其余 false
+        let prev: Vec<Value> = vec![
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(true), // 昨天（周日）签到
+        ];
+        let out = roll_week_records(&prev, 100, 101);
+        assert_eq!(
+            out,
+            vec![false, false, false, false, false, true, false]
+        );
+    }
+
+    #[test]
+    fn roll_week_records_shift_seven_clears_all() {
+        // 窗口完全过期（右移 7 天）→ 全清
+        let prev: Vec<Value> = vec![true; 7].into_iter().map(Value::Bool).collect();
+        let out = roll_week_records(&prev, 100, 107);
+        assert_eq!(out, vec![false; 7]);
+    }
+
+    #[test]
+    fn roll_week_records_same_window_unchanged() {
+        // 同一天内多次调用（shift=0）→ 原样保留
+        let prev: Vec<Value> = vec![
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+            Value::Bool(false),
+        ];
+        let out = roll_week_records(&prev, 100, 100);
+        assert_eq!(
+            out,
+            vec![true, false, true, false, false, false, false]
+        );
     }
 
     // ===== 成就表完整性 =====

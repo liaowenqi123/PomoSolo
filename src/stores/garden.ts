@@ -446,10 +446,14 @@ export const useGardenStore = defineStore("garden", () => {
   /** 成就总数 */
   const totalAchievementCount = computed(() => Object.keys(ACHIEVEMENT_CONFIG).length);
 
-  /** 今日是否可签到 */
+  /** 今日是否可签到（本地时区日期，与 Rust today_date_string 本地时区对齐） */
   const canSignInToday = computed(() => {
-    const today = new Date().toISOString().split("T")[0];
-    return data.value.signIn.lastDate !== today;
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    const localDate = `${y}-${m}-${d}`;
+    return data.value.signIn.lastDate !== localDate;
   });
 
   // ===== Actions =====

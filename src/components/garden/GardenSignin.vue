@@ -48,16 +48,16 @@ const today = new Date().getDay();
 
 const weekLabels = ["日", "一", "二", "三", "四", "五", "六"];
 
-/** 重新排序：一~日 */
+/** 最近 7 天滚动窗口：今天永远是最后一位（index 6），其余按日期回推 */
 const weekDots = computed(() => {
   const result: { label: string; signed: boolean; isToday: boolean }[] = [];
-  // 周一到周日：index 1,2,3,4,5,6,0
-  const order = [1, 2, 3, 4, 5, 6, 0];
-  for (const idx of order) {
+  for (let idx = 0; idx < 7; idx++) {
+    const offset = idx - 6; // -6 ... 0
+    const weekday = (((today + offset) % 7) + 7) % 7;
     result.push({
-      label: weekLabels[idx],
+      label: weekLabels[weekday],
       signed: weekRecords.value[idx] ?? false,
-      isToday: idx === today,
+      isToday: idx === 6,
     });
   }
   return result;

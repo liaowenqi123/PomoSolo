@@ -1,16 +1,16 @@
 <script setup lang="ts">
 /**
- * 下载弹窗组件
+ * 下载队列弹窗组件
  *
- * 替代原生 window.prompt / window.confirm 的自定义弹窗：
- * - 包含歌曲名称输入框（必填）和歌手输入框（可选）
- * - 包含下载按钮和取消按钮
- * - 显示下载状态（下载中、成功、已存在、失败等）
+ * 替代原来「单首下载 → 一直 loading」的弹窗：
+ * - 输入歌曲名/歌手，点「加入队列」即可，可连续添加多首；
+ * - 队列串行下载，每首显示状态 + 虚假进度条（随时间缓慢前进）；
+ * - 关闭弹窗后下载仍在后台继续（队列由全局 store 持有）。
  *
  * 样式参照 Modal.vue，使用全局 .app-modal-overlay 类。
  */
 import { ref, watch, nextTick } from "vue";
-import { downloadSong, type DownloadStatus } from "@/api/charts";
+import { useDownloadQueue, type DownloadTask } from "@/stores/downloadQueue";
 
 const props = defineProps<{
   visible: boolean;
@@ -22,15 +22,16 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: "close"): void;
-  (e: "downloaded", payload: { title: string; artist: string; status: DownloadStatus }): void;
 }>();
+
+const queue = useDownloadQueue();
 
 const title = ref("");
 const artist = ref("");
-const isDownloading = ref(false);
-const status = ref<DownloadStatus | null>(null);
-const errorMsg = ref<string | null>(null);
+const justEnqueued = ref(false);
 const titleInput = ref<HTMLInputElement | null>(null);
+
+let justEnqueuedTimer: ReturnType<typeof setTimeout> | null = null;
 
 // 弹窗打开时重置状态并预填
 watch(
@@ -39,90 +40,74 @@ watch(
     if (v) {
       title.value = props.initialTitle ?? "";
       artist.value = props.initialArtist ?? "";
-      isDownloading.value = false;
-      status.value = null;
-      errorMsg.value = null;
-      // 自动聚焦输入框
+      justEnqueued.value = false;
       await nextTick();
       titleInput.value?.focus();
     }
   },
 );
 
-function statusMessage(): string {
-  if (errorMsg.value) return errorMsg.value;
-  switch (status.value) {
+function statusText(task: DownloadTask): string {
+  switch (task.status) {
+    case "queued":
+      return "排队中";
+    case "downloading":
+      return "下载中";
     case "downloaded":
-      return `✅ "${title.value}" 下载成功`;
+      return "✅ 完成";
     case "exists":
-      return `ℹ️ "${title.value}" 已存在，无需下载`;
+      return "已存在";
     case "no_video":
-      return `❌ "${title.value}" 未找到相关视频`;
+      return "未找到";
     case "no_instrumental":
-      return `❌ "${title.value}" 未找到纯音乐版本`;
+      return "无纯音乐";
     case "failed":
-      return `❌ 下载失败`;
+      return "❌ 失败";
     default:
       return "";
   }
 }
 
-function statusClass(): string {
-  if (status.value === "downloaded" || status.value === "exists") return "success";
-  if (status.value === null) return "";
-  return "error";
+function statusClass(task: DownloadTask): string {
+  switch (task.status) {
+    case "queued":
+      return "queued";
+    case "downloading":
+      return "downloading";
+    case "downloaded":
+    case "exists":
+      return "success";
+    default:
+      return "error";
+  }
 }
 
-async function handleDownload() {
+function handleAdd() {
   const trimmedTitle = title.value.trim();
   if (!trimmedTitle) {
-    errorMsg.value = "请输入歌曲名称";
-    status.value = null;
+    justEnqueued.value = false;
     return;
   }
-  if (isDownloading.value) return;
-
-  isDownloading.value = true;
-  status.value = null;
-  errorMsg.value = null;
-
-  try {
-    const result = await downloadSong(trimmedTitle, artist.value.trim());
-    if (result.success) {
-      // Rust 返回 "downloaded"（退出码 0）或 "exists"（退出码 2）
-      status.value = (result.status as DownloadStatus) ?? "downloaded";
-    } else {
-      status.value = (result.status as DownloadStatus) ?? "failed";
-      errorMsg.value = result.error ?? null;
-    }
-    emit("downloaded", {
-      title: trimmedTitle,
-      artist: artist.value.trim(),
-      status: status.value,
-    });
-  } catch (e) {
-    console.error("[DownloadDialog] 下载失败:", e);
-    status.value = "failed";
-    errorMsg.value = "下载请求失败";
-  } finally {
-    isDownloading.value = false;
-  }
-}
-
-function handleClose() {
-  if (isDownloading.value) return; // 下载中不允许关闭
-  emit("close");
-}
-
-function handleBackdropClick(e: MouseEvent) {
-  if (e.target === e.currentTarget) {
-    handleClose();
+  const id = queue.enqueue(trimmedTitle, artist.value.trim());
+  if (id !== null) {
+    title.value = "";
+    justEnqueued.value = true;
+    if (justEnqueuedTimer) clearTimeout(justEnqueuedTimer);
+    justEnqueuedTimer = setTimeout(() => {
+      justEnqueued.value = false;
+    }, 2000);
   }
 }
 
 function handleKeydown(e: KeyboardEvent) {
-  if (e.key === "Escape" && !isDownloading.value) {
-    handleClose();
+  if (e.key === "Escape") {
+    emit("close");
+  }
+}
+
+function handleBackdropClick(e: MouseEvent) {
+  if (e.target === e.currentTarget) {
+    emit("close");
   }
 }
 </script>
@@ -136,72 +121,97 @@ function handleKeydown(e: KeyboardEvent) {
   >
     <div class="download-dialog" role="dialog" aria-modal="true">
       <div class="download-dialog__header">
-        <h3 class="download-dialog__title">📥 下载歌曲</h3>
+        <h3 class="download-dialog__title">📥 下载队列</h3>
         <button
           class="download-dialog__close"
           type="button"
           aria-label="关闭"
-          :disabled="isDownloading"
-          @click="handleClose"
+          @click="emit('close')"
         >
           ✕
         </button>
       </div>
 
       <div class="download-dialog__body">
-        <label class="download-dialog__field">
-          <span class="download-dialog__label">歌曲名称 <em>*</em></span>
-          <input
-            ref="titleInput"
-            v-model="title"
-            type="text"
-            class="download-dialog__input"
-            placeholder="请输入歌曲名称"
-            :disabled="isDownloading"
-            @keydown.enter="handleDownload"
-          />
-        </label>
+        <div class="download-dialog__fields">
+          <label class="download-dialog__field">
+            <span class="download-dialog__label">歌曲名称 <em>*</em></span>
+            <input
+              ref="titleInput"
+              v-model="title"
+              type="text"
+              class="download-dialog__input"
+              placeholder="请输入歌曲名称"
+              @keydown.enter="handleAdd"
+            />
+          </label>
 
-        <label class="download-dialog__field">
-          <span class="download-dialog__label">歌手（可选）</span>
-          <input
-            v-model="artist"
-            type="text"
-            class="download-dialog__input"
-            placeholder="请输入歌手名"
-            :disabled="isDownloading"
-            @keydown.enter="handleDownload"
-          />
-        </label>
-
-        <div v-if="errorMsg && !status" class="download-dialog__hint">{{ errorMsg }}</div>
-
-        <div v-if="status" class="download-dialog__status" :class="statusClass()">
-          {{ statusMessage() }}
+          <label class="download-dialog__field">
+            <span class="download-dialog__label">歌手（可选）</span>
+            <input
+              v-model="artist"
+              type="text"
+              class="download-dialog__input"
+              placeholder="请输入歌手名"
+              @keydown.enter="handleAdd"
+            />
+          </label>
         </div>
 
-        <div v-if="isDownloading" class="download-dialog__progress">
-          <span class="download-dialog__spinner" />
-          正在下载「{{ title }}」...
+        <div v-if="justEnqueued" class="download-dialog__hint download-dialog__hint--ok">
+          ✅ 已加入下载队列
+        </div>
+
+        <div class="download-dialog__queue">
+          <div v-if="queue.tasks.length === 0" class="download-dialog__queue-empty">
+            暂无下载任务，输入歌曲名后点击「加入队列」
+          </div>
+          <div
+            v-for="task in queue.tasks"
+            :key="task.id"
+            class="download-queue__item"
+          >
+            <div class="download-queue__meta">
+              <span class="download-queue__title" :title="task.title">{{ task.title }}</span>
+              <span class="download-queue__status" :class="statusClass(task)">
+                {{ statusText(task) }}
+              </span>
+            </div>
+            <div class="download-queue__bar">
+              <div
+                class="download-queue__bar-fill"
+                :class="{ error: task.status === 'failed' || task.status === 'no_video' || task.status === 'no_instrumental' }"
+                :style="{ width: task.progress + '%' }"
+              />
+            </div>
+            <div v-if="task.error" class="download-queue__error">{{ task.error }}</div>
+          </div>
         </div>
       </div>
 
       <div class="download-dialog__footer">
         <button
+          v-if="queue.tasks.length > 0"
+          class="download-dialog__btn download-dialog__btn--ghost"
+          type="button"
+          @click="queue.clearFinished()"
+        >
+          清除已完成
+        </button>
+        <button
           class="download-dialog__btn download-dialog__btn--cancel"
           type="button"
-          :disabled="isDownloading"
-          @click="handleClose"
+          @click="emit('close')"
         >
-          取消
+          关闭
         </button>
         <button
           class="download-dialog__btn download-dialog__btn--download"
           type="button"
-          :disabled="isDownloading"
-          @click="handleDownload"
+          :disabled="!title.trim()"
+          @click="handleAdd"
         >
-          {{ isDownloading ? "下载中..." : "⬇ 下载" }}
+          ➕ 加入队列
         </button>
       </div>
     </div>
@@ -219,7 +229,8 @@ function handleKeydown(e: KeyboardEvent) {
   border-radius: 14px;
   padding: 18px 20px;
   width: 100%;
-  max-width: 420px;
+  max-width: 460px;
+  max-height: 80vh;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.3);
   border: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
@@ -251,17 +262,19 @@ function handleKeydown(e: KeyboardEvent) {
   transition: color 0.2s, background 0.2s;
 }
 
-.download-dialog__close:hover:not(:disabled) {
+.download-dialog__close:hover {
   color: #fff;
   background: rgba(255, 255, 255, 0.08);
 }
 
-.download-dialog__close:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.download-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
 }
 
-.download-dialog__body {
+.download-dialog__fields {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -306,61 +319,103 @@ function handleKeydown(e: KeyboardEvent) {
   background: rgba(255, 255, 255, 0.08);
 }
 
-.download-dialog__input:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 .download-dialog__hint {
   font-size: 12px;
-  color: rgba(255, 150, 150, 0.9);
   padding: 4px 8px;
-  background: rgba(244, 67, 54, 0.1);
   border-radius: 6px;
 }
 
-.download-dialog__status {
-  font-size: 12px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  line-height: 1.4;
-}
-
-.download-dialog__status.success {
-  background: rgba(76, 175, 80, 0.15);
+.download-dialog__hint--ok {
   color: rgba(130, 220, 130, 1);
+  background: rgba(76, 175, 80, 0.12);
 }
 
-.download-dialog__status.error {
-  background: rgba(244, 67, 54, 0.15);
-  color: rgba(255, 130, 130, 1);
+.download-dialog__queue {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.download-dialog__progress {
+.download-dialog__queue-empty {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.45);
+  text-align: center;
+  padding: 12px 4px;
+}
+
+.download-queue__item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+}
+
+.download-queue__meta {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.8);
-  padding: 8px 10px;
-  background: rgba(33, 150, 243, 0.1);
-  border-radius: 8px;
 }
 
-.download-dialog__spinner {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 2px solid rgba(33, 150, 243, 0.3);
-  border-top-color: #2196f3;
-  border-radius: 50%;
-  animation: download-spin 0.8s linear infinite;
+.download-queue__title {
+  flex: 1;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.9);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-@keyframes download-spin {
-  to {
-    transform: rotate(360deg);
-  }
+.download-queue__status {
+  font-size: 11px;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.download-queue__status.queued {
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.download-queue__status.downloading {
+  color: #90caf9;
+  background: rgba(33, 150, 243, 0.15);
+}
+
+.download-queue__status.success {
+  color: #82dc82;
+  background: rgba(76, 175, 80, 0.15);
+}
+
+.download-queue__status.error {
+  color: #ff8282;
+  background: rgba(244, 67, 54, 0.15);
+}
+
+.download-queue__bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.download-queue__bar-fill {
+  height: 100%;
+  background: #2196f3;
+  border-radius: 3px;
+  transition: width 0.6s linear;
+}
+
+.download-queue__bar-fill.error {
+  background: #f44336;
+}
+
+.download-queue__error {
+  font-size: 11px;
+  color: rgba(255, 130, 130, 0.9);
 }
 
 .download-dialog__footer {
@@ -379,12 +434,21 @@ function handleKeydown(e: KeyboardEvent) {
   transition: background 0.2s, opacity 0.2s;
 }
 
+.download-dialog__btn--ghost {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.download-dialog__btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
 .download-dialog__btn--cancel {
   background: rgba(255, 255, 255, 0.1);
   color: rgba(255, 255, 255, 0.9);
 }
 
-.download-dialog__btn--cancel:hover:not(:disabled) {
+.download-dialog__btn--cancel:hover {
   background: rgba(255, 255, 255, 0.15);
 }
 

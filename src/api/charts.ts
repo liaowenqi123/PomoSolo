@@ -45,6 +45,13 @@ export interface DownloadStatusInfo {
   queueLength?: number;
 }
 
+export interface PreprocessResult {
+  success: boolean;
+  processed: number;
+  failed: number;
+  total: number;
+}
+
 // ===== API =====
 
 /** 获取榜单数据 */
@@ -60,6 +67,11 @@ export function downloadSong(title: string, artist: string): Promise<DownloadRes
 /** 获取下载状态 */
 export function getDownloadStatus(): Promise<DownloadStatusInfo> {
   return invoke<DownloadStatusInfo>("get_download_status");
+}
+
+/** 一键预处理所有已下载歌曲（统一响度），返回处理/失败/总数 */
+export function preprocessAllSongs(): Promise<PreprocessResult> {
+  return invoke<PreprocessResult>("preprocess_all_songs");
 }
 
 /**

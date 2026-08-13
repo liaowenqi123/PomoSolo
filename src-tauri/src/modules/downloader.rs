@@ -133,11 +133,71 @@ fn find_ffmpeg(app: &AppHandle) -> Option<PathBuf> {
     None
 }
 
-/// 内置 m4a → mp3 转码（不依赖系统 ffmpeg）
+/// 响度归一化目标与限幅（内置转码路径，纯 Rust，不依赖 ffmpeg）
 ///
-/// 流程：symphonia 解封装 MP4 + 解码 AAC → i16 交错 PCM → mp3lame-encoder（libmp3lame）编码。
-/// 采样率/声道取自解码器输出，码率固定 192kbps。
-fn convert_m4a_to_mp3_builtin(input: &Path, output: &Path) -> Result<(), String> {
+/// 用 RMS 作为感知响度的代理：B站各源音量不一，下载时统一到固定 RMS，
+/// 目标偏响（用户可随时调小音量，但太轻则拉满也不够），同时限制增益幅度与削波。
+const TARGET_RMS_DB: f64 = -14.0; // 目标 RMS（偏响）
+const MAX_GAIN_DB: f64 = 18.0; // 最大增益：过轻的源最多提升 18dB，避免放大底噪
+const MIN_GAIN_DB: f64 = -12.0; // 最大衰减：已偏响的源最多压 12dB，保持"偏响"取向
+
+/// 计算响度归一化增益（纯函数，便于单测）。
+///
+/// 返回作用于 PCM 的线性增益系数。规则：
+/// 1. 空/静音 → 增益 1.0（不放大底噪）；
+/// 2. 目标增益 = 目标 RMS / 当前 RMS，并夹在 [MIN_GAIN_DB, MAX_GAIN_DB]；
+/// 3. 削波保护：若增益后峰值超满幅，则降增益至不削波。
+fn compute_loudness_gain(samples: &[i16]) -> f64 {
+    if samples.is_empty() {
+        return 1.0;
+    }
+    // 单遍整数累加平方和与峰值，避免逐样本 f64 转换（下载阶段性能关键）
+    let mut sum_sq: u64 = 0;
+    let mut peak: i32 = 0;
+    for &s in samples {
+        let v = s as i32;
+        sum_sq += (v * v) as u64;
+        let a = v.abs();
+        if a > peak {
+            peak = a;
+        }
+    }
+
+    let n = samples.len() as f64;
+    let rms = (sum_sq as f64 / n).sqrt() / 32768.0;
+    if rms <= 1e-6 {
+        return 1.0;
+    }
+
+    let target_lin = 10f64.powf(TARGET_RMS_DB / 20.0);
+    let max_gain = 10f64.powf(MAX_GAIN_DB / 20.0);
+    let min_gain = 10f64.powf(MIN_GAIN_DB / 20.0);
+    let mut gain = (target_lin / rms).clamp(min_gain, max_gain);
+
+    let peak_lin = peak as f64 / 32768.0;
+    if peak_lin > 0.0 && peak_lin * gain > 1.0 {
+        gain = 1.0 / peak_lin;
+    }
+    gain
+}
+
+/// 对 i16 交错 PCM 应用线性增益，并做最终限幅防止溢出。
+fn apply_gain(samples: &mut [i16], gain: f64) {
+    if (gain - 1.0).abs() < 1e-9 {
+        return;
+    }
+    for s in samples.iter_mut() {
+        let v = *s as f64 * gain;
+        *s = v.round().clamp(-32768.0, 32767.0) as i16;
+    }
+}
+
+/// 内置音频 → mp3 转码（不依赖系统 ffmpeg）
+///
+/// 流程：symphonia 解封装/解码（m4a/AAC 或 mp3）→ i16 交错 PCM → 响度归一化 →
+/// mp3lame-encoder（libmp3lame）编码。采样率/声道取自解码器输出，码率固定 192kbps。
+/// 同时用于「预处理已下载歌曲」的响度归一化（下载流程复用同一函数）。
+pub fn normalize_audio_to_mp3(input: &Path, output: &Path) -> Result<(), String> {
     use mp3lame_encoder::{Bitrate, Builder, FlushNoGap, InterleavedPcm};
     use symphonia::core::audio::SampleBuffer;
     use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
@@ -146,10 +206,12 @@ fn convert_m4a_to_mp3_builtin(input: &Path, output: &Path) -> Result<(), String>
     use symphonia::core::meta::MetadataOptions;
     use symphonia::core::probe::Hint;
 
-    let file = fs::File::open(input).map_err(|e| format!("打开 m4a 失败: {}", e))?;
+    let file = fs::File::open(input).map_err(|e| format!("打开音频失败: {}", e))?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
-    hint.with_extension("m4a");
+    if let Some(ext) = input.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
 
     let probed = symphonia::default::get_probe()
         .format(
@@ -178,10 +240,10 @@ fn convert_m4a_to_mp3_builtin(input: &Path, output: &Path) -> Result<(), String>
         .make(&track.codec_params, &DecoderOptions::default())
         .map_err(|e| format!("创建 AAC 解码器失败: {:?}", e))?;
 
-    let mut encoder: Option<mp3lame_encoder::Encoder> = None;
-    let mut mp3_bytes: Vec<u8> = Vec::new();
-    let mut out_buf: Vec<u8> = Vec::new();
-
+    // 第一遍：解码全部音频为 i16 交错 PCM，同时记录采样规格
+    let mut pcm: Vec<i16> = Vec::new();
+    let mut sample_rate: u32 = 0;
+    let mut channels: u32 = 0;
     loop {
         let packet = match format.next_packet() {
             Ok(p) => p,
@@ -195,54 +257,66 @@ fn convert_m4a_to_mp3_builtin(input: &Path, output: &Path) -> Result<(), String>
             Err(_) => continue, // 单帧解码失败跳过
         };
 
-        // 首帧确认采样率/声道后初始化 LAME 编码器
-        if encoder.is_none() {
-            let spec = decoded.spec();
-            let channels = spec.channels.count() as u32;
-            let builder = Builder::new()
-                .ok_or_else(|| "初始化 LAME 失败".to_string())?
-                .with_num_channels(channels as u8)
-                .map_err(|e| format!("设置声道失败: {:?}", e))?
-                .with_sample_rate(spec.rate)
-                .map_err(|e| format!("设置采样率失败: {:?}", e))?
-                .with_brate(Bitrate::Kbps192)
-                .map_err(|e| format!("设置码率失败: {:?}", e))?;
-            // 单声道时无需设置 mode（LAME 自动判断）；立体声默认 joint stereo
-            encoder = Some(builder.build().map_err(|e| format!("构建 LAME 编码器失败: {:?}", e))?);
+        let spec = *decoded.spec();
+        if sample_rate == 0 {
+            sample_rate = spec.rate;
+            channels = spec.channels.count() as u32;
         }
 
-        // 转 i16 交错 PCM 并编码
-        let mut buf = SampleBuffer::<i16>::new(decoded.capacity() as u64, *decoded.spec());
+        let mut buf = SampleBuffer::<i16>::new(decoded.capacity() as u64, spec);
         buf.copy_interleaved_ref(decoded);
-        let samples = buf.samples();
-        if let Some(enc) = encoder.as_mut() {
-            out_buf.clear();
-            out_buf.reserve(mp3lame_encoder::max_required_buffer_size(samples.len()));
-            let n = enc
-                .encode(
-                    InterleavedPcm(samples),
-                    out_buf.spare_capacity_mut(),
-                )
-                .map_err(|e| format!("MP3 编码失败: {:?}", e))?;
-            unsafe {
-                out_buf.set_len(n);
-            }
-            mp3_bytes.extend_from_slice(&out_buf);
-        }
+        pcm.extend_from_slice(buf.samples());
     }
 
-    // flush 收尾
-    if let Some(mut enc) = encoder {
+    if pcm.is_empty() || sample_rate == 0 || channels == 0 {
+        return Err("m4a 未解码到有效 PCM".to_string());
+    }
+
+    // 响度归一化：把整段 PCM 规整到统一 RMS，稍偏响且不削波
+    let gain = compute_loudness_gain(&pcm);
+    apply_gain(&mut pcm, gain);
+
+    // 第二遍：分块编码为 mp3，末尾 flush
+    let mut encoder = Builder::new()
+        .ok_or_else(|| "初始化 LAME 失败".to_string())?
+        .with_num_channels(channels as u8)
+        .map_err(|e| format!("设置声道失败: {:?}", e))?
+        .with_sample_rate(sample_rate)
+        .map_err(|e| format!("设置采样率失败: {:?}", e))?
+        .with_brate(Bitrate::Kbps192)
+        .map_err(|e| format!("设置码率失败: {:?}", e))?
+        .build()
+        .map_err(|e| format!("构建 LAME 编码器失败: {:?}", e))?;
+
+    let mut mp3_bytes: Vec<u8> = Vec::new();
+    let mut out_buf: Vec<u8> = Vec::new();
+    // 一个 MP3 帧的 PCM 样本数（交错）：1152 * 声道数
+    let frame_samples = (1152 * channels as usize).max(1);
+    for chunk in pcm.chunks(frame_samples) {
         out_buf.clear();
-        out_buf.reserve(8192);
-        let n = enc
-            .flush::<FlushNoGap>(out_buf.spare_capacity_mut())
-            .map_err(|e| format!("MP3 编码收尾失败: {:?}", e))?;
+        out_buf.reserve(mp3lame_encoder::max_required_buffer_size(chunk.len()));
+        let n = encoder
+            .encode(
+                InterleavedPcm(chunk),
+                out_buf.spare_capacity_mut(),
+            )
+            .map_err(|e| format!("MP3 编码失败: {:?}", e))?;
         unsafe {
             out_buf.set_len(n);
         }
         mp3_bytes.extend_from_slice(&out_buf);
     }
+
+    // flush 收尾
+    out_buf.clear();
+    out_buf.reserve(8192);
+    let n = encoder
+        .flush::<FlushNoGap>(out_buf.spare_capacity_mut())
+        .map_err(|e| format!("MP3 编码收尾失败: {:?}", e))?;
+    unsafe {
+        out_buf.set_len(n);
+    }
+    mp3_bytes.extend_from_slice(&out_buf);
 
     fs::write(output, &mp3_bytes).map_err(|e| format!("写入 mp3 失败: {}", e))?;
     Ok(())
@@ -275,11 +349,12 @@ fn find_existing_song(music_dir: &Path, song_name: &str) -> bool {
 
 // ===== 核心功能 =====
 
-/// B站搜索视频
-///
-/// GET https://api.bilibili.com/x/web-interface/search/type
-/// 返回前 6 个结果。任何失败均返回空 Vec（与 Python 行为一致）。
-pub async fn search_bilibili(keyword: &str, cookie: &str) -> Result<Vec<BiliVideo>, String> {
+/// B站搜索重试次数与退避间隔
+const SEARCH_RETRY_ATTEMPTS: usize = 3;
+const SEARCH_RETRY_BASE_DELAY_MS: u64 = 500;
+
+/// 单次 B站搜索（网络/HTTP/解析/API 错误均返回 Err；仅 code==0 时返回 Ok）
+async fn search_bilibili_once(keyword: &str, cookie: &str) -> Result<Vec<BiliVideo>, String> {
     let client = build_client()?;
 
     let mut req = client
@@ -296,47 +371,33 @@ pub async fn search_bilibili(keyword: &str, cookie: &str) -> Result<Vec<BiliVide
         req = req.header("Cookie", cookie);
     }
 
-    let resp = match req.send().await {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("[Downloader] B站搜索请求失败: {}", e);
-            return Ok(Vec::new());
-        }
-    };
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("B站搜索请求失败: {}", e))?;
 
     if !resp.status().is_success() {
-        eprintln!("[Downloader] B站搜索 HTTP {}", resp.status());
-        return Ok(Vec::new());
+        return Err(format!("B站搜索 HTTP {}", resp.status()));
     }
 
-    let body = match resp.text().await {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("[Downloader] 读取搜索响应失败: {}", e);
-            return Ok(Vec::new());
-        }
-    };
+    let body = resp
+        .text()
+        .await
+        .map_err(|e| format!("读取搜索响应失败: {}", e))?;
 
     if body.trim().is_empty() {
-        eprintln!("[Downloader] B站搜索返回空响应");
-        return Ok(Vec::new());
+        return Err("B站搜索返回空响应".to_string());
     }
 
-    let data: Value = match serde_json::from_str(&body) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("[Downloader] 解析搜索 JSON 失败: {}", e);
-            return Ok(Vec::new());
-        }
-    };
+    let data: Value =
+        serde_json::from_str(&body).map_err(|e| format!("解析搜索 JSON 失败: {}", e))?;
 
     if data.get("code").and_then(|v| v.as_i64()) != Some(0) {
         let msg = data
             .get("message")
             .and_then(|v| v.as_str())
             .unwrap_or("未知错误");
-        eprintln!("[Downloader] B站搜索 API 错误: {}", msg);
-        return Ok(Vec::new());
+        return Err(format!("B站搜索 API 错误: {}", msg));
     }
 
     let result_arr = data
@@ -387,6 +448,43 @@ pub async fn search_bilibili(keyword: &str, cookie: &str) -> Result<Vec<BiliVide
     }
 
     Ok(out)
+}
+
+/// B站搜索视频（带重试）
+///
+/// GET https://api.bilibili.com/x/web-interface/search/type
+/// 返回前 6 个结果。
+///
+/// 偶发网络抖动 / 限流会导致单次搜索失败，旧实现把任何失败都当作「无结果」返回，
+/// 前端便提示「未找到音乐」。这里对瞬时失败做有限重试，降低误判。
+pub async fn search_bilibili(keyword: &str, cookie: &str) -> Result<Vec<BiliVideo>, String> {
+    let mut last_err = String::from("未知错误");
+    for attempt in 1..=SEARCH_RETRY_ATTEMPTS {
+        match search_bilibili_once(keyword, cookie).await {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                last_err = e;
+                if attempt < SEARCH_RETRY_ATTEMPTS {
+                    eprintln!(
+                        "[Downloader] B站搜索第 {} 次失败，{}ms 后重试: {}",
+                        attempt,
+                        SEARCH_RETRY_BASE_DELAY_MS * attempt as u64,
+                        last_err
+                    );
+                    tokio::time::sleep(Duration::from_millis(
+                        SEARCH_RETRY_BASE_DELAY_MS * attempt as u64,
+                    ))
+                    .await;
+                }
+            }
+        }
+    }
+    // 重试耗尽仍失败：返回空（保持旧版 no_video 语义），错误已在 stderr 留痕
+    eprintln!(
+        "[Downloader] B站搜索重试 {} 次仍失败: {}",
+        SEARCH_RETRY_ATTEMPTS, last_err
+    );
+    Ok(Vec::new())
 }
 
 /// DeepSeek 选片
@@ -761,7 +859,7 @@ pub async fn download_song(
     } else {
         // 无 ffmpeg：内置转码（shine-rs 纯 Rust），失败才回退 m4a
         let output_mp3 = music_dir.join(format!("{}.mp3", clean_name));
-        match convert_m4a_to_mp3_builtin(&temp_m4a, &output_mp3) {
+        match normalize_audio_to_mp3(&temp_m4a, &output_mp3) {
             Ok(()) => {
                 let _ = fs::remove_file(&temp_m4a);
                 eprintln!("[Downloader] 内置转码成功: {:?}", output_mp3);
@@ -978,5 +1076,62 @@ mod tests {
         assert!(!r.success);
         assert_eq!(r.status, "no_video");
         assert_eq!(r.error.as_deref(), Some("未找到视频"));
+    }
+
+    // ===== 响度归一化 =====
+
+    #[test]
+    fn test_compute_loudness_gain_empty_and_silence() {
+        // 空切片与静音：增益 1.0，不放大底噪
+        assert_eq!(compute_loudness_gain(&[]), 1.0);
+        assert_eq!(compute_loudness_gain(&[0i16; 1024]), 1.0);
+    }
+
+    #[test]
+    fn test_compute_loudness_gain_boosts_quiet_track() {
+        // 一个较安静的恒定信号（-30 dBFS = 0.0316 线性），应被提升（增益 > 1）
+        let level = (32768.0 * 10f64.powf(-30.0 / 20.0)) as i16;
+        let samples = vec![level; 4096];
+        let gain = compute_loudness_gain(&samples);
+        assert!(gain > 1.0, "安静音源应被放大，实际 gain={}", gain);
+    }
+
+    #[test]
+    fn test_compute_loudness_gain_attenuates_loud_track() {
+        // 一个较响的恒定信号（-6 dBFS = 0.501 线性），应被压低（增益 < 1）
+        let level = (32768.0 * 10f64.powf(-6.0 / 20.0)) as i16;
+        let samples = vec![level; 4096];
+        let gain = compute_loudness_gain(&samples);
+        assert!(gain < 1.0, "响音源应被压低，实际 gain={}", gain);
+    }
+
+    #[test]
+    fn test_compute_loudness_gain_no_clipping() {
+        // 近满幅但 RMS 较低的信号（高动态）：增益不应导致削波
+        // 用半幅正弦近似：峰值 ~0.5，RMS ~0.354（-9 dBFS）→ 增益 < 1，天然不削波
+        let samples: Vec<i16> = (0..4096)
+            .map(|i| (0.5 * (i as f64).sin() * 32768.0) as i16)
+            .collect();
+        let gain = compute_loudness_gain(&samples);
+        // 应用后所有样本应在 i16 范围内
+        for &s in &samples {
+            let v = s as f64 * gain;
+            assert!(v.abs() <= 32768.0, "增益后不应削波: {}", v);
+        }
+    }
+
+    #[test]
+    fn test_apply_gain_scales_samples() {
+        let mut samples = vec![100i16, -200, 300];
+        apply_gain(&mut samples, 2.0);
+        assert_eq!(samples, vec![200i16, -400, 600]);
+    }
+
+    #[test]
+    fn test_apply_gain_unity_is_noop() {
+        let mut samples = vec![100i16, -200, 300];
+        let before = samples.clone();
+        apply_gain(&mut samples, 1.0);
+        assert_eq!(samples, before);
     }
 }

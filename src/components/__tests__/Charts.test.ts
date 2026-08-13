@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
+import { setActivePinia, createPinia } from "pinia";
 
 // Mock @/api/charts
 const chartsFetchMock = vi.hoisted(() => vi.fn());
@@ -20,6 +21,7 @@ const SAMPLE_SONGS = [
 
 describe("Charts.vue", () => {
   beforeEach(() => {
+    setActivePinia(createPinia());
     chartsFetchMock.mockReset();
     downloadSongMock.mockReset();
   });
@@ -124,7 +126,7 @@ describe("Charts.vue", () => {
     expect(wrapper.find(".download-dialog").exists()).toBe(false);
     await wrapper.find(".charts-manual-download-btn").trigger("click");
     expect(wrapper.find(".download-dialog").exists()).toBe(true);
-    expect(wrapper.find(".download-dialog__title").text()).toBe("📥 下载歌曲");
+    expect(wrapper.find(".download-dialog__title").text()).toBe("📥 下载队列");
   });
 
   it("下载弹窗包含歌曲名称输入框", async () => {
@@ -136,15 +138,14 @@ describe("Charts.vue", () => {
     expect(inputs[0].attributes("placeholder")).toBe("请输入歌曲名称");
   });
 
-  it("下载弹窗输入空歌曲名时显示提示，不调用 API", async () => {
+  it("下载弹窗输入空歌曲名时「加入队列」按钮禁用，不调用 API", async () => {
     const wrapper = mountComponent(true);
     await enableDownloadMode(wrapper);
     await wrapper.find(".charts-manual-download-btn").trigger("click");
-    // 直接点击下载（输入为空）
-    await wrapper.find(".download-dialog__btn--download").trigger("click");
+    const btn = wrapper.find(".download-dialog__btn--download");
+    expect(btn.attributes("disabled")).toBeDefined();
+    await btn.trigger("click");
     expect(downloadSongMock).not.toHaveBeenCalled();
-    expect(wrapper.find(".download-dialog__hint").exists()).toBe(true);
-    expect(wrapper.find(".download-dialog__hint").text()).toBe("请输入歌曲名称");
   });
 
   it("下载弹窗输入歌曲名后调用 downloadSong API", async () => {
@@ -162,7 +163,7 @@ describe("Charts.vue", () => {
     expect(downloadSongMock).toHaveBeenCalledWith("我的歌", "歌手名");
   });
 
-  it("下载弹窗下载成功后显示成功状态", async () => {
+  it("下载弹窗入队成功后队列显示「完成」状态", async () => {
     downloadSongMock.mockResolvedValue({ success: true, status: "downloaded" });
     const wrapper = mountComponent(true);
     await enableDownloadMode(wrapper);
@@ -170,13 +171,12 @@ describe("Charts.vue", () => {
     await wrapper.find(".download-dialog__input").setValue("我的歌");
     await wrapper.find(".download-dialog__btn--download").trigger("click");
     await flushPromises();
-    const status = wrapper.find(".download-dialog__status");
+    const status = wrapper.find(".download-queue__status");
     expect(status.exists()).toBe(true);
-    expect(status.classes()).toContain("success");
-    expect(status.text()).toContain("下载成功");
+    expect(status.text()).toContain("完成");
   });
 
-  it("下载弹窗下载失败显示错误状态", async () => {
+  it("下载弹窗入队失败后队列显示「未找到」状态", async () => {
     downloadSongMock.mockResolvedValue({
       success: false,
       status: "no_video",
@@ -188,10 +188,10 @@ describe("Charts.vue", () => {
     await wrapper.find(".download-dialog__input").setValue("不存在的歌");
     await wrapper.find(".download-dialog__btn--download").trigger("click");
     await flushPromises();
-    const status = wrapper.find(".download-dialog__status");
+    const status = wrapper.find(".download-queue__status");
     expect(status.exists()).toBe(true);
-    expect(status.classes()).toContain("error");
-    expect(status.text()).toContain("未找到相关视频");
+    expect(status.text()).toContain("未找到");
+    expect(wrapper.find(".download-queue__error").text()).toContain("未找到相关视频");
   });
 
   it("下载弹窗取消按钮关闭弹窗", async () => {
@@ -240,30 +240,6 @@ describe("Charts.vue", () => {
     expect(downloadSongMock).toHaveBeenCalledWith("歌一", "甲");
     expect(wrapper.find(".charts-toast").exists()).toBe(true);
     expect(wrapper.find(".charts-toast").classes()).toContain("success");
-  });
-
-  it("下载已存在歌曲显示 info toast", async () => {
-    downloadSongMock.mockResolvedValue({ success: true, status: "exists" });
-    chartsFetchMock.mockResolvedValue({ success: true, songs: SAMPLE_SONGS });
-    const wrapper = mountComponent(true);
-    await enableDownloadMode(wrapper);
-    await wrapper.find(".charts-refresh-btn").trigger("click");
-    await flushPromises();
-    await wrapper.find(".charts-download-btn").trigger("click");
-    await flushPromises();
-    expect(wrapper.find(".charts-toast").classes()).toContain("info");
-  });
-
-  it("下载未找到视频显示 error toast", async () => {
-    downloadSongMock.mockResolvedValue({ success: false, status: "no_video" });
-    chartsFetchMock.mockResolvedValue({ success: true, songs: SAMPLE_SONGS });
-    const wrapper = mountComponent(true);
-    await enableDownloadMode(wrapper);
-    await wrapper.find(".charts-refresh-btn").trigger("click");
-    await flushPromises();
-    await wrapper.find(".charts-download-btn").trigger("click");
-    await flushPromises();
-    expect(wrapper.find(".charts-toast").classes()).toContain("error");
   });
 
   it("加载中状态显示加载指示", async () => {
