@@ -11,8 +11,8 @@ use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 
-/// 自建服务器地址（域名备案后替换）
-pub const SERVER_URL: &str = "http://115.159.49.112";
+/// 自建服务器地址（混合部署：API/WS/公告走 api.pomogrow.top，安装包下载仍走 GitHub CDN）
+pub const SERVER_URL: &str = "https://api.pomogrow.top";
 /// REST API 前缀
 pub const API_BASE: &str = "/api/v1";
 

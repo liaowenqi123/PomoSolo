@@ -283,9 +283,10 @@ mod tests {
     }
 
     #[test]
-    fn test_ws_url_http() {
+    fn test_ws_url_uses_wss_for_https_server() {
+        // SERVER_URL 迁移到 https 后，ws_url 必须对应生成 wss://（而非 ws://）
         let url = ws_url("test-token");
-        assert!(url.starts_with("ws://"));
+        assert!(url.starts_with("wss://"));
         assert!(url.contains("/ws?token=test-token"));
     }
 }

@@ -12,7 +12,7 @@
 //!
 //! 更新源：
 //!   github —— 默认。下载快但国内可能不稳定（https 加密）。
-//!   server —— 用户自己的服务器（http://115.159.49.112/updates/），稳定但只有 3Mbps，慢。
+//!   server —— 用户自己的服务器（https://api.pomogrow.top/updates/），稳定但只有 3Mbps，慢。
 //!
 //! 兼容原 Electron 版（electron-updater）的事件协议：
 //!   emit("update-status", { status, version, ... })
@@ -60,7 +60,7 @@ impl UpdateSource {
             Self::Github => {
                 "https://github.com/liaowenqi123/PomoSolo/releases/latest/download/latest.json"
             }
-            Self::Server => "http://115.159.49.112/updates/latest.json",
+            Self::Server => "https://api.pomogrow.top/updates/latest.json",
         }
     }
 
@@ -76,7 +76,7 @@ impl UpdateSource {
                 // 见 fetch_latest_json 的 allow_beta 分支。
                 "https://api.github.com/repos/liaowenqi123/PomoSolo/releases?per_page=100"
             }
-            Self::Server => "http://115.159.49.112/updates/latest-beta.json",
+            Self::Server => "https://api.pomogrow.top/updates/latest-beta.json",
         }
     }
 }
@@ -238,7 +238,7 @@ fn parse_win_proxy_server(raw: &str) -> Option<String> {
 /// 拉取服务器公告（按当前版本过滤生效范围）
 #[tauri::command]
 pub async fn fetch_notice(version: String) -> Result<Option<UpdateNotice>, String> {
-    const NOTICE_URL: &str = "http://115.159.49.112/updates/notice.json";
+    const NOTICE_URL: &str = "https://api.pomogrow.top/updates/notice.json";
     let resp = match update_client(false)
         .get(NOTICE_URL)
         .timeout(std::time::Duration::from_secs(8))
@@ -1689,7 +1689,7 @@ mod tests {
             .starts_with("https://github.com/"));
         assert!(UpdateSource::Server
             .latest_json_url()
-            .starts_with("http://115.159.49.112/"));
+            .starts_with("https://api.pomogrow.top/"));
     }
 
     #[test]
