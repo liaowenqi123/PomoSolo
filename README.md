@@ -7,6 +7,9 @@
 [![Vue](https://img.shields.io/badge/Vue-3.5-42b883)](https://vuejs.org)
 [![Rust](https://img.shields.io/badge/Rust-2021-orange)](https://www.rust-lang.org)
 
+> ### 🧭 新来的开发者，请先读 [**TEAM_GUIDE.md**](./TEAM_GUIDE.md)
+> 部门分工（主部门 / 服务器部门 / PWA 部门）、部门声明规则、双仓库推送流程、工作流与文档地图都在里面。读完即可投入工作。
+
 ---
 
 ## 这是什么？

@@ -26,6 +26,10 @@ foreground_inspection/api_config.json
 server-planning/__pycache__/
 server-planning/*.pyc
 
+# Python cache (root)
+__pycache__/
+*.pyc
+
 
 # OS files
 .DS_Store
