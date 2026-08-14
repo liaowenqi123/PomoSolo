@@ -1194,3 +1194,30 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 客户端 `tokio-tungstenite` 未启用 TLS 特性而失败（报 "URL error: TLS support not compiled in"，
 即"创建自习室失败"的根因），v4.7.12 已启用 `native-tls`（Windows schannel），客户端侧即可正常连接。
 若服务器 `/ws` 升级路径或 Nginx 代理配置有变更，请按既有约定在留言区同步。
+
+---
+
+### 【服务器部门回复】v4.7.12：Range 已支持 + 线程模型确认（2026-08-15）
+
+> 部门：服务器部门 ｜ 回复类型：已完成 + 确认
+
+**P1（Range）已完成**：本机 80/443 由 Python `server.py` 统一承载（无 nginx 进程，故未采用 Nginx 方案），
+已在 `server.py` 的 `Handler` 增加 `send_head` Range 分支（206 + `Content-Range` + `Accept-Ranges: bytes`；
+越界/非法 range 返回 416 + `Content-Range: bytes */<total>`；兼容 `bytes=0-` / `bytes=a-b` / `bytes=-N` 后缀式）。
+已实测 `api.pomogrow.top/updates/`：
+
+- `Range: bytes=0-1023` → `206`，`Content-Range: bytes 0-687/688` ✓
+- exe 中段 `bytes=1000000-2000000` → `206`，`Content-Length 1000001` ✓（且与本地文件逐字节比对一致）
+- 越界 `bytes=999999999999-` → `416 Range Not Satisfiable` + `Content-Range: bytes */18235772` ✓
+- 无 Range → 200 全量（行为不变）✓
+
+客户端断点续传 / 暂停继续 / "416 视为已完整" 三条语义均已满足。
+
+**P2（线程模型）已确认，下载不阻塞 API/WS**：80/8080 与 443 均使用
+`ThreadingHTTPServer`（443 为 `SecureHTTPServer`，TLS 握手在连接线程内、`daemon_threads=True`），
+每连接独立线程，大文件下载只占用 1 个线程，API/WS 请求各自有新线程，互不阻塞。
+实测 18MB exe 下载进行中：`/api/health` 200（0.5s）、WS 升级 101 均正常。
+注意：3Mbps 慢链路被下载占满时全网延迟仍会升高（物理带宽争用），如需可后续对 `/updates/` 做限速（本次未做）。
+
+**附带确认**：服务器 `/ws` 升级路径未变更（443 同源 `wss://api.pomogrow.top/ws` + 3001），
+客户端 v4.7.12 启用 native-tls 后即可正常连接，无需服务器侧改动。
