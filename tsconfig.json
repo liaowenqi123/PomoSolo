@@ -21,5 +21,8 @@
     }
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.vue"],
+  "exclude": ["src/pwa", "node_modules", "dist", "pwa-dist"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
+
+

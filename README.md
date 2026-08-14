@@ -151,7 +151,8 @@ electron_pomodoro/
 │   ├── api/                      # Tauri 命令封装
 │   ├── stores/                   # Pinia stores
 │   ├── components/               # Vue 单文件组件
-│   └── styles/global.css         # 全局样式（含 z-index 层级体系）
+│   ├── styles/global.css         # 全局样式（含 z-index 层级体系）
+│   └── pwa/                      # PWA 端（真实复用本目录组件/store/API，见 src/pwa/README.md）
 │
 ├── music-player/                 # 音乐资源目录（仅保留 music/ 子目录）
 │   └── music/                    # 内置歌曲 + tags.json
@@ -259,6 +260,19 @@ Rust 端的结构体和 TypeScript 接口必须保持字段一致：
 
 ---
 
+## PWA 端（PWA部门）
+
+桌面优先的 PWA（部署于 `start.pomogrow.top`），**真实复用**桌面端 `src/` 组件/store/API（alias 换层，不 copy）。
+开发说明见 [`src/pwa/README.md`](src/pwa/README.md)，服务器部署要求见 [`server-planning/PWA-requirements.md`](server-planning/PWA-requirements.md)。
+
+```bash
+# 开发（http://127.0.0.1:5199）
+npm run pwa:dev
+
+# 类型检查 + 构建 → pwa-dist/
+npm run pwa:build
+```
+
 ## 测试
 
 ```bash
@@ -267,6 +281,9 @@ npm test
 
 # 前端测试（单次运行 + 覆盖率）
 npm run test:coverage
+
+# PWA 类型检查（含桌面端复用源码）
+npx vue-tsc --noEmit -p src/pwa/tsconfig.json
 
 # Rust 测试
 cd src-tauri && cargo test

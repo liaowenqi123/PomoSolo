@@ -1,0 +1,56 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "useDefineForClassFields": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "jsx": "preserve",
+    "types": ["vite/client", "vite-plugin-pwa/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["../*"],
+      "@tauri-apps/api": ["./tauri/index.ts"],
+      "@tauri-apps/api/*": ["./tauri/*"],
+      "@tauri-apps/plugin-dialog": ["./tauri/plugin-dialog.ts"]
+    }
+  },
+  "include": [
+    "./**/*.ts",
+    "./**/*.vue",
+    "../**/*.ts",
+    "../**/*.vue"
+  ],
+  "exclude": [
+    "node_modules",
+    "pwa-dist",
+    "dist",
+    "./vite.config.ts",
+    "./scripts/**",
+    "../**/__tests__/**",
+    "../main.ts",
+    "../App.vue",
+    "../components/Statistics.vue",
+    "../components/Charts.vue",
+    "../components/MiniMode.vue",
+    "../components/WindowControls.vue",
+    "../components/PinButton.vue",
+    "../components/FocusModeSwitch.vue",
+    "../components/ForegroundWarning.vue",
+    "../components/PunishmentResultModal.vue",
+    "../components/SpaceTravel.vue",
+    "../components/AIHelper.vue",
+    "../components/StatisticsPanel.vue",
+    "../components/garden/**",
+    "../views/**",
+    "../pages/**"
+  ]
+}

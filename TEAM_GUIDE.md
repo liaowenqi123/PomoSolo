@@ -53,7 +53,7 @@
 |----|------|------|
 | 🖥 桌面端（Windows） | ✅ 已上线（v4.7.11） | Tauri v2 + Vue 3 + 纯 Rust 后端，安装包约 17MB，自动更新 |
 | 🖥 服务器端 | ✅ 运行中 | 自建公网服务器：JWT 认证、REST API、WebSocket（自习室/同步听歌等）、P2P 信令 |
-| 📱 PWA 端 | 🚧 规划中 | 兼容手机 + 电脑浏览器的 PWA，代码将放在本仓库 `pwa/` 目录（见第 11 节） |
+| 📱 PWA 端 | 🚧 建设中（PWA部门） | 桌面优先的 PWA，代码在 `src/pwa/`（真实复用桌面端 `src/`），部署于 `start.pomogrow.top`（见第 11 节） |
 
 ### 核心功能
 
@@ -91,7 +91,7 @@
 |------|------|------|---------|---------|
 | **主部门** | `主` | **负责所有事情**：桌面端开发、构建、发布、CI/CD、仓库与双仓库维护、通用文档维护 | 本仓库全部代码（`src/`、`src-tauri/`、`scripts/`、`docs/` 等） | ✅ **默认部门** |
 | **服务器部门** | `服务器` | 服务器相关问题：认证、REST API、WebSocket、P2P 信令、数据库、部署、Nginx、域名/备案、HTTPS | **运行代码不在本仓库**（维护在服务器上）；接口约定与规划通过本仓库 `server-planning/` 沟通 | ❌ |
-| **PWA 部门** | `PWA` | 手机 + 电脑浏览器访问的 PWA 端（即将新建） | 本仓库 `pwa/` 目录（规划中） | ❌ |
+| **PWA 部门** | `PWA` | 桌面优先的 PWA 端：浏览器内计时 + 音乐 + 自习室 | 本仓库 `src/pwa/`（复用 `src/` 下的组件/store/API） | ❌ |
 
 ### 3.1 主部门（Main）
 
@@ -111,11 +111,12 @@
   - `nginx.conf`、`ws_server.py` —— 参考配置/参考实现
 - 服务器代码**任何部门的开发者都可以通过 SSH 修改**（见第 10 节），但修改后必须留痕。
 
-### 3.3 PWA 部门（即将新建）
+### 3.3 PWA 部门（建设中）
 
-- 职责：实现 PWA 端（`pwa/` 目录），复用服务器接口与桌面端可共享的前端代码；
-- 目标平台：手机浏览器（iOS Safari / Android Chrome）+ 电脑浏览器；
-- 详见 [第 11 节](#11-pwa-部门规划中)。
+- 职责：实现 PWA 端（`src/pwa/` 目录），**真实复用**桌面端 `src/` 下的组件/store/API（alias 换层，不 copy），
+  复用服务器接口与账号体系；与服务器部门通过 `server-planning/PWA-requirements.md` 对接部署；
+- 目标平台：电脑浏览器为主（桌面优先），兼容手机浏览器；
+- 详见 [第 11 节](#11-pwa-部门建设中)。
 
 ---
 
@@ -401,41 +402,70 @@ git clone ubuntu@115.159.49.112:/home/ubuntu/PomoSolo.git
 
 ---
 
-## 11. PWA 部门（规划中）
+## 11. PWA 部门（建设中）
 
-> **状态：🚧 部门即将新建，本节为规划草案，正式开工后由 PWA 部门细化。**
+> **状态：🚧 PWA v1 开发中（PWA部门），部署待服务器部门按 `server-planning/PWA-requirements.md` 落实。**
 
 ### 11.1 目标
 
-- 做一个 PWA（Progressive Web App），**同时兼容手机和电脑浏览器访问**；
-- 代码位置：**本仓库 `pwa/` 目录**（与桌面端同一仓库，共享双仓库工作流）；
-- 复用现有服务器接口（`server-planning/EXTERNAL-INTERFACES.md`），与桌面端共用账号体系。
+- 桌面优先的 PWA，部署于 **`start.pomogrow.top`**，兼容手机 + 电脑浏览器；
+- 代码位置：**本仓库 `src/pwa/`**（与桌面端同仓库、同双仓库工作流）；
+- **真实复用**：`src/pwa` 不 copy 桌面端组件，而是直接 import `src/` 下的组件/store/API，
+  仅把"运输层"（`@tauri-apps/api`）换成本浏览器 shim，因此重构桌面端时 PWA 自动同步。
 
-### 11.2 建议技术栈（可讨论）
+### 11.2 技术栈（已落地）
 
-| 项 | 建议 | 理由 |
+| 项 | 方案 | 说明 |
 |----|------|------|
-| 框架 | Vite + Vue 3 + TypeScript + Pinia | 与桌面端前端完全同栈，可共享组件与 stores |
-| PWA | `vite-plugin-pwa`（Workbox） | manifest + Service Worker + 离线缓存，开箱即用 |
-| UI | 移动端优先响应式布局 | 手机 + 桌面浏览器自适应 |
-| 部署 | 服务器 Nginx 托管静态文件 | 与 `/update/*` 静态托管同服务器，域名/备案复用 |
-| 网络 | HTTPS（必须） | Service Worker 要求 HTTPS，需等备案 + SSL 证书（见 `server-planning/README.md`） |
-| 后端 | 复用现有 REST API + WebSocket | 不做新后端，与桌面端一致走 `server-planning/` 接口 |
+| 框架 | Vite + Vue 3 + TS + Pinia | 与桌面端完全同栈 |
+| PWA | `vite-plugin-pwa`（Workbox generateSW） | 外壳预缓存（排除 mp3），`/tracks/` `/music/` 运行时 CacheFirst |
+| 复用 | Vite alias：`@`→`src/`、`@tauri-apps/api/*`→`src/pwa/tauri/*` | 桌面端源码原样编译进 PWA |
+| 音乐 | HTML5 Audio 引擎（`src/pwa/music/engine.ts`） | 替代桌面端 Rust rodio，事件名完全一致 |
+| 网络 | REST + WebSocket 复用 | `src/pwa/http.ts` + `src/pwa/ws.ts`，协议同桌面端 |
+| 部署 | 服务器 Nginx 托管 `pwa-dist/` | 域名/HTTPS 待服务器部门（见 PWA-requirements.md） |
 
-### 11.3 边界与注意事项
+### 11.3 架构：alias 换层（重点）
 
-- PWA 与桌面端**共享**：服务器接口文档、账号体系、UI 设计语言；
-- PWA 与桌面端**不共享**：桌面端 Rust 能力（前台检测、本地播放、文件系统）——PWA 只能做浏览器内能做到的事；
-- 新增 PWA 专属接口时，走标准流程：更新 `server-planning/` 文档 → 服务器部门同步 → commit + push 双仓库；
-- 目录规划（待 PWA 部门确认后落实）：
-  ```
-  pwa/
-  ├── index.html          # PWA 入口
-  ├── src/                # PWA 前端源码（Vue 组件可复用桌面端 src/）
-  ├── public/             # manifest.webmanifest、图标、service-worker 相关
-  ├── vite.config.ts      # 含 vite-plugin-pwa 配置
-  └── README.md           # PWA 部门自己的开发说明
-  ```
+```
+src/                      桌面端前端源码（唯一真相源，PWA 原样编译）
+├── components/  stores/  api/   ← PWA 直接 import，不 copy
+└── pwa/                  PWA 专属层
+    ├── tauri/            @tauri-apps/api 浏览器替身（invoke/listen/event/app/plugin-dialog）
+    │   └── commands/     命令注册表：invoke("cmd") 路由到 localStorage/REST/WS/Audio/IndexedDB
+    ├── music/            浏览器音频引擎 + 清单 + 缓存 + IndexedDB 分片
+    ├── ws.ts / http.ts   WebSocket / REST 客户端（自动刷新 token）
+    ├── App.vue           主壳（桌面端 App.vue 的裁剪版，仍复用全部组件）
+    └── public/           manifest.webmanifest、icons、tracks/（3 首内置曲）、music-manifest.json
+```
+
+- **invoke 唯一咽喉**：`src/pwa/tauri/commands/registry.ts`，所有 `invoke("cmd")` 在此路由；
+- **事件替身**：`listen("music-progress")` / `listen("ws-event")` 落到 `src/pwa/eventBus.ts`，
+  MusicPlayer.vue / StudyRoom.vue 的事件消费零改动；
+- **未实现命令**（菜园子/专注模式/图表下载/AI/更新/种子等）→ 明确抛"PWA 端暂不支持"，
+  复用组件的 `.catch()` 兜底，不白屏。
+
+### 11.4 常用命令
+
+```bash
+npm run pwa:manifest   # 生成音乐清单（41 首：3 内置 + 38 曲库）
+npm run pwa:dev        # 开发（http://127.0.0.1:5199）
+npm run pwa:build      # 类型检查 + 构建 → pwa-dist/
+npm run pwa:preview    # 预览产物
+```
+
+### 11.5 边界与注意事项
+
+- PWA 与桌面端**共享**：组件/store/API/服务器接口/账号体系（改一处，两端生效）；
+- PWA 与桌面端**不共享**：桌面端 Rust 能力（前台检测、本地文件播放、文件系统、B站下载）——
+  PWA 只能做浏览器内能做到的事；
+- 砍去（v1）：菜园子、专注模式/前台检测、统计/图表面板、AI 助手、窗口/迷你模式、B站下载
+  （B站下载待服务器部门代理接口，见 `server-planning/PWA-requirements.md` P3）；
+- 保留：核心计时（单次/计划/正向）、音乐播放 + 标签 + 同步听歌、设置、教程、自习室（含 P2P 传歌）、
+  侧栏统计计数；
+- 音乐策略：内置 3 首主题曲离线可播；其余走服务器曲库 `/music/`，播放即进浏览器缓存（离线可听）；
+  与桌面端 tag 改动互不影响（PWA 标签存 localStorage）；
+- 新增 PWA 专属接口：更新 `server-planning/` 文档 → 服务器部门同步 → commit + push 双仓库；
+- **部署/域名/HTTPS 全部等服务器部门**，PWA 端不自行搭建服务（见 `PWA-requirements.md`）。
 
 ---
 

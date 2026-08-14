@@ -13,7 +13,11 @@
     "build:installer": "tauri build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "pwa:manifest": "node src/pwa/scripts/generate-music-manifest.mjs",
+    "pwa:dev": "npm run pwa:manifest && vite --config src/pwa/vite.config.ts",
+    "pwa:build": "npm run pwa:manifest && vue-tsc --noEmit -p src/pwa/tsconfig.json && vite build --config src/pwa/vite.config.ts",
+    "pwa:preview": "vite preview --config src/pwa/vite.config.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
@@ -30,6 +34,7 @@
     "jsdom": "^25.0.1",
     "typescript": "^5.6.0",
     "vite": "^6.0.0",
+    "vite-plugin-pwa": "^1.3.0",
     "vitest": "^2.1.9",
     "vue-tsc": "^2.1.0"
   }

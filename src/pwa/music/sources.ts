@@ -1,0 +1,66 @@
+/**
+ * 音乐 URL 解析 + 浏览器缓存（Cache API）
+ *
+ * - 内置曲目：/tracks/<encoded name>（PWA 静态资源，SW runtime-cache）
+ * - 服务器曲库：${API_ORIGIN}/music/<encoded name>（生产同源，SW runtime-cache）
+ *
+ * "下载到 PWA 缓存"：cacheSong(url) 主动 fetch 并写入 Cache Storage，
+ * isSongCached / uncacheSong 供"已缓存"标记与清理。
+ *
+ * 部门：PWA部门 —— 2026-08 PWA 第一版
+ */
+
+import { API_ORIGIN, MUSIC_CACHE } from "../config";
+
+export function songUrl(name: string, source: "bundled" | "library"): string {
+  const enc = encodeURIComponent(name);
+  return source === "bundled" ? `/tracks/${enc}` : `${API_ORIGIN}/music/${enc}`;
+}
+
+function openCache(): Promise<Cache> {
+  return caches.open(MUSIC_CACHE);
+}
+
+export async function isSongCached(url: string): Promise<boolean> {
+  try {
+    const cache = await openCache();
+    const resp = await cache.match(url);
+    return !!resp;
+  } catch {
+    return false;
+  }
+}
+
+/** 主动下载一首歌进浏览器缓存（失败静默返回 false） */
+export async function cacheSong(url: string): Promise<boolean> {
+  try {
+    const resp = await fetch(url, { cache: "no-cache" });
+    if (!resp.ok) return false;
+    const cache = await openCache();
+    await cache.put(url, resp.clone());
+    return true;
+  } catch (e) {
+    console.warn("[PWA] 缓存歌曲失败:", url, e);
+    return false;
+  }
+}
+
+export async function uncacheSong(url: string): Promise<void> {
+  try {
+    const cache = await openCache();
+    await cache.delete(url);
+  } catch {
+    /* 忽略 */
+  }
+}
+
+/** 统计已缓存歌曲数（用于"已下载 X 首"展示） */
+export async function countCachedSongs(): Promise<number> {
+  try {
+    const cache = await openCache();
+    const keys = await cache.keys();
+    return keys.filter((r) => r.url.includes("/music/") || r.url.includes("/tracks/")).length;
+  } catch {
+    return 0;
+  }
+}

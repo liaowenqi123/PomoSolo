@@ -1,0 +1,260 @@
+{
+  "version": 1786724098070,
+  "songs": [
+    {
+      "name": "番茄倒数快一点 - 番茄钟.mp3",
+      "source": "bundled",
+      "tag": "运动",
+      "color": null
+    },
+    {
+      "name": "番茄小宇宙 - 番茄钟.mp3",
+      "source": "bundled",
+      "tag": "学习",
+      "color": null
+    },
+    {
+      "name": "Tick Tock, Take Control - 番茄钟.mp3",
+      "source": "bundled",
+      "tag": "主题曲",
+      "color": null
+    },
+    {
+      "name": "爱琴海 - 周杰伦.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "巴拉莱卡.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "玻璃 - Gareth.T.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "丑八怪.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "渡口 - 蔡琴.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "多远都要在一起.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "刚刚好.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "还是会想你 - 林达浪  h3R3.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "海屿你 - 马也_Crabbit.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "后会无期.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "甲乙丙丁 (你我怎么两清) - 李佳薇.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "恋人 - 李荣浩.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "那天下雨了 - 周杰伦.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "情深深雨濛濛 - 梓渝.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "如果呢 - 郑润泽.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "绅士 - 薛之谦.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "失眠 - Suki刘舒妤.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "小半 - 陈粒.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "薛之谦-骆驼.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "一笑倾城 - 汪苏泷.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "于是 - 郑润泽.mp3",
+      "source": "library",
+      "tag": {
+        "name": "自定义",
+        "color": "#8c8c8c"
+      },
+      "color": null
+    },
+    {
+      "name": "雨过后的风景 - Dizzy Dizzo (蔡诗芸).mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "Are you lost.mp3",
+      "source": "library",
+      "tag": {
+        "name": "运动",
+        "color": "#ff9664"
+      },
+      "color": null
+    },
+    {
+      "name": "Closer.mp3",
+      "source": "library",
+      "tag": {
+        "name": "休息",
+        "color": "#64e664"
+      },
+      "color": null
+    },
+    {
+      "name": "Dance monkey.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "Faded.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "Flower Dance.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "Heaven.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "Hello.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "I Really Want to Stay at Your House.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "In The Shadow Of The Sun.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "Interstellar.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "Let it go.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "Letting go.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "Love is gone.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "Love story.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "Monsters.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    },
+    {
+      "name": "rise.mp3",
+      "source": "library",
+      "tag": null,
+      "color": null
+    }
+  ]
+}

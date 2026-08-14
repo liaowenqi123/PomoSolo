@@ -4,6 +4,9 @@ node_modules/
 # Electron build output
 dist/
 
+# PWA build output (由 npm run pwa:build 生成，服务器自行构建后发布)
+pwa-dist/
+
 # Python build artifacts
 music-player/build/
 music-player/dist/
