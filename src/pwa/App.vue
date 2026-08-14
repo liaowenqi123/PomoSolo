@@ -297,11 +297,8 @@ watch(
       class="container"
       :class="[themeClass, modeClass, appModeClass]"
     >
-      <!-- 桌面：模式拨杆浮在左上角（与桌面端一致） -->
-      <ModeSlider v-if="!isMobile" />
-
       <!-- 手机：顶栏（☰ 抽屉 + 模式拨杆；功能按钮列在主区域右上、蒙版下方） -->
-      <div v-else class="app-topbar">
+      <div v-if="isMobile" class="app-topbar">
         <button
           class="hamburger"
           :class="{ open: mobileSidebarOpen }"
@@ -312,6 +309,10 @@ watch(
       </div>
 
       <div class="app-body">
+        <!-- 桌面：模式拨杆随 .app-body 一起定位（≥1200px 限宽居中时与侧栏左缘对齐，
+             不会脱到屏幕最左侧） -->
+        <ModeSlider v-if="!isMobile" />
+
         <!-- 侧边栏：桌面常驻；手机为抽屉（isMobile 时绝对定位 + 平移隐藏） -->
         <aside class="sidebar" :class="{ 'sidebar-open': isMobile && mobileSidebarOpen }">
           <div v-if="!isMobile" class="sidebar-brand">🍅 PomoSolo</div>
