@@ -4,8 +4,24 @@ on:
   push:
     branches: [main, master]
     tags: ["v*"]
+    # 纯文档改动不触发 CI（docs / server-planning / 根目录 md / temp-debug / 报告类目录）。
+    # ⚠️ 注意：tag 发版前确认包含代码改动，纯文档 tag 会被跳过（不发 Release）。
+    paths-ignore:
+      - "docs/**"
+      - "server-planning/**"
+      - "**/*.md"
+      - "temp-debug/**"
+      - ".fuckucode-report/**"
+      - "coverage/**"
   pull_request:
     branches: [main, master]
+
+# 同一分支/tag 连续 push 时自动取消上一个仍在跑/排队的 run（v4.7.12 新增）：
+# 高频小步推 main 不再积压队列（此前 PWA 高频提交 + runner 宕机导致 15 个 run 堆积，
+# 见 docs/BUGFIX_RECORDS.md 第 21 条）。tag 单独成组（refs/tags/v*），重推同名 tag 也会取消旧 run。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write

@@ -4,6 +4,26 @@
 
 ---
 
+## 2026-08-15
+
+### 21. CI run 堆积阻塞发版——concurrency 自动取消 + docs-only 跳过 + runner 运维纪律（v4.7.12）
+
+**现象**：v4.7.12 发版时，本地 runner 队列积压 15 个 CI run（均为已合入 main 的 PWA 部门高频小步提交），tag run 排到最后，按序跑需 2-3 小时。
+
+**根因（三层）**：
+1. **PWA 部门高频小步提交直接推 main**：2:40~3:00 间连推 10+ 个"微调"commit，每次 push 都触发一次全量 CI（test + build）；
+2. **ci.yml 无 concurrency 自动取消**：GitHub Actions 默认不用新 run 顶掉旧 run，旧 run 未完成只会继续排队；
+3. **本地 runner 宕机约 1.5 天无人发现**：自 v4.7.11 构建（8-13 19:36）后 runner 一直离线，push 的 run 全部堆积排队（主部门运维责任，TEAM_GUIDE §16.3）。
+
+**修复（`.github/workflows/ci.yml` + TEAM_GUIDE §16.6）**：
+1. ci.yml 新增 `concurrency: group=ci-${{ github.ref }}, cancel-in-progress: true`——同一分支/tag 连续 push 自动取消前序 run，队列不再堆积；
+2. ci.yml push 增加 `paths-ignore`（docs/、server-planning/、**/*.md、temp-debug/、报告/覆盖率目录）——纯文档改动不触发 CI；
+3. TEAM_GUIDE 新增 §16.6「CI 触发规则与队列纪律」：批量推送/分支、docs-only 跳过、runner 宕机积压的启动与 `gh run cancel` 清理流程；修正 §16.3 过时描述（test 与 build 均跑自建 runner）。
+
+**处理记录**：已启动 runner（`D:\actions-runner\run.cmd`）并 `gh run cancel` 清理 14 个 superseded run，v4.7.12 tag run 正常执行。
+
+---
+
 ## 2026-08-13
 
 ### 19. 服务器域名迁移到 api.pomogrow.top + CI 双推安装包（v4.7.11）

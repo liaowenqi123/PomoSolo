@@ -635,11 +635,24 @@ git push self v4.8.0
 
 ### 16.3 CI 与自建 runner 要点（务必知晓）
 
-- `test`（Test & Coverage）与 `release` job 在 GitHub 托管 runner 执行；
-- `build`（NSIS 打包）job 由**本地自建 runner** 执行（`d:\actions-runner`，label `self-hosted, windows, x64`）——**使用前必须确保 runner 在运行**（`D:\actions-runner\run.cmd`），否则 build job 排队直至超时；
+- `test`（Test & Coverage）与 `build`（NSIS 打包）job 都由**本地自建 runner** 执行（`d:\actions-runner`，label `self-hosted, windows, x64`）；仅 `release` job 在 GitHub 托管 runner（ubuntu-latest）执行——**自建 runner 宕机时，push 触发的 test/build 会一直排队直至超时（历史教训：v4.7.12 前 PWA 高频提交 + runner 宕机，15 个 run 堆积数小时）**；
+- **使用前必须确保 runner 在运行**（`D:\actions-runner\run.cmd`），否则 build job 排队直至超时；
 - `CARGO_TARGET_DIR` 指向 `D:\pomosolo-cache\target`，安装包生成在 `D:\pomosolo-cache\target\release\bundle\nsis\`；
 - Release job 的 `latest.json` 必须**按版本号精确匹配**安装包/签名文件，禁止按字典序取第一个（历史教训：残留旧版本会把自动更新指到旧包）；
 - CI 构建产物与本地构建 hash 可能不一致（工具链/codegen 差异属正常）；红线核验用**真实签名验证**（私钥仅我们持有，签名 OK 即证明产物合法）。
+
+### 16.6 CI 触发规则与队列纪律（v4.7.12 起，强制）
+
+> 背景：PWA 部门凌晨高频小步提交直接推 main（10+ 次 push），恰逢本地 runner 宕机，
+> 15 个 superseded run 全部堆积排队，v4.7.12 发版被阻塞数小时（见 `docs/BUGFIX_RECORDS.md` 第 21 条）。
+
+1. **同一分支/tag 连续 push 自动取消前序 run**：ci.yml 已配置 `concurrency: group=ci-${{ github.ref }}, cancel-in-progress: true`——同一分支新 push 会**自动取消**上一个仍在跑/排队的 run，队列不会堆积；tag 单独成组（`refs/tags/v*`），重推同名 tag 同样取消旧 run；
+2. **纯文档改动不触发 CI**：push 仅涉及 `docs/`、`server-planning/`、`**/*.md`、`temp-debug/`、`.fuckucode-report/`、`coverage/` 时跳过 CI（paths-ignore）。⚠️ 发版 tag 前确认该 tag 的提交包含代码改动，否则纯文档 tag 会跳过 CI、**不会创建 Release**；
+3. **小步迭代请批量推送或走分支**：频繁逐 commit 推 main 会反复排队占用本地 runner（虽会自动取消旧的，仍浪费时间与机器）。建议攒 3-5 个 commit 一起推，或推 feature 分支再合并；合并/推送前确认 runner 在线；
+4. **runner 宕机期间的积压处理**：push 不会自动消失，会排队到 6h 超时。发现积压时：
+   - 先确认 runner 是否在跑（任务管理器找 `Runner.Listener` / `Runner.Worker`，或 `D:\actions-runner\_diag` 日志时间）；
+   - 启动：`D:\actions-runner\run.cmd`（主部门责任，§16.3）；
+   - 清理被后续提交取代的旧 run：`gh run list` 看队列 → 对已合入 main 的 superseded run 执行 `gh run cancel <id>`（提交本身不受影响，最新代码的 run 会覆盖验证）。
 
 ### 16.4 服务器部署（发版后必须做）
 
