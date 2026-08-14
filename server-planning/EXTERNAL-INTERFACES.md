@@ -11,13 +11,15 @@
 ## 1. 服务器地址与端口
 
 ```
-Base URL (REST): http://<服务器>/api/v1        # 经 Nginx 反代到 3000
-WebSocket:       ws://<服务器>/ws?token=<access_token>   # 经 Nginx 反代到 3001
-备用 WS:         ws://<服务器>:3001/ws?token=<access_token>
-更新静态托管:    http://<服务器>/update/*      # latest.json + 安装包
-公告:            http://<服务器>/updates/notice.json
-对外端口:        80 (HTTP) / 443 (HTTPS, 备案后)
+Base URL (REST): https://api.pomogrow.top/api/v1
+WebSocket:       wss://api.pomogrow.top/ws?token=<access_token>
+更新静态托管:    https://api.pomogrow.top/updates/*      # latest.json + 安装包（.exe/.sig）
+公告:            https://api.pomogrow.top/updates/notice.json
+对外端口:        443 (HTTPS；Let's Encrypt 证书覆盖 pomogrow.top + api.pomogrow.top)
 ```
+
+> v4.7.11 起统一走域名 `https://api.pomogrow.top`（旧 IP `http://115.159.49.112` 仅作迁移期兼容）。
+> WS 由客户端按 SERVER_URL 前缀自动生成 `ws://` / `wss://`（见 `src-tauri/src/modules/ws.rs`）。
 
 - **认证方式**：`Authorization: Bearer <access_token>`（REST）；WS 走 URL query `token`。
 - **Token 有效期**：Access 15 分钟，Refresh 30 天（滚动刷新）。
@@ -246,12 +248,15 @@ WebSocket:       ws://<服务器>/ws?token=<access_token>   # 经 Nginx 反代�
 | 源 | 用途 | 说明 |
 |----|------|------|
 | GitHub Releases | 默认更新源 | `check_update` / `download_and_install`，国内可能不稳定 |
-| 服务器静态托管 `GET /update/latest.json` | 服务器更新源 | 返回 `{ version, notes, pub_date, platforms: { "windows-x86_64": { url, signature } } }` |
-| 服务器 `GET /update/<PomoSolo_x.x.x_x64-setup.exe>` | 安装包下载 | CI 自动更新，作为国内 CDN 加速 |
+| 服务器静态托管 `GET /updates/latest.json` | 服务器更新源 | 返回 `{ version, notes, pub_date, platforms: { "windows-x86_64": { url, signature } } }` |
+| 服务器 `GET /updates/<PomoSolo_x.x.x_x64-setup.exe>` | 安装包下载 | CI 自动更新，作为国内 CDN 加速 |
 | 服务器 `GET /updates/notice.json` | 公告 | 更新失败时展示官方指引 `{ active, level, text, url, min_version, max_version }` |
 | 本地覆盖安装 `installLocalInstaller(path)` | 本地 | 文件名版本匹配时先校验 Ed25519 签名，失败拒绝安装 |
 
 - 下载支持暂停/继续/取消 + 断点续传（`Range: bytes=<offset>-`，416 视为完整直接验签）。
+- ⚠️ 服务器 `/updates/` 静态托管（Python SimpleHTTPRequestHandler）**暂不支持 Range**（200 全量返回），
+  断点续传/暂停继续当前退化为整包重下；客户端已对瞬态失败做有限次自动重试（v4.7.12）。
+  服务器支持 Range 的进展见 `API-implementation.md` 留言区。
 - P2P 种子传输快，不提供暂停。
 
 ---

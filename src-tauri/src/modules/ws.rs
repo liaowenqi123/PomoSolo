@@ -1,13 +1,17 @@
 //! WebSocket 客户端（自建服务器实时通道）
 //!
 //! 对接 server-planning/API-implementation.md 的 WebSocket 协议：
-//! - 连接: `ws://SERVER/ws?token=<access_token>`
+//! - 连接: `wss://SERVER/ws?token=<access_token>`（SERVER_URL 为 https 时自动用 wss）
 //! - 请求-响应模式：发送带 `id` 的消息，服务端回复同名 `id`
 //! - 事件模式：服务端推送 room:xxx / music:xxx / pong 等事件 → emit 到前端
 //!
-//! 注意：服务器部署在 1panel-network，WS 端口 3001 已映射到公网，
-//! 但为了走同源 + 后续 HTTPS，这里默认连 `SERVER_URL`（HTTP 80 端口）下的 /ws，
-//! 若 80 端口未代理 WS，则回退到 ws://IP:3001/ws（通过环境变量 WS_FALLBACK_PORT 控制）。
+//! 注意：服务器迁移到域名 https://api.pomogrow.top 后（v4.7.11），WS 走同源
+//! wss://api.pomogrow.top/ws（443 端口）。`ws_url()` 按 SERVER_URL 的 http/https
+//! 前缀自动生成 ws:// / wss://。
+//! ⚠️ 必须启用 tokio-tungstenite 的 TLS 特性（Cargo.toml features=["native-tls"]）：
+//! 否则 wss 连接直接失败 `URL error: TLS support not compiled in`
+//! （v4.7.11 域名迁移后创建自习室报 "WebSocket 连接失败: URL error: TLS support not compiled in"
+//! 的根因，v4.7.12 修复）。
 
 use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;

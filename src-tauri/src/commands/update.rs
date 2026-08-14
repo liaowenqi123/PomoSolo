@@ -670,6 +670,11 @@ async fn fail_download(app: &AppHandle, dest: &PathBuf, msg: String) {
 /// - 暂停：保留已下载文件与会话，直接返回（resume 会重新拉起本任务）
 /// - 取消：删除文件并清会话
 /// 流正常结束时若已下载完整字节数，进入收尾（验签 → 留存 → 安装）。
+///
+/// 自动重试（v4.7.12）：对**瞬态失败**（请求错误 / 流错误 / 提前断流）做有限次自动重试
+/// （最多 MAX_DOWNLOAD_ATTEMPTS 次，间隔 2s/4s 退避），缓解服务器 /updates/ 静态托管
+/// 不支持 Range + 3Mbps 慢速链路导致的"偶尔下载报错"（下载中断/下载不完整）。
+/// 暂停/取消优先于重试；HTTP 4xx（如 404 文件不存在）与 5xx 不重试（重试无意义）。
 async fn run_download_task(app: AppHandle) {
     let (url, dest, version, signature, offset0, paused, canceled, notify) = {
         let guard = download_mutex().lock().await;
@@ -688,6 +693,7 @@ async fn run_download_task(app: AppHandle) {
         )
     };
     let mut offset = offset0;
+    let mut attempt: u32 = 0;
 
     loop {
         if canceled.load(Ordering::SeqCst) {
@@ -699,6 +705,8 @@ async fn run_download_task(app: AppHandle) {
             return; // 暂停：保留文件与会话，等 resume 重新拉起
         }
 
+        attempt += 1;
+
         // 构造请求；offset > 0 时带 Range 头实现断点续传
         // GitHub 直链走系统代理（加速器场景），服务器直连
         let client = update_client(url.starts_with("https://github.com/"));
@@ -709,6 +717,14 @@ async fn run_download_task(app: AppHandle) {
         let resp = match req.timeout(std::time::Duration::from_secs(600)).send().await {
             Ok(r) => r,
             Err(e) => {
+                // 网络瞬断：有限次自动重试（暂停/取消优先）
+                if attempt < MAX_DOWNLOAD_ATTEMPTS {
+                    eprintln!("[updater] 下载请求失败（第 {} 次，自动重试）: {}", attempt, e);
+                    if !retry_backoff(&notify, &paused, &canceled, backoff_secs(attempt)).await {
+                        return;
+                    }
+                    continue;
+                }
                 fail_download(&app, &dest, format!("下载更新失败: {}", e)).await;
                 return;
             }
@@ -748,6 +764,7 @@ async fn run_download_task(app: AppHandle) {
             finish_download(&app, &dest, &version, &signature).await;
             return;
         } else {
+            // HTTP 4xx/5xx：非瞬态（404=文件不存在重试无用），直接失败不重试
             fail_download(&app, &dest, format!("下载更新返回 HTTP {}", status)).await;
             return;
         };
@@ -755,6 +772,7 @@ async fn run_download_task(app: AppHandle) {
 
         let mut stream = resp.bytes_stream();
         // 流式下载：每分块写入后提交偏移；notify 唤醒（暂停/取消）立即中断
+        let mut stream_err: Option<String> = None;
         loop {
             let chunk = tokio::select! {
                 c = stream.next() => c,
@@ -773,8 +791,9 @@ async fn run_download_task(app: AppHandle) {
                         return; // 暂停：已写分块完整，文件状态一致
                     }
                     if let Err(e) = file.write_all(&data).await {
-                        fail_download(&app, &dest, format!("写入临时文件失败: {}", e)).await;
-                        return;
+                        drop(file);
+                        stream_err = Some(format!("写入临时文件失败: {}", e));
+                        break;
                     }
                     offset += data.len() as u64;
                     update_download_session(offset, total).await;
@@ -795,8 +814,8 @@ async fn run_download_task(app: AppHandle) {
                 }
                 Some(Err(e)) => {
                     drop(file);
-                    fail_download(&app, &dest, format!("下载中断: {}", e)).await;
-                    return;
+                    stream_err = Some(e.to_string());
+                    break;
                 }
                 None => {
                     drop(file);
@@ -813,13 +832,61 @@ async fn run_download_task(app: AppHandle) {
         if paused.load(Ordering::SeqCst) {
             return;
         }
+        // 下载完整 → 收尾（验签 → 留存 → 安装）
         if total > 0 && offset >= total {
             finish_download(&app, &dest, &version, &signature).await;
             return;
         }
-        // 服务器未提供 content-length 或提前断流
-        fail_download(&app, &dest, "下载不完整，请重新下载".to_string()).await;
+        // 未下载完整（流错误 / 提前断流 / 服务器未提供 content-length）：
+        // 瞬态失败 → 有限次自动重试，暂停/取消优先
+        if attempt < MAX_DOWNLOAD_ATTEMPTS {
+            let reason = stream_err.as_deref().unwrap_or("提前断流");
+            eprintln!("[updater] 下载中断（第 {} 次，自动重试）: {}", attempt, reason);
+            if !retry_backoff(&notify, &paused, &canceled, backoff_secs(attempt)).await {
+                return;
+            }
+            continue;
+        }
+        // 重试次数用尽：报错并清理残留文件
+        if let Some(e) = stream_err {
+            fail_download(&app, &dest, format!("下载中断: {}", e)).await;
+        } else {
+            fail_download(&app, &dest, "下载不完整，请重新下载".to_string()).await;
+        }
         return;
+    }
+}
+
+/// 下载最多尝试次数（初始 1 次 + 自动重试 2 次，v4.7.12）
+///
+/// 背景：服务器 /updates/ 静态托管（Python SimpleHTTPRequestHandler）不支持 Range，
+/// 且带宽仅 3Mbps，约 18MB 安装包下载需 1 分钟左右，网络瞬断/提前断流时若无自动重试
+/// 只能报错让用户手动再点（"偶尔报错"）。这里对瞬态失败做有限次自动重试。
+const MAX_DOWNLOAD_ATTEMPTS: u32 = 3;
+
+/// 重试退避秒数（第 1 次失败后等 2s，第 2 次失败后等 4s）
+fn backoff_secs(attempt: u32) -> u64 {
+    if attempt >= 2 { 4 } else { 2 }
+}
+
+/// 重试前等待（可被暂停/取消打断），返回 false 表示用户已暂停/取消、放弃重试
+async fn retry_backoff(
+    notify: &tokio::sync::Notify,
+    paused: &AtomicBool,
+    canceled: &AtomicBool,
+    delay_secs: u64,
+) -> bool {
+    // 入口先检查：暂停/取消可能在我们进入前就已置位（且通知已被消费），
+    // 此时应立即放弃重试，而不是傻等退避时长。
+    if paused.load(Ordering::SeqCst) || canceled.load(Ordering::SeqCst) {
+        return false;
+    }
+    tokio::select! {
+        _ = tokio::time::sleep(std::time::Duration::from_secs(delay_secs)) => true,
+        _ = notify.notified() => {
+            // 暂停/取消优先于重试；异常唤醒（未暂停未取消，如继续下载的竞态）立即继续
+            !(paused.load(Ordering::SeqCst) || canceled.load(Ordering::SeqCst))
+        }
     }
 }
 
@@ -1690,6 +1757,56 @@ mod tests {
         assert!(UpdateSource::Server
             .latest_json_url()
             .starts_with("https://api.pomogrow.top/"));
+    }
+
+    // ===== 下载自动重试（v4.7.12）=====
+
+    #[test]
+    fn test_backoff_secs_increases_with_attempt() {
+        assert_eq!(backoff_secs(1), 2);
+        assert_eq!(backoff_secs(2), 4);
+        assert_eq!(backoff_secs(3), 4); // 上限 4s
+    }
+
+    #[test]
+    fn test_max_download_attempts_limited() {
+        // 初始 1 次 + 自动重试 2 次，保证重试次数有限（不会无限重试拖垮慢速链路）
+        assert_eq!(MAX_DOWNLOAD_ATTEMPTS, 3);
+    }
+
+    #[tokio::test]
+    async fn test_retry_backoff_canceled_aborts_immediately() {
+        // 用户点击取消时，重试等待必须立即放弃（不等退避时长）
+        let notify = tokio::sync::Notify::new();
+        let paused = AtomicBool::new(false);
+        let canceled = AtomicBool::new(true);
+        let start = std::time::Instant::now();
+        let ok = retry_backoff(&notify, &paused, &canceled, 60).await;
+        assert!(!ok, "取消态下重试等待应返回 false");
+        assert!(start.elapsed() < std::time::Duration::from_secs(10), "取消应立即生效，不应等待退避");
+    }
+
+    #[tokio::test]
+    async fn test_retry_backoff_paused_aborts_immediately() {
+        let notify = tokio::sync::Notify::new();
+        let paused = AtomicBool::new(true);
+        let canceled = AtomicBool::new(false);
+        let start = std::time::Instant::now();
+        let ok = retry_backoff(&notify, &paused, &canceled, 60).await;
+        assert!(!ok, "暂停态下重试等待应返回 false");
+        assert!(start.elapsed() < std::time::Duration::from_secs(10), "暂停应立即生效，不应等待退避");
+    }
+
+    #[tokio::test]
+    async fn test_retry_backoff_waits_then_returns_true() {
+        // 无暂停/取消时等待退避时长后返回 true（继续重试）
+        let notify = tokio::sync::Notify::new();
+        let paused = AtomicBool::new(false);
+        let canceled = AtomicBool::new(false);
+        let start = std::time::Instant::now();
+        let ok = retry_backoff(&notify, &paused, &canceled, 1).await;
+        assert!(ok, "空闲态下应等待退避后继续重试");
+        assert!(start.elapsed() >= std::time::Duration::from_millis(900));
     }
 
     #[test]

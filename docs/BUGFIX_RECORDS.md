@@ -15,6 +15,26 @@
 2. CI（`.github/workflows/ci.yml`）：打 tag 时从本地 runner 生成服务器版 `latest.json`（url 指向 `api.pomogrow.top`）并 scp 安装包 + 签名 + `latest.json` 到服务器 `/home/ubuntu/frontend/updates/`（新增 `SERVER_HOST` / `SERVER_USER` / `SERVER_SSH_KEY` secrets）；
 3. 证书：certbot 签发覆盖 `pomogrow.top` + `api.pomogrow.top` 的证书，deploy hook 自动续期复制 + 重启容器（停用原 1Panel DNS 续期 + `sync-le-cert.sh`，避免旧证书覆盖）。
 
+### 20. 域名迁移后自习室 WebSocket 连不上（TLS support not compiled in）+ 服务器源下载偶尔报错（v4.7.12，待发版）
+
+**实测场景（用户）**：v4.7.11 服务器迁移到域名 `https://api.pomogrow.top` 后，自习室创建报错「创建失败:WebSocket 连接失败:URL error: TLS support not compiled in」；同时「服务器」更新源下载安装包偶尔报错。
+
+**根因一（自习室，纯客户端，主部门）**：`src-tauri/Cargo.toml` 中 `tokio-tungstenite = "0.24"` **未启用任何 TLS 特性**，而 WS 地址已随 SERVER_URL 变为 `wss://api.pomogrow.top/ws`。无 TLS 特性时 tungstenite 对 wss 直接返回 `UrlError::TlsFeatureNotEnabled`（Display 为 "TLS support not compiled in"，经 `Error::Url` 包装为 "URL error: ..."），`ws.rs` 再包装成「WebSocket 连接失败: ...」，创建自习室 toast 即「创建失败: ...」。迁移前 SERVER_URL 是 `http://IP` → `ws://` 明文，无需 TLS 所以一直正常；迁移提交（09161f4）只改了 `ws_url` 测试断言为 wss，漏了给 tokio-tungstenite 开 TLS 特性。
+
+**修复一（主部门，本 commit）**：`Cargo.toml` 给 tokio-tungstenite 启用 `native-tls` 特性（Windows 走 schannel，与 reqwest 默认后端同源；native-tls / tokio-native-tls 已在依赖树中，零新增 crate）；同步更新 `ws.rs` 过时的模块注释。
+
+**根因二（服务器源下载偶尔报错，双部门）**：
+- 客户端（主部门）：`run_download_task` 对请求失败 / 流错误 / 提前断流**无自动重试**，3Mbps 慢速链路（约 18MB 安装包需 1 分钟左右）上网络瞬断即报「下载中断 / 下载不完整」→ 用户感知「偶尔报错」；
+- 服务器（服务器部门，待配合）：`/updates/` 由 Python `SimpleHTTPRequestHandler` 托管（实测响应头 `Server: SimpleHTTP/0.6 Python/3.14.6`），**不支持 Range**（带 Range 的请求返回 200 全量、无 Content-Range）→ 客户端断点续传 / 暂停继续全部退化为整包重下；且与 API/WS 同跑在 443 端口同一 Python 进程，3Mbps 带宽被大文件下载占满时 WS/API 延迟飙高。
+
+**修复二（主部门，本 commit）**：`run_download_task` 对瞬态失败（请求/流错误、提前断流）增加**有限次自动重试**（最多 3 次，退避 2s/4s，暂停/取消优先打断）；HTTP 4xx/5xx 不重试（404=文件不存在重试无意义）。新增 backoff 与取消/暂停语义单测。
+
+**服务器部门待办（已在 `server-planning/API-implementation.md` 留言区留言）**：
+1. `/updates/` 静态托管支持 Range（206），让断点续传真正生效；建议改用 Nginx 静态托管（sendfile + Range，不占 Python 线程/带宽），或给 server.py 的 handler 补 Range 处理；
+2. 若维持 Python 托管，确认下载大文件不会阻塞同端口 API/WS（检查服务端线程模型）。
+
+**发版红线提醒**：更新链路有改动（下载重试），发版前必须按 TEAM_GUIDE §16.1 用真实发布物（exe + latest.json + pubkey）做完整端到端验签验证。
+
 ### 18. 新增「一键预处理全部歌曲」统一旧歌响度（v4.7.10）
 
 **背景**：v4.7.10 起下载时才对音乐做响度归一化，旧版本已下载的 mp3/m4a 响度仍不一致。

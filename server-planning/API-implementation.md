@@ -1159,3 +1159,38 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 
 **协议变更清单（本版）**：新增 `p2p:bidir_test_request`；`p2p:test_request` / `p2p:reverse_test_request`
 转发携带 `tag`；`p2p:reverse_transfer_request` 携带可选 `parallel`。其余消息零改动。
+
+---
+
+## 【请服务器部门配合】v4.7.12 更新下载可靠性：/updates/ 需支持 Range（2026-08-14）
+
+> 部门：主部门 ｜ 关联记录：`docs/BUGFIX_RECORDS.md` 第 20 条 ｜ 留言类型：待评估
+
+**背景**：v4.7.11 服务器迁移到域名 `https://api.pomogrow.top` 后，除自习室 WS 的 TLS 问题（客户端已修，
+见下方"附带确认"）外，还发现「服务器」更新源下载安装包**偶尔报错**（下载中断 / 下载不完整）。
+
+**实测发现（客户端 2026-08-14 线上探测）**：
+
+1. `/updates/` 静态托管为 Python `SimpleHTTPRequestHandler`（响应头
+   `Server: SimpleHTTP/0.6 Python/3.14.6`），**不支持 HTTP Range**：
+   带 `Range: bytes=0-1023` 的请求返回 **200 全量**（Content-Length 18235772）、无 `206` / `Content-Range`
+   → 客户端断点续传、暂停/继续全部退化为整包重下（3Mbps 慢速链路下体验差）；
+2. `/updates/` 与 REST API、WS 同跑在 443 端口同一 Python 进程：3Mbps 带宽下约 18MB 安装包
+   下载（约 1 分钟）会占满带宽，期间 WS/API 延迟飙高，可能放大"偶尔掉线 / 请求超时"类问题。
+
+**客户端已做（无需服务器操作）**：`run_download_task` 对瞬态失败（请求/流错误、提前断流）增加
+**最多 3 次自动重试**（退避 2s/4s，暂停/取消优先打断），缓解用户侧"偶尔报错"。
+
+**请服务器部门评估（按优先级）**：
+
+- [ ] **P1**：`/updates/` 静态托管支持 Range（`206` + `Content-Range`），让断点续传 / 暂停继续真正生效。
+      建议改用 **Nginx 静态托管**该目录（sendfile + Range 原生支持、不占 Python 线程、可独立限速），
+      或将 server.py 的静态 handler 换成支持 Range 的实现（如 `http.server.SimpleHTTPRequestHandler`
+      自行补 `do_GET` Range 分支）；
+- [ ] **P2**：确认 443 端口同一进程承载 API + WS + 大文件下载时的线程模型与带宽隔离
+      （大文件下载不应阻塞 WS/API 请求）。
+
+**附带确认（自习室 WS，已由客户端修复，无需服务器操作）**：`wss://api.pomogrow.top/ws` 连接此前因
+客户端 `tokio-tungstenite` 未启用 TLS 特性而失败（报 "URL error: TLS support not compiled in"，
+即"创建自习室失败"的根因），v4.7.12 已启用 `native-tls`（Windows schannel），客户端侧即可正常连接。
+若服务器 `/ws` 升级路径或 Nginx 代理配置有变更，请按既有约定在留言区同步。

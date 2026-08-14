@@ -33,7 +33,12 @@ ed25519-dalek = "2"
 # Blake2b-512 预哈希（tauri updater 签名是 Ed25519(blake2b-512(文件))，v4.5.20 修复）
 blake2 = "0.10"
 # WebSocket 客户端（自习室实时 + 同步听歌）
-tokio-tungstenite = "0.24"
+# ⚠️ 必须启用 TLS 特性（v4.7.12 修复）：SERVER_URL 迁移到 https://api.pomogrow.top 后
+# WS 走 wss://，若无 TLS 特性，connect_async 直接报
+# "URL error: TLS support not compiled in"（现象：创建自习室报
+# "WebSocket 连接失败: URL error: TLS support not compiled in"）。
+# native-tls（Windows 走 schannel）：与 reqwest 默认后端同源，且已在依赖树中（零新增 crate）。
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 futures-util = "0.3"
 # 正则表达式（标题/文件名清洗）
 regex = "1"

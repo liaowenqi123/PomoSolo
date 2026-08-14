@@ -64,6 +64,18 @@
 > - 拉取失败 / 非 200 / 解析失败 / 未 active / 不在版本范围 → 后端返回 `Ok(None)`，**不打扰用户**；
 > - 部署后 4.5.15~4.5.19 老用户更新失败时会看到"请手动升级 v4.5.20 覆盖安装"指引，不再需要删重装。
 
+> ⚠️ **下载瞬断自动重试（v4.7.12）**：服务器源 `/updates/` 由 Python `SimpleHTTPRequestHandler` 托管，
+> **不支持 Range**（实测带 Range 的请求返回 200 全量、无 Content-Range）→ 客户端断点续传/暂停继续全部退化为
+> 整包重下；且 3Mbps 慢速链路（约 18MB 安装包需 1 分钟）上网络瞬断即报「下载中断/下载不完整」（用户感知"偶尔报错"）。
+> 客户端 `run_download_task` 已对**瞬态失败**（请求/流错误、提前断流）增加**有限次自动重试**
+> （最多 3 次，退避 2s/4s，暂停/取消优先打断；HTTP 4xx/5xx 不重试）。**服务器部门待办**：
+> ① `/updates/` 支持 Range（206）让断点续传真正生效，建议改 Nginx 静态托管（sendfile + Range）；
+> ② 确认下载大文件不会阻塞同端口 API/WS（同 Python 进程承载 443 的 API+WS+下载）。
+>
+> ⚠️ **WS 必须启用 TLS 特性（v4.7.12）**：`tokio-tungstenite` 需启用 `native-tls` 特性，
+> 否则 SERVER_URL 为 https 时 wss 连接直接失败 `URL error: TLS support not compiled in`
+> （自习室创建报错根因，详见 `docs/BUGFIX_RECORDS.md` 第 20 条）。
+
 > ## Phase 2：P2P 种子下载安装包（v4.6.0-beta.0，2026-08-04）
 >
 > 服务器 3Mbps 慢、GitHub 国内不稳 → 用户本机带宽充裕，增加**在线种子 P2P 直连**路径：
