@@ -1,15 +1,17 @@
 <script setup lang="ts">
 /**
- * PomoSolo PWA 主壳（桌面端 App.vue 的 PWA 裁剪版）
+ * PomoSolo PWA 主壳（重设计：流式全窗口布局，复用 ≠ UI 完全一致）
  *
- * 与桌面端布局一致：侧边栏（预设/计划/正向 + 统计计数）+ 主区域（计时器 + 音乐播放器）
- * + 浮层面板（设置/教程/自习室/登录）。真实复用 src/components 与 src/stores：
- * Timer/ModeSwitch/ModeSlider/Presets/NoteManager/TimerProgress/MusicPlayer/
- * SettingsPanel/TutorialModal/StudyRoom/AuthPanel/HeaderButtons/SidebarCollapse/LoadingOverlay
- * 全部原样 import，唯一的差异是底层运输（invoke → PWA shim）。
+ * 设计原则：
+ * - 复用组件/store/API（Timer/MusicPlayer/SettingsPanel/StudyRoom/...原样 import），
+ *   但 PWA 外壳有自己的布局：不整壳缩放，改为流式尺寸（clamp）+ 断点适配；
+ * - 颜色/圆角/触摸尺寸统一引用 `src/styles/global.css` 的共享 token
+ *   （--shell-*），改色只需改 global.css 一处，两端生效；
+ * - 桌面（≥560px）：侧边栏常驻（无收起按钮，PWA 独特性），大屏内容流式放大；
+ * - 手机（<560px）：侧边栏变抽屉（☰ 打开），主按钮加大到触摸友好尺寸（≥44px），
+ *   播放器贴底并适配安全区。
  *
- * 砍去（PWA v1）：菜园子、专注模式/前台检测、统计与图表面板、AI 助手、
- * 窗口控制/迷你模式、B站下载（待服务器部门接口）。
+ * 砍去（PWA v1）：菜园子、专注模式/前台检测、统计与图表面板、AI、窗口/迷你模式、B站下载。
  *
  * 部门：PWA部门 —— 2026-08 PWA 第一版
  */
@@ -19,7 +21,6 @@ import TimerProgress from "@/components/TimerProgress.vue";
 import ModeSwitch from "@/components/ModeSwitch.vue";
 import ModeSlider from "@/components/ModeSlider.vue";
 import HeaderButtons from "@/components/HeaderButtons.vue";
-import SidebarCollapse from "@/components/SidebarCollapse.vue";
 import MusicPlayer from "@/components/MusicPlayer.vue";
 import SettingsPanel from "@/components/SettingsPanel.vue";
 import Presets from "@/components/Presets.vue";
@@ -49,36 +50,22 @@ const showAuth = ref(false);
 const showStudyRoom = ref(false);
 const showTutorial = ref(false);
 
-// ===== 侧边栏收起 =====
-const sidebarCollapsed = ref(false);
-
-// ===== 响应式整壳缩放（浏览器窗口大小自适应，复用 ≠ UI 完全一致） =====
-// 设计基准 560×640（对应桌面端应用窗口观感），按窗口尺寸等比缩放：
-// - 大屏（1920×1080 起）：放大到 ~1.4×，居中呈现"应用窗口"效果，内容不再稀松；
-// - 小窗/手机：等比缩小（下限 0.6×），窄到 0.72× 以下自动收起侧栏，把空间让给主区域。
-const scale = ref(1);
-const DESIGN_W = 560;
-const DESIGN_H = 640;
-const MIN_SCALE = 0.6;
-const MAX_SCALE = 1.4;
-let scaleRaf = 0;
-
-function updateScale() {
-  const s = Math.min(window.innerWidth / DESIGN_W, window.innerHeight / DESIGN_H);
-  scale.value = Math.max(MIN_SCALE, Math.min(MAX_SCALE, s));
-  if (scale.value < 0.72 && !sidebarCollapsed.value) {
-    sidebarCollapsed.value = true;
-  }
+// ===== 响应式：手机断点（<560px 视为移动端） =====
+const MOBILE_MQ = "(max-width: 559px)";
+const isMobile = ref(false);
+let mq: MediaQueryList | null = null;
+function onMqChange(e: MediaQueryListEvent) {
+  isMobile.value = e.matches;
+  if (!e.matches) mobileSidebarOpen.value = false;
 }
 
-function onWindowResize() {
-  cancelAnimationFrame(scaleRaf);
-  scaleRaf = requestAnimationFrame(updateScale);
+// ===== 手机侧边栏抽屉 =====
+const mobileSidebarOpen = ref(false);
+function toggleMobileSidebar() {
+  mobileSidebarOpen.value = !mobileSidebarOpen.value;
 }
-
-/** 被砍板块的 HeaderButtons 事件（stats/ai/garden/charts）→ 无操作（按钮已在 PWA 隐藏） */
-function showStatsNoop() {
-  /* 无操作 */
+function closeMobileSidebar() {
+  mobileSidebarOpen.value = false;
 }
 
 // ===== 当前专注任务备注 =====
@@ -201,11 +188,13 @@ onMounted(async () => {
   document.documentElement.classList.toggle("dark-theme", settings.isDark);
   document.body.classList.toggle("dark-theme", settings.isDark);
   window.addEventListener("keydown", handleKeydown);
-  updateScale();
-  window.addEventListener("resize", onWindowResize);
+  // 手机断点监听
+  mq = window.matchMedia(MOBILE_MQ);
+  isMobile.value = mq.matches;
+  mq.addEventListener("change", onMqChange);
   setTimeout(() => {
     loading.value = false;
-  }, 600);
+  }, 400);
 });
 
 // 音乐清单 → 音频引擎（内置 3 首 + 服务器曲库；服务器曲库在线与否不影响清单）
@@ -220,8 +209,7 @@ void loadManifest()
 
 onUnmounted(() => {
   window.removeEventListener("keydown", handleKeydown);
-  window.removeEventListener("resize", onWindowResize);
-  cancelAnimationFrame(scaleRaf);
+  mq?.removeEventListener("change", onMqChange);
 });
 
 // ===== 完成事件 → 记录统计（菜园子/专注模式已在 PWA 砍去） =====
@@ -257,12 +245,13 @@ function handleKeydown(e: KeyboardEvent) {
     showSettings.value = false;
     showAuth.value = false;
     showStudyRoom.value = false;
+    mobileSidebarOpen.value = false;
   }
 }
 
-// ===== 侧边栏收起 =====
-function toggleSidebar() {
-  sidebarCollapsed.value = !sidebarCollapsed.value;
+// ===== 被砍板块的 HeaderButtons 事件（stats/ai/garden/charts）→ 无操作 =====
+function showStatsNoop() {
+  /* 无操作 */
 }
 
 // ===== 开始/暂停 =====
@@ -302,85 +291,24 @@ watch(
     <!-- 加载进度条 -->
     <LoadingOverlay :visible="loading" />
 
-    <!-- 整壳缩放舞台：小屏等比缩小、大屏等比放大居中（应用窗口观感） -->
-    <div class="scale-stage">
-      <div class="scale-box" :style="{ '--pwa-scale': String(scale) }">
-        <div
-          class="container"
-          :class="[themeClass, modeClass, appModeClass, { 'sidebar-collapsed': sidebarCollapsed }]"
-        >
-      <!-- 左上角模式切换拨杆（单次/计划/正向） -->
-      <ModeSlider />
+    <!-- 内层容器：position:relative + overflow:hidden，是复用组件
+         .app-modal-overlay（设置/自习室/登录/教程）的定位锚点，必须保留 -->
+    <div
+      class="container"
+      :class="[themeClass, modeClass, appModeClass]"
+    >
+      <!-- 桌面：模式拨杆浮在左上角（与桌面端一致） -->
+      <ModeSlider v-if="!isMobile" />
 
-      <!-- 左侧边栏 -->
-      <div class="sidebar">
-        <!-- 单次模式：时间预设 -->
-        <div v-if="timer.appMode === 'single'" class="single-mode-content">
-          <h2 class="sidebar-title">时间预设</h2>
-          <Presets />
-        </div>
-
-        <!-- 计划模式：任务列表 -->
-        <div v-else-if="timer.appMode === 'plan'" class="plan-mode-content">
-          <h2 class="sidebar-title">番茄计划</h2>
-          <div class="plan-list scrollable">
-            <div
-              v-for="(item, idx) in planList"
-              :key="item.id"
-              class="plan-item"
-              :class="[item.type, { active: idx === planCurrentIndex, disabled: planRunning }]"
-            >
-              <span class="plan-item__icon">{{ item.type === "work" ? "🍅" : "☕" }}</span>
-              <span class="plan-item__time">{{ item.minutes }}min</span>
-              <button
-                v-if="!planRunning && planList.length > 1"
-                class="plan-item__delete"
-                @click="planDeleteItem(idx)"
-              >×</button>
-            </div>
-            <p v-if="planList.length === 0" class="plan-empty-hint">点击下方按钮添加计划</p>
-          </div>
-          <div class="plan-add-buttons">
-            <button class="btn-add-plan btn-add-work" @click="planAddItem(25, 'work')">+ 工作</button>
-            <button class="btn-add-plan btn-add-break" @click="planAddItem(5, 'break')">+ 休息</button>
-          </div>
-        </div>
-
-        <!-- 正向计时模式：说明 -->
-        <div v-else class="stopwatch-mode-content">
-          <h2 class="sidebar-title">正向计时</h2>
-          <div class="stopwatch-description">
-            <p>从零开始累计</p>
-            <p>适合不确定时长的任务</p>
-            <p>💡 超过1分钟才会计入统计</p>
-          </div>
-        </div>
-
-        <!-- 统计信息（保留侧栏计数，砍统计/图表面板） -->
-        <div class="sidebar-stats">
-          <div class="stat-item">
-            <span class="stat-label">今日完成</span>
-            <span class="stat-value">{{ timer.todayCount }}</span>
-            <span class="stat-unit">个</span>
-          </div>
-          <div class="stat-item">
-            <span class="stat-label">累计专注</span>
-            <span class="stat-value">{{ timer.totalMinutes }}</span>
-            <span class="stat-unit">分钟</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 侧边栏收起按钮 -->
-      <SidebarCollapse
-        v-if="settings.settings.showSidebarCollapseBtn"
-        :collapsed="sidebarCollapsed"
-        @toggle="toggleSidebar"
-      />
-
-      <!-- 右侧主区域 -->
-      <div class="main-content" :class="{ 'mode-animating': modeAnimating }">
-        <!-- 功能按钮列：教程/设置/登录/自习室（被砍板块按钮已在 PWA 设置中隐藏） -->
+      <!-- 手机：顶栏（☰ 抽屉 + 模式拨杆 + 功能按钮） -->
+      <div v-else class="app-topbar">
+        <button
+          class="hamburger"
+          :class="{ open: mobileSidebarOpen }"
+          aria-label="菜单"
+          @click="toggleMobileSidebar"
+        >☰</button>
+        <ModeSlider />
         <HeaderButtons
           @tutorial="showTutorial = true"
           @settings="showSettings = true"
@@ -392,46 +320,133 @@ watch(
           @auth="showAuth = true"
           @charts="showStatsNoop"
         />
+      </div>
 
-        <div class="timer-section">
-          <h1 class="title">🍅 番茄钟</h1>
+      <div class="app-body">
+        <!-- 侧边栏：桌面常驻；手机为抽屉（isMobile 时绝对定位 + 平移隐藏） -->
+        <aside class="sidebar" :class="{ 'sidebar-open': isMobile && mobileSidebarOpen }">
+          <div v-if="!isMobile" class="sidebar-brand">🍅 PomoSolo</div>
 
-          <!-- 工作/休息模式切换（计划/正向模式隐藏） -->
-          <ModeSwitch v-if="timer.appMode === 'single'" />
+          <!-- 单次模式：时间预设 -->
+          <div v-if="timer.appMode === 'single'" class="single-mode-content">
+            <h2 class="sidebar-title">时间预设</h2>
+            <Presets />
+          </div>
 
-          <div class="timer-container">
-            <!-- 备注（在计时器圆圈上方） -->
-            <NoteManager v-model="note" :disabled="timer.isRunning" />
-
-            <TimerProgress />
-            <div class="timer-inner">
-              <Timer />
+          <!-- 计划模式：任务列表 -->
+          <div v-else-if="timer.appMode === 'plan'" class="plan-mode-content">
+            <h2 class="sidebar-title">番茄计划</h2>
+            <div class="plan-list scrollable">
+              <div
+                v-for="(item, idx) in planList"
+                :key="item.id"
+                class="plan-item"
+                :class="[item.type, { active: idx === planCurrentIndex, disabled: planRunning }]"
+              >
+                <span class="plan-item__icon">{{ item.type === "work" ? "🍅" : "☕" }}</span>
+                <span class="plan-item__time">{{ item.minutes }}min</span>
+                <button
+                  v-if="!planRunning && planList.length > 1"
+                  class="plan-item__delete"
+                  @click="planDeleteItem(idx)"
+                >×</button>
+              </div>
+              <p v-if="planList.length === 0" class="plan-empty-hint">点击下方按钮添加计划</p>
+            </div>
+            <div class="plan-add-buttons">
+              <button class="btn-add-plan btn-add-work" @click="planAddItem(25, 'work')">+ 工作</button>
+              <button class="btn-add-plan btn-add-break" @click="planAddItem(5, 'break')">+ 休息</button>
             </div>
           </div>
 
-          <div class="buttons">
-            <button class="btn btn-start" @click="onToggleClick">
-              {{ timer.isRunning ? "暂停" : "开始" }}
-            </button>
-            <button class="btn btn-reset" @click="onResetClick">重置</button>
+          <!-- 正向计时模式：说明 -->
+          <div v-else class="stopwatch-mode-content">
+            <h2 class="sidebar-title">正向计时</h2>
+            <div class="stopwatch-description">
+              <p>从零开始累计</p>
+              <p>适合不确定时长的任务</p>
+              <p>💡 超过1分钟才会计入统计</p>
+            </div>
           </div>
 
-          <p class="status">
-            {{
-              timer.phase === "running"
-                ? displayMode === "work"
-                  ? "专注中..."
-                  : "休息中..."
-                : timer.appMode === "plan"
-                  ? "准备开始计划"
-                  : "准备开始专注工作"
-            }}
-          </p>
-        </div>
+          <!-- 统计信息（保留侧栏计数，砍统计/图表面板） -->
+          <div class="sidebar-stats">
+            <div class="stat-item">
+              <span class="stat-label">今日完成</span>
+              <span class="stat-value">{{ timer.todayCount }}</span>
+              <span class="stat-unit">个</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">累计专注</span>
+              <span class="stat-value">{{ timer.totalMinutes }}</span>
+              <span class="stat-unit">分钟</span>
+            </div>
+          </div>
+        </aside>
 
-        <!-- 音乐播放器（绝对定位在 main-content 底部） -->
-        <MusicPlayer />
+        <!-- 右侧主区域 -->
+        <main class="main" :class="{ 'mode-animating': modeAnimating }">
+          <!-- 功能按钮列（桌面版；手机版在顶栏） -->
+          <HeaderButtons
+            v-if="!isMobile"
+            @tutorial="showTutorial = true"
+            @settings="showSettings = true"
+            @theme="settings.toggleTheme()"
+            @stats="showStatsNoop"
+            @ai="showStatsNoop"
+            @study-room="showStudyRoom = true"
+            @garden="showStatsNoop"
+            @auth="showAuth = true"
+            @charts="showStatsNoop"
+          />
+
+          <div class="timer-section">
+            <h1 class="title">🍅 番茄钟</h1>
+
+            <!-- 工作/休息模式切换（计划/正向模式隐藏） -->
+            <ModeSwitch v-if="timer.appMode === 'single'" />
+
+            <div class="timer-container">
+              <!-- 备注（在计时器圆圈上方） -->
+              <NoteManager v-model="note" :disabled="timer.isRunning" />
+
+              <TimerProgress />
+              <div class="timer-inner">
+                <Timer />
+              </div>
+            </div>
+
+            <div class="buttons">
+              <button class="btn btn-start" @click="onToggleClick">
+                {{ timer.isRunning ? "暂停" : "开始" }}
+              </button>
+              <button class="btn btn-reset" @click="onResetClick">重置</button>
+            </div>
+
+            <p class="status">
+              {{
+                timer.phase === "running"
+                  ? displayMode === "work"
+                    ? "专注中..."
+                    : "休息中..."
+                  : timer.appMode === "plan"
+                    ? "准备开始计划"
+                    : "准备开始专注工作"
+              }}
+            </p>
+          </div>
+
+          <!-- 音乐播放器（绝对定位在 main 底部居中） -->
+          <MusicPlayer />
+        </main>
       </div>
+
+      <!-- 手机抽屉遮罩 -->
+      <div
+        v-if="isMobile && mobileSidebarOpen"
+        class="drawer-backdrop"
+        @click="closeMobileSidebar"
+      />
 
       <!-- 浮层面板 -->
       <SettingsPanel
@@ -442,14 +457,12 @@ watch(
       <AuthPanel :visible="showAuth" @update:visible="showAuth = $event" />
       <StudyRoom :visible="showStudyRoom" @update:visible="showStudyRoom = $event" />
       <TutorialModal :visible="showTutorial" @close="showTutorial = false" />
-        </div>
-      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* ============ 外层容器 - 全视口舞台 ============ */
+/* ============ 外层容器 - 全视口 ============ */
 .window-frame {
   position: fixed;
   inset: 0;
@@ -457,41 +470,16 @@ watch(
   background: #141414;
 }
 
-/* ============ 整壳缩放（响应式核心） ============
-   设计基准 560×640：大屏等比放大（上限 1.5×）居中呈现"应用窗口"；
-   小屏等比缩小（下限 0.6×）。transform 使内部 position:fixed 浮层
-   （设置/自习室/登录/教程弹层）以应用窗口为基准，行为与桌面端一致。 */
-.scale-stage {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.scale-box {
-  width: 560px;
-  height: 640px;
-  transform: scale(var(--pwa-scale, 1));
-  transform-origin: center;
-  border-radius: 18px;
-  overflow: hidden;
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-/* ============ 内层容器 - 实际背景 ============ */
+/* ============ 内层容器 - 实际背景（复用组件 .app-modal-overlay 的定位锚点） ============ */
 .container {
-  width: 100%;
-  height: 100%;
+  position: fixed;
+  inset: 0;
   overflow: hidden;
   background: linear-gradient(
     135deg,
     var(--container-gradient-start),
     var(--container-gradient-end)
   );
-  display: flex;
-  position: relative;
 }
 
 .container.break-mode {
@@ -506,47 +494,46 @@ watch(
   background: linear-gradient(135deg, rgba(102, 126, 234, 0.88) 0%, rgba(118, 75, 162, 0.78) 100%);
 }
 
-/* ============ 左侧边栏 ============ */
+/* ============ 主体：侧边栏 + 主区域 ============ */
+.app-body {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+
+/* ============ 左侧边栏（桌面常驻，流式宽度；手机为抽屉） ============ */
 .sidebar {
-  width: 160px;
+  width: clamp(170px, 17vw, 250px);
   height: 100%;
   background: transparent;
   display: flex;
   flex-direction: column;
-  padding: 38px 12px 15px 12px;
-  border-right: 1px solid var(--sidebar-border, rgba(255, 255, 255, 0.15));
+  padding: 44px 14px 16px 14px;
+  border-right: 1px solid var(--sidebar-border, var(--shell-border));
   flex-shrink: 0;
   overflow: hidden;
-  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-              padding 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.2s ease;
+  z-index: var(--z-content);
 }
 
-.container.sidebar-collapsed .sidebar {
-  width: 0;
-  padding-left: 0;
-  padding-right: 0;
-  border-right: none;
-  opacity: 0;
-}
-
-.container.sidebar-collapsed :deep(.mode-slider-container) {
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-160px);
-}
-
-.container:not(.break-mode) {
+.container:not(.break-mode) .sidebar {
   --sidebar-border: var(--sidebar-border-work);
 }
-
-.container.break-mode {
+.container.break-mode .sidebar {
   --sidebar-border: var(--sidebar-border-break);
 }
 
+.sidebar-brand {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--shell-text-primary);
+  margin-bottom: 12px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
+}
+
 .sidebar-title {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+  color: var(--shell-text-secondary);
   font-weight: 600;
   margin-bottom: 10px;
   text-align: center;
@@ -556,7 +543,7 @@ watch(
 
 .plan-empty-hint {
   text-align: center;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--shell-text-muted);
   font-size: 12px;
   padding: 20px 0;
 }
@@ -582,11 +569,11 @@ watch(
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: 9px 10px;
+  border-radius: var(--shell-radius-sm);
   margin-bottom: 4px;
   font-size: 12px;
-  color: #fff;
+  color: var(--shell-text-primary);
   transition: all 0.2s ease;
 }
 
@@ -618,12 +605,12 @@ watch(
 }
 
 .plan-item__delete {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.1);
   border: none;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--shell-text-muted);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -645,9 +632,9 @@ watch(
 
 .btn-add-plan {
   flex: 1;
-  padding: 6px 0;
+  padding: 8px 0;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--shell-radius-sm);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -674,10 +661,10 @@ watch(
 
 .stopwatch-description {
   padding: 20px 5px;
-  color: rgba(255, 255, 255, 0.95);
+  color: var(--shell-text-primary);
   text-align: center;
   line-height: 2;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .stopwatch-description p {
@@ -689,11 +676,11 @@ watch(
 .stopwatch-description p:last-child {
   margin-top: 18px;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--shell-text-secondary);
   line-height: 1.6;
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
+  background: var(--shell-surface);
+  border-radius: var(--shell-radius-sm);
   border-left: 3px solid rgba(255, 255, 255, 0.4);
   font-weight: 500;
 }
@@ -705,7 +692,7 @@ watch(
   flex-direction: column;
   gap: 6px;
   padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  border-top: 1px solid var(--shell-border);
   flex-shrink: 0;
 }
 
@@ -717,28 +704,27 @@ watch(
 }
 
 .stat-label {
-  color: rgba(255, 255, 255, 0.7);
+  color: var(--shell-text-secondary);
   flex: 1;
 }
 
 .stat-value {
   font-weight: 600;
-  color: #fff;
+  color: var(--shell-text-primary);
   font-size: 13px;
 }
 
 .stat-unit {
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--shell-text-muted);
 }
 
-/* ============ 右侧主区域 ============ */
-.main-content {
+/* ============ 主区域 ============ */
+.main {
   flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 20px;
-  padding-bottom: 10px;
   position: relative;
   min-width: 0;
 }
@@ -750,91 +736,63 @@ watch(
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 10px;
   min-height: 0;
-  padding-bottom: 120px;
-  transition: padding-bottom 0.15s cubic-bezier(0.5, 0, 0.5, 1) 0s,
-    gap 0.15s cubic-bezier(0.5, 0, 0.5, 1) 0s;
+  padding-bottom: 128px;
+  width: 100%;
 }
 
-.main-content:has(.music-player.collapsed) .timer-section {
-  gap: 18px;
-  padding-bottom: 20px;
-  transition: padding-bottom 0.45s cubic-bezier(0.5, 0, 0.5, 1) 0.3s,
-    gap 0.45s cubic-bezier(0.5, 0, 0.5, 1) 0.3s;
-}
-
-.main-content:has(.music-player.collapsed) .timer-container {
-  width: 220px;
-  height: 220px;
-  transition: width 0.45s cubic-bezier(0.5, 0, 0.5, 1) 0.3s,
-    height 0.45s cubic-bezier(0.5, 0, 0.5, 1) 0.3s;
-}
-
-.main-content:has(.music-player.collapsed) :deep(.progress-ring) {
-  width: 220px;
-  height: 220px;
-  transition: width 0.45s cubic-bezier(0.5, 0, 0.5, 1) 0.3s,
-    height 0.45s cubic-bezier(0.5, 0, 0.5, 1) 0.3s;
+/* 播放器收起时让计时器占据更多空间 */
+.main:has(.music-player.collapsed) .timer-section {
+  padding-bottom: 40px;
 }
 
 .title {
-  font-size: 24px;
-  color: #fff;
+  font-size: clamp(20px, 3.5vmin, 26px);
+  color: var(--shell-text-primary);
   font-weight: 600;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-/* ============ 计时器圆环容器 ============ */
+/* ============ 计时器圆环容器（尺寸由容器控制，进度环 SVG 自适应填充） ============ */
 .timer-container {
-  width: 200px;
-  height: 200px;
+  width: clamp(220px, 30vmin, 330px);
+  height: clamp(220px, 30vmin, 330px);
   border-radius: 50%;
   display: flex;
   justify-content: center;
   align-items: center;
   position: relative;
-  transition: width 0.15s cubic-bezier(0.5, 0, 0.5, 1) 0s,
-    height 0.15s cubic-bezier(0.5, 0, 0.5, 1) 0s;
+}
+
+.timer-container :deep(.progress-ring) {
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .timer-inner {
-  width: 165px;
-  height: 165px;
+  position: absolute;
+  inset: 18px;
   border-radius: 50%;
-  background: linear-gradient(
-    145deg,
-    rgba(255, 255, 255, 0.08),
-    rgba(255, 255, 255, 0.03)
-  );
+  background: linear-gradient(145deg, var(--shell-surface), rgba(255, 255, 255, 0.03));
   display: flex;
   justify-content: center;
   align-items: center;
   box-shadow: inset 0 0 20px rgba(255, 255, 255, 0.08);
   border: 2px solid rgba(255, 255, 255, 0.12);
-  transition: width 0.15s cubic-bezier(0.5, 0, 0.5, 1) 0s,
-    height 0.15s cubic-bezier(0.5, 0, 0.5, 1) 0s;
 }
 
-.main-content:has(.music-player.collapsed) .timer-inner {
-  width: 182px;
-  height: 182px;
-  transition: width 0.45s cubic-bezier(0.5, 0, 0.5, 1) 0.3s,
-    height 0.45s cubic-bezier(0.5, 0, 0.5, 1) 0.3s;
-}
-
-/* ============ 按钮 ============ */
+/* ============ 按钮（触摸友好 ≥44px） ============ */
 .buttons {
   display: flex;
-  gap: 12px;
+  gap: 14px;
 }
 
 .btn {
-  width: 70px;
-  height: 36px;
+  height: 46px;
   border: none;
-  border-radius: 18px;
-  font-size: 13px;
+  border-radius: 23px;
+  font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.3s ease;
@@ -844,14 +802,10 @@ watch(
 }
 
 .btn-start {
-  background: linear-gradient(
-    145deg,
-    rgba(255, 255, 255, 0.3),
-    rgba(255, 255, 255, 0.2)
-  );
-  color: white;
+  width: clamp(110px, 14vw, 150px);
+  background: linear-gradient(145deg, var(--shell-surface-strong), var(--shell-surface));
+  color: #fff;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-  width: 90px;
 }
 
 .btn-start:hover {
@@ -864,24 +818,25 @@ watch(
 }
 
 .btn-reset {
-  background: rgba(255, 255, 255, 0.15);
+  width: clamp(80px, 9vw, 110px);
+  background: var(--shell-btn-bg);
   color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid var(--shell-btn-border);
 }
 
 .btn-reset:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: var(--shell-btn-bg-hover);
   transform: translateY(-2px);
 }
 
 /* ============ 状态文本 ============ */
 .status {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--shell-text-secondary);
 }
 
 /* ============ 模式切换动画 ============ */
-.main-content.mode-animating .timer-section {
+.main.mode-animating .timer-section {
   animation: modeSwitchFade 0.32s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -895,12 +850,137 @@ watch(
     transform: translateY(0);
   }
 }
+
+/* ============================================================
+   手机端（<560px）：顶栏 + 抽屉侧栏 + 触摸优先
+   ============================================================ */
+@media (max-width: 559px) {
+  /* 顶栏 */
+  .app-topbar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--shell-header-h);
+    display: flex;
+    align-items: center;
+    z-index: var(--z-header-btn);
+    background: rgba(0, 0, 0, 0.14);
+  }
+
+  .hamburger {
+    width: 40px;
+    height: 40px;
+    margin-left: 6px;
+    border-radius: 12px;
+    background: var(--shell-btn-bg);
+    border: 1px solid var(--shell-btn-border);
+    color: var(--shell-text-primary);
+    font-size: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: var(--z-header-btn);
+  }
+
+  .hamburger.open {
+    background: var(--shell-btn-bg-hover);
+  }
+
+  .app-topbar :deep(.mode-slider-container) {
+    left: 50px;
+    top: 16px;
+  }
+
+  .app-topbar :deep(.header-buttons) {
+    top: 6px;
+    left: auto;
+    right: 6px;
+  }
+
+  /* 主区域占满，顶栏下方留白 */
+  .app-body {
+    padding-top: var(--shell-header-h);
+  }
+
+  .main {
+    padding: 14px;
+    padding-bottom: 8px;
+  }
+
+  /* 侧边栏 → 抽屉 */
+  .sidebar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: min(78vw, 280px);
+    padding: 18px 14px 20px 14px;
+    background: var(--shell-drawer-bg);
+    border-right: 1px solid var(--shell-border);
+    transform: translateX(-105%);
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: var(--z-modal);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
+  }
+
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+  }
+
+  .drawer-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: calc(var(--z-modal) - 1);
+  }
+
+  /* 计时器与按钮加大（触摸优先） */
+  .timer-container {
+    width: min(56vw, 250px);
+    height: min(56vw, 250px);
+  }
+
+  .timer-section {
+    gap: 14px;
+    padding-bottom: 136px;
+  }
+
+  .main:has(.music-player.collapsed) .timer-section {
+    padding-bottom: 30px;
+  }
+
+  .btn {
+    height: 52px;
+    border-radius: 26px;
+    font-size: 16px;
+  }
+
+  .btn-start {
+    width: min(56vw, 210px);
+  }
+
+  .btn-reset {
+    width: min(26vw, 110px);
+  }
+
+  .title {
+    font-size: 20px;
+  }
+}
+
+/* ============ 手机顶栏 HeaderButtons 在非顶栏场景的兜底 ============ */
+@media (min-width: 560px) and (max-width: 719px) {
+  .main :deep(.header-buttons) {
+    top: 8px;
+  }
+}
 </style>
 
 <style>
 /* PWA 页面级背景（浏览器场景，非桌面透明窗口） */
 html,
 body {
-  background: #1a1a1a;
+  background: #141414;
 }
 </style>

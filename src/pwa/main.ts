@@ -12,6 +12,7 @@ import { createApp } from "vue";
 import { createPinia } from "pinia";
 import App from "./App.vue";
 import "../styles/global.css";
+import "./styles.css";
 import { LS_PREFIX } from "./config";
 
 // ===== 开机自检：预置 PWA 默认设置（砍去功能的按钮默认关闭，避免闪出空按钮） =====

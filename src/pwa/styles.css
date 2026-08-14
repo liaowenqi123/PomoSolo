@@ -1,0 +1,82 @@
+/**
+ * PWA 覆盖层：复用组件在 PWA 中的尺寸/交互适配
+ *
+ * 原则：
+ * - 颜色/圆角一律引用 `src/styles/global.css` 的共享 token（--shell-* / --accent 等），
+ *   改色只改 global.css 一处，桌面端与 PWA 两端生效；
+ * - 因组件样式是 scoped（带 data 属性、特异性更高），本文件用 !important 覆盖；
+ * - 只调整尺寸/间距/触摸目标，不改变组件行为与结构 —— 复用组件的逻辑零改动。
+ *
+ * 部门：PWA部门 —— 2026-08 PWA 第一版
+ */
+
+/* ===== 大屏（≥720px）：流式放大，不再稀疏 ===== */
+@media (min-width: 720px) {
+  .music-player {
+    max-width: min(360px, 42vw) !important;
+  }
+  .btn-header {
+    width: 30px !important;
+    height: 30px !important;
+    font-size: 15px !important;
+  }
+}
+
+/* ===== 手机（<560px）：触摸优先 HCI ===== */
+@media (max-width: 559px) {
+  /* 顶栏功能按钮：26px → 38px（≥44 触摸目标的一半以上，配合间距） */
+  .btn-header {
+    width: 38px !important;
+    height: 38px !important;
+    font-size: 17px !important;
+  }
+  .header-buttons,
+  .header-buttons-hidden {
+    gap: 8px !important;
+  }
+
+  /* 备注输入：加宽加高，便于点按 */
+  .note-manager {
+    width: min(58vw, 210px) !important;
+    max-width: min(58vw, 210px) !important;
+  }
+  .note-manager__input {
+    height: 36px !important;
+    font-size: 13px !important;
+  }
+
+  /* 播放器：贴底 + 安全区 + 更宽；控制按钮加大 */
+  .music-player {
+    max-width: min(94vw, 360px) !important;
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .music-btn {
+    width: 40px !important;
+    height: 40px !important;
+  }
+  .music-btn--play {
+    width: 44px !important;
+    height: 44px !important;
+  }
+
+  /* 设置面板：更宽（94vw），减少左右留白 */
+  .settings-panel {
+    width: 94vw !important;
+    max-width: 94vw !important;
+  }
+
+  /* 预设列表：触摸友好的行高 */
+  .preset-item {
+    padding: 12px 12px !important;
+  }
+  .preset-add-btn {
+    width: 40px !important;
+    height: 40px !important;
+    font-size: 20px !important;
+  }
+
+  /* 工作/休息切换：加大 */
+  .mode-btn {
+    padding: 10px 16px !important;
+  }
+}

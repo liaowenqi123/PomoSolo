@@ -52,6 +52,26 @@
   --z-modal: 3000;
   --z-modal-upper: 3100;
   --z-modal-top: 3200;
+
+  /* ============ PWA 外壳共享 token（改色只改这里，桌面端/PWA 两端生效） ============
+     桌面端 App.vue 与组件使用本文件上方的既有变量（渐变/边框/z-index）；
+     PWA 外壳（src/pwa/App.vue）与其覆盖样式（src/pwa/styles.css）统一引用以下 token，
+     因此改色/改圆角/改触摸尺寸只需改 global.css 一处。 */
+  --shell-text-primary: rgba(255, 255, 255, 0.96);
+  --shell-text-secondary: rgba(255, 255, 255, 0.78);
+  --shell-text-muted: rgba(255, 255, 255, 0.55);
+  --shell-surface: rgba(255, 255, 255, 0.12);
+  --shell-surface-strong: rgba(255, 255, 255, 0.22);
+  --shell-border: rgba(255, 255, 255, 0.22);
+  --shell-btn-bg: rgba(255, 255, 255, 0.16);
+  --shell-btn-bg-hover: rgba(255, 255, 255, 0.3);
+  --shell-btn-border: rgba(255, 255, 255, 0.32);
+  --shell-drawer-bg: rgba(22, 22, 28, 0.88);
+  --shell-radius-sm: 10px;
+  --shell-radius-md: 14px;
+  --shell-radius-lg: 20px;
+  --shell-touch-min: 44px;
+  --shell-header-h: 52px;
 }
 
 /* 深色模式变量 */
