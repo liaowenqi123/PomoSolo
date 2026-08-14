@@ -10,15 +10,103 @@
  * 部门：PWA部门 —— 2026-08 PWA 第一版
  */
 
-/* ===== 大屏（≥720px）：流式放大，不再稀疏 ===== */
+/* ===== 中屏（≥720px）：基础流式放大 ===== */
 @media (min-width: 720px) {
   .music-player {
-    max-width: min(360px, 42vw) !important;
+    max-width: min(380px, 42vw) !important;
   }
   .btn-header {
     width: 30px !important;
     height: 30px !important;
     font-size: 15px !important;
+  }
+}
+
+/* ===== 大屏（≥1200px 宽）：内容放大一档，播放器可右移填充横屏右侧 ===== */
+@media (min-width: 1200px) {
+  .music-player {
+    max-width: min(540px, 40vw) !important;
+  }
+  .time-display {
+    font-size: clamp(52px, 6.5vmin, 74px) !important;
+  }
+  .btn-header {
+    width: 36px !important;
+    height: 36px !important;
+    font-size: 17px !important;
+  }
+  .note-manager__input {
+    height: 32px !important;
+    font-size: 12px !important;
+  }
+  .preset-item {
+    padding: 10px 12px !important;
+  }
+  .btn-add-preset {
+    width: 38px !important;
+    height: 38px !important;
+    font-size: 19px !important;
+  }
+  .mode-btn {
+    padding: 8px 15px !important;
+  }
+}
+
+/* ===== 超宽（≥1400px）：播放器停靠主区域右下，填补右侧空白 ===== */
+@media (min-width: 1400px) {
+  .music-player {
+    left: auto !important;
+    right: 28px !important;
+    transform: none !important;
+    max-width: min(560px, 32vw) !important;
+  }
+}
+
+/* ===== 4K / 高分辨率（≥1920px 宽 且 ≥1200px 高）：再上档 ===== */
+@media (min-width: 1920px) and (min-height: 1200px) {
+  .music-player {
+    right: 40px !important;
+    max-width: min(620px, 30vw) !important;
+  }
+  .time-display {
+    font-size: clamp(64px, 6vmin, 92px) !important;
+  }
+  .btn-header {
+    width: 44px !important;
+    height: 44px !important;
+    font-size: 20px !important;
+  }
+  .header-buttons,
+  .header-buttons-hidden {
+    gap: 8px !important;
+  }
+  .note-manager {
+    width: min(30vw, 280px) !important;
+    max-width: min(30vw, 280px) !important;
+  }
+  .note-manager__input {
+    height: 42px !important;
+    font-size: 15px !important;
+  }
+  .music-btn {
+    width: 48px !important;
+    height: 48px !important;
+  }
+  .music-btn--play {
+    width: 58px !important;
+    height: 58px !important;
+  }
+  .preset-item {
+    padding: 14px 16px !important;
+  }
+  .btn-add-preset {
+    width: 46px !important;
+    height: 46px !important;
+    font-size: 23px !important;
+  }
+  .mode-btn {
+    padding: 12px 18px !important;
+    font-size: 14px !important;
   }
 }
 
@@ -69,7 +157,7 @@
   .preset-item {
     padding: 12px 12px !important;
   }
-  .preset-add-btn {
+  .btn-add-preset {
     width: 40px !important;
     height: 40px !important;
     font-size: 20px !important;

@@ -494,11 +494,39 @@ watch(
   background: linear-gradient(135deg, rgba(102, 126, 234, 0.88) 0%, rgba(118, 75, 162, 0.78) 100%);
 }
 
+/* ============ 大屏氛围光（填充两侧留白，避免"右侧太空"） ============ */
+.container::before,
+.container::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.container::before {
+  width: 70vmin;
+  height: 70vmin;
+  left: -18vmin;
+  top: -18vmin;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.16), transparent 62%);
+}
+
+.container::after {
+  width: 80vmin;
+  height: 80vmin;
+  right: -22vmin;
+  bottom: -22vmin;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.12), transparent 62%);
+}
+
 /* ============ 主体：侧边栏 + 主区域 ============ */
 .app-body {
   position: absolute;
   inset: 0;
   display: flex;
+  z-index: 1;
 }
 
 /* ============ 左侧边栏（桌面常驻，流式宽度；手机为抽屉） ============ */
@@ -848,6 +876,91 @@ watch(
   100% {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* ============================================================
+   大屏（≥1200px 宽）：整块居中限宽 + 尺寸上档，避免横屏"右侧太空"
+   ============================================================ */
+@media (min-width: 1200px) {
+  .app-body {
+    max-width: clamp(1100px, 86vw, 1560px);
+    margin: 0 auto;
+  }
+
+  .sidebar {
+    width: clamp(210px, 13vw, 300px);
+  }
+
+  .timer-container {
+    width: clamp(280px, 30vmin, 400px);
+    height: clamp(280px, 30vmin, 400px);
+  }
+
+  .timer-section {
+    gap: 14px;
+  }
+
+  .title {
+    font-size: clamp(26px, 2vw, 32px);
+  }
+
+  .btn {
+    height: 56px;
+    border-radius: 28px;
+    font-size: 17px;
+  }
+
+  .btn-start {
+    width: clamp(150px, 10vw, 200px);
+  }
+
+  .btn-reset {
+    width: clamp(100px, 6vw, 130px);
+  }
+}
+
+/* ============================================================
+   4K / 高分辨率（≥1920px 宽 且 ≥1200px 高）：再上档，按钮更大
+   ============================================================ */
+@media (min-width: 1920px) and (min-height: 1200px) {
+  .app-body {
+    max-width: clamp(1300px, 80vw, 1760px);
+  }
+
+  .sidebar {
+    width: clamp(240px, 12vw, 320px);
+  }
+
+  .timer-container {
+    width: clamp(340px, 28vmin, 460px);
+    height: clamp(340px, 28vmin, 460px);
+  }
+
+  .timer-section {
+    gap: 18px;
+  }
+
+  .title {
+    font-size: clamp(30px, 1.8vw, 38px);
+  }
+
+  .btn {
+    height: 64px;
+    border-radius: 32px;
+    font-size: 19px;
+  }
+
+  .btn-start {
+    width: clamp(180px, 9vw, 240px);
+  }
+
+  .btn-reset {
+    width: clamp(120px, 5vw, 150px);
+  }
+
+  .status {
+    font-size: 14px;
   }
 }
 
