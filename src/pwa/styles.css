@@ -35,13 +35,6 @@
   font-size: 14px !important;
 }
 
-/* ===== 桌面（≥560px）：播放器与计时器同轴 —— 抵消侧栏宽度一半，落在屏幕中心 ===== */
-@media (min-width: 560px) {
-  .music-player {
-    left: calc(50% - var(--sidebar-w, 0px) / 2) !important;
-  }
-}
-
 /* ===== 中屏（≥720px）：基础流式放大 ===== */
 @media (min-width: 720px) {
   .music-player {

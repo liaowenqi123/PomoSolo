@@ -511,19 +511,17 @@ watch(
 }
 
 /* ============ 主体：侧边栏 + 主区域 ============
-   侧栏贴最左（不居中限宽，避免"左侧空出一块"）；
-   --sidebar-w 供计时区/播放器做屏幕居中补偿（内容以屏幕中心为基准）。 */
+   侧栏贴最左；主区域内内容（计时/播放器）自行居中，同轴排列。 */
 .app-body {
   position: absolute;
   inset: 0;
   display: flex;
   z-index: 1;
-  --sidebar-w: clamp(170px, 17vw, 250px);
 }
 
 /* ============ 左侧边栏（桌面常驻，流式宽度；手机为抽屉） ============ */
 .sidebar {
-  width: var(--sidebar-w);
+  width: clamp(170px, 17vw, 250px);
   height: 100%;
   background: transparent;
   display: flex;
@@ -768,10 +766,8 @@ watch(
   min-height: 0;
   padding-bottom: 128px;
   width: 100%;
-  /* 屏幕居中补偿：抵消左侧栏宽度的一半，让计时器落在屏幕正中心
-     （与侧栏贴左相配合，避免整体偏右/左侧空块） */
-  --timer-shift: calc(var(--sidebar-w) / -2);
-  transform: translateX(var(--timer-shift));
+  /* 内容在主区域（右侧）内居中：圆环/按钮/播放器同一竖轴；
+     不做"屏幕中心"补偿——正方形/瘦窗口下补偿反而把内容推左、右侧露空档 */
 }
 
 /* 播放器收起时让计时器占据更多空间 */
@@ -875,10 +871,12 @@ watch(
 
 @keyframes modeSwitchFade {
   0% {
-    transform: translateX(var(--timer-shift, 0px)) translateY(8px);
+    opacity: 0;
+    transform: translateY(8px);
   }
   100% {
-    transform: translateX(var(--timer-shift, 0px)) translateY(0);
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -886,8 +884,8 @@ watch(
    大屏（≥1200px 宽）：整块居中限宽 + 尺寸上档，避免横屏"右侧太空"
    ============================================================ */
 @media (min-width: 1200px) {
-  .app-body {
-    --sidebar-w: clamp(210px, 13vw, 300px);
+  .sidebar {
+    width: clamp(210px, 13vw, 300px);
   }
 
   .sidebar-brand {
@@ -934,8 +932,8 @@ watch(
    4K / 高分辨率（≥1920px 宽 且 ≥1200px 高）：再上档，按钮更大
    ============================================================ */
 @media (min-width: 1920px) and (min-height: 1200px) {
-  .app-body {
-    --sidebar-w: clamp(240px, 12vw, 320px);
+  .sidebar {
+    width: clamp(240px, 12vw, 320px);
   }
 
   .sidebar-brand {
@@ -1073,9 +1071,6 @@ watch(
   .timer-section {
     gap: 14px;
     padding-bottom: 136px;
-    /* 手机：侧栏是抽屉（不在流内），无需屏幕居中补偿 */
-    --timer-shift: 0px;
-    transform: translateX(0);
   }
 
   .main:has(.music-player.collapsed) .timer-section {
