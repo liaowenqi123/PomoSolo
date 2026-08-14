@@ -510,17 +510,20 @@ watch(
   background: radial-gradient(circle, rgba(255, 255, 255, 0.12), transparent 62%);
 }
 
-/* ============ 主体：侧边栏 + 主区域 ============ */
+/* ============ 主体：侧边栏 + 主区域 ============
+   侧栏贴最左（不居中限宽，避免"左侧空出一块"）；
+   --sidebar-w 供计时区/播放器做屏幕居中补偿（内容以屏幕中心为基准）。 */
 .app-body {
   position: absolute;
   inset: 0;
   display: flex;
   z-index: 1;
+  --sidebar-w: clamp(170px, 17vw, 250px);
 }
 
 /* ============ 左侧边栏（桌面常驻，流式宽度；手机为抽屉） ============ */
 .sidebar {
-  width: clamp(170px, 17vw, 250px);
+  width: var(--sidebar-w);
   height: 100%;
   background: transparent;
   display: flex;
@@ -765,6 +768,10 @@ watch(
   min-height: 0;
   padding-bottom: 128px;
   width: 100%;
+  /* 屏幕居中补偿：抵消左侧栏宽度的一半，让计时器落在屏幕正中心
+     （与侧栏贴左相配合，避免整体偏右/左侧空块） */
+  --timer-shift: calc(var(--sidebar-w) / -2);
+  transform: translateX(var(--timer-shift));
 }
 
 /* 播放器收起时让计时器占据更多空间 */
@@ -868,12 +875,10 @@ watch(
 
 @keyframes modeSwitchFade {
   0% {
-    opacity: 0;
-    transform: translateY(8px);
+    transform: translateX(var(--timer-shift, 0px)) translateY(8px);
   }
   100% {
-    opacity: 1;
-    transform: translateY(0);
+    transform: translateX(var(--timer-shift, 0px)) translateY(0);
   }
 }
 
@@ -882,12 +887,7 @@ watch(
    ============================================================ */
 @media (min-width: 1200px) {
   .app-body {
-    max-width: clamp(1100px, 86vw, 1560px);
-    margin: 0 auto;
-  }
-
-  .sidebar {
-    width: clamp(210px, 13vw, 300px);
+    --sidebar-w: clamp(210px, 13vw, 300px);
   }
 
   .sidebar-brand {
@@ -899,8 +899,8 @@ watch(
   }
 
   .timer-container {
-    width: clamp(280px, 30vmin, 400px);
-    height: clamp(280px, 30vmin, 400px);
+    width: clamp(300px, 34vmin, 420px);
+    height: clamp(300px, 34vmin, 420px);
   }
 
   .timer-section {
@@ -935,11 +935,7 @@ watch(
    ============================================================ */
 @media (min-width: 1920px) and (min-height: 1200px) {
   .app-body {
-    max-width: clamp(1300px, 80vw, 1760px);
-  }
-
-  .sidebar {
-    width: clamp(240px, 12vw, 320px);
+    --sidebar-w: clamp(240px, 12vw, 320px);
   }
 
   .sidebar-brand {
@@ -1077,6 +1073,9 @@ watch(
   .timer-section {
     gap: 14px;
     padding-bottom: 136px;
+    /* 手机：侧栏是抽屉（不在流内），无需屏幕居中补偿 */
+    --timer-shift: 0px;
+    transform: translateX(0);
   }
 
   .main:has(.music-player.collapsed) .timer-section {
