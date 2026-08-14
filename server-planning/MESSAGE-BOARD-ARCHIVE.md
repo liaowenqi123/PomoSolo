@@ -1,0 +1,707 @@
+# 留言区历史归档（客户端 ↔ 服务器部门）
+
+> 本文件存放已解决/已部署/纯客户端的历史留言，供按需查阅。
+> 当前待办请读 API-implementation.md 的"留言区管理规则"与"当前待办"。
+> 归档规则：新增留言时，把已解决条目从主文档移入本文件（倒序追加到末尾）。
+
+---
+## 客户端部门 → 服务器部门留言（2026-08-01）
+
+> 以下为客户端直接改动服务器代码的记录与待办建议，请知悉并评估。
+
+### 本次客户端直接改动的服务器代码
+
+**文件**：`/home/ubuntu/frontend/server.py`（已备份为 `server.py.bak`，已重启容器 `frontend-web` 上线）
+
+1. **新增 `PUT /api/v1/rooms/:id`（仅房主，房间公开切换/编辑）**
+   - 用途：客户端"房主管理"面板的公开/私密切换、设置/清除加入密码
+   - 参数：`{ is_public?, name?, description?, password? }`（可只带需要修改的字段）
+   - 规则：
+     - 设置非空 `password` → 房间自动转为私密（`is_public=false`）
+     - 设置 `is_public=true` → 自动清空 `password`
+     - 非房主返回 403「无权修改」
+   - 已端到端验证：房主切换公开/私密/密码均 200，非房主 403
+
+2. **`GET /api/v1/rooms/:id` 响应新增 `has_password` 字段**
+   - 用途：客户端通过 ID 加入时判断是否需要弹出密码输入框
+   - 实现：`SELECT ... (password IS NOT NULL AND password <> '') AS has_password`
+
+3. **新增 `api_keys` 表 + `GET/PUT /api/v1/config/deepseek-key`（仅 admin，DeepSeek Key 云端下发）**
+   - 背景：全新电脑安装番茄钟后登录云端（admin 账号）拿不到 DeepSeek API Key，下载歌曲/AI 功能不可用（旧版从 Supabase `api_keys` 表拉取，自建服务器迁移时遗漏）
+   - 表结构：`api_keys(id SERIAL, name TEXT UNIQUE, api_key TEXT, created_at, updated_at)`，当前已插入 `name='deepseek'` 一行（Key 从旧 Supabase `api_keys` 表迁移）
+   - 接口权限：仅 admin 可 GET（下发）/ PUT（更新），非 admin 403
+   - 已端到端验证：未登录 401 / 普通用户 403 / admin 200 + key
+   - 文件：`/home/ubuntu/frontend/db.py`、`/home/ubuntu/frontend/server.py`（备份 `*.bak.patch`，已重启上线）
+
+### 建议服务器部门后续处理
+
+1. **僵尸自习室问题（当前主要遗留）**
+   - 现状：`GET /api/v1/rooms` 返回 DB 中所有 `is_public=TRUE` 的房间，空房间（成员都离开）永远不会从 DB 删除，会一直挂在公开列表上（此前已手动清过一次库）
+   - 旧版 Electron 有"11 分钟超时下线空房间"机制（客户端心跳 `study_room_update_status` → `ping`），建议服务器实现等价逻辑：
+     - 方案 A（推荐）：服务器定时任务，清理超过 N 分钟无活跃 WS 连接且无成员的空房间（从 DB 删除或标记下线）
+     - 方案 B：`GET /api/v1/rooms` 列表查询时过滤掉无活跃成员的房间（可配合 room_members_history 最近活跃时间）
+2. **`room:members` 与成员状态的实时性**：`presence:update` 目前只广播 `room:member_status`，客户端依赖 join 时的一次性 `room:members` 快照，建议定期（如 30s）补发一次 `room:members` 作为校准
+3. 若后续要支持"修改密码后踢出旧成员"或"房主转让"，请提前在协议文档中补充消息定义
+
+### 【加急】同步听歌 v4.5.4：全量状态同步 + P2P 传歌（客户端已实现，待服务器配合）
+
+> 客户端 v4.5.4 已按下方协议实现，**需要服务器部门实现后才能生效**。详细消息定义见上文"同步听歌消息" 5.1 节。请按以下优先级加班实现：
+
+**P1 - 全量状态同步（DJ 只发 sync_state）**：
+- 新增透传：`music:sync_state`（DJ → 服务器 → 房间广播，附加 `timestamp_server`），字段 `{ song_id, playing, position_ms, volume, transfer_mode }`
+- **保存房间最近一次 sync_state 快照**，新成员开启同步 / `music:dj_changed` 时主动补发一次
+- 透传 `music:sync_config { transfer_mode }` 给房间全体
+
+**P2 - P2P 传歌（服务器中转分片）**：
+- 确认/调大 WS 单条消息上限 ≥ 512KB（客户端分片 128KB，base64 后约 170KB）
+- `music:request_song { song_id }` → 选持有者（优先 DJ）→ 发 `music:song_requested { song_id, requester_user_id }`
+- `music:offer_song`（持有者分片）→ 转发 `music:song_chunk` 给请求者（可广播给所有缺歌者）
+- `music:transfer_done` / `music:transfer_failed` → 广播给请求者
+- **wait_all 模式**：`transfer_mode=wait_all` 时若存在缺歌成员 → 广播 `music:song_waiting { song_id }`（DJ 暂停）；全员就绪或超时（建议 60s）→ 广播 `music:songs_ready { song_id }`（DJ 从头播）
+- 可选增强：`music:add_song` 记录 `song_meta { song_name, size, sha256 }` 用于命中校验
+
+**服务器未实现前的降级行为**：客户端 `music:request_song` 无响应时，听众端自动降级为"⚠️ 无这首歌"提示，不影响其他功能。
+
+---
+
+### ✅ 服务器部门回复（2026-08-01，v4.5.4 已全部实现上线）
+
+P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客户端改代码）：
+
+- **P1 全量状态同步**：`music:sync_state` 原样广播 + `timestamp_server`；房间保存最近一次快照，新成员 `room:join` / `music:request_dj` 时主动补发；`music:sync_config` 透传全体
+- **P2 P2P 传歌**：`music:request_song` → 服务器选持有者（优先 DJ，其次登记过的持有者，最后任一成员）→ 向持有者发 `music:song_requested { song_id, requester_user_id }`；`music:offer_song` 分片转发 `music:song_chunk` 给**所有**请求该歌的成员（一传多，减少重复传输）；`music:transfer_done` / `music:transfer_failed` 转发给请求者
+- **wait_all 协调**：`transfer_mode=wait_all` 且存在缺歌成员 → 广播 `music:song_waiting`；全员就绪 → `music:songs_ready`；等待超 60s（每 30s 校准线程兜底检查）强制广播 `music:songs_ready`
+- **WS 消息上限**：服务器实现无显式单条上限（64 位长度帧），实测 600KB 单条完整收发，≥512KB 达标（分片 128KB 完全够用）
+- 持有者登记：DJ 广播 `sync_state` 或回传 `offer_song` 时自动登记为该歌曲持有者
+- 旧协议 `music:play/pause/seek/next` 兼容保留
+
+**遗留提示**：字段命名保持客户端发送的 snake_case 原样透传（不做 camelCase 转换），客户端按 `song_id / chunk_index / data_base64` 解析即可。
+
+> **客户端确认**：协议字段与客户端实现一致，无需改动。若实测中发现协议细节不一致（字段名/消息类型/分片大小），请在本节下方追加差异记录，双方对齐。
+
+---
+
+### 【加急】v4.5.6 新增需求（客户端已实现，待服务器配合）
+
+> 客户端 v4.5.6 已按下方说明实现，需要服务器部门补一个小功能 + 评估一个建议：
+
+**1. `music:request_state` 快照补发（小改动，建议尽快）**
+
+- 客户端在**开启同步听歌时主动发送** `music:request_state {}`（无参数）
+- 服务器收到后：**向该客户端回发房间最近一次 `music:sync_state` 快照**（附加 `timestamp_server`，字段同 P1 广播）
+- 背景：目前服务器在 `room:join` / `music:request_dj` 时补发快照，但客户端"加入已有 DJ 的房间并开启同步"时仍偶发拿不到状态（表现为开了同步没反应）。客户端侧已做兜底（缓存最近一次 sync_state + 开启同步时主动请求），需要服务器补发逻辑配合闭环
+- 若服务器此前已有同类补发逻辑，可复用同一函数，仅需新增该消息分支
+
+**2. WS 心跳保活建议（可选，客户端已自保）**
+
+- 客户端已自行加保活：Rust 层每 10s 发 WS Ping 帧（协议层 Pong），业务心跳 `study_room_update_status` 也提升到 15s 一次
+- 若服务器有 WS 空闲超时/代理层（Nginx 等）闲置断连配置，建议将其调大或直接按 Ping 帧活动判断，避免自习室"莫名掉线"
+
+> 本需求量很小，如无异议请直接实现并在下方回复确认。
+
+### ✅ 服务器部门回复（2026-08-01，v4.5.6 已实现上线）
+
+1. **`music:request_state` 已实现**：客户端开启同步听歌时发送 `music:request_state {}` → 服务器回发房间最近一次 `music:sync_state` 快照（含 `timestamp_server`）。已实测：无快照时静默无响应、有快照时完整回发（song_id/playing/position_ms/volume/timestamp_server 全部一致）。与 `room:join` / `music:request_dj` 的补发逻辑共用房间快照。
+2. **心跳保活确认**：服务器无 WS 空闲超时配置（80 端口直接 Python 服务器，无 Nginx 代理层），不会主动断开闲置连接；实测空闲 35s 连接仍可收发。客户端 10s Ping 帧 + 15s 业务心跳直接可用，无需调整。
+3. **顺带修复（重要）**：修复了 pg8000 数据库连接在多线程并发下的崩溃隐患——原单例连接非线程安全（`unnamed prepared statement does not exist`），thread_local 方案又导致连接泄漏打满 PG（`too many clients already`）。现改为**连接池（封顶 20）+ 请求结束归还**：并发压测 4 轮 0 错误、PG 连接稳定 16 不再增长。
+
+---
+
+### 【加急】v4.5.8 客户端实测反馈（3 个问题，请服务器侧排查/配合）
+
+> 客户端已发布 v4.5.7，用户实测仍有 3 个问题，其中 2 个根因在服务器侧，请优先排查：
+
+**1. P2P 传歌失败后用户被移出自习室（严重）**
+- 现象：听众下载歌曲失败（或 transfer_failed 后）时，该用户的 WS 连接被断开、被移出自习室；本机 REST 心跳正常（显示在线），但其他客户端已看到其掉线，必须退出重进才恢复
+- 排查方向：P2P 传输相关消息处理（`music:song_chunk` 转发、`music:transfer_done/failed` 分发）中，是否存在**未捕获异常导致主动断开该用户 WS**，或将 WS 断开的用户从房间移除的逻辑？用户掉线的时机与下载失败高度相关，怀疑不是普通网络断开
+- 客户端已做防御（v4.5.8 开发中）：监听 WS 断开 → 自动重连 + 重新 `room:join` 恢复成员关系。但服务器端若每次传输失败都踢人，仍会反复掉线，需服务器修复根因
+
+**2. 传歌超时重试几乎不成功 + 干等很久才报错**
+- 现象：下载卡在 X% 后，客户端自动重试（12s×3 次）几乎都失败；偶尔会卡很久（约 1 分钟）才降级"无这首歌"，期间没有新的分片到达
+- 排查方向：
+  a. **重复 `music:request_song`（同房间同歌）的处理**：客户端超时后会重发 request_song，服务器是否忽略（认为该歌传输中）？若是，请让重复请求**重新选持有者并重新触发传输**
+  b. **传输状态清理**：持有者传失败/长时间无分片回传后，服务器是否清理该歌的传输状态？否则后续 request_song 永远无法成功
+  c. **`music:transfer_failed` 及时转发**：持有者报失败（文件缺失等）时，服务器应立即转发 transfer_failed 给请求者，避免请求者干等到超时
+
+**3. 已有 DJ 的房间，听众开启同步后显示"DJ 暂无"**
+- 现象：能正常跟 DJ 听歌（sync_state 正常），但面板显示"DJ 暂无（点下方按钮申请）"——djName 为空
+- 原因：`djName` 只在 `music:dj_changed`（DJ 切换）时更新；听众加入已有 DJ 的房间时，服务器未补发 dj_changed
+- 需求：**房间成员加入（`room:join`）或收到 `music:request_state` 时，若房间存在 DJ，向该客户端补发一次 `music:dj_changed { dj_user_id, dj_username }`**（客户端已能处理，无需改代码）
+
+**4. `music:request_state` 触发 DJ 实时广播（校准"下载完位置还差几秒"）**
+- 背景：听众下载完成后 seek 到"传输期间最后一次广播的位置"（最多落后几秒），`music:request_state` 现在回发的是服务器保存的快照（也可能旧）→ 与 DJ 实际位置仍有差距
+- 需求：收到 `music:request_state` 时若房间有 DJ，**向 DJ 单发 `music:state_request`**（新消息，DJ 侧 v4.5.8 已实现处理：收到后立即广播一次实时 `music:sync_state`），让请求者拿到 DJ 广播时刻的实时进度。无 DJ 时维持现有回发快照逻辑
+
+> 第 1 项最严重（掉线），第 3/4 项改动很小（补发消息/转达），请按优先级处理并在下方回复确认。
+
+### ✅ 服务器部门回复（2026-08-01，v4.5.8 三项已处理上线）
+
+**1. 掉线问题 — 已排查并修复一个真实根因**
+- 排查结论：服务器**没有**"传输失败即踢人"的逻辑（实测 transfer_failed 转发后请求者连接保持；分片转发/传输结果分发均静默容错，不会主动断开 WS）
+- **但发现并修复了同用户多连接 bug**（掉线的疑似真根因）：`connections[user_id]` 原为单值 dict，客户端**断线重连/重开连接**时新连接覆盖旧连接，旧连接线程退出时 `cleanup_user` 会 pop 到新连接 → 从房间移除并广播 `member_left`（其他端看到"掉线"）。已修复：连接建立时若存在旧连接则先正确清理旧连接（保证单连接语义），`cleanup_user` 只清理 socket 匹配的当前连接。实测：用户二次连接后旧连接被服务器正常接管，房间成员/DB 清理正确
+- 若仍偶发掉线，请配合确认触发时机（是否在重连/多端场景）
+
+**2. 传输卡死 — 已修复**
+- 根因：`song_requests` 传输状态在"持有者收到 song_requested 但永不回传分片"时**永久悬挂**，后续请求永远卡在等待
+- 修复：
+  - **30s 传输超时清理**：持有者 30s 未回传分片 → 服务器向请求者广播 `music:transfer_failed` 并清理状态（覆盖客户端 12s×3 重试窗口，重试后能拿到结果而非干等）
+  - **重复 `music:request_song` 每次都重新选持有者并重新触发**（并重置超时计时）
+  - **分片到达重置超时**：正常传输中的多分片不会被误清理
+  - `transfer_failed`/`transfer_done` 本就会立即转发（无延迟）
+
+**3. DJ 信息补发 — 已实现**
+- `room:join` 和 `music:request_state` 时，若房间存在 DJ，向该客户端补发 `music:dj_changed { dj_user_id, dj_username }`（实测 join 与 request_state 均收到，无 DJ 时无副作用）
+
+**4. `music:state_request` — 已实现（v4.5.8 补）**
+- `music:request_state` 时若房间有 DJ：向 DJ 单发 `music:state_request {}`（DJ 收到后立即广播实时 `music:sync_state`，请求者拿到 DJ 广播时刻的实时进度）；**无 DJ 时回发保存的快照**（维持原逻辑）
+
+> 附：清理僵尸房机制顺带生效，两个长期无人在线的遗留空房间（lwq 测试房）已被清理，DB 当前无僵尸房。
+
+### ✅ 服务器部门补充回复（2026-08-01，掉线疑似真根因：并发写 socket 帧交错）
+
+服务器排查发现**掉线疑似真根因**（比同用户多连接 bug 更进一步）：
+
+- **多线程并发 `sendall` 同一 socket 无锁**：校准线程（30s 广播 `room:members`）、业务线程（chat / sync_state / 分片转发）、WS 主线程（响应 / pong）会**同时**对同一用户 socket 写帧 → TCP 层数据交错 → 客户端收到半个帧解析失败 → 判定 WS 异常断开 → 掉出自习室。这正好是"偶尔掉"的特征（碰巧两个线程同时写时发生）
+- **修复**：① 每连接发送锁——`send_to_user` / `broadcast_room` / WS 主线程响应 / ping 响应全部加锁串行化；② `TCP_NODELAY`——降低小帧（心跳/控制消息）延迟，避免 Nagle 累积
+- **验证**：并发压测（DJ 疯狂广播 sync_state/chat/100KB 大分片 15 秒 177 帧）两个听众端全部完整解析、0 帧交错损坏；全部功能回归通过；服务器已重启上线
+- 大分片 `sendall` 阻塞卡线程的风险由发送锁缓解 + 客户端心跳超时重连兜底（配合同用户多连接语义，重连不再误报掉线）
+
+> 客户端侧无需改动（WS 帧解析在 Rust tungstenite 层，服务器保证完整帧即可）；请客户端在多端/长时间使用时再观察掉线是否复现。
+
+### 【加急】v4.5.9 新增需求（客户端已实现，待服务器配合）
+
+**1. P2P 传歌断点续传（`from_chunk`）**
+
+客户端实测：传歌卡在某个进度后不再前进（如卡在 41%），超时重试目前是**完全重传**（从第 0 片重新来），且每次都会再次卡在同一位置（越等越卡）。客户端已改为：卡住 3s 即断点续传——超时重试时 `music:request_song` 会携带 **`from_chunk`**（听众已成功保存的分片数），要求：
+
+- 服务器收到带 `from_chunk` 的 `music:request_song` 时，转发给持有者的 `music:song_requested` **同样携带 `from_chunk`**（客户端 DJ 侧已支持从该片继续读取回传，无需额外改）
+- 若该歌已存在进行中的传输状态（旧持有者循环卡死/状态未清理），新请求应**直接接管/重置**该传输状态（向持有者重发带 `from_chunk` 的 `song_requested`，或重新选持有者），保证续传真正生效而非被旧状态挡掉
+- 服务器 30s 传输超时阈值可维持：客户端 3s 判定 + 最多 10 次续传，总窗口约 30s，不会误杀活跃传输
+
+**2. 心跳频率调整确认**
+
+客户端业务心跳由 15s 提高到 **5s**（纯 WS 消息，几十字节，几乎不耗流量），与 Rust 协议层 10s Ping 双保活。请确认服务器端心跳/空闲超时阈值兼容此频率：不会误踢高频心跳用户，也不会把低频用户过早清理。
+
+> 两项均有客户端兜底（续传失败降级"无这首歌"、掉线自动重连），无阻塞，请按优先级处理并在下方回复确认。
+
+### ✅ 服务器部门回复（2026-08-01，v4.5.9 已处理上线）
+
+**1. P2P 断点续传（`from_chunk`）— 已实现**
+- `music:request_song` 携带 `from_chunk` 时，转发给持有者的 `music:song_requested` **同样携带 `from_chunk`**（实测 from_chunk=7 完整透传）
+- 不带 `from_chunk` 的请求（旧客户端/首次请求）不携带该字段，协议兼容
+- **传输状态接管**：已有传输状态时，新请求会重置超时计时并重新选持有者重发 `song_requested`（带 from_chunk），不会被旧状态挡掉（实测续传请求正确接管并重发）
+- 30s 传输超时阈值维持不变（客户端 3s 判定 + 最多 10 次续传 ≈ 30s 窗口，不会误杀活跃传输；分片到达仍会重置超时）
+
+**2. 心跳频率确认 — 无需改动**
+- 服务器 `recv` 无超时、**不主动断开任何频率的心跳连接**：客户端 5s 业务心跳 + 10s 协议 Ping 均兼容，高频心跳不会被误踢，低频用户也不会被过早清理（无空闲超时逻辑）
+
+---
+
+### 【加急】v4.5.15 新增需求：应用更新静态托管（客户端已实现，待服务器配合）
+
+> 客户端 v4.5.15 起自动更新支持**用户可选更新源**（GitHub 默认 / 服务器备选），需要服务器部门提供一个静态托管目录。**若目录 404，客户端会提示更新检查失败，不影响现有功能**（服务器部门从 GitHub 拉取很慢）。
+>
+> ⚠️ **v4.5.16 闪退修复教训（2026-08-03）**：v4.5.15 曾把服务器 http 地址写进 `tauri.conf.json` 的 `plugins.updater.endpoints`，而 `tauri-plugin-updater` 初始化强制要求 endpoints 必须 `https`，**非 https 端点直接 panic → 应用启动即闪退**（现象：进程起来几秒就消失 / WebView2 显示 localhost 拒绝连接）。插件仅保留注册、实际不参与检查/下载/安装，其 endpoints 配置必须只含 https 占位地址；运行时源切换由自实现更新器（`src-tauri/src/commands/update.rs`）硬编码的地址完成，与插件配置无关。
+>
+> ⚠️ **v4.5.17 更新解析修复教训（2026-08-03）**：v4.5.15 起自实现更新器的 `LatestJson` 结构体把 `url`/`signature` 定义在**顶层**，但 tauri updater 规范是嵌套在 `platforms.windows-x86_64` 下 → 检查/下载全链报 `解析更新信息失败: missing field 'url'`（v4.5.16 能启动后首次暴露）。已改为按规范从 `platforms.windows-x86_64` 提取，并新增**真实发布物夹具测试**（GitHub/服务器各一份实际 latest.json 内容，字节级核对线上文件后入库），发版前必须过该解析回归测试。更新链路（解析→版本比较→下载→验签）任何改动都必须配真实数据测试，不得只凭肉眼核对 JSON。
+>
+> ⚠️ **v4.5.18 版本号识别语义化 + Beta 开关（2026-08-04）**：此前 `is_newer` 无法区分 "4.6.0-beta.0" 与 "4.6.0"（视为同版本）→ 正式版用户可能漏推正式更新。v4.5.18 起：语义化比较（同数字带 prerelease 后缀更旧）、`is_prerelease` 识别 beta/alpha/rc、`check_update` 默认跳过 prerelease（emit `not-available + betaOnly`），设置面板新增"接收 Beta 版本更新"开关（默认关）。**服务器 latest.json 无需改动**；GitHub Release 侧要求 beta 必须勾选 prerelease 标记（4.6.0-beta.0 已补标），避免 tauri 规范的 releases/latest 误指 beta。
+>
+> ⚠️ **v4.5.19 Beta 数据源修复（2026-08-04）**：v4.5.18 开了 Beta 开关仍检测不到 4.6.0-beta.0——根因是数据源：GitHub `releases/latest` 永指最新**非 prerelease** release，服务器 `latest.json` 也只有一份（被正式版覆盖）。v4.5.19 起客户端 Beta 渠道：
+> - **GitHub**：走 GitHub API `releases?per_page=100`（含 prerelease），语义化取版本号最大的 release 的 latest.json 资产；
+> - **服务器**：请求独立的 **`/updates/latest-beta.json`**（正式/测试互不覆盖）——**服务器部门需配合**：每次发 beta 时同步一份 latest-beta.json（url 指向服务器 beta 安装包，UTF8 无 BOM），当前已部署 4.6.0-beta.0 版本。正式版仍走 `latest.json`。
+>
+> ⚠️ **v4.5.20 签名验证修复（2026-08-04，最重要的修复）**：自 v4.5.15 自实现更新器起签名验证从未通过过（现象：下载完报"安装包签名验证失败"）。根因是客户端 `verify_installer` 三重错误：公钥偏移取错（[3..35] 应为 [10..42] → 提取垃圾公钥）、签名格式（tauri 的 signature 是 base64(minisign 文本) 非裸 64 字节）、算法（tauri 是 Ed25519(blake2b-512(文件)) 预哈希非直签）。v4.5.20 已重写验证逻辑（+blake2 依赖），**latest.json 格式无需改动**。**服务器部门无需动作**；但**已装 4.5.15~4.5.19 的客户端需手动下载 v4.5.20 安装包覆盖安装一次**（错误公钥无法自动修复）。
+>
+> ⚠️ **v4.5.21 服务器公告 notice.json（2026-08-06）**：为让更新出错的老用户知道该怎么做（此前 4.5.15~4.5.19 因签名 bug 被迫删除重装，对用户打击极大），新增静态公告文件 `https://api.pomogrow.top/updates/notice.json`（**零服务器代码改动**）。客户端更新失败（`update-status: error`）时经 Rust 命令 `fetch_notice(version)` 拉取，按 `min_version`~`max_version` 语义化版本范围过滤（空=不限），展示官方指引 + 链接。字段：`{"active":true,"level":"warning","text":"...","url":"...","min_version":"4.5.15","max_version":"4.5.19"}`。**服务器部门已部署面向 4.5.15~4.5.19 用户的"请手动升级 v4.5.20 覆盖安装"指引**（url 指向服务器安装包）；后续发版如需向特定版本段用户广播，仅需更新此文件。
+
+**1. 静态目录 `/updates/`（本次需要服务器做的事）**
+
+- 在服务器上开放一个静态目录，使以下 URL 可访问（443 HTTPS，证书覆盖 `api.pomogrow.top`；安装包下载有签名校验，防篡改由签名保证）：
+  - `https://api.pomogrow.top/updates/latest.json`
+  - `https://api.pomogrow.top/updates/PomoSolo_<version>_x64-setup.exe`
+  - `https://api.pomogrow.top/updates/PomoSolo_<version>_x64-setup.exe.sig`
+- 建议目录：`/home/ubuntu/frontend/updates/`（与 server.py 同目录，server.py 静态文件服务或 nginx 指过去都行）
+- 文件由**客户端部门每次发版时从本机同步**上去（scp 上传 exe + sig + latest.json），服务器不需要去 GitHub 拉取（就是慢才改走本机直传）
+
+**2. `latest.json` 格式**（与 GitHub Release 完全一致，仅 `url` 指向服务器本机）
+
+```json
+{"version":"4.5.14","notes":"...","pub_date":"2026-08-02T14:26:57Z","platforms":{"windows-x86_64":{"url":"https://api.pomogrow.top/updates/PomoSolo_4.5.14_x64-setup.exe","signature":"<sig 内容>"}}}
+```
+
+- 注意：**文件必须无 BOM**（tauri serde_json 解析 BOM 会失败，此前 GitHub 上踩过坑）
+- `version` / `url` 必须与客户端版本精确匹配（残留旧文件会让 latest.json 指向旧包 → 更新 404）
+
+**3. 客户端行为**（已实现，无需服务器代码配合，供知悉）
+- 更新检查**不经过插件 endpoints**：请求所选源 `latest.json`（GitHub / 服务器二选一），**所选源不可用时更新检查失败并提示，不会自动降级**（用户可手动切换源重试）
+- 若服务器目录尚未就绪：用户把更新源切到 GitHub 即可正常检查/下载，功能不受影响
+
+**4. 更新源选择（v4.5.15 最终实现，2026-08-03 更新）**
+
+> 上述"服务器优先、GitHub 兜底"已改为**客户端自实现更新器 + 用户可选更新源**：
+> - 设置 → 关于 → **更新源**：`GitHub`（默认，下载快但可能不稳定）/ `服务器`（稳定但仅 3Mbps 较慢），下载中断可切换重试
+> - 客户端自实现检查/下载/安装（不再依赖 tauri-plugin-updater endpoints）：请求所选源 `latest.json` → 版本比较 → 下载安装包 → **校验 Ed25519 签名** → 启动安装器
+> - 服务器目录 `/home/ubuntu/frontend/updates/` 已由服务器部门配好并验证 200，客户端每次发版从本机 scp 同步 exe + latest.json（signature 保留、UTF8 无 BOM）
+> - **服务器部门无需再做任何事**；后续若有新版本发布，由客户端部门自行同步即可
+
+> 请提供 `/updates/` 目录并在下方回复确认 URL 可访问即可；后续每次发版客户端会从本机 scp 同步文件上去，无需服务器再操作。
+
+---
+
+## 【已部署，请知悉】Phase 0/1：P2P 直连改造（2026-08-04）
+
+> 服务器 ws_server.py 已更新并部署（`sudo docker restart frontend-web`），**无需服务器部门操作**，仅知悉：
+>
+> **1. `peer:*` 信令定向转发（Phase 0 打洞牵线，已随 v4.6.0-beta 实测）**
+> - 客户端 WebRTC 直连（音乐传歌/安装包种子）前，经服务器交换 SDP/ICE 候选（KB 级），媒体数据点对点**不经服务器**
+> - `handle_peer_signal`：校验 `type`/`to_user_id` 白名单 → 附加 `from_user_id` → `send_to_user` 定向转发，对端不在线/解析失败静默默弃
+> - 支持 `peer:offer` / `peer:answer` / `peer:ice` / `peer:bye` 四种类型；客户端通过 `p2p_signal` 命令复用现有 WS 通道发送
+>
+> **2. `music:request_song` 透传 `p2p` 标志（Phase 1 音乐传歌直连）**
+> - 听众请求传歌时带 `p2p:true`，服务器原样透传给持有者（`music:song_requested.p2p`）
+> - 持有者优先尝试 WebRTC 直传（媒体不经服务器，**省服务器带宽**），失败自动回退现有服务器中转分片
+> - 老客户端/老持有者无 `p2p` 标志 → 行为与之前完全一致（服务器中转）
+>
+> ⚠️ 回退方法：若发现 `p2p` 标志导致异常，删掉 `handle_music_request_song` 里 `if msg.get("p2p")` 两行即可，不影响其他逻辑。
+
+## 【纯客户端，无需服务器操作】Phase 1.1：P2P 可观察性与打洞修复（2026-08-06，分支 feature/p2p-datachannel）
+
+> 背景：用户实测两边都升到 beta 后无法确认 P2P 到底通没通（流量监控"不对劲"、前端曲名区太短不滚动看不到传输状态）。
+> 根因：① 客户端仅配 STUN 无 TURN，Google STUN 国内常被墙 + 对称 NAT → 打洞失败；② 8s 超时**静默**回退服务器中转（3Mbps）无任何 UI 提示；
+> ③ 服务器选持有者优先 DJ 但不保证是 DJ（`_pick_song_holder` 可选中任一成员），而听众挂起 P2P 接收的 key 是 `djUserId` → offer 的
+> `from_user_id` 与挂起 key 不匹配时 `handlePeerSignal` 直接忽略 → P2P 形同虚设。
+>
+> **本次改动（纯前端，协议/服务器零改动）**：
+> 1. **前端可观察性**：`SongTransferState` 新增 `channel: "p2p" | "server" | null`——WebRTC 建连成功标 `p2p`、失败回退/收到服务器分片标 `server`；
+>    MusicPlayer 曲名下方显示通道徽章（P2P 绿 / 服务器黄），StudyRoom 同步提示区显示"⚡ P2P 直连 / 🌐 服务器中转"。
+> 2. **曲名溢出滚动**：曲名容器 `scrollWidth > clientWidth` 时启用 marquee 平移滚动（12s 循环），长文件名也能看清当前传输对象。
+> 3. **STUN 国内可达优先**：`stun.l.google.com` 降为兜底，前置 `stun.cloudflare.com` + `stun.miwifi.com` + `stun.chat.bilibili.com` 等国内易达服务器。
+> 4. **offer 唯一挂起兜底**：`handlePeerSignal` 的 peer:offer 精确匹配失败时，若当前**只有一个**挂起接收则消费它（修复持有者≠DJ 时 offer 被忽略）；多个挂起时仍精确匹配不兜底（避免错连）。
+>
+> **未决（后续）**：对称 NAT 下 STUN 无法打洞仍需 TURN（coturn）中继；分片 `number[]` JSON 序列化效率可改二进制。协议未变，服务器无需配合。
+
+## 【纯客户端，无需服务器操作】Phase 1.2：trickle ICE 候选时序竞态修复（2026-08-07）
+
+> 背景：v4.6.0 正式版用户实测跨公网（不同网络）P2P 仍打不穿——听众端"第一次尝试无通道标记，约 8s 后回退服务器中转"，
+> 与 Phase 1.1 修复后预期不符。服务器已确认最新版（`music:request_song` 的 p2p 透传 + `peer:*` 定向转发齐全），问题在客户端。
+>
+> **根因（trickle ICE 竞态）**：WebRTC ICE 候选与 offer/answer 经不同 WS 消息独立转发，到达顺序不保证：
+> 1. offerer（持有者）在 `setLocalDescription(offer)` 后立即开始收集候选 → 关键 **srflx（NAT 映射）候选可能先于 `peer:offer` 到达** answerer；
+>    v4.6.0 前 `handlePeerSignal` 的 `peer:ice` 分支在 `liveConnections` 无此键时**直接丢弃** → 打洞必需的公网候选永久丢失。
+> 2. 候选在 `remoteDescription` 设置前到达时 `addIceCandidate` 抛 `InvalidStateError`，被上层 catch 吞掉 → 同样丢失。
+>
+> **本次改动（纯前端 `src/p2p.ts`）**：
+> 1. **模块级候选缓冲** `earlyCandidates: Map<peerId, RTCIceCandidateInit[]>`：`peer:ice` 先于 offer 到达时缓冲，offer 建连后统一注入。
+> 2. **连接级候选缓冲**：`remoteDescription` 未设置时的候选先入 `bufferedCandidates`，`setRemoteDescription` 成功后 flush（offerer 的 `onAnswer` 与 answerer 的 offer 处理两处）。
+> 3. **可观测性**：`handlePeerSignal` 收到无挂起匹配的 `peer:offer` 时打 `console.warn`（原静默忽略，无法判断打洞失败原因）。
+> 4. 诊断打点：`requestDj` / `music:dj_changed` 处理加耗时日志（配合 UI 卡顿排查）。
+>
+> 协议未变，服务器零改动。新增测试 2 例（候选先到缓冲注入 / remoteDescription 未设置缓冲 flush）。
+
+## 【已部署 + 客户端将实现】P2P 连通性测试工具（2026-08-07，需服务器配合，已部署完毕）
+
+> 目的：设置面板新增"P2P 测试工具"，客户端列出在线用户 → 选择目标 → 发起 WebRTC 建连测试，
+> 用于排查"P2P 打不穿"（跨 NAT 打洞是否成功、直连速率）。**仅做 KB 级信令转发 + 在线目录，媒体数据仍走两端 WebRTC 直连**。
+>
+> **服务器已部署（`ws_server.py`，2026-08-07 13:12，docker restart 已生效，无需再操作）**，新增 3 个消息：
+> 1. `p2p:online`（请求-响应，回显 id）：返回在线用户列表 `{ type:"p2p:online", users:[{userId, username}] }`（排除自己，供发起方选测试目标）。
+> 2. `p2p:test_request`（fire-and-forget，定向转发）：客户端 A 发 `{ to_user_id:B }` → 服务器转发给 B
+>    `{ type:"p2p:test_request", from_user_id:A, from_username }`；B 离线静默丢弃，A 端 8s 超时判失败。
+> 3. `p2p:test_result`（fire-and-forget，定向转发）：B 测试完成后发 `{ to_user_id:A, ok, ms, speed_bps, bytes, error }`
+>    → 服务器转发给 A `{ type:"p2p:test_result", from_user_id:B, ... }`（发起方 UI 显示双方视角）。
+> 4. 客户端建连与测速仍复用已有 `peer:offer/answer/ice/bye` 信令 + `p2p_signal` 命令，**无新协议**。
+>
+> **待客户端实现（设置面板 P2P 测试工具）**：拉 `p2p:online` 列表 → 选目标 → 发 `p2p:test_request` + 本机 WebRTC
+> offerer 推 2MB 测试数据 → 目标端自动挂起接收（全局监听 `p2p:test_request`，无需在设置页）→ 测速 → 目标端回传 `p2p:test_result`。
+
+## 【纯客户端，无需服务器操作】v4.6.2：P2P 测试界面空白修复（2026-08-07）
+
+> 背景：用户实测 v4.6.1 P2P 测试工具——只有本机一个客户端在线时界面有文字提示；一旦另一台设备的
+> 客户端也启动（尤其用**同一账号**登录），点开"P2P 测试工具"只有标题、下面空白。
+> 根因：服务器 WS 为**单连接语义**——同账号新连接会关闭旧连接（双端互踢），`p2p:online` 请求
+> 挂起无响应 → 前端无超时兜底 → 界面永久空白。
+>
+> 本次改动（纯前端 `P2PTestPanel.vue`）：
+> 1. `refresh()` 加 **8s 超时兜底**（Promise.race），超时报"请求超时（服务器未响应，请检查网络/登录状态）"，不再永久空白；
+> 2. 加载中显示"正在获取在线用户…"；空列表显示"暂无在线用户（需要其他客户端登录并在线）"；
+> 3. 界面明示"两台设备请用不同账号登录——同一账号会互相挤下线，导致列表加载失败"；
+> 4. 字体配色改为主题色（`var(--text-color, #f0f0f0)`，原 `#888` 在深色 modal 中看不清）。
+>
+> 协议未变，服务器零改动。正确用法：两台设备用**不同账号**登录，双端在线后即可互测。
+
+## 【纯客户端，无需服务器操作】v4.6.3：P2P 测试列表渲染崩溃修复（2026-08-07）
+
+> 背景：v4.6.2 修复颜色后用户复测（admin + 汤圆不同账号双机在线），P2P 面板依然"只有标题、下面空白"。
+> 服务器加诊断日志实测：`p2p:online` 数据流完全正常（admin 查到 `['汤圆']`、汤圆查到 `['admin']`）→ 问题在前端渲染。
+>
+> 根因（Tauri 序列化字段名不匹配）：Rust `P2POnlineUser` 字段为 snake_case（`user_id`/`username`），
+> `#[derive(Serialize)]` 默认输出 `{"user_id":...}`；而前端 `P2POnlineUser { userId, username }` 模板读 `u.userId`
+> → undefined → `shortId(undefined)` 抛 TypeError → **整个 P2PTestPanel 渲染崩溃 → body 空白**。
+> 单机（空列表不渲染列表项）正常、双机（有数据）一渲染就崩。
+> 注：Tauri 命令返回值序列化**不做** camelCase 自动转换（只有入参做），结构体字段名必须与前端读取名严格对齐。
+>
+> 修复：① Rust `P2POnlineUser` 加 `#[serde(rename_all = "camelCase")]`（输出 `userId`）+ 回归测试
+> `test_online_user_serializes_camel_case`；② 前端 `shortId` 加字段缺失容错（防再崩）。
+> 协议未变，服务器零改动（服务器端 `p2p:online` 诊断 print 日志验证后可移除）。
+
+## v4.6.4：更新器覆盖升级 + 自动重启 + 黑字修复 + ICE 诊断 + P2P 传歌压缩（2026-08-07，纯客户端）
+
+> **1. 任务栏固定图标消失根因与修复**：用户反馈更新后任务栏固定图标消失（v4.6.2 起）。
+> 根因：自实现更新器启动 NSIS 安装器只传 `/S`（静默）未传 `/UPDATE`——Tauri NSIS 模板
+> `installer.nsi` 中 `UpdateMode`（`${GetOptions} $CMDLINE "/UPDATE"`）控制升级路径：
+> **带 `/UPDATE` = 覆盖安装不卸载**（保留开始菜单/桌面/任务栏固定、跳过 WebView2）；不带则
+> 检测到旧版先卸载再装 → 卸载删除 exe → 任务栏固定失效。修复：安装器参数改为 `/S /UPDATE`。
+>
+> **2. 更新完不自动启动修复**：原 `spawn(安装器)` 后 `app.exit`，装完没人拉起应用。
+> 改为 cmd 包装 `start "" /wait <安装包> /S /UPDATE & start "" <应用exe>`（独立 cmd 进程），
+> `/wait` 等安装器静默完成后自动重启应用。`finish_seed_install`（P2P 种子）同样处理。
+>
+> **3. 设置面板黑字**：`.p2p-test-hint`（"列出在线用户并测试..."）原无颜色定义继承黑字，
+> 改固定亮色 `rgba(255,255,255,0.7)`（设置面板黑底 #1a1a1a，禁用 var(--text-color)）。
+>
+> **4. ICE 诊断日志（排障 P2P 打洞失败）**：`p2p.ts` `establishConnection` 新增诊断收集——
+> 本地候选（host/srflx 类型+地址）、对端候选、`connectionState`/`iceConnectionState` 变化，
+> 输出 `console.warn([P2P-diagnose] ...)` + `P2PTestOptions.onDiagnose` 回调；P2PTestPanel
+> 测试时直接显示"ICE 诊断（候选/状态）"区域，超时时汇总本地/对端候选数与最终 ICE 状态。
+> 用途：确认打洞失败是对称 NAT（有 srflx 打不通）还是 STUN 收不到 srflx（只有 host）。
+>
+> **5. P2P 传歌压缩传输（发送端设置，省流量）**：
+> - 设置项 `p2pCompress`（默认开，DJ/发送端生效；StudyRoom DJ 区"压缩传歌"开关）
+> - 发送端开启后先发 `{"t":"hello","v":2}` 能力协商，对端回 `{"t":"hello-ack","compress":1}`
+>   （本端可解压才报支持）；**旧版客户端不回包 → 1.2s 后按旧格式不压缩发送，完全向后兼容**
+> - 协商成功：meta 带 `"compress":1`，数据帧改为 `4 字节 index + 1 字节压缩标志 + payload`，
+>   分片经 **deflate-raw**（Chromium `CompressionStream` 原生 zlib，128KB 片开销微秒级不算力）
+>   压缩；压缩后反而更大（MP3/FLAC 等已压缩格式）→ 发原片标志 0，保证不劣于不压缩
+> - 接收端按 meta.compress 自动区分新旧两种帧格式，无需设置
+> - 兼容矩阵：新发送+新接收=压缩；新发送+旧接收=协商超时回退不压缩（旧格式）；旧发送+新接收=旧格式。
+>   P2P 测试工具与种子下载不走压缩（测原始通道速率 / 安装包已压缩）
+
+协议未变（新增可选 hello 协商与压缩帧，旧端忽略未知字段），服务器零改动。用户实测 P2P 建连超时
+（见 v4.6.3 后反馈），待 ICE 诊断数据定位后再定兜底方案（TURN / 服务器缓存 / CDN）。
+
+## v4.6.5：P2P 诊断可用性增强（2026-08-07，纯客户端）
+
+> 用户 v4.6.4 实测反馈：诊断日志只能 OCR 不能选中复制、深色框滚动条无样式、希望直接看出结论。
+>
+> **1. 诊断结论自动分析**：`p2p.ts` `establishConnection` 新增 `diagnoseConclusion()`——超时/
+> 连接失败时自动统计两侧候选类型（host/srflx/relay）输出一行结论，直接回答"为什么打不通"：
+> - 本机无 srflx → STUN 失败或 UDP 出站被拦
+> - 本机多个 srflx 端口各异 → 疑似对称 NAT（端口每次变，打洞需端口预测，成功率低）
+> - 对端仅有 host（无 srflx）→ 不在同一局域网且对端 UDP 打洞路径不通
+> - 两侧都有 srflx 仍连不上 → 一侧对称 NAT/CGNAT 或运营商丢 UDP → 建议 TURN 中继
+> 对端候选类型从 `onIce` 原始 SDP candidate 的 `typ` 字段提取。
+>
+> **2. 诊断区可选中复制**：全局 `* { user-select: none }` 导致诊断文本不可选 → `.p2p-test__diag`
+> 显式 `user-select: text`。
+>
+> **3. 复制按钮**：诊断区标题右侧"复制诊断"（`navigator.clipboard`，失败回退 textarea+execCommand），
+> 一键复制全部诊断日志。
+>
+> **4. 深色底自定义滚动条**：`.p2p-test__diag` / `.p2p-test__users` 补 `::-webkit-scrollbar` 亮色样式
+> （默认滚动条在 WebView2 深色容器不可见）。
+
+## v4.6.6：P2P 测试"显示失败但实际成功"修复（2026-08-07，纯客户端）
+
+> 用户实测：换设备对后 P2P 打洞成功（传歌直连巨快），但 P2P 测试工具显示
+> `P2P直连失败 / P2P通道错误`，同时对方回传"已确认打通 13.22 MB/s"——自相矛盾。
+>
+> **根因**：目标端（answerer）收齐全部数据后回 ack → 立即 `onComplete → cleanup → pc.close()`；
+> 发送端（offerer）已发完全部分片、正在等 ack，通道被对端关闭触发 `channel.onclose/onerror`，
+> 而此时 `completed` 仍为 false → 误报"P2P 通道关闭/错误"。数据实际 100% 送达（接收端不
+> 收齐不会 close），故对方确认成功。
+>
+> **修复（双保险）**：
+> 1. 发送端 `sendFile` 发完全部分片后置 `allSent=true`；此后 `onclose/onerror`（`isOfferer && allSent`）
+>    视为"对端已收齐正常关闭"→ `onComplete()` 判定成功，不再报错
+> 2. 接收端 `onComplete` 后延迟 500ms 再 `cleanup()`，给发送端留出收到 ack 的时间
+>    （立即 close 会让 ack 未送达 → 发送端只能靠 allSent 兜底）
+>
+> 传歌与测试走同一 establishConnection，修复对两者同时生效。
+
+## v4.6.6：更新源可观测 + 同步听歌延迟对齐（2026-08-07）
+
+> **更新源"查不到更新"澄清**：服务器 `latest.json` 一直是 4.6.5、与客户端已发布版本一致，
+> 检查无更新属**正确行为**。为避免困惑，客户端在"已是最新"提示里展示更新源上的最新版本号
+> （`check_update` 的 not-available 事件新增 `latestVersion` 字段，前端据此显示
+> "已是最新版本（服务器/GitHub 最新 vX）"）。
+>
+> **同步听歌延迟对齐（阶段一：时钟对齐 + 总延迟补偿）**：
+> 根因 ① 听众端校准 `pos = position_ms + (Date.now() - timestamp_server)` 依赖本地时钟与
+> 服务器一致，本地时间偏差几百 ms 会整体偏移（电话哼歌可听出不同步）；
+> 根因 ② `timestamp_server` 是服务器转发时刻，只补偿"服务器→听众"，DJ→服务器那段（几十~几百 ms）未补。
+>
+> 修复：
+> 1. **服务器**（已改，随本版部署）：`handle_ping` 的 pong 增加 `id` 回显，
+>    使 `ws::request("ping")` 请求-响应可匹配（原来 pong 不带 id 只能走事件）。
+> 2. **客户端 Rust**：新增 `music_sync_measure_time_offset` 命令——发 3 次 ping，
+>    取 RTT 最小一次估算时钟偏移（offset = server_time + RTT/2 - 本地收到时刻，毫秒）。
+> 3. **客户端前端**：
+>    - 开启同步时调用上述命令，此后校准用 `serverNow() = Date.now() + offset`
+>    - DJ 广播 `music:sync_state` 附带 `dj_server_time`（DJ 对齐后发出的服务器时间，时钟偏移
+>      未就绪时不带、退回旧校准）；Rust `music_sync_state` 命令新增可选参数 `dj_server_time`
+>    - 听众端校准优先 `position_ms + (serverNow() - dj_server_time)`（覆盖 DJ→服务器→听众
+>      全链路延迟），否则退回 `serverNow() - timestamp_server`
+> 4. 说明：阶段二（统计 seek 执行耗时二次补偿）用户确认暂不做，先看阶段一实测效果。
+
+## 【已部署 + 客户端已实现】Phase 2：安装包 P2P 种子（2026-08-04）
+
+> 用户本机带宽充裕，开启"分享安装包"后，其他客户端更新时优先从在线种子 **P2P 直连**下载（不经服务器，也不走 GitHub）。
+>
+> **服务器侧（已部署，无需再操作）**：`ws_server.py` 增加 4 个消息，维护内存种子表
+> `p2p_seeds: user_id -> {version, file, size, last_seen}`，60s 无心跳自动清理，断连自动注销：
+> - `p2p:seed_register`：种子注册（version/file/size，重复注册覆盖）
+> - `p2p:seed_heartbeat`：心跳保活（客户端每 30s）
+> - `p2p:seed_unregister`：主动注销
+> - `p2p:seed_list`：查在线种子（按 version 过滤、排除自己；**v4.7.3 起返回
+>   `{userId, username}[]`**，此前为纯 user_id 数组——附 username 供下载端 UI 显示"从谁下载"；
+>   **带 id 回显支持 ws::request 请求-响应匹配**，客户端 `p2p_seed_list` 命令即用它）
+>
+> 服务器只做"谁在线、谁有哪个版本"的**目录服务**，不存文件、不中转数据（文件走 WebRTC 直连）。
+>
+> **客户端侧（已实现，随 v4.6.0-beta.0 发版）**：
+> 1. 种子端：设置面板"分享安装包（P2P）"开关（需登录）→ `p2p_seed_register` 注册 → 30s 心跳 → 关闭注销
+> 2. 下载端：`check_update` 返回的 UpdateInfo 新增 `signature` → 下载前 `p2p_seed_list(version)` 查种子 →
+>    前端 WebRTC 收片（DataChannel 分片）→ 逐片调 `update_seed_download_chunk` 落盘 → 收齐校验 Ed25519 签名 →
+>    启动安装器；无种子/失败自动回退服务器/GitHub
+>
+> ⚠️ 回退方法：若种子功能导致异常，服务器删掉 `handle_p2p_seed_*` 4 个 handler 的注册（ws_server.py 231-234 行）即可，
+> 客户端会自动走无种子回退路径（下载行为与 v4.5.x 完全一致）。
+
+---
+
+## 【纯客户端，无服务器改动】v4.7.0 更新器增强（2026-08-07）
+
+> 三项更新器能力增强，全部在客户端 Rust/前端，服务器零改动：
+
+**1. 断点续传下载 + 暂停/继续/取消**
+- `download_and_install` 改为**启动后台下载任务**（tokio::spawn，全局单会话）后立即返回，
+  进度经既有 `update-status` 事件上报（`percent` 改为**保留 1 位小数**，如 `42.5`）。
+- 新命令：`update_download_pause` / `update_download_resume` / `update_download_cancel`。
+  - 暂停：`paused` 标志 + `Notify` 唤醒阻塞在流上的任务，保留已下载数据（协作式退出，无半截）
+  - 继续：等待旧任务退出 → 把临时文件截断到已提交偏移 → 发 `Range: bytes=<offset>-` 续传
+  - 取消：删除残留临时文件
+- 断点续传：同会话内暂停后继续即从断点续传；`Range` 返回 416 时视为文件已完整直接验签安装。
+- 前端：HTTP 下载中主按钮变为"暂停下载"（点击后"继续下载"）；P2P 种子传输快不提供暂停。
+
+**2. 本地安装包覆盖安装（复用 `/S /UPDATE` 静默升级，不卸载旧版、保留任务栏固定）**
+- 新增 tauri-plugin-dialog（`@tauri-apps/plugin-dialog`），capabilities 加 `dialog:default`。
+- 设置 → 更新面板新增"本地安装包"按钮：文件选择器选 .exe → `install_local_installer(path)`。
+- 后端 `install_local_installer`：文件名版本与本机留存 `installers/latest.json` 匹配时校验
+  Ed25519 签名（失败拒绝）；不匹配信任用户自选文件；安装前照常备份音乐目录。
+
+**3. 修复"Windows找不到''文件"（v4.6.x 用户升级报错）**
+- 根因：`spawn_installer_and_relaunch` 把安装包/应用路径**拼进 cmd 命令行字符串**，
+  路径含空格/中文等特殊字符时 `start` 解析失败 → 空路径报错。
+- 修复：路径改经**环境变量**传入（`%POMOSOLO_UPDATER%` / `%POMOSOLO_EXE%`），cmd 不再解析路径内容。
+- 注：服务器 `/updates/` 无安装包文件（仅元数据），下载一律走 GitHub Releases 直链。
+
+---
+
+## 【部分服务器改动】v4.7.1 更新可用性加固（2026-08-07）
+
+> 背景：用户环境 GitHub 直连被网络干扰（curl 退出码 52 = TCP 通但请求被丢弃），
+> 应用内 reqwest 与浏览器是不同通道，加速器若不设系统代理则覆盖不到应用内。
+
+**1. 更新器读系统代理（AK 类加速器场景）**
+- `update_client(use_system_proxy)`：GitHub 源拉取/下载时**尝试读 Windows 系统代理**。
+- reqwest 0.12 无公开系统代理 API（`Proxy::system()` 为 pub(crate)），改为自读注册表：
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings` 的
+  `ProxyEnable`（须含 `0x1`）+ `ProxyServer`，进程内 `OnceLock` 缓存一次。
+- `parse_win_proxy_server` 解析：优先 `https=` 段 → `http=` 段 → 整行值（纯函数，已加单测）。
+- 加速器开了"系统代理"模式 → 应用内更新请求也走加速器 → GitHub 可直连。
+
+**2. GitHub 源失败自动回退服务器源（网络被干扰时的兜底）**
+- `fetch_latest_json` 包一层 `fetch_latest_json_once`：GitHub 源拉取 latest.json 失败
+  （检查阶段）→ 自动用服务器源重拉一次，不再直接报错让用户卡住。
+- ⚠️ **服务器部署要求**：服务器 `/updates/latest.json` 与 `latest-beta.json` 的
+  `url` 必须指向**服务器安装包**（如 `https://api.pomogrow.top/updates/PomoSolo_4.7.1_x64-setup.exe`），
+  否则"GitHub 检查失败 → 回退服务器检查 → 但下载仍指向 GitHub"会二次失败。
+- 服务器 `/updates/` 从 v4.7.1 起**存放安装包文件**（与 v4.7.0 仅元数据不同）。
+  GitHub 正常时仍走 GitHub Releases 直链，仅失败时回退服务器。
+
+**3. 修复"查看升级指引点了没反应"**
+- 根因：Tauri WebView2 下 `<a target="_blank">` 不生效（无新窗口）。
+- 修复：公告条指引链接改为 `@click.prevent="openUpdateGuide"`，走 `open_external`
+  （`api/window`）用系统默认浏览器打开公告 `url`；已补测试断言 `open_external` 调用。
+
+---
+
+## 【纯客户端，无服务器改动】v4.7.2 修复安装器启动"Windows找不到'\\'文件"（2026-08-07）
+
+> 用户报告 4.6.4 起升级时报 cmd 黑框 + `Windows找不到"\\"文件`，判断与 v4.6.4
+> "更新器覆盖升级/自动重启"改动有关（属实）。
+
+**根因（v4.6.4 引入，de51ad0）**
+- v4.6.4 之前：`Command::new(安装包).args(["/S"]).spawn()` 纯 Rust 直接启动（CreateProcess，
+  路径不走任何命令行解析），从不出错、无黑框。
+- v4.6.4 为支持"装完自动重启 + /UPDATE 覆盖升级"改为 `cmd /c "start "" /wait <安装包> /S /UPDATE & start "" <应用>"`。
+- Rust 序列化 args 时会把含引号参数的内嵌 `"` 转义成 `\"`；cmd 按自身规则剥掉最外层引号后，
+  `\"` 里的反斜杠残留为独立字符 → `start` 把第一个参数 `\` 当命令执行 →
+  报 `Windows找不到"\"文件`（4.6.x 空路径、4.7.0 环境变量版 `\\` 同源）。
+  且 cmd 是控制台程序 → 弹黑框。v4.7.0 环境变量版只让路径不进命令行，脚本内字面引号照样被转义，问题依旧。
+
+**修复（v4.7.2）**
+- `spawn_installer_and_relaunch` 改 **PowerShell 隐藏窗口**方案，彻底绕开命令行解析：
+  - 路径经环境变量传入（`POMOSOLO_UPDATER` / `POMOSOLO_EXE`）；
+  - 脚本经 `-EncodedCommand` 传入（base64 UTF-16LE，只含字母数字 `+/=`，无空格/引号/特殊字符，
+    Rust 序列化后无歧义、PowerShell 端无歧义解码）；
+  - `-NoProfile -WindowStyle Hidden` + `CREATE_NO_WINDOW`（0x08000000）→ 无黑框；
+  - 脚本语义：`Start-Process -FilePath $env:POMOSOLO_UPDATER -ArgumentList '/S','/UPDATE' -PassThru -Wait` 等安装器静默完成，再 `Start-Process -FilePath $env:POMOSOLO_EXE` 拉起更新后的应用。
+- `open_external`（v4.7.1 新增，同一 cmd 引号问题）Windows 分支改 `explorer <url>`：
+  Rust 序列化无引号转义、无 cmd 黑框，URL 直接交系统默认浏览器。
+- 验证：`powershell_encoded` 纯函数单测（往返 + 字符安全 ×2）；`#[ignore]` 手动集成测试
+  `test_spawn_powershell_hidden_manual` 真实启动隐藏 PowerShell 写探针文件通过（`cargo test -- --ignored ...`）。
+- 纯客户端改动，服务器零改动；latest.json/latest-beta.json 仅需更新 url/版本指向 4.7.2。
+
+---
+
+## 【服务器已部署】v4.7.3 双向打洞容错 + answerer 超时修复 + 下载观测（2026-08-08）
+
+> 需求（用户）：打洞方向不对称（对称 NAT vs 锥形 NAT）——"汤圆向 CICI 能打通、反向打不通"，
+> 增加容错：**双向互相打洞，只有两边都失败才算失败，任一边成功即成功**；
+> 且传音乐/传安装包都走双向测试；下载侧前端要能观测"从谁那里拉的安装包"。
+
+**1. 新信令 `p2p:reverse_test_request`（服务器已部署，路由 + handler）**
+- 客户端 A 首个方向（A 作 offerer）打洞失败 → 发 `p2p:reverse_test_request { to_user_id:B }`
+- 服务器定向转发给 B：`{ type:"p2p:reverse_test_request", from_user_id:A, from_username }`；B 离线静默丢弃
+- B 收到后**作为 offerer** 推 2MB 测试数据回 A（与 `p2p:test_request` 对称，复用 `p2p:test_result` 回传结果）
+- 客户端流程：normal（本机 offerer）→ 失败转 reverse（对端 offerer）→ 两边都失败才判失败
+- 兼容性：旧版客户端不认识该消息，服务器转发后静默忽略，A 端 reverse 方向正常超时判失败（行为等同纯单向）
+
+**2. answerer 等待 offer 超时兜底（v4.7.2 实测卡死 bug 修复）**
+- 根因：answerer 建连超时在 `establishConnection` 内部，而它要等对端 `peer:offer` 到达才执行——
+  种子端一直不发起 offer（WS 掉线/对方没留存安装包/服务器丢弃）时挂起接收永久等待 → Promise 永不 resolve → 下载 UI 卡死
+- 修复：`p2pReceive` 内部独立 `pendingReceiverTimers` 兜底（默认 8s），offer 到达时清理，
+  未到达到期触发 `onError("等待对端发起连接超时")` → 调用方正常回退（下载回退服务器/GitHub）
+
+**3. `p2p:seed_list` 返回结构变化（兼容注意）**
+- v4.7.3 起返回 `{userId, username}[]`（此前 `string[]`），username 供下载端 UI 显示"正在从 xxx 直连下载"
+- 服务器已部署；**旧版客户端**（v4.7.2 及更早）`parse_seed_peers` 按字符串数组解析会得到空列表 → 下载直接回退服务器/GitHub（不影响正常更新，仅 P2P 种子功能退化）
+
+**4. 下载观测（客户端）**
+- `SettingsPanel.trySeedDownload` 显示"正在从「用户名」直连下载（P2P 种子）"（用户名缺失时显示通用文案）
+- Rust `p2p_seed_list` 返回 `Vec<P2PSeedPeer{userId, username}>`（serde camelCase），前端 `api/seed.ts` 同步类型
+
+**协议变更清单（本版）**：新增 `p2p:reverse_test_request`（fire-and-forget，同 `p2p:test_request` 语义）；
+`p2p:seed_list` 响应 peers 字段结构变化。其余消息零改动。
+
+---
+
+## 【服务器已部署】v4.7.6 P2P reverse 反向打洞（2026-08-08）
+
+> 需求（用户）："为什么打洞的 reverse 不能反向传播，洞打起来了谁往谁传应该无所谓的吧"——
+> WebRTC DataChannel 建立后是**全双工**的，谁持有数据谁 `send()`，与谁创建连接（offerer）无关。
+> 修复前 `wireChannel` 把"发送逻辑"绑死在 `isOfferer`，reverse 时持有端作 answerer 拿到通道后从不发数据。
+
+**1. `p2p:reverse_transfer_request`（服务器已部署，路由 + handler）**
+- 客户端（下载端）正常方向打洞失败且从未建连成功 → 发 `p2p:reverse_transfer_request { to_user_id:B, song_id?, version?, parallel? }`
+  - 传歌：携带 `song_id`（B 端校验 songId===trackName 后作 answerer+sender 反推）
+  - 安装包分享：携带 `version`（种子端 `serveReverseInstaller` 同理反推）
+  - **`parallel`（v4.7.7 新增）**：>1 时 B 端按 K=parallel 条并行连接分片反推；0/缺省 = 单连接（兼容旧持有端）
+- 服务器定向转发给 B：`{ type:"p2p:reverse_transfer_request", from_user_id:A, from_username }`（B 离线静默丢弃）
+- 客户端流程：A 发起方向失败 → `musicSyncReverseRequest(djUserId, songId, version, parallel)` → A 作
+  `offerer+sender:"answerer"`（只打洞收数据）→ B 作 `answerer+sender:"answerer"`（在收到的通道上发数据）
+- 兼容性：旧版客户端不认识该消息 → 服务器转发后静默忽略，A 端 reverse 方向正常超时 → 回退服务器中转（行为等同旧版）
+
+**2. `sender` 角色解耦（客户端）**
+- `P2PStartOptions.sender?: "offerer" | "answerer"`（默认 offerer 向后兼容）
+- `isSender = sender==="offerer" ? isOfferer : !isOfferer`；onopen/onmessage/onclose/onerror 全按 isSender 判定
+- `onComplete` 按 isSender 判定：接收端（reverse 时是 offerer）延迟 500ms cleanup，防掐断 answerer 侧发送端收 ack
+
+**协议变更清单（本版）**：新增 `p2p:reverse_transfer_request`（fire-and-forget，同 `p2p:test_request` 语义）。其余消息零改动。
+
+---
+
+## 【服务器已部署】v4.7.7 种子卡死/reverse 中断修复 + 3×2 双向测速工具 + reverse 多连接并行（2026-08-08）
+
+**1. `p2p:bidir_test_request`（服务器已部署，路由 + handler）**
+- 用途：P2P 测试工具一键 6 项 = 3 种打洞方式（A 打洞 / B 打洞 / AB 互相打洞）× 每管道上行/下行测速
+- 客户端 A 发 `p2p:bidir_test_request { to_user_id:B, tag1, tag2 }` → 服务器定向转发给 B：
+  `{ type:"p2p:bidir_test_request", from_user_id:A, from_username, tag1, tag2 }`
+- B 收到后**同时挂 answerer(tag1) + offerer(tag2)** 两条 duplex 连接（AB 互相打洞，同 peer 多连接靠 tag 区分）
+- `tag` 同时补进 `p2p:test_request` / `p2p:reverse_test_request` 转发（同 peer 多连接信令路由键 `peerId:tag`）
+- 兼容性：旧版客户端不认识 → 服务器转发后静默忽略，A 端对应项超时判失败（该项显示失败，不影响其它项）
+
+**2. `p2p:reverse_transfer_request` 新增 `parallel` 字段**
+- 下载端 `musicSyncReverseRequest(djUserId, songId, undefined, K)` 请求 K 条并行连接（默认 2、上限 4）
+- 持有端 `setupReverseServe(songId, requesterId, parallel)`：均分 K 段（tag p0..pK-1、`baseChunk=base`）挂 K 条
+  answerer+sender；下载端 K 条 offerer 并行接收，收齐全部段才 `reportDone`
+- **多连接并行原理**：单条 DataChannel 受浏览器 SCTP 固定小窗口 + 对端延迟 SACK 限制（方向角色决定吞吐），
+  并行 N 条各自独立 SCTP 窗口，总吞吐 ≈ N × 单条
+- **降级链路**：旧持有端忽略 parallel → 并行 offer 超时 → 回退单连接 reverse（K=1）→ 再失败才回退服务器中转
+- 服务器只透传 `parallel` 数字，不参与分片逻辑（分片/合并全在客户端）
+
+**3. 传输稳定性修复（客户端，服务器零改动）**
+- 发送端背压：`sendWithBackpressure`（`bufferedAmount` > 512KB 等 `bufferedamountlow` 排空，10s 上限），
+  防缓冲满 `dc.send` 抛 `OperationError`（发送端静默死亡的根因）；任何 send 异常 → `onError` + 清理
+- 无进展超时兜底：建连成功但数据停滞（默认 30s、音乐 15s）→ `onError`，避免永久卡死；慢速但有进展不误杀
+- 传歌看门狗跳过 p2p 通道（`channel==="p2p"` return），防 3s 看门狗误杀慢速 reverse
+
+**协议变更清单（本版）**：新增 `p2p:bidir_test_request`；`p2p:test_request` / `p2p:reverse_test_request`
+转发携带 `tag`；`p2p:reverse_transfer_request` 携带可选 `parallel`。其余消息零改动。
+
+---
+
+## 【请服务器部门配合】v4.7.12 更新下载可靠性：/updates/ 需支持 Range（2026-08-14）
+
+> 部门：主部门 ｜ 关联记录：`docs/BUGFIX_RECORDS.md` 第 20 条 ｜ 留言类型：待评估
+
+**背景**：v4.7.11 服务器迁移到域名 `https://api.pomogrow.top` 后，除自习室 WS 的 TLS 问题（客户端已修，
+见下方"附带确认"）外，还发现「服务器」更新源下载安装包**偶尔报错**（下载中断 / 下载不完整）。
+
+**实测发现（客户端 2026-08-14 线上探测）**：
+
+1. `/updates/` 静态托管为 Python `SimpleHTTPRequestHandler`（响应头
+   `Server: SimpleHTTP/0.6 Python/3.14.6`），**不支持 HTTP Range**：
+   带 `Range: bytes=0-1023` 的请求返回 **200 全量**（Content-Length 18235772）、无 `206` / `Content-Range`
+   → 客户端断点续传、暂停/继续全部退化为整包重下（3Mbps 慢速链路下体验差）；
+2. `/updates/` 与 REST API、WS 同跑在 443 端口同一 Python 进程：3Mbps 带宽下约 18MB 安装包
+   下载（约 1 分钟）会占满带宽，期间 WS/API 延迟飙高，可能放大"偶尔掉线 / 请求超时"类问题。
+
+**客户端已做（无需服务器操作）**：`run_download_task` 对瞬态失败（请求/流错误、提前断流）增加
+**最多 3 次自动重试**（退避 2s/4s，暂停/取消优先打断），缓解用户侧"偶尔报错"。
+
+**请服务器部门评估（按优先级）**：
+
+- [ ] **P1**：`/updates/` 静态托管支持 Range（`206` + `Content-Range`），让断点续传 / 暂停继续真正生效。
+      建议改用 **Nginx 静态托管**该目录（sendfile + Range 原生支持、不占 Python 线程、可独立限速），
+      或将 server.py 的静态 handler 换成支持 Range 的实现（如 `http.server.SimpleHTTPRequestHandler`
+      自行补 `do_GET` Range 分支）；
+- [ ] **P2**：确认 443 端口同一进程承载 API + WS + 大文件下载时的线程模型与带宽隔离
+      （大文件下载不应阻塞 WS/API 请求）。
+
+**附带确认（自习室 WS，已由客户端修复，无需服务器操作）**：`wss://api.pomogrow.top/ws` 连接此前因
+客户端 `tokio-tungstenite` 未启用 TLS 特性而失败（报 "URL error: TLS support not compiled in"，
+即"创建自习室失败"的根因），v4.7.12 已启用 `native-tls`（Windows schannel），客户端侧即可正常连接。
+若服务器 `/ws` 升级路径或 Nginx 代理配置有变更，请按既有约定在留言区同步。
+
+---
+
+### 【服务器部门回复】v4.7.12：Range 已支持 + 线程模型确认（2026-08-15）
+
+> 部门：服务器部门 ｜ 回复类型：已完成 + 确认
+
+**P1（Range）已完成**：本机 80/443 由 Python `server.py` 统一承载（无 nginx 进程，故未采用 Nginx 方案），
+已在 `server.py` 的 `Handler` 增加 `send_head` Range 分支（206 + `Content-Range` + `Accept-Ranges: bytes`；
+越界/非法 range 返回 416 + `Content-Range: bytes */<total>`；兼容 `bytes=0-` / `bytes=a-b` / `bytes=-N` 后缀式）。
+已实测 `api.pomogrow.top/updates/`：
+
+- `Range: bytes=0-1023` → `206`，`Content-Range: bytes 0-687/688` ✓
+- exe 中段 `bytes=1000000-2000000` → `206`，`Content-Length 1000001` ✓（且与本地文件逐字节比对一致）
+- 越界 `bytes=999999999999-` → `416 Range Not Satisfiable` + `Content-Range: bytes */18235772` ✓
+- 无 Range → 200 全量（行为不变）✓
+
+客户端断点续传 / 暂停继续 / "416 视为已完整" 三条语义均已满足。
+
+**P2（线程模型）已确认，下载不阻塞 API/WS**：80/8080 与 443 均使用
+`ThreadingHTTPServer`（443 为 `SecureHTTPServer`，TLS 握手在连接线程内、`daemon_threads=True`），
+每连接独立线程，大文件下载只占用 1 个线程，API/WS 请求各自有新线程，互不阻塞。
+实测 18MB exe 下载进行中：`/api/health` 200（0.5s）、WS 升级 101 均正常。
+注意：3Mbps 慢链路被下载占满时全网延迟仍会升高（物理带宽争用），如需可后续对 `/updates/` 做限速（本次未做）。
+
+**附带确认**：服务器 `/ws` 升级路径未变更（443 同源 `wss://api.pomogrow.top/ws` + 3001），
+客户端 v4.7.12 启用 native-tls 后即可正常连接，无需服务器侧改动。
+
+---
+

@@ -400,6 +400,11 @@ git clone ubuntu@115.159.49.112:/home/ubuntu/PomoSolo.git
 
 写完 `server-planning/API-implementation.md` 留言区后，**必须顺手给用户/相关人一句可直接转发给服务器部门的话**（如"服务器部门，请看一眼 API-implementation.md 留言区的【加急】xx 需求，客户端已实现待你们配合"），督促他们去看留言，不要只写文档不说一声。
 
+> **留言区管理规则（2026-08-15 起强制，见 API-implementation.md 留言区开头）**：
+> 新增留言时删除已解决旧条目、只留当前待办；已解决/历史记录移入
+> `server-planning/MESSAGE-BOARD-ARCHIVE.md`；条目保持简短、细节链到专门文档。
+> 服务器部门回复"已完成"后，下一条新留言时把该条目移入归档。
+
 ---
 
 ## 11. PWA 部门（建设中）
@@ -498,7 +503,9 @@ npm run pwa:preview    # 预览产物
 | 文档 | 说明 |
 |------|------|
 | `server-planning/EXTERNAL-INTERFACES.md` | **对外接口唯一权威索引**（REST / WS / P2P / 更新源） |
-| `server-planning/API-implementation.md` | 接口详细实现 + 迭代记录（含留言区） |
+| `server-planning/API-implementation.md` | 接口详细实现 + 留言区（**含留言区管理规则**，新增留言删旧、只留待办） |
+| `server-planning/MESSAGE-BOARD-ARCHIVE.md` | 留言区历史归档（已解决/已部署记录，按需查阅） |
+| `server-planning/PWA-requirements.md` | PWA 部署与对接要求（域名/HTTPS/静态托管/曲库/CORS） |
 | `server-planning/API-quickref.md` | REST 速查 |
 | `server-planning/README.md` | 服务端需求规格（端口、数据库、Nginx 路由） |
 | `server-planning/nginx.conf` / `ws_server.py` | 参考配置 / 参考实现 |
