@@ -551,28 +551,33 @@ watch(
 }
 
 .sidebar-brand {
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 700;
   color: var(--shell-text-primary);
-  margin-bottom: 12px;
+  margin: 0 0 14px -14px;
+  letter-spacing: 0.5px;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   flex-shrink: 0;
+  /* 贴死最左侧：抵消 .sidebar 的左内边距 */
+  padding-left: 0;
 }
 
 .sidebar-title {
-  font-size: 13px;
+  font-size: 15px;
   color: var(--shell-text-secondary);
   font-weight: 600;
   margin-bottom: 10px;
   text-align: center;
   flex-shrink: 0;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  line-height: 1.6;
 }
 
 .plan-empty-hint {
   text-align: center;
   color: var(--shell-text-muted);
-  font-size: 12px;
+  font-size: 14px;
+  line-height: 1.7;
   padding: 20px 0;
 }
 
@@ -597,10 +602,11 @@ watch(
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 9px 10px;
+  padding: 12px 10px;
   border-radius: var(--shell-radius-sm);
-  margin-bottom: 4px;
-  font-size: 12px;
+  margin-bottom: 6px;
+  font-size: 14px;
+  line-height: 1.5;
   color: var(--shell-text-primary);
   transition: all 0.2s ease;
 }
@@ -660,10 +666,10 @@ watch(
 
 .btn-add-plan {
   flex: 1;
-  padding: 8px 0;
+  padding: 10px 0;
   border: none;
   border-radius: var(--shell-radius-sm);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -692,7 +698,7 @@ watch(
   color: var(--shell-text-primary);
   text-align: center;
   line-height: 2;
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .stopwatch-description p {
@@ -703,10 +709,10 @@ watch(
 
 .stopwatch-description p:last-child {
   margin-top: 18px;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--shell-text-secondary);
-  line-height: 1.6;
-  padding: 10px 12px;
+  line-height: 1.8;
+  padding: 12px 12px;
   background: var(--shell-surface);
   border-radius: var(--shell-radius-sm);
   border-left: 3px solid rgba(255, 255, 255, 0.4);
@@ -728,7 +734,8 @@ watch(
   display: flex;
   align-items: baseline;
   gap: 4px;
-  font-size: 11px;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .stat-label {
@@ -739,7 +746,7 @@ watch(
 .stat-value {
   font-weight: 600;
   color: var(--shell-text-primary);
-  font-size: 13px;
+  font-size: 16px;
 }
 
 .stat-unit {
@@ -859,8 +866,9 @@ watch(
 
 /* ============ 状态文本 ============ */
 .status {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--shell-text-secondary);
+  line-height: 1.6;
 }
 
 /* ============ 模式切换动画 ============ */
@@ -892,6 +900,14 @@ watch(
     width: clamp(210px, 13vw, 300px);
   }
 
+  .sidebar-brand {
+    font-size: 22px;
+  }
+
+  .sidebar-title {
+    font-size: 17px;
+  }
+
   .timer-container {
     width: clamp(280px, 30vmin, 400px);
     height: clamp(280px, 30vmin, 400px);
@@ -902,7 +918,7 @@ watch(
   }
 
   .title {
-    font-size: clamp(26px, 2vw, 32px);
+    font-size: clamp(28px, 2vw, 34px);
   }
 
   .btn {
@@ -918,6 +934,10 @@ watch(
   .btn-reset {
     width: clamp(100px, 6vw, 130px);
   }
+
+  .status {
+    font-size: 15px;
+  }
 }
 
 /* ============================================================
@@ -932,6 +952,14 @@ watch(
     width: clamp(240px, 12vw, 320px);
   }
 
+  .sidebar-brand {
+    font-size: 26px;
+  }
+
+  .sidebar-title {
+    font-size: 19px;
+  }
+
   .timer-container {
     width: clamp(340px, 28vmin, 460px);
     height: clamp(340px, 28vmin, 460px);
@@ -942,7 +970,7 @@ watch(
   }
 
   .title {
-    font-size: clamp(30px, 1.8vw, 38px);
+    font-size: clamp(32px, 1.8vw, 40px);
   }
 
   .btn {
@@ -960,7 +988,7 @@ watch(
   }
 
   .status {
-    font-size: 14px;
+    font-size: 16px;
   }
 }
 

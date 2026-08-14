@@ -10,82 +10,113 @@
  * 部门：PWA部门 —— 2026-08 PWA 第一版
  */
 
+/* ===== 全尺寸基础：文字加大 + 预设条加高（"大气"底档） ===== */
+.preset-item {
+  padding: 12px 12px !important;
+  line-height: 1.5 !important;
+}
+.preset-time {
+  font-size: 16px !important;
+}
+.btn-add-preset {
+  width: 36px !important;
+  height: 36px !important;
+  font-size: 18px !important;
+}
+.mode-btn {
+  padding: 9px 16px !important;
+  font-size: 14px !important;
+  border-radius: 18px !important;
+}
+.mode-icon {
+  font-size: 15px !important;
+}
+.music-player {
+  font-size: 14px !important;
+}
+
 /* ===== 中屏（≥720px）：基础流式放大 ===== */
 @media (min-width: 720px) {
   .music-player {
-    max-width: min(380px, 42vw) !important;
+    max-width: min(400px, 42vw) !important;
   }
   .btn-header {
-    width: 30px !important;
-    height: 30px !important;
-    font-size: 15px !important;
+    width: 32px !important;
+    height: 32px !important;
+    font-size: 16px !important;
   }
 }
 
-/* ===== 大屏（≥1200px 宽）：内容放大一档，播放器可右移填充横屏右侧 ===== */
+/* ===== 大屏（≥1200px 宽）：内容放大一档；播放器始终与圆环同轴（居中） ===== */
 @media (min-width: 1200px) {
   .music-player {
-    max-width: min(540px, 40vw) !important;
+    max-width: min(560px, 40vw) !important;
   }
   .time-display {
-    font-size: clamp(52px, 6.5vmin, 74px) !important;
+    font-size: clamp(54px, 6.5vmin, 78px) !important;
+  }
+  /* 功能按钮列：大屏不再折叠，全部常显 */
+  .header-buttons-hidden {
+    max-height: none !important;
+    clip-path: none !important;
+    margin-top: 0 !important;
+  }
+  .btn-expand {
+    display: none !important;
   }
   .btn-header {
-    width: 36px !important;
-    height: 36px !important;
-    font-size: 17px !important;
+    width: 40px !important;
+    height: 40px !important;
+    font-size: 18px !important;
+  }
+  .header-buttons,
+  .header-buttons-hidden {
+    gap: 8px !important;
   }
   .note-manager__input {
-    height: 32px !important;
-    font-size: 12px !important;
+    height: 34px !important;
+    font-size: 13px !important;
   }
   .preset-item {
-    padding: 10px 12px !important;
+    padding: 14px 14px !important;
+  }
+  .preset-time {
+    font-size: 17px !important;
   }
   .btn-add-preset {
-    width: 38px !important;
-    height: 38px !important;
-    font-size: 19px !important;
+    width: 42px !important;
+    height: 42px !important;
+    font-size: 21px !important;
   }
   .mode-btn {
-    padding: 8px 15px !important;
+    padding: 10px 18px !important;
+    font-size: 15px !important;
   }
-}
-
-/* ===== 超宽（≥1400px）：播放器停靠主区域右下，填补右侧空白 ===== */
-@media (min-width: 1400px) {
-  .music-player {
-    left: auto !important;
-    right: 28px !important;
-    transform: none !important;
-    max-width: min(560px, 32vw) !important;
+  .mode-icon {
+    font-size: 16px !important;
   }
 }
 
 /* ===== 4K / 高分辨率（≥1920px 宽 且 ≥1200px 高）：再上档 ===== */
 @media (min-width: 1920px) and (min-height: 1200px) {
   .music-player {
-    right: 40px !important;
-    max-width: min(620px, 30vw) !important;
+    max-width: min(620px, 32vw) !important;
+    font-size: 15px !important;
   }
   .time-display {
-    font-size: clamp(64px, 6vmin, 92px) !important;
+    font-size: clamp(66px, 6vmin, 96px) !important;
   }
   .btn-header {
-    width: 44px !important;
-    height: 44px !important;
-    font-size: 20px !important;
-  }
-  .header-buttons,
-  .header-buttons-hidden {
-    gap: 8px !important;
+    width: 46px !important;
+    height: 46px !important;
+    font-size: 21px !important;
   }
   .note-manager {
     width: min(30vw, 280px) !important;
     max-width: min(30vw, 280px) !important;
   }
   .note-manager__input {
-    height: 42px !important;
+    height: 44px !important;
     font-size: 15px !important;
   }
   .music-btn {
@@ -97,16 +128,22 @@
     height: 58px !important;
   }
   .preset-item {
-    padding: 14px 16px !important;
+    padding: 16px 16px !important;
+  }
+  .preset-time {
+    font-size: 18px !important;
   }
   .btn-add-preset {
-    width: 46px !important;
-    height: 46px !important;
-    font-size: 23px !important;
+    width: 48px !important;
+    height: 48px !important;
+    font-size: 24px !important;
   }
   .mode-btn {
-    padding: 12px 18px !important;
-    font-size: 14px !important;
+    padding: 12px 20px !important;
+    font-size: 16px !important;
+  }
+  .mode-icon {
+    font-size: 17px !important;
   }
 }
 
@@ -155,16 +192,16 @@
 
   /* 预设列表：触摸友好的行高 */
   .preset-item {
-    padding: 12px 12px !important;
+    padding: 13px 12px !important;
   }
   .btn-add-preset {
-    width: 40px !important;
-    height: 40px !important;
-    font-size: 20px !important;
+    width: 42px !important;
+    height: 42px !important;
+    font-size: 21px !important;
   }
 
   /* 工作/休息切换：加大 */
   .mode-btn {
-    padding: 10px 16px !important;
+    padding: 11px 18px !important;
   }
 }
