@@ -48,6 +48,15 @@ import {
   type GardenState,
 } from "../garden";
 
+/** 本地时区"今日"（与 store canSignInToday 的本地时区日期计算一致，避免跨日/时区 flake） */
+function localToday(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 describe("useGardenStore", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
@@ -611,7 +620,7 @@ describe("useGardenStore", () => {
   // ===== canSignInToday =====
   it("canSignInToday 在 lastDate !== today 时返回 true", () => {
     const store = useGardenStore();
-    const today = new Date().toISOString().split("T")[0];
+    const today = localToday();
     setData(store, {
       signIn: { ...DEFAULT_GARDEN.signIn, lastDate: "2020-01-01" },
     });
@@ -621,7 +630,7 @@ describe("useGardenStore", () => {
 
   it("canSignInToday 在 lastDate === today 时返回 false", () => {
     const store = useGardenStore();
-    const today = new Date().toISOString().split("T")[0];
+    const today = localToday();
     setData(store, {
       signIn: { ...DEFAULT_GARDEN.signIn, lastDate: today },
     });

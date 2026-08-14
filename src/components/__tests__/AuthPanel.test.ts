@@ -316,7 +316,7 @@ describe("AuthPanel.vue", () => {
     expect(mockStore.login).toHaveBeenCalledWith("bob", "password123", true, true);
     // 关闭面板 + 通知登录成功
     expect(wrapper.emitted("logged-in")).toBeTruthy();
-    expect(wrapper.emitted("update:visible")?.at(-1)?.[0]).toBe(false);
+    expect(wrapper.emitted("update:visible")?.slice(-1)?.[0]?.[0]).toBe(false);
   });
 
   it("注册成功但自动登录失败时应切回登录 Tab 并自动填写账号密码", async () => {
@@ -341,7 +341,7 @@ describe("AuthPanel.vue", () => {
     expect((loginInputs[0].element as HTMLInputElement).value).toBe("bob");
     expect((loginInputs[1].element as HTMLInputElement).value).toBe("password123");
     // 不关闭面板
-    expect(wrapper.emitted("update:visible")?.at(-1)?.[0]).not.toBe(false);
+    expect(wrapper.emitted("update:visible")?.slice(-1)?.[0]?.[0]).not.toBe(false);
   });
 
   it("注册失败时应显示错误提示且不自动登录", async () => {

@@ -94,7 +94,7 @@ describe("StudyRoom.vue", () => {
     musicMock.djUserId = null;
     // 拦截 setInterval，避免真实 30s 定时器
     setIntervalSpy = vi.fn(() => 0 as unknown as ReturnType<typeof setInterval>);
-    global.setInterval = setIntervalSpy as unknown as typeof setInterval;
+    globalThis.setInterval = setIntervalSpy as unknown as typeof setInterval;
   });
 
   afterEach(() => {
