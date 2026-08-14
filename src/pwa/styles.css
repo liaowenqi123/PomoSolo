@@ -10,6 +10,23 @@
  * 部门：PWA部门 —— 2026-08 PWA 第一版
  */
 
+/* ===== 触控/点击：去掉默认蓝色高亮与焦点闪框（手机点击控件不再闪蓝） =====
+   原因：移动端浏览器默认给可点元素加 -webkit-tap-highlight（蓝/灰闪烁），
+   部分控件在 click 时会触发 :focus 蓝色外框；这里统一去掉，键盘聚焦仍保留可见外框。 */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+button:focus,
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+}
+button:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.55);
+  outline-offset: 1px;
+}
+
 /* ===== 全尺寸基础：文字加大 + 预设条加高（"大气"底档） ===== */
 .preset-item {
   padding: 12px 12px !important;
@@ -160,14 +177,9 @@
     gap: 8px !important;
   }
 
-  /* 备注输入：加宽加高，便于点按 */
+  /* 手机：备注栏整体移除（竖屏太宽且统计已不在，直接不显示） */
   .note-manager {
-    width: min(58vw, 210px) !important;
-    max-width: min(58vw, 210px) !important;
-  }
-  .note-manager__input {
-    height: 36px !important;
-    font-size: 13px !important;
+    display: none !important;
   }
 
   /* 播放器：贴底 + 安全区 + 更宽；控制按钮加大 */

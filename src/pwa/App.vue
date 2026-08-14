@@ -33,7 +33,7 @@ import { useTimerStore, type TimerMode } from "@/stores/timer";
 import { useSettingsStore } from "@/stores/settings";
 import { useStatsStore } from "@/stores/stats";
 import { useAuthStore } from "@/stores/auth";
-import { loadManifest } from "./music/manifest";
+import { preflightManifest } from "./music/preflight";
 import { audioEngine } from "./music/engine";
 
 const timer = useTimerStore();
@@ -197,14 +197,18 @@ onMounted(async () => {
   }, 400);
 });
 
-// 音乐清单 → 音频引擎（内置 3 首 + 服务器曲库；服务器曲库在线与否不影响清单）
-void loadManifest()
-  .then((manifest) => {
-    audioEngine.setPlaylist(manifest.songs);
+// 音乐播放器就绪预检：内置 3 首确认下载/缓存就绪后才启动底部播放器
+// （每次启动都检查；没歌可放就不渲染播放器，避免空播放器闪一下）
+const playerReady = ref(false);
+void preflightManifest()
+  .then((r) => {
+    audioEngine.setPlaylist(r.songs);
+    playerReady.value = r.ready;
   })
   .catch((e) => {
-    console.warn("[PWA] 音乐清单加载失败，曲库为空:", e);
+    console.warn("[PWA] 音乐预检失败，播放器不启动:", e);
     audioEngine.setPlaylist([]);
+    playerReady.value = false;
   });
 
 onUnmounted(() => {
@@ -375,7 +379,7 @@ watch(
         </aside>
 
         <!-- 右侧主区域 -->
-        <main class="main" :class="{ 'mode-animating': modeAnimating }">
+        <main class="main" :class="{ 'mode-animating': modeAnimating, 'no-player': !playerReady }">
           <!-- 功能按钮列（桌面左上；手机右上、顶栏蒙版下方） -->
           <HeaderButtons
             @tutorial="showTutorial = true"
@@ -425,8 +429,8 @@ watch(
             </p>
           </div>
 
-          <!-- 音乐播放器（绝对定位在 main 底部居中） -->
-          <MusicPlayer />
+          <!-- 音乐播放器（预检就绪后才渲染；绝对定位在 main 底部居中） -->
+          <MusicPlayer v-if="playerReady" />
         </main>
       </div>
 
@@ -775,6 +779,11 @@ watch(
   padding-bottom: 40px;
 }
 
+/* 播放器未就绪（预检未完成/无歌）：不预留播放器空间 */
+.main.no-player .timer-section {
+  padding-bottom: 24px;
+}
+
 .title {
   font-size: clamp(20px, 3.5vmin, 26px);
   color: var(--shell-text-primary);
@@ -1083,6 +1092,10 @@ watch(
   }
 
   .main:has(.music-player.collapsed) .timer-section {
+    padding-bottom: 30px;
+  }
+
+  .main.no-player .timer-section {
     padding-bottom: 30px;
   }
 

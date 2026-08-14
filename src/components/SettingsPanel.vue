@@ -64,6 +64,11 @@ const emit = defineEmits<{
 const settings = useSettingsStore();
 const garden = useGardenStore();
 
+/** PWA 环境标识：PWA 主壳启动时设置 window.__PWA__；桌面端不设置 → 显示完整设置面板 */
+const isPwa =
+  typeof window !== "undefined" &&
+  !!(window as unknown as { __PWA__?: boolean }).__PWA__;
+
 // 本地编辑副本——只在面板可见时同步，避免直接修改 store 导致中途自动保存
 const local = computed(() => settings.settings);
 
@@ -802,8 +807,8 @@ function statusLabel(status: number): string {
             </div>
           </section>
 
-          <!-- 计时器 -->
-          <section class="settings-section">
+          <!-- 计时器（PWA 无窗口/迷你模式概念，隐藏） -->
+          <section v-if="!isPwa" class="settings-section">
             <h3 class="settings-section__title">计时器</h3>
             <div class="settings-row">
               <label class="settings-row__label">最小化行为</label>
@@ -840,7 +845,7 @@ function statusLabel(status: number): string {
           <!-- 功能按钮 -->
           <section class="settings-section">
             <h3 class="settings-section__title">功能按钮</h3>
-            <div class="settings-row settings-row--toggle">
+            <div class="settings-row settings-row--toggle" v-if="!isPwa">
               <label class="settings-row__label">显示菜园子按钮</label>
               <label class="toggle">
                 <input
@@ -853,7 +858,7 @@ function statusLabel(status: number): string {
                 <span class="toggle__slider"></span>
               </label>
             </div>
-            <div class="settings-row settings-row--toggle">
+            <div class="settings-row settings-row--toggle" v-if="!isPwa">
               <label class="settings-row__label">显示统计按钮</label>
               <label class="toggle">
                 <input
@@ -866,7 +871,7 @@ function statusLabel(status: number): string {
                 <span class="toggle__slider"></span>
               </label>
             </div>
-            <div class="settings-row settings-row--toggle">
+            <div class="settings-row settings-row--toggle" v-if="!isPwa">
               <label class="settings-row__label">显示 AI 助手按钮</label>
               <label class="toggle">
                 <input
@@ -892,7 +897,7 @@ function statusLabel(status: number): string {
                 <span class="toggle__slider"></span>
               </label>
             </div>
-            <div class="settings-row settings-row--toggle">
+            <div class="settings-row settings-row--toggle" v-if="!isPwa">
               <label class="settings-row__label">显示图表按钮</label>
               <label class="toggle">
                 <input
@@ -910,7 +915,7 @@ function statusLabel(status: number): string {
           <!-- 导航 -->
           <section class="settings-section">
             <h3 class="settings-section__title">导航</h3>
-            <div class="settings-row settings-row--toggle">
+            <div class="settings-row settings-row--toggle" v-if="!isPwa">
               <label class="settings-row__label">显示侧边栏收起按钮</label>
               <label class="toggle">
                 <input
@@ -967,7 +972,7 @@ function statusLabel(status: number): string {
                 <span class="toggle__slider"></span>
               </label>
             </div>
-            <div class="settings-row settings-row--toggle">
+            <div class="settings-row settings-row--toggle" v-if="!isPwa">
               <label class="settings-row__label">显示设备按钮</label>
               <label class="toggle">
                 <input
@@ -982,8 +987,8 @@ function statusLabel(status: number): string {
             </div>
           </section>
 
-          <!-- 种植 -->
-          <section class="settings-section">
+          <!-- 种植（PWA 已砍菜园子，隐藏） -->
+          <section v-if="!isPwa" class="settings-section">
             <h3 class="settings-section__title">种植</h3>
             <div class="settings-row settings-row--toggle">
               <label class="settings-row__label">种植轮盘模式</label>
@@ -1000,8 +1005,8 @@ function statusLabel(status: number): string {
             </div>
           </section>
 
-          <!-- 系统 -->
-          <section class="settings-section">
+          <!-- 系统（PWA 无自启动/P2P 测试，隐藏） -->
+          <section v-if="!isPwa" class="settings-section">
             <h3 class="settings-section__title">系统</h3>
             <div class="settings-row settings-row--toggle">
               <label class="settings-row__label">开机自启动</label>
@@ -1030,6 +1035,7 @@ function statusLabel(status: number): string {
           <!-- 关于 / 更新 -->
           <section class="settings-section">
             <h3 class="settings-section__title">关于</h3>
+            <template v-if="!isPwa">
             <div class="settings-row">
               <label class="settings-row__label">意见反馈</label>
               <button class="update-btn" @click="openFeedbackModal">
@@ -1151,6 +1157,7 @@ function statusLabel(status: number): string {
                 ×
               </button>
             </div>
+            </template>
             <div class="settings-row">
               <label class="settings-row__label">版本</label>
               <span class="version-text" @click="handleVersionClick">v{{ appVersion }}</span>

@@ -15,6 +15,9 @@ import "../styles/global.css";
 import "./styles.css";
 import { LS_PREFIX } from "./config";
 
+// ===== PWA 环境标识：复用组件（如 SettingsPanel）据此隐藏桌面端专属板块 =====
+(window as unknown as { __PWA__?: boolean }).__PWA__ = true;
+
 // ===== 开机自检：预置 PWA 默认设置（砍去功能的按钮默认关闭，避免闪出空按钮） =====
 bootstrapSettings();
 
