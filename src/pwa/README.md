@@ -91,12 +91,23 @@ PWA 自己的引擎/WS 客户端经 `eventBus.ts` 喂给 `listen()`，MusicPlaye
 - 复用 StudyRoom.vue：WS 事件 + 心跳 + 自动重连；
 - P2P 分片：收到分片存 IndexedDB，合并成 Blob → object URL 播放；发送端从缓存/IDB/远程读字节。
 
+## 响应式适配（复用 ≠ UI 完全一致）
+
+浏览器窗口大小千差万别，PWA 外壳（`src/pwa/App.vue`）做了整壳等比缩放，复用的组件无需改动：
+
+- 设计基准 560×640，按窗口 `min(vw/560, vh/640)` 计算缩放系数（下限 0.6× / 上限 1.5×）；
+- **大屏（1920+）**：放大居中呈现"应用窗口"观感（圆角 + 阴影），内容不再稀松；
+- **小窗/手机**：等比缩小保证完整可用；窄到 0.72× 以下自动收起侧栏，把空间让给主区域；
+- 缩放用 `transform: scale()`，内部的 `position: fixed` 浮层（设置/自习室/登录/教程）以应用窗口为基准，与桌面端行为一致。
+
 ## 与桌面端的差异 / 已知限制
 
 - 无 Rust 能力：无本地文件系统/前台检测/系统通知（`window.showNotification` 用浏览器 Notification）；
 - 认证：**不保存明文密码**，靠 refresh token（30 天滚动）自动登录；
 - 服务器曲库未托管前，library 歌曲播放失败（内置 3 首不受影响）；
-- 登录态变化时 WS 自动用新 token 重连；登出调用 `ws.disconnect()`。
+- 登录态变化时 WS 自动用新 token 重连；登出调用 `ws.disconnect()`；
+- **WS 自动 wss**（v0.1.1）：HTTPS 页面或后端为 https 时自动 `wss://`（与主部门 v4.7.12 修 Rust 侧 TLS 为同源问题）；
+- 开发默认指向 `https://api.pomogrow.top`（后端权威域名），联调需服务器 CORS（见 PWA-requirements P2）。
 
 ## 测试
 

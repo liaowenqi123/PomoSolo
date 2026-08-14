@@ -8,12 +8,17 @@
 PomoSolo 推出 **桌面优先的 PWA 版**，代码在 `src/pwa/`（与桌面端同仓库、同源复用 `src/` 下的组件/store/API），
 部署在子域 **`start.pomogrow.top`**。本文件列出服务器部门需要做的事项与优先级。
 
+> 后端权威域名已由主部门迁移为 **`https://api.pomogrow.top`**（HTTPS/443 已生效，见 EXTERNAL-INTERFACES.md），
+> 旧 IP `http://115.159.49.112` 仅迁移期兼容。
+
 ## 2. 现状（PWA 端已完成）
 
 - PWA 构建产物：`npm run pwa:build` → 输出到仓库根 **`pwa-dist/`**（当前约若干 MB，含 3 首内置主题曲）。
 - 内置离线能力：3 首番茄钟主题曲随构建发布（`/tracks/`），**离线可播**。
 - 其余 38 首曲库歌曲：来源标记为 `library`，播放时请求 **`/music/<URL编码的歌名>`**（同源）。
 - 登录/自习室/同步听歌/云同步：走既有 `/api/v1/*` REST + `/ws` WebSocket，**协议与桌面端完全一致**（见 EXTERNAL-INTERFACES.md），PWA 端已实现，只等域名/HTTPS 就绪即可用。
+- **WS 协议跟随安全上下文**：PWA 端已修复"HTTPS 页面发起 ws:// 被浏览器拒绝"问题（v0.1.1，
+  与主部门 v4.7.12 修 Rust 侧 TLS 同源）——页面为 HTTPS 或后端为 https 时自动走 **wss://**。
 - 音乐清单：`pwa-dist/music-manifest.json`（构建时由脚本从 `music-player/music/` 生成）。
 
 ## 3. 需要服务器部门做的事（按优先级）
@@ -86,7 +91,8 @@ server {
 
 ### P2 · CORS（开发期联调）
 
-- 开发模式 PWA 运行在 `http://127.0.0.1:5199`，需允许该来源访问 `/api/*`、`/ws`、`/music/*`：
+- 开发模式 PWA 运行在 `http://127.0.0.1:5199`，默认指向 **`https://api.pomogrow.top`** 联调
+  （可用 `VITE_API_ORIGIN` 覆盖），需允许该来源访问 `/api/*`、`/ws`、`/music/*`：
 
 ```nginx
 location / {
@@ -101,7 +107,9 @@ location / {
 }
 ```
 
-> 生产（同源部署）**不需要** CORS；开发联调才需要。
+- ⚠️ WebSocket 的跨域握手也需放行（浏览器对 WS 发送 Origin 头，服务端不校验 Origin 即可，
+  如需校验请把 `http://127.0.0.1:5199` 加入白名单）。
+- > 生产（同源部署）**不需要** CORS；开发联调才需要。
 
 ### P3 · 将来：B站歌曲下载代理接口（排队，v1 不做）
 
@@ -121,7 +129,7 @@ location / {
 | REST | `/api/v1/settings` | 云端设置同步 |
 | REST | `/api/v1/pomodoro/records/batch` | 番茄钟记录上传 |
 | REST | `/api/v1/rooms*` | 自习室列表/详情/更新/删除/排行 |
-| WS | `/ws?token=<access_token>` | 房间/同步听歌/P2P 信令（协议同桌面端） |
+| WS | `wss://<host>/ws?token=<access_token>` | 房间/同步听歌/P2P 信令（协议同桌面端；HTTPS 下必须 wss，PWA 已自动处理） |
 | 静态 | `/music/*` | 曲库（P1） |
 | 静态 | `/tracks/*` | 内置主题曲（随 PWA 发布） |
 | 静态 | `/music-manifest.json` | 音乐清单（随 PWA 发布） |

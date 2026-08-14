@@ -52,6 +52,30 @@ const showTutorial = ref(false);
 // ===== 侧边栏收起 =====
 const sidebarCollapsed = ref(false);
 
+// ===== 响应式整壳缩放（浏览器窗口大小自适应，复用 ≠ UI 完全一致） =====
+// 设计基准 560×640（对应桌面端应用窗口观感），按窗口尺寸等比缩放：
+// - 大屏（1920×1080 起）：放大到 ~1.4×，居中呈现"应用窗口"效果，内容不再稀松；
+// - 小窗/手机：等比缩小（下限 0.6×），窄到 0.72× 以下自动收起侧栏，把空间让给主区域。
+const scale = ref(1);
+const DESIGN_W = 560;
+const DESIGN_H = 640;
+const MIN_SCALE = 0.6;
+const MAX_SCALE = 1.4;
+let scaleRaf = 0;
+
+function updateScale() {
+  const s = Math.min(window.innerWidth / DESIGN_W, window.innerHeight / DESIGN_H);
+  scale.value = Math.max(MIN_SCALE, Math.min(MAX_SCALE, s));
+  if (scale.value < 0.72 && !sidebarCollapsed.value) {
+    sidebarCollapsed.value = true;
+  }
+}
+
+function onWindowResize() {
+  cancelAnimationFrame(scaleRaf);
+  scaleRaf = requestAnimationFrame(updateScale);
+}
+
 /** 被砍板块的 HeaderButtons 事件（stats/ai/garden/charts）→ 无操作（按钮已在 PWA 隐藏） */
 function showStatsNoop() {
   /* 无操作 */
@@ -177,6 +201,8 @@ onMounted(async () => {
   document.documentElement.classList.toggle("dark-theme", settings.isDark);
   document.body.classList.toggle("dark-theme", settings.isDark);
   window.addEventListener("keydown", handleKeydown);
+  updateScale();
+  window.addEventListener("resize", onWindowResize);
   setTimeout(() => {
     loading.value = false;
   }, 600);
@@ -194,6 +220,8 @@ void loadManifest()
 
 onUnmounted(() => {
   window.removeEventListener("keydown", handleKeydown);
+  window.removeEventListener("resize", onWindowResize);
+  cancelAnimationFrame(scaleRaf);
 });
 
 // ===== 完成事件 → 记录统计（菜园子/专注模式已在 PWA 砍去） =====
@@ -274,10 +302,13 @@ watch(
     <!-- 加载进度条 -->
     <LoadingOverlay :visible="loading" />
 
-    <div
-      class="container"
-      :class="[themeClass, modeClass, appModeClass, { 'sidebar-collapsed': sidebarCollapsed }]"
-    >
+    <!-- 整壳缩放舞台：小屏等比缩小、大屏等比放大居中（应用窗口观感） -->
+    <div class="scale-stage">
+      <div class="scale-box" :style="{ '--pwa-scale': String(scale) }">
+        <div
+          class="container"
+          :class="[themeClass, modeClass, appModeClass, { 'sidebar-collapsed': sidebarCollapsed }]"
+        >
       <!-- 左上角模式切换拨杆（单次/计划/正向） -->
       <ModeSlider />
 
@@ -411,18 +442,42 @@ watch(
       <AuthPanel :visible="showAuth" @update:visible="showAuth = $event" />
       <StudyRoom :visible="showStudyRoom" @update:visible="showStudyRoom = $event" />
       <TutorialModal :visible="showTutorial" @close="showTutorial = false" />
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* ============ 外层容器 - 全视口（PWA 浏览器场景） ============ */
+/* ============ 外层容器 - 全视口舞台 ============ */
 .window-frame {
-  width: 100%;
-  height: 100%;
-  border-radius: 0;
+  position: fixed;
+  inset: 0;
   overflow: hidden;
-  position: relative;
+  background: #141414;
+}
+
+/* ============ 整壳缩放（响应式核心） ============
+   设计基准 560×640：大屏等比放大（上限 1.5×）居中呈现"应用窗口"；
+   小屏等比缩小（下限 0.6×）。transform 使内部 position:fixed 浮层
+   （设置/自习室/登录/教程弹层）以应用窗口为基准，行为与桌面端一致。 */
+.scale-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scale-box {
+  width: 560px;
+  height: 640px;
+  transform: scale(var(--pwa-scale, 1));
+  transform-origin: center;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* ============ 内层容器 - 实际背景 ============ */
