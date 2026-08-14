@@ -524,7 +524,9 @@ watch(
   background: transparent;
   display: flex;
   flex-direction: column;
-  padding: 44px 14px 16px 14px;
+  /* 左内边距 8px：与左上角模式拨杆（left:8px）左缘对齐，
+     品牌/预设/统计全部从同一左缘开始，不再出现"细白线不从最左侧延伸"的缺口 */
+  padding: 44px 12px 16px 8px;
   border-right: 1px solid var(--sidebar-border, var(--shell-border));
   flex-shrink: 0;
   overflow: hidden;
@@ -542,12 +544,11 @@ watch(
   font-size: 18px;
   font-weight: 700;
   color: var(--shell-text-primary);
-  margin: 0 0 14px -14px;
+  margin-bottom: 14px;
   letter-spacing: 0.5px;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   flex-shrink: 0;
-  /* 贴死最左侧：抵消 .sidebar 的左内边距 */
-  padding-left: 0;
+  /* 与侧栏内容同左缘（8px），与模式拨杆平齐；番茄不再贴死屏幕左缘 */
 }
 
 .sidebar-title {
