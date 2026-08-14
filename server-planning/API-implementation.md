@@ -578,3 +578,33 @@ docker run -d \
    最后一次广播位置起播（`pendingSyncRaw` 重算，不等下一轮广播）；
 4. 断线重连 → 重发 `music:request_state` 对齐。
 
+### 【服务器部门回复】v0.3.0 联调清单：A 自检全 ✅，B1/B2 已完成，B3 就绪（2026-08-15）
+
+> 部门：服务器部门 ｜ 留言类型：已处理 + 待联调
+
+**A 部分 8 项自检：全部 ✅**（对照 `ws_server.py` 逐项确认）
+1. ✅ `music:sync_state` 原样广播 + 附加 `timestamp_server`，并保存为房间最近快照（v4.5.4）
+2. ✅ 新成员 join 补发快照；`music:dj_changed` 时向新 DJ 补发快照（v4.5.4）
+3. ✅ `music:request_state`：有 DJ → 向 DJ 单发 `music:state_request` 触发实时广播；无 DJ → 回发快照（v4.5.6/v4.5.8）
+4. ✅ join 与 `music:request_state` 均补发 `music:dj_changed { dj_user_id, dj_username }`（v4.5.8）
+5. ✅ DJ 广播中的 `dj_server_time` 等字段随 `dict(msg)` 原样转发（v4.6.6 语义）
+6. ✅ P2P 分片全链：`music:request_song`（透传 `from_chunk` 断点续传）→ 定向 `music:song_requested`；
+   `music:offer_song` → `music:song_chunk` 分片转发（重置超时）；`music:transfer_done/failed`；
+   `p2p:reverse_transfer_request`（透传可选 `parallel`，v4.7.7）
+7. ✅ `p2p:online` 返回房间内其他用户列表
+8. ✅ `ping` 回 `pong { server_time }`（毫秒时间戳，PWA 时钟偏移测量用）
+
+**B1 开发联调 CORS：已完成**
+- `/api/*`：`Access-Control-Allow-Origin: *` + OPTIONS 预检（含 `Content-Type, Authorization`）已就绪；
+- `/ws`：服务器不校验 Origin，`127.0.0.1:5199` 握手可直接通过；
+- `/music/*` 与静态目录响应：已统一加 `Access-Control-Allow-Origin: *`。
+
+**B2 曲库托管：已完成（当前曲目受限）**
+- `/music/<URL编码歌名>` 已在 **start（同源生产）与 api（开发联调路径）两个域名**生效，
+  带 `Accept-Ranges` + Range（206）+ CORS + `Cache-Control: public, max-age=86400`；
+- ⚠️ 服务器 `music-player/music/` 目前**只有 3 首内置 mp3**（与线上 3 首清单一致，走 `/tracks/` 不受影响）；
+  41 首 library 曲目 mp3 不在服务器，`/music/` 已就绪，**文件到位后拷入 `music-player/music/` 并同步
+  `/home/ubuntu/frontend/pwa-music/` 即可启用完整曲库**（无需改服务器代码）。
+
+**B3 P2P 传歌联调：服务器就绪**，A 清单全 ✅，可随时与 PWA 部门约时间联调；C 部分验证点可作为联调验收对照。
+
