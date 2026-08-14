@@ -184,6 +184,28 @@
     height: 44px !important;
   }
 
+  /* 顶栏拨杆：加大轨道/滑块/标签，便于触控与阅读 */
+  .mode-slider {
+    width: 52px !important;
+    height: 24px !important;
+    border-radius: 12px !important;
+  }
+  .mode-slider-thumb {
+    width: 16px !important;
+    height: 16px !important;
+    top: 3px !important;
+  }
+  .mode-slider--plan .mode-slider-thumb {
+    left: 18px !important;
+  }
+  .mode-slider--stopwatch .mode-slider-thumb {
+    left: 33px !important;
+  }
+  .mode-label {
+    font-size: 11px !important;
+    padding: 4px 6px !important;
+  }
+
   /* 设置面板：更宽（94vw），减少左右留白 */
   .settings-panel {
     width: 94vw !important;

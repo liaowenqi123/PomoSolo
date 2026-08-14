@@ -989,14 +989,15 @@ watch(
     height: var(--shell-header-h);
     display: flex;
     align-items: center;
+    gap: 10px;
+    padding: 0 8px;
     z-index: var(--z-header-btn);
-    background: rgba(0, 0, 0, 0.14);
+    background: rgba(0, 0, 0, 0.18);
   }
 
   .hamburger {
     width: 40px;
     height: 40px;
-    margin-left: 6px;
     border-radius: 12px;
     background: var(--shell-btn-bg);
     border: 1px solid var(--shell-btn-border);
@@ -1005,6 +1006,7 @@ watch(
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
     z-index: var(--z-header-btn);
   }
 
@@ -1012,9 +1014,11 @@ watch(
     background: var(--shell-btn-bg-hover);
   }
 
+  /* 拨杆放进顶栏流内（跟随 ☰ 排布、垂直居中），不再绝对定位漂浮 */
   .app-topbar :deep(.mode-slider-container) {
-    left: 50px;
-    top: 16px;
+    position: static;
+    left: auto;
+    top: auto;
   }
 
   /* 功能按钮列：位于主区域右上（主区域起点在顶栏之下），
@@ -1035,12 +1039,13 @@ watch(
     padding-bottom: 8px;
   }
 
-  /* 侧边栏 → 抽屉 */
+  /* 侧边栏 → 抽屉：从顶栏下方开始（让开顶部黑色蒙版那一行） */
   .sidebar {
     position: absolute;
     left: 0;
-    top: 0;
+    top: var(--shell-header-h);
     bottom: 0;
+    height: auto; /* 覆盖基线 height:100%，让 top/bottom 决定高度，避免底部被裁 */
     width: min(78vw, 280px);
     padding: 18px 14px 20px 14px;
     background: var(--shell-drawer-bg);
@@ -1055,10 +1060,14 @@ watch(
     transform: translateX(0);
   }
 
+  /* 蒙版：只盖顶栏下方内容区，顶栏（☰/拨杆）保持明亮可操作 */
   .drawer-backdrop {
     position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.45);
+    top: var(--shell-header-h);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
     z-index: calc(var(--z-modal) - 1);
   }
 
