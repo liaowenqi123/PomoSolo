@@ -300,7 +300,7 @@ watch(
       <!-- 桌面：模式拨杆浮在左上角（与桌面端一致） -->
       <ModeSlider v-if="!isMobile" />
 
-      <!-- 手机：顶栏（☰ 抽屉 + 模式拨杆 + 功能按钮） -->
+      <!-- 手机：顶栏（☰ 抽屉 + 模式拨杆；功能按钮列在主区域右上、蒙版下方） -->
       <div v-else class="app-topbar">
         <button
           class="hamburger"
@@ -309,17 +309,6 @@ watch(
           @click="toggleMobileSidebar"
         >☰</button>
         <ModeSlider />
-        <HeaderButtons
-          @tutorial="showTutorial = true"
-          @settings="showSettings = true"
-          @theme="settings.toggleTheme()"
-          @stats="showStatsNoop"
-          @ai="showStatsNoop"
-          @study-room="showStudyRoom = true"
-          @garden="showStatsNoop"
-          @auth="showAuth = true"
-          @charts="showStatsNoop"
-        />
       </div>
 
       <div class="app-body">
@@ -386,9 +375,8 @@ watch(
 
         <!-- 右侧主区域 -->
         <main class="main" :class="{ 'mode-animating': modeAnimating }">
-          <!-- 功能按钮列（桌面版；手机版在顶栏） -->
+          <!-- 功能按钮列（桌面左上；手机右上、顶栏蒙版下方） -->
           <HeaderButtons
-            v-if="!isMobile"
             @tutorial="showTutorial = true"
             @settings="showSettings = true"
             @theme="settings.toggleTheme()"
@@ -1033,10 +1021,12 @@ watch(
     top: 16px;
   }
 
-  .app-topbar :deep(.header-buttons) {
-    top: 6px;
+  /* 功能按钮列：位于主区域右上（主区域起点在顶栏之下），
+     避开顶栏半透明黑色蒙版遮挡的区域 */
+  .main :deep(.header-buttons) {
+    top: 4px;
     left: auto;
-    right: 6px;
+    right: 8px;
   }
 
   /* 主区域占满，顶栏下方留白 */
