@@ -15,7 +15,7 @@
 2. CI（`.github/workflows/ci.yml`）：打 tag 时从本地 runner 生成服务器版 `latest.json`（url 指向 `api.pomogrow.top`）并 scp 安装包 + 签名 + `latest.json` 到服务器 `/home/ubuntu/frontend/updates/`（新增 `SERVER_HOST` / `SERVER_USER` / `SERVER_SSH_KEY` secrets）；
 3. 证书：certbot 签发覆盖 `pomogrow.top` + `api.pomogrow.top` 的证书，deploy hook 自动续期复制 + 重启容器（停用原 1Panel DNS 续期 + `sync-le-cert.sh`，避免旧证书覆盖）。
 
-### 20. 域名迁移后自习室 WebSocket 连不上（TLS support not compiled in）+ 服务器源下载偶尔报错（v4.7.12，待发版）
+### 20. 域名迁移后自习室 WebSocket 连不上（TLS support not compiled in）+ 服务器源下载偶尔报错（v4.7.12）
 
 **实测场景（用户）**：v4.7.11 服务器迁移到域名 `https://api.pomogrow.top` 后，自习室创建报错「创建失败:WebSocket 连接失败:URL error: TLS support not compiled in」；同时「服务器」更新源下载安装包偶尔报错。
 

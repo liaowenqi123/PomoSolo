@@ -4,7 +4,7 @@
 > 读完本文档 + 各文档入口，你就可以直接投入工作。
 >
 > - 最后更新：2026-08-14
-> - 当前版本：v4.7.11（Tauri v2 + Vue 3 + Rust）
+> - 当前版本：v4.7.12（Tauri v2 + Vue 3 + Rust）
 > - 适用范围：所有在本仓库工作的人，以及通过 SSH 维护服务器的协作者（含 AI 助手）
 > - 本文档沉淀自主部门长期实践，包含**项目理念与红线**——这些是踩过坑换来的，请务必遵守。
 
@@ -51,7 +51,7 @@
 
 | 端 | 状态 | 说明 |
 |----|------|------|
-| 🖥 桌面端（Windows） | ✅ 已上线（v4.7.11） | Tauri v2 + Vue 3 + 纯 Rust 后端，安装包约 17MB，自动更新 |
+| 🖥 桌面端（Windows） | ✅ 已上线（v4.7.12） | Tauri v2 + Vue 3 + 纯 Rust 后端，安装包约 17MB，自动更新 |
 | 🖥 服务器端 | ✅ 运行中 | 自建公网服务器：JWT 认证、REST API、WebSocket（自习室/同步听歌等）、P2P 信令 |
 | 📱 PWA 端 | 🚧 建设中（PWA部门） | 桌面优先的 PWA，代码在 `src/pwa/`（真实复用桌面端 `src/`），部署于 `start.pomogrow.top`（见第 11 节） |
 
@@ -159,7 +159,7 @@
 - **beta 是预发布**：`v4.6.0-beta.0` **小于** `v4.6.0`，beta 用户应能正常升级到正式版；
 - 从 beta 升正式版：先发 `vX.Y.Z-beta.N`，再发 `vX.Y.Z`（正式版）；
 - GitHub Release 的 beta 必须勾选 **prerelease** 标记，避免 `releases/latest` 误指 beta；
-- 当前正式版为 **v4.7.11**。
+- 当前正式版为 **v4.7.12**。
 
 ### 4.6 反馈闭环
 
@@ -260,8 +260,8 @@ git push origin main
 git push self main
 
 # 推送 tag
-git push origin v4.7.11
-git push self v4.7.11
+git push origin v4.7.12
+git push self v4.7.12
 ```
 
 **为什么必须推两个：**
