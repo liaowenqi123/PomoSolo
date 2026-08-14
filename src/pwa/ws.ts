@@ -35,10 +35,22 @@ const pending = new Map<number, Pending>();
 const HEARTBEAT_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 8_000;
 
+/**
+ * 构建 WS 地址：协议跟随安全上下文
+ *
+ * ⚠️ 与桌面端同款 bug 的修复（主部门 v4.7.12 修 Rust 侧，此处修浏览器侧）：
+ * 服务器迁移到 https://api.pomogrow.top 后 WS 必须走 wss://。
+ * 浏览器安全策略：HTTPS 页面**禁止**发起 ws://（报 "Failed to construct 'WebSocket':
+ * An insecure WebSocket connection may not be initiated from a page loaded over HTTPS"）。
+ * 因此只要"页面是 HTTPS"或"API_ORIGIN 是 https"就必须用 wss。
+ */
 function buildUrl(): string {
   const token = getAccessToken();
-  const proto = API_ORIGIN.startsWith("https") ? "wss" : "ws";
-  const host = API_ORIGIN ? API_ORIGIN.replace(/^https?:\/\//, "") : window.location.host;
+  const origin = API_ORIGIN;
+  const pageIsHttps = typeof window !== "undefined" && window.location.protocol === "https:";
+  const secure = pageIsHttps || origin.startsWith("https");
+  const proto = secure ? "wss" : "ws";
+  const host = origin ? origin.replace(/^https?:\/\//, "") : window.location.host;
   return `${proto}://${host}/ws?token=${encodeURIComponent(token || "")}`;
 }
 
