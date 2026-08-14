@@ -38,6 +38,8 @@ class BrowserAudioEngine {
   private localUrls = new Map<string, string>();
   /** 已加载曲名（避免同一首歌重复发 track-change） */
   private loadedName = "";
+  /** 最近一次赋给 audio 的 src（判断"同一首歌重定位"） */
+  private lastSrc = "";
   private lastProgressAt = 0;
   private pendingStartSec = 0;
   /** 用户自定义标签覆盖（歌名 → { name, color } | null） */
@@ -154,20 +156,78 @@ class BrowserAudioEngine {
 
   // ===== 播放控制 =====
 
+  /**
+   * 播放歌曲。startSec > 0 时"先定位后播放"（等价桌面端 skip_duration）：
+   * - 同一首歌重定位（src 未变，loadedmetadata 不会重触发）→ 直接 seek 后播放；
+   * - 换新歌 → 设置 pendingStartSec，等 loadedmetadata（其 handler 写入 currentTime）
+   *   就绪后再 play()，杜绝"先播 0 再跳"（同步听歌校准的关键时序）。
+   */
   async play(name: string, startSec = 0): Promise<void> {
     const idx = this.order.indexOf(name);
     if (idx < 0) throw new Error(`歌曲不在歌单中: ${name}`);
     this.index = idx;
     const url = await this.resolveUrl(name);
-    this.pendingStartSec = startSec;
-    this.audio.src = url;
+    const a = this.audio;
+    const start = Math.max(0, startSec);
+    const sameSource = this.lastSrc === url;
+
+    if (start > 0 && sameSource) {
+      // 同一首歌重定位：src 不变不会重新触发 loadedmetadata，直接 seek 后播放
+      const dur = Number.isFinite(a.duration) ? a.duration : 0;
+      a.currentTime = dur > 0 ? Math.min(start, dur) : start;
+      await this.playNow();
+      return;
+    }
+
+    this.pendingStartSec = start;
+    this.lastSrc = url;
+    a.src = url;
+    if (start > 0) {
+      // 未加载：等 metadata 就绪（loadedmetadata handler 已把 pendingStartSec 写入 currentTime）
+      await this.waitForMetadata();
+    }
+    await this.playNow();
+  }
+
+  /** 播放（浏览器自动播放策略拦截时统一上报并抛错） */
+  private async playNow(): Promise<void> {
     try {
       await this.audio.play();
     } catch (e) {
-      // 浏览器自动播放策略拦截（未交互时）→ 报播放错误，由上层处理
       busEmit("music-play-error", { message: "浏览器阻止了自动播放，请先点击页面任意位置" });
       throw e;
     }
+  }
+
+  /** 等待 metadata 就绪（loadedmetadata / readyState>=1 / 15s 超时兜底） */
+  private waitForMetadata(timeoutMs = 15_000): Promise<void> {
+    const a = this.audio;
+    return new Promise((resolve) => {
+      if (a.readyState >= 1) {
+        resolve();
+        return;
+      }
+      const timer = setTimeout(() => {
+        cleanup();
+        // 超时兜底：继续播放（位置可能从 0 起，store 的 seekIfFar 会精调对齐）
+        resolve();
+      }, timeoutMs);
+      const onMeta = () => {
+        cleanup();
+        resolve();
+      };
+      const onErr = () => {
+        cleanup();
+        resolve();
+      };
+      const cleanup = () => {
+        clearTimeout(timer);
+        a.removeEventListener("loadedmetadata", onMeta);
+        a.removeEventListener("error", onErr);
+      };
+      a.addEventListener("loadedmetadata", onMeta);
+      a.addEventListener("error", onErr);
+    });
   }
 
   async toggle(): Promise<void> {
@@ -189,6 +249,7 @@ class BrowserAudioEngine {
     const name = this.order[nextIdx];
     const url = await this.resolveUrl(name);
     this.pendingStartSec = 0;
+    this.lastSrc = url;
     this.audio.src = url;
     try {
       await this.audio.play();
@@ -209,6 +270,7 @@ class BrowserAudioEngine {
     const name = this.order[prevIdx];
     const url = await this.resolveUrl(name);
     this.pendingStartSec = 0;
+    this.lastSrc = url;
     this.audio.src = url;
     try {
       await this.audio.play();
@@ -246,6 +308,7 @@ class BrowserAudioEngine {
     const name = this.order[nextIdx];
     const url = await this.resolveUrl(name);
     this.pendingStartSec = 0;
+    this.lastSrc = url;
     this.audio.src = url;
     try {
       await this.audio.play();

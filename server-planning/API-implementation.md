@@ -1221,3 +1221,43 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 
 **附带确认**：服务器 `/ws` 升级路径未变更（443 同源 `wss://api.pomogrow.top/ws` + 3001），
 客户端 v4.7.12 启用 native-tls 后即可正常连接，无需服务器侧改动。
+
+---
+
+## 【请服务器部门配合】PWA 端（v0.3.0）上线联调清单（2026-08-15）
+
+> 部门：PWA部门 ｜ 关联文档：`server-planning/PWA-requirements.md`（部署/域名/HTTPS/曲库/CORS 总要求）、
+> `server-planning/EXTERNAL-INTERFACES.md`（协议总表）、`src/pwa/SYNC_RESEARCH.md`（同步听歌对齐调研）
+> 留言类型：待配合（PWA 已实现，缺部署与联调）
+
+**背景**：PWA v0.3.0 已实现（真实复用桌面端前端源码 + 浏览器 shim，协议与桌面端完全一致）。
+以下为服务器部门需要**处理或确认**的全部事项，读这一条即可一次解决。
+
+### A. 已实现、PWA 依赖的服务器能力（请自检，全 ✅ 则协议层无缺口）
+
+- [ ] `music:sync_state` 原样广播 + 附加 `timestamp_server`（v4.5.4 已实现）
+- [ ] 房间保存最近一次 sync_state 快照；新成员 join / `music:dj_changed` 时主动补发（v4.5.4）
+- [ ] `music:request_state` → 回发快照；房间有 DJ 时向 DJ 单发 `music:state_request` 触发实时广播（v4.5.6/v4.5.8）
+- [ ] join / `music:request_state` 时补发 `music:dj_changed { dj_user_id, dj_username }`（v4.5.8）
+- [ ] `dj_server_time` 字段透传（DJ 广播带则原样转发，v4.6.6）
+- [ ] P2P 分片全链：`music:request_song`（含 `from_chunk`/`p2p`）→ 定向 `music:song_requested`；
+      `music:offer_song` → `music:song_chunk` 分片转发；`music:transfer_done/failed`；
+      `p2p:reverse_transfer_request`（含可选 `parallel`）转发（v4.5.4 / v4.7.6 / v4.7.7）
+- [ ] `p2p:online` 用户列表；`ping` 回 `server_time`（PWA 时钟偏移测量依赖）
+
+### B. 本次真正需要服务器做的事
+
+- [ ] **P1 开发联调 CORS**：允许 `http://127.0.0.1:5199`（及 localhost）跨域访问
+      `/api/*`、`/ws`、`/music/*`；**WS 握手 Origin 放行**（配置示例见 `PWA-requirements.md` P2）
+- [ ] **P1 曲库托管**：`music-player/music/*.mp3` 托管到 `/music/`（PWA 曲库歌播放地址，
+      见 `PWA-requirements.md` P1；未托管前曲库歌播放失败属预期降级，内置 3 首不受影响）
+- [ ] **P2 P2P 传歌联调确认**：按 A 清单自检；全部 ✅ 后与 PWA 部门约时间联调
+
+### C. 联调验证点（PWA 端预期行为，供服务器对照）
+
+1. 加入房间开启同步 → **立即**拿到 DJ 当前状态（歌名/进度/播放状态），进度按 `dj_server_time` 校准
+   （PWA 开启同步即发 `music:request_state`）；
+2. DJ 切歌/播放/暂停/seek → 听众跟随且位置一致（±2s 内，`seekIfFar` 容忍度）；
+3. 听众缺歌 → `music:request_song` → 分片接收（PWA 落 IndexedDB）→ 合并后按传输期间
+   最后一次广播位置起播（`pendingSyncRaw` 重算，不等下一轮广播）；
+4. 断线重连 → 重发 `music:request_state` 对齐。

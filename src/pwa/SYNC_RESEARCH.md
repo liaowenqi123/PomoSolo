@@ -85,8 +85,15 @@ autoNext）**全部随 store 自动进入 PWA**，不需要重写。PWA 需要�
 ## 4. 结论与后续动作（实现放最后）
 
 - **机制层**：桌面端解法已通过 store 复用进入 PWA，无需移植。
-- **待办（按优先级，等用户确认时机再做）**：
-  1. 微调 `engine.play` 保证"先定位再播放"的时序确定性（一行级改动，联调时验证）；
-  2. 与服务器部门联调验证：加入房间 → `music:request_state` 补发 → `applySyncState`
-     位置对齐；P2P 下载完成 → `pendingSyncRaw` 起播位置正确；
-  3. 服务器端确认 `music:request_state` 已实现（否则加入时对齐依赖下一次 DJ 广播，体验打折）。
+- **服务器端能力**：经 `server-planning/API-implementation.md` 留言区确认，
+  `music:request_state` 快照补发（v4.5.6 ✅）、触发 DJ 实时广播（v4.5.8 ✅）、
+  `dj_server_time` 透传（v4.6.6）、P2P 分片全链（v4.5.4/4.7.6/4.7.7 ✅）**均已实现**，
+  PWA 协议层无缺口；联调清单已写入留言区（2026-08-15 PWA 部门条目）。
+- **PWA 侧已完成的加固**（本次落地）：
+  1. `engine.play(name, startSec)` "先定位后播放"时序确定性：
+     - 同一首歌重定位（src 未变、loadedmetadata 不重触发）→ 直接 seek 后播放；
+     - 换新歌 → 等 metadata 就绪（loadedmetadata 写入 currentTime）后再 play()，
+       杜绝"先播 0 再跳"；15s 超时兜底由 store 的 seekIfFar 精调；
+     - next/prev/advance 统一维护 lastSrc，错误统一走 playNow() 上报。
+- **剩余动作（联调时验证）**：加入房间 → request_state 补发 → 位置对齐；
+  P2P 下载完 → pendingSyncRaw 起播位置正确。
