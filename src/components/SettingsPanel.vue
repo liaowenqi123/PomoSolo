@@ -1035,13 +1035,14 @@ function statusLabel(status: number): string {
           <!-- 关于 / 更新 -->
           <section class="settings-section">
             <h3 class="settings-section__title">关于</h3>
-            <template v-if="!isPwa">
+            <!-- 意见反馈：PWA/桌面都保留（PWA 走 REST 实现） -->
             <div class="settings-row">
               <label class="settings-row__label">意见反馈</label>
               <button class="update-btn" @click="openFeedbackModal">
                 提交反馈
               </button>
             </div>
+            <template v-if="!isPwa">
             <div class="settings-row settings-row--toggle">
               <label class="settings-row__label">更新源</label>
               <div class="update-source-seg">

@@ -19,6 +19,7 @@ import * as studyRoom from "./studyRoom";
 import * as music from "./music";
 import * as musicSync from "./musicSync";
 import * as p2pTest from "./p2pTest";
+import * as feedback from "./feedback";
 import * as windowCmds from "./window";
 import * as systemCmds from "./system";
 import * as stubs from "./stubs";
@@ -173,9 +174,9 @@ export const commandRegistry: CommandRegistry = {
   p2p_reverse_test_request: p2pTest.cmdP2PReverseTestRequest,
   p2p_bidir_test_request: p2pTest.cmdP2PBidirTestRequest,
   p2p_test_result: p2pTest.cmdP2PTestResult,
-  feedback_submit: stubs.cmdUnsupported,
-  feedback_list: stubs.cmdUnsupported,
-  feedback_delete: stubs.cmdUnsupported,
+  submit_feedback: feedback.cmdSubmitFeedback,
+  get_user_feedbacks: feedback.cmdGetUserFeedbacks,
+  delete_feedback: feedback.cmdDeleteFeedback,
   get_timer_state: stubs.cmdUnsupported,
   timer_set_state: stubs.cmdUnsupported,
   cloud_fetch_music: stubs.cmdUnsupported,
