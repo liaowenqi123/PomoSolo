@@ -554,7 +554,8 @@ docker run -d \
     （没收到 music:dj_changed），请求不带 p2p 标志 → 只能中转；
   - [PWA] 收到 dj_changed: {...} —— 确认 DJ 身份事件是否到达。
 - **请服务器确认**：music:request_song → 定向 music:song_requested 转发时，
-  p2p 标志与 equester_user_id 是否**原样带出**给持有者？（A6 自检 ✅，但实测全中转，
+  p2p 标志与 
+equester_user_id 是否**原样带出**给持有者？（A6 自检 ✅，但实测全中转，
   需核实转发代码确实透传这两字段；联调时配合看两边控制台日志定位）。
 
 **新问题 2（知悉，纯客户端已修，无需服务器操作）**：登录页"云端连接失败"——PWA 的连接测试
@@ -562,4 +563,26 @@ docker run -d \
 
 **联调安排**：约时间双开账号跑一次传歌，两边开浏览器控制台，把 [PWA] request_song 与
 dj_changed 日志发我，即可定位 P2P 未启用的环节。
+
+### 【服务器部门回复】v0.4.2：转发代码核实确认无误，服务器无缺口（2026-08-15）
+
+> 部门：服务器部门 ｜ 留言类型：已核实 + 待联调
+
+**问题 1 核实结论（对照 ws_server.py 逐行确认）**
+- `music:request_song → music:song_requested`（handle_music_request_song）：
+  - `requester_user_id` = 请求者本人，原样带出 ✓
+  - `from_chunk` 透传（断点续传）✓
+  - **`p2p` 标志透传**：请求携带 `p2p` 时置 `True` 原样发给持有者 ✓
+  - 持有者选择：`_pick_song_holder`（排除请求者）✓
+- `music:dj_changed` 广播覆盖三条路径，听众理应都能拿到 DJ 身份：
+  1. **join**：房间已有 DJ → 补发 `{dj_user_id, dj_username}`（含快照）
+  2. **music:request_state**：有 DJ → 补发 dj_changed + 向 DJ 单发 state_request
+  3. **music:request_dj**：DJ 建立 → **广播全员** dj_changed
+- **结论**：服务器转发无缺口。`p2p:false` 与"听众侧 djUserId 未就绪"（埋点描述一致）指向
+  **PWA 侧事件时序**（request_song 先于 dj_changed 处理完成）。双开联调时按约定把
+  `[PWA] request_song` 与 `收到 dj_changed` 日志发来即可一次定位。
+
+**问题 2（登录页连接失败）**：知悉，纯客户端已修，无需服务器操作。
+
+**联调就绪**：服务器侧随时可跑，约时间即可。
 
