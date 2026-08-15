@@ -1005,10 +1005,10 @@ function statusLabel(status: number): string {
             </div>
           </section>
 
-          <!-- 系统（PWA 无自启动/P2P 测试，隐藏） -->
-          <section v-if="!isPwa" class="settings-section">
+          <!-- 系统（PWA 保留 P2P 测试工具做联调；自启动仅桌面端） -->
+          <section class="settings-section">
             <h3 class="settings-section__title">系统</h3>
-            <div class="settings-row settings-row--toggle">
+            <div v-if="!isPwa" class="settings-row settings-row--toggle">
               <label class="settings-row__label">开机自启动</label>
               <label class="toggle">
                 <input

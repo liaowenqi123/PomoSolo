@@ -18,6 +18,7 @@ import * as sync from "./sync";
 import * as studyRoom from "./studyRoom";
 import * as music from "./music";
 import * as musicSync from "./musicSync";
+import * as p2pTest from "./p2pTest";
 import * as windowCmds from "./window";
 import * as systemCmds from "./system";
 import * as stubs from "./stubs";
@@ -167,10 +168,11 @@ export const commandRegistry: CommandRegistry = {
   p2p_seed_unregister: stubs.cmdUnsupported,
   p2p_seed_list: stubs.cmdUnsupported,
   p2p_seed_fetch: stubs.cmdUnsupported,
-  p2p_online: stubs.cmdUnsupported,
-  p2p_test_start: stubs.cmdUnsupported,
-  p2p_test_reverse: stubs.cmdUnsupported,
-  p2p_test_result: stubs.cmdUnsupported,
+  p2p_online: p2pTest.cmdP2POnline,
+  p2p_test_request: p2pTest.cmdP2PTestRequest,
+  p2p_reverse_test_request: p2pTest.cmdP2PReverseTestRequest,
+  p2p_bidir_test_request: p2pTest.cmdP2PBidirTestRequest,
+  p2p_test_result: p2pTest.cmdP2PTestResult,
   feedback_submit: stubs.cmdUnsupported,
   feedback_list: stubs.cmdUnsupported,
   feedback_delete: stubs.cmdUnsupported,
