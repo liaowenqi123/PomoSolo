@@ -77,6 +77,8 @@ export async function cmdMusicSyncRequestSong(args: Record<string, unknown>): Pr
   const fromChunk = Number(args.fromChunk ?? 0);
   if (fromChunk > 0) params.from_chunk = fromChunk;
   if (args.p2p === true) params.p2p = true;
+  // 诊断埋点：p2p=false 表示听众侧 djUserId 未就绪（收不到 dj_changed）→ 只能服务器中转
+  console.log("[PWA] request_song:", { songId: params.song_id, fromChunk, p2p: !!params.p2p });
   await wsSend("music:request_song", params, { withId: false });
 }
 

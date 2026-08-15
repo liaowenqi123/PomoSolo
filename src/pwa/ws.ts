@@ -151,6 +151,10 @@ function connect(timeoutMs: number): Promise<void> {
       } catch {
         return;
       }
+      // 诊断埋点：DJ 身份事件（P2P 直传依赖 djUserId，若收不到 dj_changed 则传歌必走服务器中转）
+      if (msg.type === "music:dj_changed") {
+        console.log("[PWA] 收到 dj_changed:", JSON.stringify(msg));
+      }
       // 请求-响应：带 id 且本地有等待者 → 结算
       const msgId = typeof msg.id === "number" ? msg.id : undefined;
       if (msgId !== undefined && pending.has(msgId)) {

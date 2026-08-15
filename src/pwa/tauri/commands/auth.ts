@@ -22,6 +22,7 @@ import {
   getApiMode,
   getApiKey,
 } from "../../storage";
+import { API_ORIGIN } from "../../config";
 
 export interface Session {
   id: string;
@@ -41,19 +42,30 @@ function toSession(user?: RawUser | null): Session | null {
   return { id: user.id, username: user.username, admin: !!user.admin };
 }
 
-/** 测试云端连接 */
+/** 测试云端连接（与桌面端 cloud_auth.rs 一致：依次尝试 /api/status → /api/v1/health，
+ *  服务器实际实现 /api/status，/api/v1/health 未实现返回 404） */
 export async function cmdCloudTestConnection(): Promise<{
   ok: boolean;
   latency?: number;
   error?: string;
 }> {
   const start = performance.now();
-  try {
-    await apiGet("/health");
-    return { ok: true, latency: Math.round(performance.now() - start) };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  // 注意：这两个是"完整路径"，不能走 apiGet（apiGet 会拼 API_BASE=/api/v1 前缀）
+  const endpoints = [
+    `${API_ORIGIN}/api/status`,
+    `${API_ORIGIN}/api/v1/health`,
+  ];
+  for (const url of endpoints) {
+    try {
+      const resp = await fetch(url, { method: "GET" });
+      if (resp.ok) {
+        return { ok: true, latency: Math.round(performance.now() - start) };
+      }
+    } catch {
+      /* 尝试下一个 */
+    }
   }
+  return { ok: false, error: "无法连接服务器" };
 }
 
 /** 登录 */
