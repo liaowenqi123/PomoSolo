@@ -40,6 +40,8 @@ class BrowserAudioEngine {
   private loadedName = "";
   /** 最近一次赋给 audio 的 src（判断"同一首歌重定位"） */
   private lastSrc = "";
+  /** 自动播放被拦截后，是否已挂"点击续播"手势监听 */
+  private gestureRetryBound = false;
   private lastProgressAt = 0;
   private pendingStartSec = 0;
   /** 用户自定义标签覆盖（歌名 → { name, color } | null） */
@@ -194,9 +196,33 @@ class BrowserAudioEngine {
     try {
       await this.audio.play();
     } catch (e) {
-      busEmit("music-play-error", { message: "浏览器阻止了自动播放，请先点击页面任意位置" });
+      // 自动播放策略：无用户手势的播放（如同步听歌 DJ 驱动）被浏览器拒绝。
+      // 提示用户点击，并挂一次性手势监听——点击后自动续播（否则"点了也没用"）。
+      if (e instanceof DOMException && e.name === "NotAllowedError") {
+        busEmit("music-play-error", {
+          message: "浏览器阻止了自动播放，请点击页面任意位置（点击后会自动继续）",
+        });
+        this.retryPlayOnGesture();
+      } else {
+        busEmit("music-play-error", { message: `播放失败: ${e instanceof Error ? e.message : String(e)}` });
+      }
       throw e;
     }
+  }
+
+  /** 挂一次性用户手势监听：首次点击/按键后自动续播被拦截的播放 */
+  private retryPlayOnGesture(): void {
+    if (this.gestureRetryBound) return;
+    this.gestureRetryBound = true;
+    const tryResume = () => {
+      this.gestureRetryBound = false;
+      window.removeEventListener("pointerdown", tryResume);
+      window.removeEventListener("keydown", tryResume);
+      // 用户已交互 → 自动播放策略放行，续播（位置偏差由后续 sync_state 的 seekIfFar 精调）
+      void this.audio.play().catch(() => {});
+    };
+    window.addEventListener("pointerdown", tryResume, { passive: true });
+    window.addEventListener("keydown", tryResume);
   }
 
   /** 等待 metadata 就绪（loadedmetadata / readyState>=1 / 15s 超时兜底） */
