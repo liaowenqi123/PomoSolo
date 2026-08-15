@@ -390,6 +390,14 @@ class BrowserAudioEngine {
   async deleteSong(name: string): Promise<boolean> {
     const idx = this.order.indexOf(name);
     if (idx < 0) return false;
+    // 先停止播放并摘除 src，再回收 URL——顺序颠倒会"正在播放的 blob URL 被 revoke"→ no supported source
+    if (idx === this.index) {
+      this.audio.pause();
+      this.audio.removeAttribute("src");
+      this.index = -1;
+    } else if (idx < this.index) {
+      this.index--;
+    }
     const { idbDeleteSong } = await import("./idb");
     await idbDeleteSong(name).catch(() => {});
     const { uncacheSong } = await import("./sources");
@@ -399,13 +407,6 @@ class BrowserAudioEngine {
     if (local) URL.revokeObjectURL(local);
     this.localUrls.delete(name);
 
-    if (idx === this.index) {
-      this.audio.pause();
-      this.audio.removeAttribute("src");
-      this.index = -1;
-    } else if (idx < this.index) {
-      this.index--;
-    }
     this.order.splice(idx, 1);
     this.songInfo.delete(name);
     this.emitPlaylist();
@@ -417,8 +418,12 @@ class BrowserAudioEngine {
    *  （DJ 端给其他人传这首歌）读取，也无法在播放列表/删除中管理。 */
   registerLocalSong(name: string, blob: Blob): void {
     const old = this.localUrls.get(name);
-    if (old) URL.revokeObjectURL(old);
-    this.localUrls.set(name, URL.createObjectURL(blob));
+    const url = URL.createObjectURL(blob);
+    this.localUrls.set(name, url);
+    // 只回收"当前不在用"的旧 URL：音频元素正在用旧 blob URL 加载/播放时 revoke
+    // 会立刻报 MEDIA_ERR_SRC_NOT_SUPPORTED（"no supported source"），
+    // 这正是"传歌成功后播放报错"的根因（同一首歌被重复传输/登记时触发）
+    if (old && this.audio.src !== old) URL.revokeObjectURL(old);
     if (!this.songInfo.has(name)) {
       this.songInfo.set(name, { name, source: "local" });
       if (!this.order.includes(name)) this.order.push(name);

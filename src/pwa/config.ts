@@ -23,7 +23,7 @@ export const API_BASE: string = `${API_ORIGIN}/api/v1`;
 export const MUSIC_BASE: string = `${API_ORIGIN}/music`;
 
 /** PWA 版本号（manifest / 设置面板展示；只在"要发布"时改，服务器部门见版本号变化即发布） */
-export const PWA_VERSION: string = "0.4.4";
+export const PWA_VERSION: string = "0.4.5";
 
 /** PWA 内置曲目清单路径（public/music-manifest.json，构建时由 scripts/generate-music-manifest.mjs 生成） */
 export const MANIFEST_URL: string = "/music-manifest.json";

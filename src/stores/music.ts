@@ -181,6 +181,9 @@ export const useMusicStore = defineStore("music", () => {
   /** 未开启同步时缓存的最近一次 music:sync_state（开启同步后立即应用，解决"加入已有 DJ 的同步没反应"） */
   let lastSyncState: Record<string, unknown> | null = null;
   /** DJ/持有者侧：正在传输中的歌曲集合（防止并发 song_requested 开多个循环） */
+  /** 持有端正在服务的传输（key = `${songId}|${requesterUserId}`，按"歌+请求者"去重：
+   *  同一听众重复请求同一首歌只开一个循环，不同听众请求同一首歌可并发服务——否则
+   *  自习室里多人同时缺同一首歌时，只有第一个请求者能拿到，其余人一直缺歌） */
   const activeTransfers = new Set<string>();
   /** 听众侧：最近一次成功保存分片的时间（用于下载超时兜底重试） */
   let lastChunkAt = 0;
@@ -1083,9 +1086,13 @@ export const useMusicStore = defineStore("music", () => {
   async function handleSongRequested(evt: Record<string, unknown>) {
     const songId = typeof evt.song_id === "string" ? evt.song_id : "";
     if (!songId) return;
-    // 并发守卫：同一首歌只开一个传输循环（服务器"一传多"时可能重复收到请求）
-    if (activeTransfers.has(songId)) return;
-    activeTransfers.add(songId);
+    // 并发守卫：按"歌+请求者"去重——同一请求者重复请求只开一个循环；
+    // 不同请求者请求同一首歌可并发服务（P2P 多连接 / 服务器中转多路），
+    // 避免"房间里多人缺同一首歌时只有第一个拿到"的问题
+    const requesterId = typeof evt.requester_user_id === "string" ? evt.requester_user_id : "";
+    const transferKey = `${songId}|${requesterId}`;
+    if (activeTransfers.has(transferKey)) return;
+    activeTransfers.add(transferKey);
     // 传歌期间每 5s 广播一次 sync_state：听众下载可能耗时较久，
     // 若不广播，听众的 pendingSyncPosition 停留在下载开始时（seek 会回到旧位置，表现为"从头播放"）
     const progressSync = setInterval(() => void broadcastSyncState(), 5000);
@@ -1136,7 +1143,7 @@ export const useMusicStore = defineStore("music", () => {
       void musicSyncTransferFailed(songId).catch(() => {});
     } finally {
       clearInterval(progressSync);
-      activeTransfers.delete(songId);
+      activeTransfers.delete(transferKey);
     }
   }
 
