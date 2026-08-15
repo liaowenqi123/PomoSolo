@@ -87,13 +87,24 @@ export function disconnect(): void {
   settleAll(new Error("WebSocket 已手动断开"));
 }
 
-/** 确保已连接（自动重连场景可反复调用，幂等） */
+/** 进行中的连接尝试（串行化：避免并发 ensureConnected 建出多条连接，
+ *  触发服务器"单连接语义"互踢 → 自踢重连死循环） */
+let connectingPromise: Promise<void> | null = null;
+
+/** 确保已连接（自动重连场景可反复调用，幂等且串行） */
 export async function ensureConnected(timeoutMs = 10_000): Promise<void> {
   if (isConnected()) return;
-  if (ws && (ws.readyState === WebSocket.CONNECTING)) return;
-  manualClosed = false;
+  if (connectingPromise) return connectingPromise;
+  connectingPromise = connect(timeoutMs).finally(() => {
+    connectingPromise = null;
+  });
+  return connectingPromise;
+}
 
-  await new Promise<void>((resolve, reject) => {
+/** 实际建立连接（单次尝试） */
+function connect(timeoutMs: number): Promise<void> {
+  manualClosed = false;
+  return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(new Error("WebSocket 连接超时"));
     }, timeoutMs);
@@ -121,9 +132,11 @@ export async function ensureConnected(timeoutMs = 10_000): Promise<void> {
       clearTimeout(timer);
       if (ws === socket) ws = null;
       settleAll(new Error("WebSocket 连接断开"));
-      // 4xx 关闭码 = 服务器策略性断开（如同一账号异地登录被踢）：
-      // 标记 kicked 供上层提示，且不自动重连（避免"双端互踢 + 自动重连"死循环）
-      const kicked = ev.code >= 4000 && ev.code <= 4999;
+      console.warn("[PWA] WS 关闭 code:", ev.code, "reason:", ev.reason || "");
+      // 关闭码 4001 = 服务器"同一账号异地登录被踢"（与服务器约定的专用码）：
+      // 停止自动重连，避免"双端互踢 + 重连"死循环。
+      // 其余任何关闭（1006 网络断/超时、4000-4999 其他策略、1000 正常关）都走自动重连。
+      const kicked = ev.code === 4001;
       busEmit("ws-disconnected", kicked ? { kicked: true } : {});
       if (!manualClosed && !kicked) {
         // 重连前先刷新 access token：access token 15 分钟过期后重连会鉴权失败被服务器关闭
