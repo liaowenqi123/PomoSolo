@@ -35,6 +35,8 @@ import { useStatsStore } from "@/stores/stats";
 import { useAuthStore } from "@/stores/auth";
 import { preflightManifest } from "./music/preflight";
 import { audioEngine } from "./music/engine";
+import { PWA_VERSION } from "./config";
+import { checkForUpdate, applyUpdate, onUpdateStatus } from "./update";
 
 const timer = useTimerStore();
 const settings = useSettingsStore();
@@ -167,6 +169,37 @@ watch(
   { immediate: true },
 );
 
+// ===== 更新检测（手机端强制刷新到新版本的解决方案） =====
+const updateAvailable = ref(false);
+const updateChecking = ref(false);
+const updateDismissed = ref(false);
+const updateToastVisible = ref(false);
+const updateMessage = ref("");
+let unsubUpdate: (() => void) | null = null;
+
+unsubUpdate = onUpdateStatus((s) => {
+  updateAvailable.value = s.available && !updateDismissed.value;
+  updateChecking.value = s.checking;
+});
+
+/** 右下角刷新按钮：检查更新，有新版本则应用（刷新加载新资源），否则提示已最新 */
+async function onRefreshClick() {
+  if (updateChecking.value) return;
+  const found = await checkForUpdate();
+  if (found) {
+    applyUpdate();
+  } else {
+    updateMessage.value = `已是最新版本 v${PWA_VERSION}`;
+    updateToastVisible.value = true;
+    setTimeout(() => (updateToastVisible.value = false), 2000);
+  }
+}
+
+function dismissUpdate() {
+  updateDismissed.value = true;
+  updateAvailable.value = false;
+}
+
 // ===== 生命周期 =====
 onMounted(async () => {
   await Promise.all([settings.load(), stats.load()]);
@@ -192,6 +225,12 @@ onMounted(async () => {
   mq = window.matchMedia(MOBILE_MQ);
   isMobile.value = mq.matches;
   mq.addEventListener("change", onMqChange);
+  // 启动后自动检查更新（仅生产；SW 未注册时静默跳过），让手机端能自动发现新版本
+  if (import.meta.env.PROD) {
+    setTimeout(() => {
+      void checkForUpdate();
+    }, 5000);
+  }
   setTimeout(() => {
     loading.value = false;
   }, 400);
@@ -214,6 +253,7 @@ void preflightManifest()
 onUnmounted(() => {
   window.removeEventListener("keydown", handleKeydown);
   mq?.removeEventListener("change", onMqChange);
+  unsubUpdate?.();
 });
 
 // ===== 完成事件 → 记录统计（菜园子/专注模式已在 PWA 砍去） =====
@@ -440,6 +480,28 @@ watch(
         class="drawer-backdrop"
         @click="closeMobileSidebar"
       />
+
+      <!-- 新版本提示条（检测到新版本时出现，点击立即更新） -->
+      <Transition name="update-fade">
+        <div v-if="updateAvailable" class="update-banner">
+          <span class="update-banner__text">发现新版本</span>
+          <button class="update-banner__btn" @click="applyUpdate()">立即更新</button>
+          <button class="update-banner__close" title="稍后" @click="dismissUpdate">×</button>
+        </div>
+      </Transition>
+
+      <!-- 手动刷新按钮：强制检查更新 → 有新版本即进入新版本（手机端 Ctrl+Shift+R 替代） -->
+      <button
+        class="refresh-btn"
+        title="检查更新"
+        :disabled="updateChecking"
+        @click="onRefreshClick"
+      >{{ updateChecking ? "…" : "🔄" }}</button>
+
+      <!-- 提示（已是最新版本等） -->
+      <Transition name="update-fade">
+        <div v-if="updateToastVisible" class="update-toast">{{ updateMessage }}</div>
+      </Transition>
 
       <!-- 浮层面板 -->
       <SettingsPanel
@@ -889,6 +951,117 @@ watch(
   }
 }
 
+/* ============ 更新提示条 / 刷新按钮 / 提示（手机端强制刷新到新版本） ============ */
+.refresh-btn {
+  position: absolute;
+  bottom: 24px;
+  right: 16px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--shell-btn-bg);
+  border: 1px solid var(--shell-btn-border);
+  color: var(--shell-text-primary);
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: var(--z-popup);
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.refresh-btn:hover {
+  background: var(--shell-btn-bg-hover);
+  transform: rotate(90deg);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.update-banner {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(20, 20, 26, 0.92);
+  border: 1px solid var(--shell-border);
+  color: var(--shell-text-primary);
+  font-size: 13px;
+  z-index: var(--z-popup);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+}
+
+.update-banner__text {
+  font-weight: 500;
+}
+
+.update-banner__btn {
+  background: var(--accent);
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.update-banner__btn:hover {
+  filter: brightness(1.1);
+}
+
+.update-banner__close {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--shell-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.update-banner__close:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+.update-toast {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: rgba(20, 20, 26, 0.92);
+  border: 1px solid var(--shell-border);
+  color: var(--shell-text-primary);
+  font-size: 13px;
+  z-index: var(--z-popup);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+}
+
+.update-fade-enter-active,
+.update-fade-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.update-fade-enter-from,
+.update-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-8px);
+}
+
 /* ============================================================
    大屏（≥1200px 宽）：整块居中限宽 + 尺寸上档，避免横屏"右侧太空"
    ============================================================ */
@@ -1046,6 +1219,18 @@ watch(
   .main {
     padding: 14px;
     padding-bottom: 8px;
+  }
+
+  /* 手机：刷新按钮移到播放器上方；提示条在顶栏下方 */
+  .refresh-btn {
+    bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+    right: 8px;
+  }
+
+  .update-banner,
+  .update-toast {
+    top: calc(var(--shell-header-h) + 8px);
+    font-size: 12px;
   }
 
   /* 侧边栏 → 抽屉：从顶栏下方开始（让开顶部黑色蒙版那一行） */
