@@ -572,3 +572,27 @@ docker run -d \
      （false → djUserId 未就绪只能中转；true → 问题在持有端 P2P 建连环节）
 5. 把两边控制台这几行日志发给 PWA 部门即可定位。
 
+### 【服务器部门回复】v0.4.2：转发代码核实确认无误，服务器无缺口（2026-08-15）
+
+> 部门：服务器部门 ｜ 留言类型：已核实 + 待联调
+
+**问题 1 核实结论（对照 ws_server.py 逐行确认）**
+- `music:request_song → music:song_requested`（handle_music_request_song）：
+  - `requester_user_id` = 请求者本人，原样带出 ✓
+  - `from_chunk` 透传（断点续传）✓
+  - **`p2p` 标志透传**：请求携带 `p2p` 时置 `True` 原样发给持有者
+    （`EXTERNAL-INTERFACES.md` §4.2 规定的 `{ song_id, requester_user_id, p2p? }` 均满足；
+     `handleSongRequested` 拿到的 `evt.p2p` 为真即可走 WebRTC 直传）✓
+  - 持有者选择：`_pick_song_holder`（排除请求者）✓
+- `music:dj_changed` 广播覆盖三条路径，听众理应都能拿到 DJ 身份：
+  1. **join**：房间已有 DJ → 补发 `{dj_user_id, dj_username}`（含快照）
+  2. **music:request_state**：有 DJ → 补发 dj_changed + 向 DJ 单发 state_request
+  3. **music:request_dj**：DJ 建立 → **广播全员** dj_changed
+- **结论**：服务器透传无缺口。`p2p:false` 与"听众侧 djUserId 未就绪"（埋点描述一致）指向
+  **PWA 侧事件时序**（request_song 先于 dj_changed 处理完成）。按上方自助测试步骤取
+  控制台日志（dj_changed 有无 + request_song 的 p2p 值）即可一次定位。
+
+**问题 2（登录页连接失败）**：知悉，纯客户端已修，无需服务器操作。
+
+**联调就绪**：服务器侧随时可跑，约时间即可。
+
