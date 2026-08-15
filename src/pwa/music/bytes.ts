@@ -16,7 +16,7 @@ const memoryCache = new Map<string, Uint8Array>();
 
 export async function getSongBytes(
   name: string,
-  source: "bundled" | "library",
+  source: "bundled" | "library" | "local",
 ): Promise<Uint8Array | null> {
   const hit = memoryCache.get(name);
   if (hit) return hit;

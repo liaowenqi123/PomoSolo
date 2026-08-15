@@ -17,6 +17,7 @@
 import { API_ORIGIN } from "./config";
 import { getAccessToken } from "./storage";
 import { emit as busEmit } from "./eventBus";
+import { refreshAccessToken } from "./http";
 
 interface Pending {
   resolve: (v: Record<string, unknown>) => void;
@@ -116,12 +117,18 @@ export async function ensureConnected(timeoutMs = 10_000): Promise<void> {
     socket.onerror = () => {
       // onclose 会随后触发并统一处理
     };
-    socket.onclose = () => {
+    socket.onclose = (ev) => {
       clearTimeout(timer);
       if (ws === socket) ws = null;
       settleAll(new Error("WebSocket 连接断开"));
-      busEmit("ws-disconnected", {});
-      if (!manualClosed) scheduleReconnect();
+      // 4xx 关闭码 = 服务器策略性断开（如同一账号异地登录被踢）：
+      // 标记 kicked 供上层提示，且不自动重连（避免"双端互踢 + 自动重连"死循环）
+      const kicked = ev.code >= 4000 && ev.code <= 4999;
+      busEmit("ws-disconnected", kicked ? { kicked: true } : {});
+      if (!manualClosed && !kicked) {
+        // 重连前先刷新 access token：access token 15 分钟过期后重连会鉴权失败被服务器关闭
+        void refreshAccessToken().finally(() => scheduleReconnect());
+      }
       reject(new Error("WebSocket 连接关闭"));
     };
     socket.onmessage = (ev) => {

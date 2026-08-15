@@ -52,6 +52,11 @@ button:focus-visible {
   font-size: 14px !important;
 }
 
+/* 输出设备按钮：浏览器无可靠输出设备 API（enumerateDevices 受限），PWA 直接隐藏 */
+.music-device {
+  display: none !important;
+}
+
 /* ===== 中屏（≥720px）：基础流式放大 ===== */
 @media (min-width: 720px) {
   .music-player {

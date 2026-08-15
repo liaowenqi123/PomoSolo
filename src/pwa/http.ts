@@ -89,6 +89,31 @@ async function tryRefresh(): Promise<boolean> {
   }
 }
 
+/**
+ * 供 WS 重连等场景主动刷新 access token（失败不清登录态，返回是否成功）。
+ * 与 tryRefresh 的区别：网络瞬时失败不应把用户登出。
+ */
+export async function refreshAccessToken(): Promise<boolean> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return false;
+  try {
+    const data = await apiRequest<{ access_token?: string; refresh_token?: string }>(
+      "/auth/refresh",
+      { method: "POST", body: { refresh_token: refreshToken }, auth: false },
+    );
+    if (!data.access_token) return false;
+    const cur = loadAuth();
+    saveAuth({
+      ...cur,
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token || cur.refreshToken,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ===== 便捷方法 =====
 
 export function apiGet<T = unknown>(path: string): Promise<T> {

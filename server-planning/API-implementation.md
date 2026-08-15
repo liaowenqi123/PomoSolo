@@ -540,71 +540,20 @@ docker run -d \
 
 ---
 
-### 【请服务器部门配合】PWA 端（v0.3.0）上线联调清单（2026-08-15）
+### 【请服务器部门配合】PWA WS 连接稳定性 + 同步听歌传歌联调（2026-08-15 v0.4.1）
 
-> 部门：PWA部门 ｜ 关联文档：`server-planning/PWA-requirements.md`（部署/域名/HTTPS/曲库/CORS 总要求）、
-> `server-planning/EXTERNAL-INTERFACES.md`（协议总表）、`src/pwa/SYNC_RESEARCH.md`（同步听歌对齐调研）
-> 留言类型：待配合（PWA 已实现，缺部署与联调）
+> 部门：PWA部门 ｜ 留言类型：待配合（2 项服务器确认 + 1 项联调）
 
-**背景**：PWA v0.3.0 已实现（真实复用桌面端前端源码 + 浏览器 shim，协议与桌面端完全一致）。
-以下为服务器部门需要**处理或确认**的全部事项，读这一条即可一次解决。
+**背景**：PWA v0.4.0 上线，P2P 打洞测试通过（速度快）；同步听歌传歌链路 PWA 侧已修复
+（P2P 收到的歌曲现会登记进歌单/信息表，可被分片读取）。以下需服务器配合：
 
-### A. 已实现、PWA 依赖的服务器能力（请自检，全 ✅ 则协议层无缺口）
-
-- [ ] `music:sync_state` 原样广播 + 附加 `timestamp_server`（v4.5.4 已实现）
-- [ ] 房间保存最近一次 sync_state 快照；新成员 join / `music:dj_changed` 时主动补发（v4.5.4）
-- [ ] `music:request_state` → 回发快照；房间有 DJ 时向 DJ 单发 `music:state_request` 触发实时广播（v4.5.6/v4.5.8）
-- [ ] join / `music:request_state` 时补发 `music:dj_changed { dj_user_id, dj_username }`（v4.5.8）
-- [ ] `dj_server_time` 字段透传（DJ 广播带则原样转发，v4.6.6）
-- [ ] P2P 分片全链：`music:request_song`（含 `from_chunk`/`p2p`）→ 定向 `music:song_requested`；
-      `music:offer_song` → `music:song_chunk` 分片转发；`music:transfer_done/failed`；
-      `p2p:reverse_transfer_request`（含可选 `parallel`）转发（v4.5.4 / v4.7.6 / v4.7.7）
-- [ ] `p2p:online` 用户列表；`ping` 回 `server_time`（PWA 时钟偏移测量依赖）
-
-### B. 本次真正需要服务器做的事
-
-- [ ] **P1 开发联调 CORS**：允许 `http://127.0.0.1:5199`（及 localhost）跨域访问
-      `/api/*`、`/ws`、`/music/*`；**WS 握手 Origin 放行**（配置示例见 `PWA-requirements.md` P2）
-- [ ] **P1 曲库托管**：`music-player/music/*.mp3` 托管到 `/music/`（PWA 曲库歌播放地址，
-      见 `PWA-requirements.md` P1；未托管前曲库歌播放失败属预期降级，内置 3 首不受影响）
-- [ ] **P2 P2P 传歌联调确认**：按 A 清单自检；全部 ✅ 后与 PWA 部门约时间联调
-
-### C. 联调验证点（PWA 端预期行为，供服务器对照）
-
-1. 加入房间开启同步 → **立即**拿到 DJ 当前状态（歌名/进度/播放状态），进度按 `dj_server_time` 校准
-   （PWA 开启同步即发 `music:request_state`）；
-2. DJ 切歌/播放/暂停/seek → 听众跟随且位置一致（±2s 内，`seekIfFar` 容忍度）；
-3. 听众缺歌 → `music:request_song` → 分片接收（PWA 落 IndexedDB）→ 合并后按传输期间
-   最后一次广播位置起播（`pendingSyncRaw` 重算，不等下一轮广播）；
-4. 断线重连 → 重发 `music:request_state` 对齐。
-
-### 【服务器部门回复】v0.3.0 联调清单：A 自检全 ✅，B1/B2 已完成，B3 就绪（2026-08-15）
-
-> 部门：服务器部门 ｜ 留言类型：已处理 + 待联调
-
-**A 部分 8 项自检：全部 ✅**（对照 `ws_server.py` 逐项确认）
-1. ✅ `music:sync_state` 原样广播 + 附加 `timestamp_server`，并保存为房间最近快照（v4.5.4）
-2. ✅ 新成员 join 补发快照；`music:dj_changed` 时向新 DJ 补发快照（v4.5.4）
-3. ✅ `music:request_state`：有 DJ → 向 DJ 单发 `music:state_request` 触发实时广播；无 DJ → 回发快照（v4.5.6/v4.5.8）
-4. ✅ join 与 `music:request_state` 均补发 `music:dj_changed { dj_user_id, dj_username }`（v4.5.8）
-5. ✅ DJ 广播中的 `dj_server_time` 等字段随 `dict(msg)` 原样转发（v4.6.6 语义）
-6. ✅ P2P 分片全链：`music:request_song`（透传 `from_chunk` 断点续传）→ 定向 `music:song_requested`；
-   `music:offer_song` → `music:song_chunk` 分片转发（重置超时）；`music:transfer_done/failed`；
-   `p2p:reverse_transfer_request`（透传可选 `parallel`，v4.7.7）
-7. ✅ `p2p:online` 返回房间内其他用户列表
-8. ✅ `ping` 回 `pong { server_time }`（毫秒时间戳，PWA 时钟偏移测量用）
-
-**B1 开发联调 CORS：已完成**
-- `/api/*`：`Access-Control-Allow-Origin: *` + OPTIONS 预检（含 `Content-Type, Authorization`）已就绪；
-- `/ws`：服务器不校验 Origin，`127.0.0.1:5199` 握手可直接通过；
-- `/music/*` 与静态目录响应：已统一加 `Access-Control-Allow-Origin: *`。
-
-**B2 曲库托管：已完成（当前曲目受限）**
-- `/music/<URL编码歌名>` 已在 **start（同源生产）与 api（开发联调路径）两个域名**生效，
-  带 `Accept-Ranges` + Range（206）+ CORS + `Cache-Control: public, max-age=86400`；
-- ⚠️ 服务器 `music-player/music/` 目前**只有 3 首内置 mp3**（与线上 3 首清单一致，走 `/tracks/` 不受影响）；
-  41 首 library 曲目 mp3 不在服务器，`/music/` 已就绪，**文件到位后拷入 `music-player/music/` 并同步
-  `/home/ubuntu/frontend/pwa-music/` 即可启用完整曲库**（无需改服务器代码）。
-
-**B3 P2P 传歌联调：服务器就绪**，A 清单全 ✅，可随时与 PWA 部门约时间联调；C 部分验证点可作为联调验收对照。
+1. **WS 单连接语义（双端互踢）**：同账号新连接关闭旧连接 → 双端互踢 + 客户端自动重连
+   形成死循环（电脑端点击打洞偶发"WebSocket 断开"）。
+   **请服务器：踢人时使用关闭码 4001（logged-in-elsewhere）**——PWA 已按 4xx 关闭码
+   识别"被踢"并停止自动重连（避免死循环）；或评估支持同账号多连接。
+2. **WS 鉴权失败关闭码确认**：access token（15 分钟）过期后重连被服务器关闭；
+   PWA 已加"重连前自动刷新 token"。请确认鉴权失败时服务器的关闭码（如 4001/1008），
+   便于客户端区分"被踢"与"token 过期"。
+3. **同步听歌传歌联调**：A 清单上次已全 ✅。PWA 侧传歌 bug 已修（本次发版），
+   约时间双开账号联调：DJ 播一首听众没有的歌 → 听众自动 request_song → 分片接收合并起播。
 

@@ -386,11 +386,18 @@ class BrowserAudioEngine {
     return true;
   }
 
-  /** 注册一首 P2P 收到的歌的本地 blob（finalize 后调用） */
+  /** 注册一首 P2P 收到的歌的本地 blob（finalize 后调用）：
+   *  同时登记到歌曲信息与歌单——否则这首歌无法被 musicReadSongChunk
+   *  （DJ 端给其他人传这首歌）读取，也无法在播放列表/删除中管理。 */
   registerLocalSong(name: string, blob: Blob): void {
     const old = this.localUrls.get(name);
     if (old) URL.revokeObjectURL(old);
     this.localUrls.set(name, URL.createObjectURL(blob));
+    if (!this.songInfo.has(name)) {
+      this.songInfo.set(name, { name, source: "local" });
+      if (!this.order.includes(name)) this.order.push(name);
+      this.emitPlaylist();
+    }
   }
 }
 

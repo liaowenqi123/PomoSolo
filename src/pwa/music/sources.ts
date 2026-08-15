@@ -12,8 +12,9 @@
 
 import { API_ORIGIN, MUSIC_CACHE } from "../config";
 
-export function songUrl(name: string, source: "bundled" | "library"): string {
+export function songUrl(name: string, source: "bundled" | "library" | "local"): string {
   const enc = encodeURIComponent(name);
+  // local（P2P 落盘歌曲）没有静态 URL：正常走 IDB blob（resolveUrl 优先），此处兜底同 library
   return source === "bundled" ? `/tracks/${enc}` : `${API_ORIGIN}/music/${enc}`;
 }
 
