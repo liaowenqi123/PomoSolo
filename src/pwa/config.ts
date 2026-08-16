@@ -28,7 +28,9 @@ export const PWA_VERSION: string = "0.4.6";
 /** PWA 内置曲目清单路径（public/music-manifest.json，构建时由 scripts/generate-music-manifest.mjs 生成） */
 export const MANIFEST_URL: string = "/music-manifest.json";
 
-/** 音乐缓存（Cache API）名称 */
+/** 音乐缓存（Cache API）名称
+ *  ⚠️ 该名必须**恒定、勿随版本改**：改名会被当作"过期/新缓存"重下，
+ *  用户已下载的歌在刷新/更新后全部消失（SW runtimeCaching 同名，见 vite.config.ts）。 */
 export const MUSIC_CACHE = "pomo-pwa-music-v1";
 
 /** localStorage 命名空间 */

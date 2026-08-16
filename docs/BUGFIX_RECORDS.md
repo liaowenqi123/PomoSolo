@@ -4,6 +4,60 @@
 
 ---
 
+## 2026-08-16
+
+### 22. PWA 六项问题修复（反馈不可见 / 下载音乐丢失 / 锁屏按钮 / 前台打断不同步 / 进程被杀恢复 / 手机按钮重叠）（PWA部门）
+
+**所属部门**：PWA部门（仅改 `src/pwa/`，桌面端零改动）。六项均针对 PWA 端（`start.pomogrow.top`），
+发布前需服务器部门按 `server-planning/PWA-requirements.md` 重新托管 `pwa-dist/`。
+
+**（a）反馈结果不可见（根因：误把对象响应当数组）**
+- 现象：提交反馈后"我的反馈"列表始终为空，看不到自己提交的内容。
+- 根因：服务器 `GET /api/v1/feedback` 返回 **对象** `{ "feedbacks": [...] }`，
+  而 `cmdGetUserFeedbacks` 旧实现把整个响应当数组（`Array.isArray(resp)` 恒 false）→ 永远返回 `[]`；
+  字段名也需兼容 `feedback_content`/`content` 两种写法。
+- 修复：`src/pwa/tauri/commands/feedback.ts` 解开 `.feedbacks` 并兼容两种字段名。
+
+**（b）下载/ P2P 传的歌在强制刷新或版本更新后消失（根因：歌名没落盘）**
+- 现象：Ctrl+Shift+R 或更新版本后，"下载的歌曲"和"P2P 传过来的歌曲"全部消失。
+- 根因：歌曲**字节**在 Cache API / IndexedDB（本应持久），但"哪些歌被下载/收到"的**名单**只在内存
+  （engine.songInfo/order），刷新即丢——P2P 收到的歌尤其明显（引擎启动只加载 manifest 歌单）。
+- 修复：
+  - 新增 `src/pwa/music/library.ts`：把本地库歌名持久化到 `pomo-pwa:library`（local=P2P 落盘）。
+  - `engine.registerLocalSong` 记录 local；`engine.deleteSong` 清理索引。
+  - `src/pwa/music/preflight.ts` 启动恢复两路：扫描 Cache 里所有 `/music/` 命中（曲库下载歌，即使不在最新
+    manifest 也不丢）+ 读 library 的 local 歌并校验 IDB blob 后并入播放列表。
+  - 音乐缓存名 `pomo-pwa-music-v1` 保持稳定、不随版本变（已在 vite.config.ts 注明勿改）。
+
+**（c）锁屏/系统媒体控制键在 DJ 模式下未禁用（新增 Media Session）**
+- 现象：被 DJ 控制时，锁屏音乐卡片的"上一首/下一首/播放"仍可点，造成不同步。
+- 根因：PWA 此前完全没用 `navigator.mediaSession`，锁屏按钮走浏览器默认行为、无法控制。
+- 修复：`engine.ts` 接入 Media Session（曲名元数据 + 播放/暂停/上一首/下一首/±10s 处理器）；
+  App.vue 监视 `syncEnabled && !isDj` → `audioEngine.setControlLocked(true)` 移除控制类处理器
+  → 平台显示为禁用，DJ 模式锁屏按钮不可用。
+
+**（d）前台事件打断（来电/消息/发语音）导致同步听歌不一致**
+- 根因：前台打断后系统自动重启/暂停音频，同步听歌位置漂移，缺少"回前台重对齐"机制。
+- 修复：App.vue 监听 `visibilitychange`（回到前台）时，若处于同步听歌，调用
+  `music_sync_request_state` 向 DJ 拉最新全量状态，由 music store 的 `applySyncState`/`seekIfFar` 自动
+  重新对齐切歌/暂停/进度。
+
+**（e）PWA 进程被杀/切后台：恢复播放（best-effort）**
+- 背景：PWA 无法真正阻止手机系统杀进程，采用"降低被杀概率 + 被杀可恢复"策略。
+- 修复：`engine.ts` 接入 Media Session（播放中会话保持活跃，降低被冻结概率）；播放会话快照
+  （哪首歌 + 进度 + 是否在播）节流落盘 localStorage `pomo-pwa:session`（pagehide/切后台强制写），
+  App 启动时若上次在播则自动续播到对应位置（自动播放被拦截时提示"点击续播"）。
+
+**（f）手机端"检查更新"按钮与播放器按钮重叠**
+- 修复：移动端 `.refresh-btn` 的 `bottom: calc(120px + safe-area)` → `calc(200px + safe-area)`，
+  抬到展开播放器上方，`right: 8px` 不变，不再与播放器右侧控制按钮重叠。
+
+**验证**：`npm run pwa:build` 通过（类型检查 + 构建到 `pwa-dist/`）；桌面端共享代码零改动。
+待用户双机实测：反馈列表可见、刷新后已下载/P2P 歌仍在、DJ 模式锁屏按钮禁用、来电后同步恢复、
+手机刷新按钮位置。
+
+---
+
 ## 2026-08-15
 
 ### 21. CI run 堆积阻塞发版——concurrency 自动取消 + docs-only 跳过 + runner 运维纪律（v4.7.12）

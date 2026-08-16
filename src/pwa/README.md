@@ -35,7 +35,8 @@ src/
     ├── storage.ts               localStorage 封装（数据/设置/认证/音乐元数据）
     ├── config.ts                常量（API 地址 / 缓存名 / PWA 版本）
     ├── music/                   音乐子系统
-    │   ├── engine.ts            HTML5 Audio 引擎（事件与桌面端一致）
+    │   ├── engine.ts            HTML5 Audio 引擎（事件与桌面端一致 + Media Session + 会话快照）
+    │   ├── library.ts           本地库索引（P2P/下载歌名持久化，防刷新丢失）
     │   ├── manifest.ts          音乐清单加载（3 内置 + 曲库）
     │   ├── sources.ts           歌曲 URL + Cache API 下载/查询
     │   ├── idb.ts               IndexedDB 分片/Blob（P2P 传歌落盘 + 合并）
@@ -86,7 +87,27 @@ PWA 自己的引擎/WS 客户端经 `eventBus.ts` 喂给 `listen()`，MusicPlaye
 - 3 首主题曲内置（`/tracks/`），**离线可播**；
 - 其余曲目走服务器曲库 `/music/`，播放即进 Cache Storage（`pomo-pwa-music-v1`），缓存后离线可听；
 - SW 只预缓存外壳（排除 mp3），避免首屏 14.5MB 拖慢；
-- 标签改动存 localStorage，与桌面端互不影响。
+- 标签改动存 localStorage，与桌面端互不影响；
+- **已下载/P2P 音乐持久化（v0.5+）**：
+  - 缓存名 `pomo-pwa-music-v1` **恒定，勿随版本改**（改=旧缓存被当过期清除="刷新后歌全消失"）；
+  - P2P 收到的歌（source=local）名单持久化到 `pomo-pwa:library`，字节在 IndexedDB；
+  - 启动预检（`music/preflight.ts`）恢复两路：扫描 Cache 全部 `/music/` 命中（曲库下载歌，即使不在最新
+    manifest 也不丢）+ 读 library 的 local 名单并校验 IDB blob 后并入播放列表；
+  - 删除歌曲时同步 `uncacheSong` + `idbDeleteSong` + `forgetSong` 清理。
+
+### 系统媒体控制 / 锁屏（Media Session，v0.5+）
+- `music/engine.ts` 接入 `navigator.mediaSession`：锁屏/系统通知栏显示曲名，播放/暂停/上一首/下一首/±10s 可用；
+- **同步听歌听众（DJ 控制）**：App 监视 `syncEnabled && !isDj` → `audioEngine.setControlLocked(true)` 移除
+  play/pause/prev/next 处理器 → 锁屏"播放/上一首/下一首"按钮被禁用，避免听众误触造成不同步。
+
+### 播放会话恢复（进程被杀/切后台，v0.5+）
+- 播放会话快照（哪首歌 + 进度 + 是否在播）节流落盘 `pomo-pwa:session`（pagehide/切后台强制写）；
+- 启动时若上次在播则自动续播到对应位置（自动播放被拦截时提示"点击续播，点击后自动继续"）；
+- 前台事件打断（来电/消息/语音）回前台时：同步听歌走 `music_sync_request_state` 向 DJ 重拉状态重新对齐。
+
+### 反馈（v0.5+）
+- 服务器 `GET /api/v1/feedback` 返回 `{ feedbacks: [...] }`（对象）；提交后"我的反馈"列表已能正确展示
+  （旧实现误把对象当数组导致永远为空，见 `tauri/commands/feedback.ts`）。
 
 ### 同步听歌 / P2P
 - 复用 StudyRoom.vue：WS 事件 + 心跳 + 自动重连；

@@ -33,15 +33,27 @@ import { useTimerStore, type TimerMode } from "@/stores/timer";
 import { useSettingsStore } from "@/stores/settings";
 import { useStatsStore } from "@/stores/stats";
 import { useAuthStore } from "@/stores/auth";
+import { useMusicStore } from "@/stores/music";
 import { preflightManifest } from "./music/preflight";
 import { audioEngine } from "./music/engine";
 import { PWA_VERSION } from "./config";
 import { checkForUpdate, applyUpdate, onUpdateStatus } from "./update";
+import { cmdMusicSyncRequestState } from "./tauri/commands/musicSync";
 
 const timer = useTimerStore();
 const settings = useSettingsStore();
 const stats = useStatsStore();
 const auth = useAuthStore();
+const music = useMusicStore();
+
+// ===== 同步听歌：听众模式锁定系统媒体控制键 =====
+// （锁屏/系统通知栏的"上一首/下一首/播放"在 DJ 控制模式下应禁用，由 DJ 统一控制，
+//  避免听众误触导致与 DJ 不同步。移除 Media Session 处理器 → 平台显示为禁用。）
+watch(
+  () => music.syncEnabled && !music.isDj,
+  (locked) => audioEngine.setControlLocked(locked),
+  { immediate: true },
+);
 
 // ===== 加载状态 =====
 const loading = ref(true);
@@ -225,6 +237,12 @@ onMounted(async () => {
   mq = window.matchMedia(MOBILE_MQ);
   isMobile.value = mq.matches;
   mq.addEventListener("change", onMqChange);
+
+  // 前台事件打断（来电/消息/发语音/系统媒体焦点抢占）后回到前台：
+  // 系统可能已自动重启音频，但同步听歌位置会漂移 → 向 DJ 重新拉取完整 sync_state，
+  // 由 music store 的 applySyncState/seekIfFar 自动重新对齐（切歌/暂停/进度一起校准）。
+  document.addEventListener("visibilitychange", handleVisibilityResync);
+
   // 启动后自动检查更新（仅生产；SW 未注册时静默跳过），让手机端能自动发现新版本
   if (import.meta.env.PROD) {
     setTimeout(() => {
@@ -236,6 +254,16 @@ onMounted(async () => {
   }, 400);
 });
 
+/** visibility 恢复：同步听歌听众向 DJ 拉最新状态校准；并刷新一次播放会话快照 */
+function handleVisibilityResync(): void {
+  if (document.visibilityState !== "visible") return;
+  audioEngine.persistNow();
+  // 仅听众（非 DJ）需要向 DJ 重拉状态；DJ 本身就是状态源
+  if (music.syncEnabled && !music.isDj) {
+    void cmdMusicSyncRequestState().catch(() => {});
+  }
+}
+
 // 音乐播放器就绪预检：内置 3 首确认下载/缓存就绪后才启动底部播放器
 // （每次启动都检查；没歌可放就不渲染播放器，避免空播放器闪一下）
 const playerReady = ref(false);
@@ -243,6 +271,15 @@ void preflightManifest()
   .then((r) => {
     audioEngine.setPlaylist(r.songs);
     playerReady.value = r.ready;
+    // 恢复最近一次播放会话（进程被杀/切后台后重启）：仅当上次"正在播放"时尝试续播
+    // （到该歌曲、该位置；若上次是暂停/未播则不自动响。自动播放被拦截时 engine 会
+    //  提示"点击续播"，用户点击后自动继续。）
+    const session = audioEngine.restoreSession();
+    if (session && session.playing && r.ready && r.songs.some((s) => s.name === session.name)) {
+      audioEngine
+        .play(session.name, session.current)
+        .catch(() => { /* engine 已提示点击续播 */ });
+    }
   })
   .catch((e) => {
     console.warn("[PWA] 音乐预检失败，播放器不启动:", e);
@@ -253,6 +290,7 @@ void preflightManifest()
 onUnmounted(() => {
   window.removeEventListener("keydown", handleKeydown);
   mq?.removeEventListener("change", onMqChange);
+  document.removeEventListener("visibilitychange", handleVisibilityResync);
   unsubUpdate?.();
 });
 
@@ -1221,9 +1259,10 @@ watch(
     padding-bottom: 8px;
   }
 
-  /* 手机：刷新按钮移到播放器上方；提示条在顶栏下方 */
+  /* 手机：刷新按钮移到播放器上方（高于展开播放器顶部，避免与播放器按钮重叠）；
+     提示条在顶栏下方 */
   .refresh-btn {
-    bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(200px + env(safe-area-inset-bottom, 0px));
     right: 8px;
   }
 

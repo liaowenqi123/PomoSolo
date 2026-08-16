@@ -19,6 +19,14 @@ import { emit as busEmit } from "../eventBus";
 import type { ManifestSong } from "./types";
 import { songUrl } from "./sources";
 import { idbGetBlob } from "./idb";
+import { rememberSong, forgetSong } from "./library";
+
+/** 播放会话快照 localStorage 键（进程被杀/切后台后重启可恢复"哪首歌、播到哪、是否在播"） */
+export const SESSION_KEY = "pomo-pwa:session";
+/** 会话快照节流：timeupdate 每 N ms 落一次盘（写 localStorage 不频繁） */
+const SESSION_SAVE_THROTTLE_MS = 4000;
+/** 媒体按键 seek 的步长（秒） */
+const MEDIA_SEEK_STEP_S = 10;
 
 export type PlayMode = "shuffle" | "order" | "loop";
 
@@ -46,6 +54,15 @@ class BrowserAudioEngine {
   private pendingStartSec = 0;
   /** 用户自定义标签覆盖（歌名 → { name, color } | null） */
   private tagOverrides = new Map<string, { name: string; color: string | null }>();
+  /** 是否锁定系统媒体按键（同步听歌听众：DJ 控制，锁屏按钮应禁用） */
+  private controlsLocked = false;
+  /** 播放会话快照最近落盘时间 */
+  private lastSessionSaveAt = 0;
+  /** 浏览器是否支持 Media Session（锁屏媒体控制） */
+  private readonly hasMediaSession =
+    typeof navigator !== "undefined" && "mediaSession" in navigator;
+  /** Media Session 动作处理器引用（锁定时移除、解锁时恢复） */
+  private mediaHandlers: Partial<Record<MediaSessionAction, () => void>> = {};
 
   constructor() {
     const a = this.audio;
@@ -61,6 +78,9 @@ class BrowserAudioEngine {
         duration: dur,
         has_prev: this.index > 0,
       });
+      // 锁屏媒体卡同步曲名（Media Session）
+      this.updateMediaSession();
+      this.persistSession();
       // startSec > 0：加载完成后立即 seek 到目标（替代桌面 skip_duration）
       if (this.pendingStartSec > 0) {
         const target = Math.min(this.pendingStartSec, dur || this.pendingStartSec);
@@ -84,13 +104,24 @@ class BrowserAudioEngine {
         current: Math.floor(a.currentTime || 0),
         duration: dur,
       });
+      this.persistSession();
     });
 
-    a.addEventListener("play", () => busEmit("music-play-state", { playing: true }));
-    a.addEventListener("pause", () => busEmit("music-play-state", { playing: false }));
+    a.addEventListener("play", () => {
+      busEmit("music-play-state", { playing: true });
+      this.setPlaybackState("playing");
+      this.persistSession();
+    });
+    a.addEventListener("pause", () => {
+      busEmit("music-play-state", { playing: false });
+      this.setPlaybackState("paused");
+      this.persistSession();
+    });
 
     a.addEventListener("ended", () => {
       busEmit("music-play-state", { playing: false });
+      this.setPlaybackState("paused");
+      this.persistSession();
       if (this.autoNextEnabled) {
         void this.advance();
       }
@@ -100,6 +131,155 @@ class BrowserAudioEngine {
     a.addEventListener("error", () => {
       busEmit("music-play-error", { message: `无法播放《${this.order[this.index] ?? ""}》` });
     });
+
+    // 进程可能被系统随时冻结/杀掉：切后台瞬间落盘会话快照，重启后可恢复
+    if (typeof window !== "undefined") {
+      window.addEventListener("pagehide", () => this.persistSession());
+      window.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") this.persistSession();
+      });
+    }
+
+    this.initMediaSession();
+  }
+
+  // ===== 播放会话快照持久化（进程被杀/切后台重启恢复） =====
+
+  /** 当前播放快照（供恢复用） */
+  private currentSnapshot(): { name: string; current: number; playing: boolean } | null {
+    if (this.index < 0) return null;
+    return {
+      name: this.order[this.index],
+      current: Math.floor(this.audio.currentTime || 0),
+      playing: !this.audio.paused && !!this.audio.src,
+    };
+  }
+
+  /** 节流落盘播放会话（至多每 SESSION_SAVE_THROTTLE_MS 一次；关键时机用 persistNow 强制） */
+  private persistSession(): void {
+    const snap = this.currentSnapshot();
+    if (!snap) return;
+    const now = Date.now();
+    if (now - this.lastSessionSaveAt < SESSION_SAVE_THROTTLE_MS) return;
+    this.lastSessionSaveAt = now;
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...snap, ts: now }));
+    } catch {
+      /* 忽略 */
+    }
+  }
+
+  /** 读取最近一次播放会话快照（App 启动时决定是否恢复/续播） */
+  restoreSession(): { name: string; current: number; playing: boolean } | null {
+    try {
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (!raw) return null;
+      const s = JSON.parse(raw) as { name?: string; current?: number; playing?: boolean };
+      if (!s.name || !this.songInfo.has(s.name)) return null;
+      return {
+        name: s.name,
+        current: Math.max(0, Math.floor(Number(s.current) || 0)),
+        playing: !!s.playing,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** 立即强制落盘一次播放会话（visibility 恢复 / 关键时机调用，绕过节流） */
+  persistNow(): void {
+    this.lastSessionSaveAt = 0;
+    this.persistSession();
+  }
+
+  /** 丢弃播放会话快照（用户显式停止/切歌后可留，重启恢复最近状态） */
+
+  // ===== Media Session（锁屏/系统媒体控制） =====
+
+  /** 初始化动作处理器（播放/暂停/上一首/下一首/前后跳 10s） */
+  private initMediaSession(): void {
+    if (!this.hasMediaSession) return;
+    this.bindMediaControl("play", () => void this.toggle());
+    this.bindMediaControl("pause", () => void this.toggle());
+    this.bindMediaControl("previoustrack", () => void this.prev());
+    this.bindMediaControl("nexttrack", () => void this.next());
+    this.bindMediaControl("seekbackward", () => {
+      void this.seek(Math.max(0, this.audio.currentTime - MEDIA_SEEK_STEP_S));
+    });
+    this.bindMediaControl("seekforward", () => {
+      void this.seek(this.audio.currentTime + MEDIA_SEEK_STEP_S);
+    });
+    this.applyControlLock();
+  }
+
+  /** 注册一个 Media Session 动作处理器（保留引用，供锁定时移除/恢复） */
+  private bindMediaControl(action: MediaSessionAction, handler: () => void): void {
+    this.mediaHandlers[action] = handler;
+    try {
+      navigator.mediaSession.setActionHandler(action, handler);
+    } catch {
+      /* 某些浏览器不支持该动作 */
+    }
+  }
+
+  /**
+   * 锁定/解锁系统媒体控制键。
+   * 同步听歌听众模式（DJ 控制）下置为 locked=true：移除 previoustrack/nexttrack/
+   * play/pause 处理器 → 锁屏与系统媒体通知栏的"上一首/下一首/播放"按钮被禁用，
+   * 避免听众误触导致与 DJ 不一致。seek 类动作保留无妨（不破坏同步）。
+   */
+  setControlLocked(locked: boolean): void {
+    if (this.controlsLocked === locked) return;
+    this.controlsLocked = locked;
+    this.applyControlLock();
+    if (locked) this.updateMediaSession();
+  }
+
+  /** 锁定时置空控制类动作（平台显示禁用）；解锁时按引用恢复处理器 */
+  private applyControlLock(): void {
+    if (!this.hasMediaSession) return;
+    const controlActions: MediaSessionAction[] = ["play", "pause", "previoustrack", "nexttrack"];
+    for (const action of controlActions) {
+      try {
+        if (this.controlsLocked) {
+          navigator.mediaSession.setActionHandler(action, null);
+        } else if (this.mediaHandlers[action]) {
+          navigator.mediaSession.setActionHandler(action, this.mediaHandlers[action]!);
+        }
+      } catch {
+        /* 忽略 */
+      }
+    }
+  }
+
+  /** 同步锁屏媒体卡元数据（曲名 + 播放状态） */
+  updateMediaSession(): void {
+    if (!this.hasMediaSession) return;
+    try {
+      const ms = navigator.mediaSession;
+      const name = this.index >= 0 ? this.order[this.index] : "";
+      if (name && typeof MediaMetadata !== "undefined") {
+        const title = name.replace(/\.[^/.]+$/, "");
+        ms.metadata = new MediaMetadata({
+          title,
+          artist: "PomoSolo 番茄钟",
+          album: "专注音乐",
+        });
+      }
+      ms.playbackState = !this.audio.paused && !!this.audio.src ? "playing" : "paused";
+    } catch {
+      /* 忽略 */
+    }
+  }
+
+  /** 推送播放状态到 Media Session（play/pause 事件触发） */
+  private setPlaybackState(state: MediaSessionPlaybackState): void {
+    if (!this.hasMediaSession) return;
+    try {
+      navigator.mediaSession.playbackState = state;
+    } catch {
+      /* 忽略 */
+    }
   }
 
   // ===== 播放列表 =====
@@ -403,6 +583,7 @@ class BrowserAudioEngine {
     const { uncacheSong } = await import("./sources");
     const info = this.songInfo.get(name);
     if (info) await uncacheSong(songUrl(name, info.source)).catch(() => {});
+    forgetSong(name);
     const local = this.localUrls.get(name);
     if (local) URL.revokeObjectURL(local);
     this.localUrls.delete(name);
@@ -429,6 +610,8 @@ class BrowserAudioEngine {
       if (!this.order.includes(name)) this.order.push(name);
       this.emitPlaylist();
     }
+    // 持久化"我的歌"索引：P2P 收到的歌即使刷新/更新也不会从列表消失（字节在 IDB）
+    rememberSong(name, "local");
   }
 }
 

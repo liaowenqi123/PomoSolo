@@ -65,3 +65,31 @@ export async function countCachedSongs(): Promise<number> {
     return 0;
   }
 }
+
+/**
+ * 列出 Cache 里已下载/已缓存的曲库歌（/music/），返回解码后的歌名。
+ * 用于启动时把"下载过的曲库歌"重新并入播放列表 —— 即使某首歌已不在最新
+ * music-manifest.json（版本更新/清单变化），只要字节还在缓存里就不丢。
+ */
+export async function listCachedLibrarySongs(): Promise<string[]> {
+  try {
+    const cache = await openCache();
+    const keys = await cache.keys();
+    const names = new Set<string>();
+    for (const req of keys) {
+      const url = new URL(req.url);
+      if (url.pathname.startsWith("/music/")) {
+        const last = url.pathname.split("/").filter(Boolean).pop();
+        if (!last) continue;
+        try {
+          names.add(decodeURIComponent(last));
+        } catch {
+          names.add(last);
+        }
+      }
+    }
+    return [...names];
+  } catch {
+    return [];
+  }
+}
