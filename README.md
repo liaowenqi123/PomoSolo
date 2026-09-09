@@ -275,7 +275,7 @@ npm run pwa:build
 
 ## 安卓端（安卓端部门）
 
-> 部门：安卓端部门 ｜ 状态：🚧 筹备中（2026-09-10 成立） ｜ 仓库：独立 GitHub 仓库（待建）
+> 部门：安卓端部门 ｜ 状态：🚧 筹备中（2026-09-10 成立，v0 开发中） ｜ 仓库：[PomoSolo-Android](https://github.com/liaowenqi123/PomoSolo-Android)
 
 手机端移植（Android）。**目标是把 PomoSolo 变成真正的原生 Android 应用**，代码由安卓端部门自研
 （可参考 PWA 部门的"真实复用"思路，但不 copy 其代码）。

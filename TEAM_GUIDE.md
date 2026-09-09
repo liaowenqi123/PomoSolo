@@ -93,7 +93,7 @@
 | **主部门** | `主` | **负责所有事情**：桌面端开发、构建、发布、CI/CD、仓库与双仓库维护、通用文档维护 | 本仓库全部代码（`src/`、`src-tauri/`、`scripts/`、`docs/` 等） | ✅ **默认部门** |
 | **服务器部门** | `服务器` | 服务器相关问题：认证、REST API、WebSocket、P2P 信令、数据库、部署、Nginx、域名/备案、HTTPS | **运行代码不在本仓库**（维护在服务器上）；接口约定与规划通过本仓库 `server-planning/` 沟通 | ❌ |
 | **PWA 部门** | `PWA` | 桌面优先的 PWA 端：浏览器内计时 + 音乐 + 自习室 | 本仓库 `src/pwa/`（复用 `src/` 下的组件/store/API） | ❌ |
-| **安卓端部门** | `安卓` | Android 手机端：把 PomoSolo 移植为原生 Android 应用（**代码自研**，思路参考 PWA 的复用方式，不 copy）；v0 用 WebView 壳复用 PWA 构建产物 | **独立 GitHub 仓库** `PomoSolo-Android`（2026-09-10 成立，URL 待建后补）；本仓库文档/接口仍为沟通权威 | ❌ |
+| **安卓端部门** | `安卓` | Android 手机端：把 PomoSolo 移植为原生 Android 应用（**代码自研**，思路参考 PWA 的复用方式，不 copy）；v0 用 WebView 壳复用 PWA 构建产物 | **独立 GitHub 仓库** [PomoSolo-Android](https://github.com/liaowenqi123/PomoSolo-Android)（2026-09-10 成立）；本仓库文档/接口仍为沟通权威 | ❌ |
 
 ### 3.1 主部门（Main）
 
@@ -127,8 +127,8 @@
     核心计时/音乐/登录/自习室在手机上的可行性；
   - **v1+（原生化）**：逐步以原生实现替换 WebView 能力（系统通知、后台播放 + 锁屏媒体控制、
     前台检测、本地文件/下载等），沉淀安卓端自己的架构；
-- 代码位置：**独立 GitHub 仓库**（`PomoSolo-Android`，URL 待建后补）；文档沉淀于该仓库 README，
-  本仓库 `TEAM_GUIDE.md`/`README.md`/`server-planning/` 仍是团队协作与接口沟通的权威；
+- 代码位置：**独立 GitHub 仓库** [PomoSolo-Android](https://github.com/liaowenqi123/PomoSolo-Android)；
+  文档沉淀于该仓库 README，本仓库 `TEAM_GUIDE.md`/`README.md`/`server-planning/` 仍是团队协作与接口沟通的权威；
 - 协作边界（同 PWA 部门 §11.5 思路）：
   - **共享**：服务器接口（REST/WS/P2P）、账号体系、产品功能定义 —— 改动必须同步 `server-planning/` 文档；
   - **不共享**：任何依赖"浏览器/系统 WebView 之外能力"的功能需要安卓端自行原生实现；
