@@ -338,6 +338,29 @@ pub async fn download_song(
         guard.current_song = None;
     }
 
+    // 下载成功 → 首次创建记录自动归入「下载」目录（已有记录/用户移动过的不覆盖）
+    if dl_result.success {
+        let clean = crate::modules::downloader::clean_filename(&song_name);
+        let candidates = [format!("{}.mp3", clean), format!("{}.m4a", clean)];
+        if let Some(saved) = candidates.iter().find(|c| music_dir.join(c).exists()) {
+            if let Ok(_) = crate::commands::music::ensure_player_init(&app).await {
+                let music_state = app.state::<MusicState>();
+                let mut player = music_state.player.lock().await;
+                let _ = player.ensure_song_record(saved, "下载", "download");
+                // 目录/标签变更后同步前端歌单
+                let (songs, current_song, current_index) = player.get_playlist_with_tags();
+                let _ = app.emit(
+                    "music-playlist",
+                    json!({
+                        "songs": songs,
+                        "current_song": current_song,
+                        "current_index": current_index
+                    }),
+                );
+            }
+        }
+    }
+
     // 转换为前端期望的 JSON
     Ok(serde_json::to_value(&dl_result).unwrap_or_else(|_| {
         json!({

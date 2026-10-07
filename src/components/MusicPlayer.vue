@@ -249,6 +249,290 @@ const tagModalVisible = ref(false);
 const tagEditSong = ref<string>("");
 const tagEditCurrent = ref<{ name: string; color: string | null } | null>(null);
 
+// ===== 音乐库管理（目录树 / 标签筛选 / 播放集合 / 右键批量） =====
+const expandedDirs = ref<Set<string>>(new Set());
+/** 右键菜单内「设置标签」子菜单草稿 */
+const batchTagDraft = ref<Set<string>>(new Set());
+/** 右键菜单「删除所选」两步确认 */
+const confirmDeleteSelection = ref(false);
+let confirmDeleteTimer: ReturnType<typeof setTimeout> | null = null;
+
+function toggleExpandDir(path: string) {
+  const next = new Set(expandedDirs.value);
+  if (next.has(path)) next.delete(path);
+  else next.add(path);
+  expandedDirs.value = next;
+}
+
+/** 目录树扁平化（展开节点递归），用于渲染缩进行 */
+const flatDirs = computed(() => {
+  const rows: { path: string; name: string; depth: number; count: number; hasChildren: boolean }[] = [];
+  const walk = (nodes: unknown, depth: number) => {
+    if (!Array.isArray(nodes)) return;
+    for (const n of nodes as { path: string; name: string; children: unknown[]; subtreeCount: number }[]) {
+      rows.push({ path: n.path, name: n.name, depth, count: n.subtreeCount, hasChildren: n.children.length > 0 });
+      if (expandedDirs.value.has(n.path) && n.children.length > 0) walk(n.children, depth + 1);
+    }
+  };
+  walk(store.dirTree, 0);
+  return rows;
+});
+
+function songMetaOf(song: string): { path: string; tags: string[] } {
+  const meta = store.songMeta?.[song];
+  return meta ?? { path: "", tags: [] };
+}
+
+function songTagsOf(song: string): string[] {
+  return songMetaOf(song).tags ?? [];
+}
+
+function shortPath(p: string): string {
+  const segs = p.split("/").filter(Boolean);
+  return segs[segs.length - 1] ?? p;
+}
+
+function tagChipStyle(tag: string): Record<string, string> {
+  const color = store.customTags?.[tag];
+  if (color) {
+    return {
+      background: hexToRgba(color, 0.3),
+      color: lightenColor(color, 0.3),
+    };
+  }
+  return {};
+}
+
+/** 目录行缩进（按深度） */
+function depthPadding(depth: number): string {
+  return `${10 + depth * 14}px`;
+}
+
+/** 批量标签草稿切换 */
+function toggleBatchTag(name: string) {
+  const next = new Set(batchTagDraft.value);
+  if (next.has(name)) next.delete(name);
+  else next.add(name);
+  batchTagDraft.value = next;
+}
+
+/** 筛选区是否展开（默认收起：筛选往往是关闭的，歌曲再多也不挤压） */
+const filterOpen = ref(false);
+
+/** 面板当前标签：dir=目录浏览，filter=筛选浏览，playlist=播放列表（集合） */
+const panelTab = ref<"dir" | "filter" | "playlist">("dir");
+
+/** 加入播放列表（集合，Set 语义去重；支持单曲或批量） */
+async function handleAddToPlaylist(song: string | string[]) {
+  const songs = Array.isArray(song) ? song : [song];
+  const added = await store.addSongsToPlaylist(songs);
+  if (added > 0) showToast(`已加入播放列表（${store.playSet.size} 首）`);
+  else showToast("已在播放列表中");
+}
+
+/** 筛选结果全部加入播放列表，并切到播放列表标签让用户看到集合 */
+async function handleAddViewToPlaylist() {
+  const added = await store.addViewToPlaylist();
+  if (added > 0) {
+    showToast(`已加入播放列表（共 ${store.playSet.size} 首）`);
+    panelTab.value = "playlist";
+  }
+}
+
+// ===== 多选 + 双击加入 + 拖拽 + 右键菜单（批量操作走右键，Windows 风格） =====
+
+/** 右键菜单状态（fixed 定位，视口坐标；song 为右键点击的行） */
+const ctxMenu = ref<{ visible: boolean; x: number; y: number; song: string }>({
+  visible: false,
+  x: 0,
+  y: 0,
+  song: "",
+});
+const ctxMenuMoveOpen = ref(false);
+const ctxMenuTagOpen = ref(false);
+
+function openCtxMenu(song: string, e: MouseEvent) {
+  e.preventDefault();
+  // 右键点击的行若不在当前选择中，则单选它（后续菜单操作作用于整个选择集，Windows 风格）
+  if (!store.selection.has(song)) store.replaceSelection([song]);
+  // 锚定鼠标位置：下方空间足够 → 向下展开；不够 → 向上展开（原生右键菜单手感）
+  const menuW = 190;
+  const menuH = 230;
+  let x = e.clientX;
+  let y = e.clientY;
+  if (x + menuW > window.innerWidth) x = Math.max(0, window.innerWidth - menuW);
+  if (y + menuH > window.innerHeight) y = Math.max(0, e.clientY - menuH);
+  ctxMenu.value = {
+    visible: true,
+    x,
+    y,
+    song,
+  };
+  ctxMenuMoveOpen.value = false;
+  ctxMenuTagOpen.value = false;
+}
+
+function closeCtxMenu() {
+  ctxMenu.value = { visible: false, x: 0, y: 0, song: "" };
+  ctxMenuMoveOpen.value = false;
+  ctxMenuTagOpen.value = false;
+}
+
+/** 当前选择集在浏览列表中的最后索引（Shift 连续选中锚点） */
+function lastSelectedIndex(): number {
+  const songs = store.filteredSongs;
+  let idx = -1;
+  songs.forEach((s, i) => {
+    if (store.selection.has(s)) idx = i;
+  });
+  return idx;
+}
+
+/** 浏览行单击 = 选中；已选中的行再次单击 = 取消选中；Shift 连续 / Ctrl 增减 */
+function handleRowClick(song: string, e: MouseEvent, index: number) {
+  if (e.shiftKey) {
+    const anchor = lastSelectedIndex();
+    const songs = store.filteredSongs;
+    if (anchor >= 0 && anchor !== index) {
+      const [lo, hi] = anchor < index ? [anchor, index] : [index, anchor];
+      store.replaceSelection(songs.slice(lo, hi + 1));
+    } else {
+      store.replaceSelection([song]);
+    }
+  } else if (e.ctrlKey || e.metaKey) {
+    store.toggleSelection(song);
+  } else {
+    // 已选中 → 取消；未选中 → 单选
+    if (store.selection.has(song)) {
+      store.replaceSelection([]);
+    } else {
+      store.replaceSelection([song]);
+    }
+  }
+}
+
+/** 浏览行双击 = 加入播放列表（集合） */
+function handleRowDblClick(song: string) {
+  void handleAddToPlaylist(song);
+}
+
+/** 拖拽开始：携带当前选择集（含被拖行） */
+function handleDragStart(e: DragEvent, song: string) {
+  const payload = store.selection.has(song) ? [...store.selection] : [song];
+  if (e.dataTransfer) {
+    try {
+      e.dataTransfer.setData("text/plain", JSON.stringify(payload));
+      e.dataTransfer.effectAllowed = "copy";
+    } catch {
+      /* jsdom/测试环境可能无 setData，忽略 */
+    }
+  }
+}
+
+/** 拖入播放列表区：把拖拽的歌曲加入集合 */
+function handleDropToCollection(e: DragEvent) {
+  e.preventDefault();
+  collectionDragOver.value = false;
+  const raw = e.dataTransfer?.getData("text/plain");
+  if (!raw) return;
+  try {
+    const songs = JSON.parse(raw) as string[];
+    if (Array.isArray(songs) && songs.length > 0) {
+      void handleAddToPlaylist(songs);
+    }
+  } catch {
+    /* 忽略非本组件拖入 */
+  }
+}
+
+const collectionDragOver = ref(false);
+
+function onCollectionDragOver(e: DragEvent) {
+  e.preventDefault();
+  collectionDragOver.value = true;
+}
+
+function onCollectionDragLeave() {
+  collectionDragOver.value = false;
+}
+
+// ===== 右键菜单动作（作用于整个选择集，Windows 风格） =====
+
+/** 右键菜单项执行后统一收尾 */
+function finishCtxAction() {
+  closeCtxMenu();
+  store.clearSelection();
+}
+
+/** ▶ 播放：只作用于右键点击的那一行（预览） */
+function ctxPlay(song: string) {
+  finishCtxAction();
+  if (song !== store.trackName) void store.playSong(song);
+}
+
+/** 🎵 添加到播放列表：作用于整个选择集 */
+function ctxAdd() {
+  const songs = [...store.selection];
+  finishCtxAction();
+  void store.addSongsToPlaylist(songs);
+}
+
+/** 📁 移动到目录：作用于整个选择集 */
+function ctxMove(path: string) {
+  const songs = [...store.selection];
+  finishCtxAction();
+  void store.moveSongsToDir(songs, path).then((ok) => {
+    if (ok) showToast(`已移动到「${path || "未分类"}」`);
+  });
+}
+
+/** ♥ 标记到「喜欢」：作用于整个选择集 */
+function ctxFav() {
+  const songs = [...store.selection];
+  finishCtxAction();
+  void store.moveSongsToDir(songs, "喜欢").then((ok) => {
+    if (ok) showToast(`已标记到「喜欢」`);
+  });
+}
+
+/** 🏷 设置标签草稿切换（右键子菜单） */
+function toggleCtxTag(name: string) {
+  const next = new Set(batchTagDraft.value);
+  if (next.has(name)) next.delete(name);
+  else next.add(name);
+  batchTagDraft.value = next;
+}
+
+/** 🏷 应用标签：作用于整个选择集 */
+function ctxApplyTags() {
+  const songs = [...store.selection];
+  const tags = [...batchTagDraft.value];
+  finishCtxAction();
+  batchTagDraft.value = new Set();
+  void store.setSongsTags(songs, tags).then((ok) => {
+    if (ok) showToast(tags.length > 0 ? `已设置 ${tags.join("、")} 标签` : "已清除标签");
+  });
+}
+
+/** 🗑 删除所选：两步确认，作用于整个选择集 */
+function ctxDelete() {
+  if (!confirmDeleteSelection.value) {
+    confirmDeleteSelection.value = true;
+    if (confirmDeleteTimer) clearTimeout(confirmDeleteTimer);
+    confirmDeleteTimer = setTimeout(() => {
+      confirmDeleteSelection.value = false;
+    }, 3000);
+    return;
+  }
+  const songs = [...store.selection];
+  finishCtxAction();
+  confirmDeleteSelection.value = false;
+  void (async () => {
+    for (const s of songs) await store.deleteSong(s);
+    showToast(`已删除 ${songs.length} 首`);
+  })();
+}
+
 // ===== Toast 提示 =====
 const toastMessage = ref("");
 const toastVisible = ref(false);
@@ -454,6 +738,10 @@ function handleGlobalClick(e: MouseEvent) {
   if (isPlaylistOpen.value && !target.closest(".music-playlist") && !target.closest(".music-playlist-btn")) {
     isPlaylistOpen.value = false;
   }
+  // 右键菜单：点击菜单外关闭
+  if (ctxMenu.value.visible && !target.closest(".music-playlist__ctxmenu")) {
+    closeCtxMenu();
+  }
 }
 
 // 注册全局点击用于关闭弹层
@@ -621,45 +909,254 @@ if (typeof document !== "undefined") {
           </button>
         </div>
 
-        <!-- 播放列表面板 -->
+        <!-- 音乐库面板：浏览区（筛选/目录）与播放列表区（集合）用小标签切换，控制面板高度不超出番茄钟窗口 -->
         <div v-show="isPlaylistOpen" class="music-playlist">
           <div class="music-playlist__header">
-            <span>播放列表</span>
+            <span>音乐库</span>
+            <span
+              v-if="store.playSetActive"
+              class="music-playlist__source"
+              :title="`播放集合来源：${store.playSetSource}`"
+            >🎵 {{ store.playSetSource }}</span>
             <button class="music-playlist__refresh" @click.stop="store.requestPlaylist()">🔄</button>
           </div>
-          <div class="music-playlist__items">
-            <div v-if="store.playlist.length === 0" class="music-playlist__empty">暂无音乐</div>
-            <div
-              v-for="(song, idx) in store.playlist"
-              :key="idx"
-              class="music-playlist__item"
-              :class="{ current: song === store.trackName, disabled: controlsDisabled }"
-              @click="handleSongClick(song)"
-            >
-              <span
-                class="music-playlist__tag"
-                :data-tag="store.playlistTags[song]?.name || '自定义'"
-                :style="tagStyle(song)"
-                @click.stop="handleTagClick(song, $event)"
-              >
-                {{ store.playlistTags[song]?.name || "自定义" }}
-              </span>
-              <span class="music-playlist__name">{{ displayName(song) }}</span>
+
+          <!-- 三个选项卡并排：目录 / 筛选 / 播放列表 -->
+          <div class="music-playlist__tabs">
+            <button
+              class="music-playlist__tab dir"
+              :class="{ active: panelTab === 'dir' }"
+              @click="panelTab = 'dir'"
+            >📁 目录</button>
+            <button
+              class="music-playlist__tab filter"
+              :class="{ active: panelTab === 'filter' }"
+              @click="panelTab = 'filter'"
+            >🔍 筛选</button>
+            <button
+              class="music-playlist__tab playlist"
+              :class="{ active: panelTab === 'playlist' }"
+              @click="panelTab = 'playlist'"
+            >🎵 播放列表
+              <span v-if="store.playSet.size > 0" class="music-playlist__tab-badge">{{ store.playSet.size }}</span>
+            </button>
+          </div>
+
+          <!-- 目录 tab：目录树（字段投影，实时派生） -->
+          <div v-show="panelTab === 'dir'" class="music-playlist__dirs">
+            <div class="music-playlist__dir-row">
+              <span class="music-playlist__dir-caret music-playlist__dir-caret--leaf">·</span>
               <button
-                v-if="song !== store.trackName"
-                class="music-playlist__delete"
-                :disabled="controlsDisabled"
-                @click="handleDeleteSong(song, $event)"
-                title="删除"
+                class="music-playlist__dir"
+                :class="{ active: store.activeDir === null }"
+                @click="store.toggleDir(null)"
+              >📁 全部</button>
+            </div>
+            <div class="music-playlist__dir-row">
+              <span class="music-playlist__dir-caret music-playlist__dir-caret--leaf">·</span>
+              <button
+                class="music-playlist__dir"
+                :class="{ active: store.activeDir === '' }"
+                @click="store.toggleDir('')"
+              >🗂 未分类</button>
+            </div>
+            <div v-for="row in flatDirs" :key="row.path" class="music-playlist__dir-row">
+              <span
+                v-if="row.hasChildren"
+                class="music-playlist__dir-caret"
+                @click.stop="toggleExpandDir(row.path)"
+              >{{ expandedDirs.has(row.path) ? "▾" : "▸" }}</span>
+              <span v-else class="music-playlist__dir-caret music-playlist__dir-caret--leaf">·</span>
+              <button
+                class="music-playlist__dir"
+                :class="{ active: store.activeDir === row.path }"
+                :style="{ paddingLeft: depthPadding(row.depth) }"
+                @click="store.toggleDir(row.path)"
+              >📁 {{ row.name }} <span class="music-playlist__dir-count">{{ row.count }}</span></button>
+            </div>
+          </div>
+
+          <!-- 筛选 tab：搜索 + 标签 chips（多选 AND + 计数） -->
+          <div v-show="panelTab === 'filter'" class="music-playlist__filters">
+            <div class="music-playlist__toolbar">
+              <input
+                v-model="store.searchQuery"
+                class="music-playlist__search"
+                type="text"
+                placeholder="🔍 搜索歌曲…"
+              />
+              <span class="music-playlist__stats">{{ store.filteredCount }} / {{ store.playlist.length }}</span>
+            </div>
+            <div v-if="store.allTags.length > 0" class="music-playlist__tags">
+              <button
+                v-for="t in store.allTags"
+                :key="t.name"
+                class="music-playlist__tagchip"
+                :class="{ active: store.selectedTags.has(t.name) }"
+                :style="tagChipStyle(t.name)"
+                @click="store.toggleTag(t.name)"
+              >{{ t.name }} <span class="music-playlist__tagchip-count">{{ t.count }}</span></button>
+            </div>
+          </div>
+
+          <!-- 浏览列表（目录/筛选共用）：单击=选中、Shift/Ctrl 多选、再次单击取消、双击=加入、右键=菜单、可拖入播放列表 -->
+          <div v-show="panelTab !== 'playlist'" class="music-playlist__items">
+            <div v-if="store.playlist.length === 0" class="music-playlist__empty">暂无音乐</div>
+            <div v-else-if="store.filteredSongs.length === 0" class="music-playlist__empty">没有符合筛选的歌曲</div>
+            <div
+              v-for="(song, index) in store.filteredSongs"
+              :key="song"
+              class="music-playlist__item"
+              :class="{
+                current: song === store.trackName,
+                selected: store.selection.has(song),
+                disabled: controlsDisabled,
+                inSet: store.playSet.has(song),
+              }"
+              draggable="true"
+              @click="handleRowClick(song, $event, index)"
+              @dblclick.prevent="handleRowDblClick(song)"
+              @contextmenu.prevent="openCtxMenu(song, $event)"
+              @dragstart="handleDragStart($event, song)"
+            >
+              <span v-if="song === store.trackName" class="music-playlist__playing">▶</span>
+              <span class="music-playlist__name">{{ displayName(song) }}</span>
+              <span v-if="songMetaOf(song).path" class="music-playlist__path" :title="songMetaOf(song).path">📁{{ shortPath(songMetaOf(song).path) }}</span>
+              <span
+                v-for="(tg, i) in songTagsOf(song).slice(0, 2)"
+                :key="i"
+                class="music-playlist__tag"
+                :data-tag="tg"
+                :style="tagChipStyle(tg)"
+                @click.stop="handleTagClick(song, $event)"
+              >{{ tg }}</span>
+              <button
+                class="music-playlist__add"
+                :class="{ active: store.playSet.has(song) }"
+                :title="store.playSet.has(song) ? '已在播放列表（集合）' : '加入播放列表（集合）'"
+                @click.stop="handleAddToPlaylist(song)"
+              >{{ store.playSet.has(song) ? "✓" : "+" }}</button>
+            </div>
+          </div>
+
+          <!-- 浏览区底部：全部加入播放列表 + 清除筛选（同一行，位置稳定）；批量操作走右键 -->
+          <div v-show="panelTab !== 'playlist'" class="music-playlist__browse-actions">
+            <button
+              class="music-playlist__action"
+              :disabled="store.filteredSongs.length === 0 || controlsDisabled"
+              @click="handleAddViewToPlaylist"
+            >➕ 全部加入播放列表</button>
+            <button
+              v-if="store.hasFilter"
+              class="music-playlist__clearfilter"
+              title="清除筛选：只重置浏览，不影响播放列表"
+              @click.stop="store.clearFilters()"
+            >✕ 清除筛选</button>
+            <span v-if="store.selection.size > 0" class="music-playlist__selection-count">已选 {{ store.selection.size }} 首（右键批量操作）</span>
+          </div>
+
+          <!-- ===== 播放列表 tab（集合：无序、独立；所有播放行为都在这里） ===== -->
+          <div v-show="panelTab === 'playlist'" class="music-playlist__collection">
+            <div class="music-playlist__collection-header">
+              <span>🎵 播放列表（集合 · {{ store.playSet.size }} 首）</span>
+              <button
+                v-if="store.playSetActive"
+                class="music-playlist__collection-clear"
+                title="清空播放列表：播完当前歌即停"
+                @click="store.clearPlaylistSet()"
+              >⏹ 清空</button>
+            </div>
+            <div
+              v-if="store.playSet.size === 0"
+              class="music-playlist__collection-items music-playlist__collection-items--empty"
+              :class="{ 'music-playlist__collection-items--dragover': collectionDragOver }"
+              @dragover="onCollectionDragOver"
+              @dragleave="onCollectionDragLeave"
+              @drop="handleDropToCollection"
+            >
+              <div class="music-playlist__empty music-playlist__empty--collection">
+                空集合：双击歌曲 / 拖到这里 / 点 <b>+</b> 加入
+              </div>
+            </div>
+            <div
+              v-else
+              class="music-playlist__collection-items"
+              :class="{ 'music-playlist__collection-items--dragover': collectionDragOver }"
+              @dragover="onCollectionDragOver"
+              @dragleave="onCollectionDragLeave"
+              @drop="handleDropToCollection"
+            >
+              <div
+                v-for="song in [...store.playSet]"
+                :key="song"
+                class="music-playlist__collection-item"
+                :class="{ current: song === store.trackName }"
+                @click="handleSongClick(song)"
               >
-                🗑
-              </button>
-              <span v-else class="music-playlist__playing">▶</span>
+                <span class="music-playlist__collection-name">{{ displayName(song) }}</span>
+                <button
+                  class="music-playlist__collection-remove"
+                  title="从播放列表移除"
+                  @click.stop="store.removeFromPlaylist(song)"
+                >✕</button>
+              </div>
+            </div>
+            <div class="music-playlist__collection-actions">
+              <button
+                class="music-playlist__action"
+                :disabled="store.playSet.size === 0 || controlsDisabled || store.syncEnabled"
+                title="按当前播放模式从集合第一首播"
+                @click="store.playCollection(false)"
+              >▶ 播放集合</button>
+              <button
+                class="music-playlist__action"
+                :disabled="store.playSet.size === 0 || controlsDisabled || store.syncEnabled"
+                title="切随机模式并从集合随机抽歌"
+                @click="store.playCollection(true)"
+              >🔀 随机播放集合</button>
             </div>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- 右键菜单（Teleport 到 body，锚定鼠标位置，向上/向下展开；批量操作作用于整个选择集，Windows 风格） -->
+    <Teleport to="body">
+      <div
+        v-if="ctxMenu.visible"
+        class="music-playlist__ctxmenu"
+        :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
+        @click.stop
+        @contextmenu.prevent
+      >
+        <div v-if="store.selection.size > 1" class="music-playlist__ctxmenu-hint">
+          已选 {{ store.selection.size }} 首 · 操作作用于全部选中项
+        </div>
+        <button @click="ctxPlay(ctxMenu.song)">▶ 播放</button>
+        <button @click="ctxAdd()">🎵 添加到播放列表</button>
+        <button @click="ctxMenuMoveOpen = !ctxMenuMoveOpen">📁 移动到目录…</button>
+        <div v-if="ctxMenuMoveOpen" class="music-playlist__ctxmenu-sub">
+          <button @click="ctxMove('')">🗂 未分类</button>
+          <button v-for="row in flatDirs" :key="row.path" @click="ctxMove(row.path)">
+            📁 {{ row.path }}
+          </button>
+        </div>
+        <button @click="ctxMenuTagOpen = !ctxMenuTagOpen">🏷 设置标签…</button>
+        <div v-if="ctxMenuTagOpen" class="music-playlist__ctxmenu-sub">
+          <button
+            v-for="t in store.allTags"
+            :key="t.name"
+            :class="{ active: batchTagDraft.has(t.name) }"
+            @click="toggleCtxTag(t.name)"
+          >{{ t.name }}</button>
+          <button class="apply" @click="ctxApplyTags()">✓ 应用（{{ batchTagDraft.size }}）</button>
+        </div>
+        <button @click="ctxFav()">♥ 标记到「喜欢」</button>
+        <button class="danger" @click="ctxDelete()">
+          {{ confirmDeleteSelection ? "确认删除？" : "🗑 删除所选" }}
+        </button>
+      </div>
+    </Teleport>
 
     <!-- 标签选择弹窗 -->
     <MusicTagModal
@@ -1216,8 +1713,8 @@ if (typeof document !== "undefined") {
   font-weight: 700;
 }
 
-/* ============ 播放列表面板 ============ */
-/* z-index 使用 --z-popup，与设备列表一致；宽度由 200px 扩展至 240px，完整显示歌曲信息 */
+/* ============ 音乐库面板（浏览 / 播放列表 小标签切换） ============ */
+/* z-index 使用 --z-popup；高度固定（内容再多也不收缩/超出，全部在番茄钟窗口内） */
 .music-playlist {
   position: absolute;
   bottom: 100%;
@@ -1226,12 +1723,88 @@ if (typeof document !== "undefined") {
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   margin-bottom: 8px;
-  width: 240px;
-  max-height: 280px;
+  width: 340px;
+  height: min(360px, 60vh);
   display: flex;
   flex-direction: column;
   z-index: var(--z-popup);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+/* 浏览 tab 内模式切换（目录 / 筛选 拆开） */
+.music-playlist__browse-modes {
+  display: flex;
+  gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.music-playlist__browse-mode {
+  flex: 1;
+  padding: 4px 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid transparent;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.music-playlist__browse-mode:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.music-playlist__browse-mode.active {
+  background: rgba(66, 165, 245, 0.22);
+  border-color: #42a5f5;
+  color: #fff;
+}
+
+/* 小标签切换 */
+.music-playlist__tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.music-playlist__tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid transparent;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.music-playlist__tab:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.music-playlist__tab.active {
+  background: rgba(233, 69, 96, 0.22);
+  border-color: #e94560;
+  color: #fff;
+}
+
+.music-playlist__tab-badge {
+  font-size: 10px;
+  font-weight: 600;
+  min-width: 16px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: rgba(233, 69, 96, 0.5);
+  color: #fff;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .music-playlist__header {
@@ -1298,6 +1871,16 @@ if (typeof document !== "undefined") {
 
 .music-playlist__item.current {
   background: rgba(233, 69, 96, 0.12);
+}
+
+.music-playlist__item.selected {
+  background: rgba(66, 165, 245, 0.18);
+  box-shadow: inset 2px 0 0 #42a5f5;
+}
+
+.music-playlist__item.selected.current {
+  background: rgba(180, 120, 160, 0.25);
+  box-shadow: inset 2px 0 0 #42a5f5;
 }
 
 .music-playlist__tag {
@@ -1368,6 +1951,588 @@ if (typeof document !== "undefined") {
 .music-playlist__playing {
   color: #e94560;
   font-size: 10px;
+}
+
+/* ============ 音乐库管理：工具栏 / 目录树 / 标签筛选 / 动作条 ============ */
+
+.music-playlist__source {
+  flex: 1;
+  margin: 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #ffd54f;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.music-playlist__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.music-playlist__search {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #eee;
+  font-size: 12px;
+  padding: 5px 8px;
+  outline: none;
+}
+
+.music-playlist__search::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.music-playlist__search:focus {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.music-playlist__stats {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* 目录树（字段投影） */
+.music-playlist__dirs {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.music-playlist__dir-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.music-playlist__dir-caret {
+  width: 14px;
+  text-align: center;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.music-playlist__dir-caret--leaf {
+  cursor: default;
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.music-playlist__dir {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: none;
+  border: 1px solid transparent;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.music-playlist__dir:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.music-playlist__dir.active {
+  background: rgba(233, 69, 96, 0.2);
+  border-color: #e94560;
+  color: #fff;
+}
+
+.music-playlist__dir-count {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.45);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+/* 标签筛选 chips */
+.music-playlist__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.music-playlist__tagchip {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.music-playlist__tagchip:hover {
+  filter: brightness(1.15);
+}
+
+.music-playlist__tagchip.active {
+  border-color: #e94560;
+  background: rgba(233, 69, 96, 0.25);
+  color: #fff;
+}
+
+.music-playlist__tagchip-count {
+  font-size: 10px;
+  opacity: 0.7;
+  margin-left: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.music-playlist__clearfilter {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+}
+
+.music-playlist__clearfilter:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* 歌曲行：目录/标签/喜欢 */
+.music-playlist__path {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+  white-space: nowrap;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.music-playlist__fav {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0 2px;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.music-playlist__fav:hover {
+  color: #ff6b9d;
+  transform: scale(1.15);
+}
+
+.music-playlist__fav.active {
+  color: #ff6b9d;
+}
+
+/* ===== 浏览区与播放列表（集合）分区 ===== */
+
+.music-playlist__browse {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.music-playlist__items {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 筛选折叠开关（默认收起） */
+.music-playlist__filter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+}
+
+.music-playlist__filter-toggle:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.music-playlist__filter-caret {
+  width: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.music-playlist__filter-badge {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 8px;
+  background: rgba(233, 69, 96, 0.35);
+  color: #ffd0d6;
+  font-variant-numeric: tabular-nums;
+}
+
+.music-playlist__filters {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.music-playlist__filterbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+}
+
+.music-playlist__filter-hint {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* 浏览区底部：全部加入播放列表 */
+.music-playlist__browse-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* 单曲加入播放列表（集合）按钮 */
+.music-playlist__add {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.7);
+  border-radius: 6px;
+  width: 20px;
+  height: 20px;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.music-playlist__add:hover {
+  border-color: #e94560;
+  color: #ffd0d6;
+  transform: scale(1.1);
+}
+
+.music-playlist__add.active {
+  background: rgba(233, 69, 96, 0.35);
+  border-color: #e94560;
+  color: #fff;
+}
+
+.music-playlist__item.inSet .music-playlist__name {
+  color: #ffd0d6;
+}
+
+/* ===== 播放列表区（集合：无序、独立；在播放列表 tab 内填充） ===== */
+
+.music-playlist__collection {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.music-playlist__collection-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.music-playlist__collection-clear {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.music-playlist__collection-clear:hover {
+  color: #ff8a8a;
+}
+
+.music-playlist__empty--collection {
+  padding: 14px;
+  font-size: 11px;
+}
+
+.music-playlist__collection-items {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.music-playlist__collection-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.music-playlist__collection-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.music-playlist__collection-item.current {
+  background: rgba(233, 69, 96, 0.14);
+}
+
+.music-playlist__collection-name {
+  flex: 1;
+  font-size: 11px;
+  color: #ddd;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.music-playlist__collection-item.current .music-playlist__collection-name {
+  color: #fff;
+  font-weight: 600;
+}
+
+.music-playlist__collection-remove {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 11px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.music-playlist__collection-remove:hover {
+  color: #ff8a8a;
+}
+
+.music-playlist__collection-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* 底部动作条 */
+.music-playlist__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.music-playlist__action {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(233, 69, 96, 0.2);
+  color: #ffd0d6;
+  border: 1px solid rgba(233, 69, 96, 0.4);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.music-playlist__action:hover:not(:disabled) {
+  background: rgba(233, 69, 96, 0.35);
+}
+
+.music-playlist__action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.music-playlist__action--batch {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* 批量菜单 */
+.music-playlist__batchmenu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.music-playlist__batchmenu button {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.music-playlist__batchmenu button:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.music-playlist__batchmenu button.active {
+  border-color: #e94560;
+  background: rgba(233, 69, 96, 0.25);
+  color: #fff;
+}
+
+.music-playlist__batchmenu button.danger {
+  color: #ff8a8a;
+}
+
+/* 选中计数 + 清除筛选（与"全部加入播放列表"同行） */
+.music-playlist__selection-count {
+  font-size: 11px;
+  color: #42a5f5;
+  align-self: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.music-playlist__clearfilter {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.music-playlist__clearfilter:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* 播放列表集合区：拖入高亮 */
+.music-playlist__collection-items--dragover {
+  outline: 2px dashed rgba(66, 165, 245, 0.7);
+  outline-offset: -2px;
+  background: rgba(66, 165, 245, 0.08);
+}
+
+.music-playlist__collection-items--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 右键菜单（Teleport 到 body，fixed 锚定鼠标位置，原生上下拉菜单手感） */
+.music-playlist__ctxmenu {
+  position: fixed;
+  z-index: var(--z-modal-top);
+  min-width: 180px;
+  background: rgba(38, 38, 48, 0.99);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+}
+
+.music-playlist__ctxmenu button {
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.music-playlist__ctxmenu button:hover {
+  background: rgba(233, 69, 96, 0.28);
+  color: #fff;
+}
+
+.music-playlist__ctxmenu button.danger {
+  color: #ff9b9b;
+}
+
+.music-playlist__ctxmenu button.danger:hover {
+  background: rgba(233, 69, 96, 0.35);
+  color: #fff;
+}
+
+.music-playlist__ctxmenu button.apply {
+  color: #ffd54f;
+}
+
+.music-playlist__ctxmenu button.active {
+  background: rgba(233, 69, 96, 0.25);
+  color: #fff;
+}
+
+.music-playlist__ctxmenu-hint {
+  padding: 5px 10px 7px;
+  font-size: 11px;
+  color: #42a5f5;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 3px;
+  white-space: nowrap;
+}
+
+.music-playlist__ctxmenu-sub {
+  display: flex;
+  flex-direction: column;
+  max-height: 160px;
+  overflow-y: auto;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin-top: 2px;
+  padding-top: 2px;
 }
 
 /* ============ Toast 提示 ============ */

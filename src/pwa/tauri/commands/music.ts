@@ -148,6 +148,130 @@ export async function cmdMusicUpdateTag(args: Record<string, unknown>): Promise<
   return { success: true };
 }
 
+// ===== 音乐库管理（目录树 / 播放集合 Set，PWA 实现 = localStorage 元数据） =====
+
+/** 设置播放集合：PWA 播放引擎本身在前端，队列为 UI 本地状态，命令 no-op */
+export async function cmdMusicSetPlaylist(): Promise<{ success: boolean }> {
+  return { success: true };
+}
+
+/** 清空播放集合：no-op（引擎由 UI 状态驱动停止） */
+export async function cmdMusicClearPlaylist(): Promise<{ success: boolean }> {
+  return { success: true };
+}
+
+function normalizePath(p: unknown): string {
+  const s = String(p ?? "");
+  return s.split("/").filter((x) => x.length > 0).join("/");
+}
+
+export async function cmdMusicMoveSong(args: Record<string, unknown>): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  const songName = String(args.song ?? "");
+  if (!songName) return { success: false, error: "歌曲名不能为空" };
+  const m = meta();
+  m.paths[songName] = normalizePath(args.path);
+  saveMusicMeta(m);
+  return { success: true };
+}
+
+export async function cmdMusicMoveSongs(args: Record<string, unknown>): Promise<{
+  success: boolean;
+  updated?: number;
+  error?: string;
+}> {
+  const songs = Array.isArray(args.songs) ? (args.songs as unknown[]).map(String) : [];
+  if (songs.length === 0) return { success: false, error: "歌曲列表为空" };
+  const path = normalizePath(args.path);
+  const m = meta();
+  for (const s of songs) m.paths[s] = path;
+  saveMusicMeta(m);
+  return { success: true, updated: songs.length };
+}
+
+export async function cmdMusicMoveSongIfDefault(args: Record<string, unknown>): Promise<{
+  success: boolean;
+  set?: boolean;
+  error?: string;
+}> {
+  const songName = String(args.song ?? "");
+  if (!songName) return { success: false, error: "歌曲名不能为空" };
+  const m = meta();
+  const cur = m.paths[songName] ?? "";
+  if (cur) return { success: true, set: false };
+  m.paths[songName] = normalizePath(args.defaultPath);
+  saveMusicMeta(m);
+  return { success: true, set: true };
+}
+
+export async function cmdMusicSetSongTags(args: Record<string, unknown>): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  const songName = String(args.song ?? "");
+  if (!songName) return { success: false, error: "歌曲名不能为空" };
+  const tags = Array.isArray(args.tags)
+    ? (args.tags as unknown[]).map((t) => String(t)).filter((t) => t.length > 0)
+    : [];
+  const m = meta();
+  m.multiTags[songName] = tags;
+  m.tags[songName] = tags[0]
+    ? { name: tags[0], color: m.customTags[tags[0]] ?? null }
+    : { name: "自定义", color: null };
+  saveMusicMeta(m);
+  return { success: true };
+}
+
+export async function cmdMusicRenameDir(args: Record<string, unknown>): Promise<{
+  success: boolean;
+  updated?: number;
+  error?: string;
+}> {
+  const oldPath = String(args.oldPath ?? "");
+  const newName = String(args.newName ?? "").trim();
+  if (!oldPath || !newName) return { success: false, error: "参数不完整" };
+  if (newName.includes("/")) return { success: false, error: "新名称不能包含 /" };
+  const segs = oldPath.split("/").filter(Boolean);
+  if (segs.length === 0) return { success: false, error: "「未分类」不可重命名" };
+  const newPath = segs.length > 1 ? `${segs.slice(0, -1).join("/")}/${newName}` : newName;
+  const m = meta();
+  let updated = 0;
+  for (const s of Object.keys(m.paths)) {
+    const p = m.paths[s];
+    if (p === oldPath) {
+      m.paths[s] = newPath;
+      updated += 1;
+    } else if (p.startsWith(`${oldPath}/`)) {
+      m.paths[s] = `${newPath}${p.slice(oldPath.length)}`;
+      updated += 1;
+    }
+  }
+  if (updated > 0) saveMusicMeta(m);
+  return { success: true, updated };
+}
+
+export async function cmdMusicDeleteDir(args: Record<string, unknown>): Promise<{
+  success: boolean;
+  updated?: number;
+  error?: string;
+}> {
+  const path = String(args.path ?? "");
+  if (!path) return { success: false, error: "「未分类」不可删除" };
+  const m = meta();
+  let updated = 0;
+  for (const s of Object.keys(m.paths)) {
+    const p = m.paths[s];
+    if (p === path || p.startsWith(`${path}/`)) {
+      m.paths[s] = "";
+      updated += 1;
+    }
+  }
+  if (updated > 0) saveMusicMeta(m);
+  return { success: true, updated };
+}
+
 // ===== P2P 传歌分片 =====
 
 /** 读取分片（base64 版本，服务器中转用） */

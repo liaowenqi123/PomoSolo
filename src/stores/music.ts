@@ -29,6 +29,14 @@ import {
   musicAddCustomTag,
   musicDeleteCustomTag,
   musicUpdateTag,
+  musicSetPlaylist,
+  musicClearPlaylist,
+  musicMoveSong,
+  musicMoveSongs,
+  musicMoveSongIfDefault,
+  musicSetSongTags,
+  musicRenameDir,
+  musicDeleteDir,
   musicReadSongChunk,
   musicReceiveSongChunk,
   musicFinalizeSong,
@@ -76,6 +84,14 @@ import {
   p2pSend,
   type P2PHandle,
 } from "@/p2p";
+import {
+  buildDirTree,
+  isInDir,
+  renameDirPath,
+  songDisplayName,
+  type DirNode,
+  type SongMeta,
+} from "@/utils/musicLibrary";
 
 // ===== 工具函数 =====
 
@@ -113,6 +129,24 @@ export const useMusicStore = defineStore("music", () => {
   const playlist = ref<string[]>([]);
   const playlistTags = ref<Record<string, { name: string; color: string | null }>>({});
   const customTags = ref<Record<string, string>>({});
+
+  // ===== 音乐库管理（目录树 / 标签筛选 / 播放集合 Set） =====
+  /** 歌曲 v2 元数据（path/tags/source），由 music-playlist 事件填充 */
+  const songMeta = ref<Record<string, SongMeta>>({});
+  /** 当前目录筛选：null=全部，""=未分类，其他=目录路径 */
+  const activeDir = ref<string | null>(null);
+  /** 多选标签（AND 叠加） */
+  const selectedTags = ref<Set<string>>(new Set());
+  /** 名称搜索 */
+  const searchQuery = ref("");
+  /** 批量选择 */
+  const selection = ref<Set<string>>(new Set());
+  /** 播放集合（Set 语义，去重） */
+  const playSet = ref<Set<string>>(new Set());
+  /** 播放集合来源标注（如 "目录 · 导入/周杰伦" / "标签 · 学习"） */
+  const playSetSource = ref("");
+  /** 是否已启用自定义播放集合 */
+  const playSetActive = ref(false);
 
   const isDragging = ref(false);
   const isCollapsed = ref(false);
@@ -385,6 +419,54 @@ export const useMusicStore = defineStore("music", () => {
     if (playMode.value === "order") return "顺序播放（点击切换单曲循环）";
     return "单曲循环（点击切换随机播放）";
   });
+
+  // ===== 音乐库查询（表 + 树投影） =====
+
+  /** 目录树（实时由记录派生，不落盘） */
+  const dirTree = computed<DirNode[]>(() =>
+    buildDirTree(playlist.value.map((n) => ({ path: songMeta.value[n]?.path ?? "" }))),
+  );
+
+  /** 全部标签及计数 */
+  const allTags = computed<{ name: string; count: number }[]>(() => {
+    const map = new Map<string, number>();
+    for (const n of playlist.value) {
+      for (const t of songMeta.value[n]?.tags ?? []) {
+        map.set(t, (map.get(t) ?? 0) + 1);
+      }
+    }
+    return [...map.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name, "zh"));
+  });
+
+  /** 当前查询结果：目录（含子目录）+ 多标签 AND + 名称搜索 叠加 */
+  const filteredSongs = computed<string[]>(() =>
+    playlist.value.filter((n) => {
+      const meta = songMeta.value[n];
+      const path = meta?.path ?? "";
+      if (!isInDir(path, activeDir.value)) return false;
+      if (selectedTags.value.size > 0) {
+        const tags = meta?.tags ?? [];
+        for (const t of selectedTags.value) {
+          if (!tags.includes(t)) return false;
+        }
+      }
+      const q = searchQuery.value.trim().toLowerCase();
+      if (q && !songDisplayName(n).toLowerCase().includes(q)) return false;
+      return true;
+    }),
+  );
+
+  const filteredCount = computed(() => filteredSongs.value.length);
+
+  /** 是否有活跃筛选（目录/标签/搜索） */
+  const hasFilter = computed(
+    () =>
+      activeDir.value !== null ||
+      selectedTags.value.size > 0 ||
+      searchQuery.value.trim().length > 0,
+  );
 
   // ===== Actions =====
 
@@ -995,6 +1077,8 @@ export const useMusicStore = defineStore("music", () => {
         // 从 DJ 处下载的歌曲自动打上 DJ 名字标签（识别歌曲来源）
         if (djName.value) {
           void updateSongTag(songId, djName.value, null);
+          // 自动归类：首次创建记录时归入「{用户名}传输」目录（用户已有目录则不覆盖）
+          void markP2pSong(songId, djName.value);
         }
         await requestPlaylist();
         if (transferMode.value === "wait_all") {
@@ -1291,11 +1375,271 @@ export const useMusicStore = defineStore("music", () => {
       const result = await musicUpdateTag(songName, tag, color);
       if (result.success) {
         playlistTags.value[songName] = { name: tag, color };
+        // 同步 v2 元数据（单标签 → tags 数组），保证标签筛选可用
+        const meta = songMeta.value[songName] ?? { path: "", tags: [], source: "" };
+        meta.tags = [tag];
+        songMeta.value[songName] = meta;
+        void requestPlaylist();
       }
       return result.success;
     } catch (e) {
       console.error("[MusicStore] updateSongTag error:", e);
       return false;
+    }
+  }
+
+  // ===== 音乐库管理动作（目录树 / 筛选 / 播放集合 / 批量） =====
+
+  /** 切换目录筛选（再次点击同一目录 = 取消） */
+  function toggleDir(dir: string | null) {
+    activeDir.value = activeDir.value === dir ? null : dir;
+  }
+
+  /** 清空全部筛选 */
+  function clearFilters() {
+    activeDir.value = null;
+    selectedTags.value = new Set();
+    searchQuery.value = "";
+  }
+
+  /** 切换多选标签（AND 叠加） */
+  function toggleTag(name: string) {
+    const next = new Set(selectedTags.value);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    selectedTags.value = next;
+  }
+
+  /** 切换批量选择 */
+  function toggleSelection(song: string) {
+    const next = new Set(selection.value);
+    if (next.has(song)) next.delete(song);
+    else next.add(song);
+    selection.value = next;
+  }
+
+  /** 整体替换批量选择（单选 / Shift 连续 / Ctrl 增减 / 框选等场景） */
+  function replaceSelection(songs: string[]) {
+    selection.value = new Set(songs);
+  }
+
+  /** 清空批量选择 */
+  function clearSelection() {
+    selection.value = new Set();
+  }
+
+  /** 当前视图描述（播放集合来源标注用） */
+  function describeView(): string {
+    if (activeDir.value === "") return "未分类";
+    if (activeDir.value) return `目录 · ${activeDir.value}`;
+    if (selectedTags.value.size > 0) return `标签 · ${[...selectedTags.value].join("+")}`;
+    if (searchQuery.value.trim()) return "搜索结果";
+    return "全部歌曲";
+  }
+
+  /**
+   * 把若干歌曲加入播放集合（Set 语义：无序、去重）。
+   * 集合未激活时自动激活并推给播放引擎；已激活则整集合重推（引擎集合快照同步）。
+   * @returns 实际新增数量
+   */
+  async function addSongsToPlaylist(songs: string[]): Promise<number> {
+    const next = new Set(playSet.value);
+    let added = 0;
+    for (const s of songs) {
+      if (!next.has(s)) {
+        next.add(s);
+        added += 1;
+      }
+    }
+    if (added === 0) return 0;
+    playSet.value = next;
+    playSetActive.value = true;
+    if (!playSetSource.value) playSetSource.value = describeView();
+    try {
+      await musicSetPlaylist([...next]);
+    } catch (e) {
+      console.error("[MusicStore] 加入播放集合失败:", e);
+    }
+    return added;
+  }
+
+  /** 把当前浏览区查询结果全部加入播放集合（浏览不影响集合，只有这里才动集合） */
+  async function addViewToPlaylist(): Promise<number> {
+    return addSongsToPlaylist([...filteredSongs.value]);
+  }
+
+  /**
+   * 播放集合（所有播放行为都发生在集合内）：
+   * @param shuffle true = 引擎切随机模式并从集合随机抽一首；false = 按当前模式从集合第一首播
+   */
+  async function playCollection(shuffle: boolean): Promise<boolean> {
+    const songs = [...playSet.value];
+    if (songs.length === 0) return false;
+    playSetActive.value = true;
+    try {
+      await musicSetPlaylist(songs);
+      if (shuffle) {
+        await musicSetPlayMode("shuffle");
+        playMode.value = "shuffle";
+        const pick = songs[Math.floor(Math.random() * songs.length)];
+        await musicPlaySong(pick);
+      } else {
+        await musicPlaySong(songs[0]);
+      }
+      return true;
+    } catch (e) {
+      console.error("[MusicStore] 播放集合失败:", e);
+      return false;
+    }
+  }
+
+  /** 从播放集合移除单曲；集合清空时引擎停止自动切歌 */
+  async function removeFromPlaylist(song: string): Promise<void> {
+    const next = new Set(playSet.value);
+    if (!next.delete(song)) return;
+    playSet.value = next;
+    if (next.size === 0) {
+      playSetActive.value = false;
+      playSetSource.value = "";
+      try {
+        await musicClearPlaylist();
+      } catch (e) {
+        console.error("[MusicStore] 清空播放集合失败:", e);
+      }
+    } else {
+      try {
+        await musicSetPlaylist([...next]);
+      } catch (e) {
+        console.error("[MusicStore] 更新播放集合失败:", e);
+      }
+    }
+  }
+
+  /** 清空播放集合（播完当前歌即停） */
+  async function clearPlaylistSet() {
+    playSet.value = new Set();
+    playSetActive.value = false;
+    playSetSource.value = "";
+    try {
+      await musicClearPlaylist();
+    } catch (e) {
+      console.error("[MusicStore] 清空播放集合失败:", e);
+    }
+  }
+
+  /** 移动歌曲到目录（单首/批量），成功后本地同步元数据 */
+  async function moveSongsToDir(songs: string[], path: string): Promise<boolean> {
+    if (songs.length === 0) return false;
+    try {
+      const result =
+        songs.length === 1
+          ? await musicMoveSong(songs[0], path)
+          : await musicMoveSongs(songs, path);
+      if (result.success) {
+        for (const s of songs) {
+          const meta = songMeta.value[s] ?? { path: "", tags: [], source: "" };
+          meta.path = path;
+          songMeta.value[s] = meta;
+        }
+        void requestPlaylist();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error("[MusicStore] 移动目录失败:", e);
+      return false;
+    }
+  }
+
+  /** 设置多首歌曲标签（整体替换） */
+  async function setSongsTags(songs: string[], tags: string[]): Promise<boolean> {
+    let ok = true;
+    for (const s of songs) {
+      try {
+        const result = await musicSetSongTags(s, tags);
+        if (result.success) {
+          const meta = songMeta.value[s] ?? { path: "", tags: [], source: "" };
+          meta.tags = [...tags];
+          songMeta.value[s] = meta;
+        } else {
+          ok = false;
+        }
+      } catch (e) {
+        ok = false;
+        console.error("[MusicStore] 设置标签失败:", e);
+      }
+    }
+    if (ok) void requestPlaylist();
+    return ok;
+  }
+
+  /** 一键标记到「喜欢」（特殊目录，不可删） */
+  async function addToFavorites(song: string): Promise<boolean> {
+    return moveSongsToDir([song], "喜欢");
+  }
+
+  /** P2P 收歌自动归类：仅当尚无目录归属时按来源用户名补「{用户名}传输」 */
+  async function markP2pSong(song: string, username: string): Promise<void> {
+    try {
+      const result = await musicMoveSongIfDefault(song, `${username}传输`);
+      if (result.set) void requestPlaylist();
+    } catch (e) {
+      console.warn("[MusicStore] P2P 自动归类失败:", e);
+    }
+  }
+
+  /** 重命名目录（一级，含子目录迁移；系统目录拒绝） */
+  async function renameDir(
+    oldPath: string,
+    newName: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const result = await musicRenameDir(oldPath, newName);
+      if (result.success) {
+        // 本地同步树投影（与 Rust 前缀替换一致）
+        const newPath = renameDirPath(oldPath, newName);
+        const prefix = `${oldPath}/`;
+        for (const s of Object.keys(songMeta.value)) {
+          const meta = songMeta.value[s];
+          if (meta.path === oldPath) meta.path = newPath;
+          else if (meta.path.startsWith(prefix)) {
+            meta.path = `${newPath}${meta.path.slice(oldPath.length)}`;
+          }
+        }
+        if (activeDir.value !== null && isInDir(activeDir.value, oldPath)) {
+          activeDir.value =
+            activeDir.value === oldPath
+              ? newPath
+              : `${newPath}${activeDir.value.slice(oldPath.length)}`;
+        }
+        void requestPlaylist();
+        return { ok: true };
+      }
+      return { ok: false, error: result.error };
+    } catch (e) {
+      console.error("[MusicStore] 重命名目录失败:", e);
+      return { ok: false, error: String(e) };
+    }
+  }
+
+  /** 删除目录（该目录下歌曲归「未分类」，不删文件；系统目录拒绝） */
+  async function deleteDir(path: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const result = await musicDeleteDir(path);
+      if (result.success) {
+        const prefix = `${path}/`;
+        for (const s of Object.keys(songMeta.value)) {
+          const meta = songMeta.value[s];
+          if (meta.path === path || meta.path.startsWith(prefix)) meta.path = "";
+        }
+        if (activeDir.value !== null && isInDir(activeDir.value, path)) activeDir.value = null;
+        void requestPlaylist();
+        return { ok: true };
+      }
+      return { ok: false, error: result.error };
+    } catch (e) {
+      console.error("[MusicStore] 删除目录失败:", e);
+      return { ok: false, error: String(e) };
     }
   }
 
@@ -1426,6 +1770,7 @@ export const useMusicStore = defineStore("music", () => {
       const songObjs = songs as PlaylistSong[];
       playlist.value = songObjs.map((s) => s.name);
       playlistTags.value = {};
+      songMeta.value = {};
       songObjs.forEach((s) => {
         if (s.name) {
           // 歌单 = 本地真实存在的歌曲：全部标记"本地已有"，
@@ -1434,6 +1779,12 @@ export const useMusicStore = defineStore("music", () => {
           playlistTags.value[s.name] = {
             name: s.tag || "自定义",
             color: s.tagColor ?? null,
+          };
+          // v2 元数据：目录归属 / 多值标签 / 来源（旧数据缺省为空）
+          songMeta.value[s.name] = {
+            path: s.path ?? "",
+            tags: s.tags ?? (s.tag && s.tag !== "自定义" ? [s.tag] : []),
+            source: s.source ?? "",
           };
         }
       });
@@ -1973,6 +2324,15 @@ export const useMusicStore = defineStore("music", () => {
     playlist,
     playlistTags,
     customTags,
+    // 音乐库管理状态
+    songMeta,
+    activeDir,
+    selectedTags,
+    searchQuery,
+    selection,
+    playSet,
+    playSetSource,
+    playSetActive,
     isDragging,
     isCollapsed,
     // 同步听歌状态
@@ -1990,6 +2350,12 @@ export const useMusicStore = defineStore("music", () => {
     volumeIcon,
     playModeIcon,
     playModeTitle,
+    // 音乐库查询 getters
+    dirTree,
+    allTags,
+    filteredSongs,
+    filteredCount,
+    hasFilter,
     // actions
     togglePlay,
     next,
@@ -2007,6 +2373,24 @@ export const useMusicStore = defineStore("music", () => {
     addCustomTag,
     deleteCustomTag,
     updateSongTag,
+    // 音乐库管理 actions
+    toggleDir,
+    clearFilters,
+    toggleTag,
+    toggleSelection,
+    replaceSelection,
+    clearSelection,
+    addSongsToPlaylist,
+    addViewToPlaylist,
+    playCollection,
+    removeFromPlaylist,
+    clearPlaylistSet,
+    moveSongsToDir,
+    setSongsTags,
+    addToFavorites,
+    markP2pSong,
+    renameDir,
+    deleteDir,
     toggleCollapse,
     loadSavedVolume,
     // 同步听歌 actions

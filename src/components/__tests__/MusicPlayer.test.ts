@@ -39,6 +39,20 @@ function makeStore(overrides: Record<string, unknown> = {}) {
         playlist: [] as string[],
         playlistTags: {} as Record<string, { name: string; color: string | null }>,
         customTags: {} as Record<string, string>,
+        // 音乐库管理
+        songMeta: {} as Record<string, { path: string; tags: string[]; source: string }>,
+        activeDir: null as string | null,
+        selectedTags: new Set<string>(),
+        searchQuery: "",
+        selection: new Set<string>(),
+        playSet: new Set<string>(),
+        playSetSource: "",
+        playSetActive: false,
+        dirTree: [] as { path: string; name: string; children: unknown[]; count: number; subtreeCount: number }[],
+        allTags: [] as { name: string; count: number }[],
+        filteredSongs: [] as string[],
+        filteredCount: 0,
+        hasFilter: false,
         isDragging: false,
         syncEnabled: false,
         isDj: false,
@@ -68,6 +82,23 @@ function makeStore(overrides: Record<string, unknown> = {}) {
         loadCustomTags: vi.fn(),
         cyclePlayMode: vi.fn(),
         handleSyncWsEvent: vi.fn(),
+        toggleDir: vi.fn(),
+        clearFilters: vi.fn(),
+        toggleTag: vi.fn(),
+        toggleSelection: vi.fn(),
+        replaceSelection: vi.fn(),
+        clearSelection: vi.fn(),
+        addSongsToPlaylist: vi.fn(async () => 1),
+        addViewToPlaylist: vi.fn(async () => 2),
+        playCollection: vi.fn(async () => true),
+        removeFromPlaylist: vi.fn(async () => undefined),
+        clearPlaylistSet: vi.fn(),
+        moveSongsToDir: vi.fn(async () => true),
+        setSongsTags: vi.fn(async () => true),
+        addToFavorites: vi.fn(async () => true),
+        markP2pSong: vi.fn(),
+        renameDir: vi.fn(),
+        deleteDir: vi.fn(),
       },
       overrides,
     ),
@@ -281,42 +312,160 @@ describe("MusicPlayer.vue", () => {
     wrapper.unmount();
   });
 
-  it("点击当前歌曲不调用 playSong，点击其他歌曲调用 playSong", async () => {
+  it("浏览行：单击选中/再次单击取消，Ctrl 增减，Shift 连续选中", async () => {
     mockStore = makeStore({
-      playlist: ["a.mp3", "b.mp3"],
-      trackName: "a.mp3",
+      playlist: ["a.mp3", "b.mp3", "c.mp3"],
+      filteredSongs: ["a.mp3", "b.mp3", "c.mp3"],
+      selection: new Set<string>(),
+      replaceSelection: vi.fn((songs: string[]) => {
+        mockStore.selection = new Set(songs);
+      }),
+      toggleSelection: vi.fn((song: string) => {
+        const next = new Set(mockStore.selection as Set<string>);
+        if (next.has(song)) next.delete(song);
+        else next.add(song);
+        mockStore.selection = next;
+      }),
     });
     const wrapper = mountComponent();
     await wrapper.find(".music-playlist-btn").trigger("click");
     const items = wrapper.findAll(".music-playlist__item");
-    expect(items).toHaveLength(2);
-    // 点击当前歌曲 a.mp3
+    expect(items).toHaveLength(3);
+    // 单击未选中行 → 单选
     await items[0].trigger("click");
+    expect(mockStore.selection).toEqual(new Set(["a.mp3"]));
+    // 再次单击已选中行 → 取消选中
+    await items[0].trigger("click");
+    expect(mockStore.selection).toEqual(new Set());
+    // Ctrl 单击 → 增减
+    await items[1].trigger("click", { ctrlKey: true });
+    expect(mockStore.selection).toEqual(new Set(["b.mp3"]));
+    await items[1].trigger("click", { ctrlKey: true });
+    expect(mockStore.selection).toEqual(new Set());
+    // Shift 单击 → 连续范围
+    await items[0].trigger("click");
+    await items[2].trigger("click", { shiftKey: true });
+    expect(mockStore.selection).toEqual(new Set(["a.mp3", "b.mp3", "c.mp3"]));
+    // 单击不再触发播放（播放改走右键菜单/集合区）
     expect(mockStore.playSong).not.toHaveBeenCalled();
-    // 点击其他歌曲 b.mp3
-    await items[1].trigger("click");
-    expect(mockStore.playSong).toHaveBeenCalledWith("b.mp3");
     wrapper.unmount();
   });
 
-  it("删除按钮 stopPropagation 并调用 deleteSong，当前歌曲无删除按钮", async () => {
+  it("浏览行双击 = 加入播放列表（集合）", async () => {
+    mockStore = makeStore({
+      playlist: ["a.mp3"],
+      filteredSongs: ["a.mp3"],
+    });
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    await wrapper.find(".music-playlist__item").trigger("dblclick");
+    expect(mockStore.addSongsToPlaylist).toHaveBeenCalledWith(["a.mp3"]);
+    wrapper.unmount();
+  });
+
+  /** 从 body 取 Teleport 出去的右键菜单 */
+  function ctxMenuEl(): HTMLElement | null {
+    return document.body.querySelector(".music-playlist__ctxmenu");
+  }
+
+  it("浏览行右键：弹出菜单（Teleport 到 body），「添加到播放列表」加入集合", async () => {
+    mockStore = makeStore({
+      playlist: ["a.mp3"],
+      filteredSongs: ["a.mp3"],
+      selection: new Set(["a.mp3"]),
+    });
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    await wrapper.find(".music-playlist__item").trigger("contextmenu", { clientX: 100, clientY: 100 });
+    const menu = ctxMenuEl();
+    expect(menu).toBeTruthy();
+    // 单曲选择不显示"已选 N 首"提示
+    expect(menu!.querySelector(".music-playlist__ctxmenu-hint")).toBeNull();
+    const addBtn = [...menu!.querySelectorAll("button")].find((b) => b.textContent?.includes("添加到播放列表"))!;
+    addBtn.click();
+    expect(mockStore.addSongsToPlaylist).toHaveBeenCalledWith(["a.mp3"]);
+    wrapper.unmount();
+  });
+
+  it("多选时右键：菜单作用于整个选择集（Windows 风格）", async () => {
     mockStore = makeStore({
       playlist: ["a.mp3", "b.mp3"],
+      filteredSongs: ["a.mp3", "b.mp3"],
+      selection: new Set(["a.mp3", "b.mp3"]),
+    });
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    // 在任意一个已选中的行右键
+    await wrapper.findAll(".music-playlist__item")[1].trigger("contextmenu", { clientX: 100, clientY: 100 });
+    const menu = ctxMenuEl();
+    expect(menu).toBeTruthy();
+    expect(menu!.querySelector(".music-playlist__ctxmenu-hint")?.textContent).toContain("已选 2 首");
+    const addBtn = [...menu!.querySelectorAll("button")].find((b) => b.textContent?.includes("添加到播放列表"))!;
+    addBtn.click();
+    expect(mockStore.addSongsToPlaylist).toHaveBeenCalledWith(["a.mp3", "b.mp3"]);
+    wrapper.unmount();
+  });
+
+  it("右键「删除所选」两步确认后批量删除", async () => {
+    mockStore = makeStore({
+      playlist: ["a.mp3", "b.mp3"],
+      filteredSongs: ["a.mp3", "b.mp3"],
+      selection: new Set(["a.mp3", "b.mp3"]),
+      deleteSong: vi.fn(async () => true),
+    });
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    await wrapper.findAll(".music-playlist__item")[0].trigger("contextmenu", { clientX: 100, clientY: 100 });
+    const menu = ctxMenuEl();
+    expect(menu).toBeTruthy();
+    const delBtn = [...menu!.querySelectorAll("button")].find((b) => b.textContent?.includes("删除所选"))!;
+    delBtn.click();
+    await wrapper.vm.$nextTick();
+    expect(mockStore.deleteSong).not.toHaveBeenCalled();
+    expect([...menu!.querySelectorAll("button")].some((b) => b.textContent?.includes("确认删除"))).toBe(true);
+    delBtn.click();
+    await wrapper.vm.$nextTick();
+    expect(mockStore.deleteSong).toHaveBeenCalledWith("a.mp3");
+    expect(mockStore.deleteSong).toHaveBeenCalledWith("b.mp3");
+    wrapper.unmount();
+  });
+
+  it("拖拽歌曲到播放列表区 → 加入集合", async () => {
+    mockStore = makeStore({
+      playlist: ["a.mp3"],
+      filteredSongs: ["a.mp3"],
+    });
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    await wrapper.find(".music-playlist__tab.playlist").trigger("click");
+    const item = wrapper.find(".music-playlist__item");
+    // 先选中 a.mp3 并开始拖拽（dragstart 携带选择集）
+    await item.trigger("click");
+    const data = {
+      getData: () => JSON.stringify(["a.mp3"]),
+      setData: () => undefined,
+    } as unknown as DataTransfer;
+    await item.trigger("dragstart", { dataTransfer: data });
+    const zone = wrapper.find(".music-playlist__collection-items");
+    await zone.trigger("drop", { dataTransfer: data });
+    expect(mockStore.addSongsToPlaylist).toHaveBeenCalledWith(["a.mp3"]);
+    wrapper.unmount();
+  });
+
+  it("浏览行不再提供逐行删除（删除走批量），当前歌曲显示播放标记", async () => {
+    mockStore = makeStore({
+      playlist: ["a.mp3", "b.mp3"],
+      filteredSongs: ["a.mp3", "b.mp3"],
       trackName: "a.mp3",
     });
     const wrapper = mountComponent();
     await wrapper.find(".music-playlist-btn").trigger("click");
     const items = wrapper.findAll(".music-playlist__item");
-    // 当前歌曲 a.mp3 无删除按钮，显示播放标记
-    expect(items[0].find(".music-playlist__delete").exists()).toBe(false);
+    // 当前歌曲显示播放标记
     expect(items[0].find(".music-playlist__playing").exists()).toBe(true);
-    // b.mp3 有删除按钮
-    const delBtn = items[1].find(".music-playlist__delete");
-    expect(delBtn.exists()).toBe(true);
-    await delBtn.trigger("click");
-    expect(mockStore.deleteSong).toHaveBeenCalledWith("b.mp3");
-    // stopPropagation：不应触发 playSong
-    expect(mockStore.playSong).not.toHaveBeenCalled();
+    // 浏览行无逐行删除按钮（删除是破坏性操作，统一走批量）
+    expect(items[1].find(".music-playlist__delete").exists()).toBe(false);
+    expect(wrapper.find(".music-playlist__collection").exists()).toBe(true);
     wrapper.unmount();
   });
 
@@ -459,6 +608,156 @@ describe("MusicPlayer.vue", () => {
     const scroll = wrapper.find(".music-player__track-scroll");
     expect(scroll.exists()).toBe(true);
     expect(scroll.text()).toBe(longName);
+    wrapper.unmount();
+  });
+
+  // ===== 音乐库管理（目录树 / 标签筛选 / 播放集合 / 批量） =====
+
+  it("面板显示搜索框与统计（filtered/总数，筛选模式）", async () => {
+    mockStore = makeStore({
+      playlist: ["a.mp3", "b.mp3"],
+      filteredSongs: ["a.mp3"],
+      filteredCount: 1,
+    });
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    await wrapper.find(".music-playlist__tab.filter").trigger("click");
+    expect(wrapper.find(".music-playlist__search").exists()).toBe(true);
+    expect(wrapper.find(".music-playlist__stats").text()).toBe("1 / 2");
+    wrapper.unmount();
+  });
+
+  it("目录 tab 点目录调用 toggleDir，筛选 tab 点标签 chip 调用 toggleTag", async () => {
+    mockStore = makeStore({
+      dirTree: [
+        { path: "导入", name: "导入", children: [], count: 0, subtreeCount: 2 },
+        { path: "喜欢", name: "喜欢", children: [], count: 1, subtreeCount: 1 },
+      ],
+      allTags: [{ name: "学习", count: 2 }],
+    });
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    // 目录 tab（默认）
+    const dirs = wrapper.findAll(".music-playlist__dir");
+    // 全部 / 未分类 / 导入 / 喜欢
+    await dirs[2].trigger("click");
+    expect(mockStore.toggleDir).toHaveBeenCalledWith("导入");
+    // 筛选 tab：标签 chips
+    await wrapper.find(".music-playlist__tab.filter").trigger("click");
+    const chips = wrapper.findAll(".music-playlist__tagchip");
+    await chips[0].trigger("click");
+    expect(mockStore.toggleTag).toHaveBeenCalledWith("学习");
+    wrapper.unmount();
+  });
+
+  it("播放集合 / 随机播放集合按钮调用 playCollection(false/true)", async () => {
+    mockStore = makeStore({
+      playlist: ["a.mp3", "b.mp3"],
+      filteredSongs: ["a.mp3", "b.mp3"],
+      playSet: new Set(["a.mp3", "b.mp3"]),
+    });
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    // 切到播放列表 tab
+    await wrapper.find(".music-playlist__tab.playlist").trigger("click");
+    const actions = wrapper.findAll(".music-playlist__collection-actions button");
+    await actions[0].trigger("click");
+    expect(mockStore.playCollection).toHaveBeenCalledWith(false);
+    await actions[1].trigger("click");
+    expect(mockStore.playCollection).toHaveBeenCalledWith(true);
+    wrapper.unmount();
+  });
+
+  it("浏览区底部「全部加入播放列表」调用 addViewToPlaylist 并切到播放列表 tab", async () => {
+    mockStore = makeStore({
+      playlist: ["a.mp3", "b.mp3"],
+      filteredSongs: ["a.mp3", "b.mp3"],
+    });
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    const addBtn = wrapper
+      .findAll(".music-playlist__browse-actions button")
+      .find((b) => b.text().includes("全部加入播放列表"))!;
+    expect(addBtn.exists()).toBe(true);
+    await addBtn.trigger("click");
+    await wrapper.vm.$nextTick();
+    expect(mockStore.addViewToPlaylist).toHaveBeenCalled();
+    // 自动切到播放列表 tab
+    expect(wrapper.find(".music-playlist__tab.playlist").classes()).toContain("active");
+    wrapper.unmount();
+  });
+
+  it("播放列表 tab：显示集合成员与来源，清空按钮调用 clearPlaylistSet", async () => {
+    mockStore = makeStore({
+      playlist: ["a.mp3", "b.mp3"],
+      filteredSongs: ["a.mp3", "b.mp3"],
+      playSetActive: true,
+      playSetSource: "目录 · 导入",
+      playSet: new Set(["a.mp3", "b.mp3"]),
+    });
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    // 默认目录 tab，播放列表 tab 带数量徽标
+    expect(wrapper.find(".music-playlist__tab.dir").classes()).toContain("active");
+    expect(wrapper.find(".music-playlist__tab-badge").text()).toBe("2");
+    await wrapper.find(".music-playlist__tab.playlist").trigger("click");
+    expect(wrapper.find(".music-playlist__source").text()).toContain("目录 · 导入");
+    expect(wrapper.findAll(".music-playlist__collection-item")).toHaveLength(2);
+    await wrapper.find(".music-playlist__collection-clear").trigger("click");
+    expect(mockStore.clearPlaylistSet).toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
+  it("播放列表 tab：点击集合成员行的 ✕ 调用 removeFromPlaylist", async () => {
+    mockStore = makeStore({
+      playSet: new Set(["a.mp3", "b.mp3"]),
+    });
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    await wrapper.find(".music-playlist__tab.playlist").trigger("click");
+    const removes = wrapper.findAll(".music-playlist__collection-remove");
+    await removes[1].trigger("click");
+    expect(mockStore.removeFromPlaylist).toHaveBeenCalledWith("b.mp3");
+    wrapper.unmount();
+  });
+
+  it("浏览行点击 + 加入播放列表（集合）", async () => {
+    mockStore = makeStore({
+      playlist: ["x.mp3"],
+      filteredSongs: ["x.mp3"],
+      songMeta: { "x.mp3": { path: "", tags: [], source: "" } },
+    });
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    await wrapper.find(".music-playlist__add").trigger("click");
+    expect(mockStore.addSongsToPlaylist).toHaveBeenCalledWith(["x.mp3"]);
+    wrapper.unmount();
+  });
+
+  it("三个选项卡并排：默认目录 tab，切筛选 tab 显示搜索；清除筛选不影响面板与播放列表", async () => {
+    mockStore = makeStore({
+      playlist: ["a.mp3"],
+      filteredSongs: ["a.mp3"],
+      hasFilter: true,
+      dirTree: [{ path: "导入", name: "导入", children: [], count: 0, subtreeCount: 1 }],
+    });
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    // 三个 tab 并排
+    expect(wrapper.findAll(".music-playlist__tab")).toHaveLength(3);
+    // 默认目录 tab：目录树可见，筛选表单不可见
+    expect(wrapper.find(".music-playlist__tab.dir").classes()).toContain("active");
+    expect(wrapper.find(".music-playlist__dirs").isVisible()).toBe(true);
+    expect(wrapper.find(".music-playlist__filters").isVisible()).toBe(false);
+    // 切到筛选 tab：搜索框可见
+    await wrapper.find(".music-playlist__tab.filter").trigger("click");
+    expect(wrapper.find(".music-playlist__filters").isVisible()).toBe(true);
+    expect(wrapper.find(".music-playlist__search").isVisible()).toBe(true);
+    // 清除筛选：只清筛选，面板仍打开，播放列表区仍在
+    await wrapper.find(".music-playlist__clearfilter").trigger("click");
+    expect(mockStore.clearFilters).toHaveBeenCalled();
+    expect(wrapper.find(".music-playlist").isVisible()).toBe(true);
+    expect(wrapper.find(".music-playlist__collection").exists()).toBe(true);
     wrapper.unmount();
   });
 });

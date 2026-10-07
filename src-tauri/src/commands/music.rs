@@ -41,6 +41,11 @@ fn get_music_dir(app: &AppHandle) -> Result<PathBuf, String> {
     }
 }
 
+/// 确保播放器已初始化（charts 等其他模块复用入口）
+pub(crate) async fn ensure_player_init(app: &AppHandle) -> Result<(), String> {
+    ensure_init(app).await
+}
+
 /// 确保播放器已初始化
 async fn ensure_init(app: &AppHandle) -> Result<(), String> {
     let music_state = app.state::<MusicState>();
@@ -107,6 +112,11 @@ fn spawn_progress_task(app: AppHandle) {
                 if !music_state.auto_next.load(Ordering::Relaxed) {
                     // 保持"播完"状态：进度照常上报（停在结尾），不自动切歌。
                     // 恢复 auto_next（退出同步）或 DJ 切歌信号到来后自然前进。
+                    drop(player);
+                    continue;
+                }
+                // 播放集合已清空：播完当前歌即停（不自动切歌）
+                if player.active_list_cleared() {
                     drop(player);
                     continue;
                 }
@@ -745,6 +755,8 @@ pub async fn music_finalize_song(
     let music_state = app.state::<MusicState>();
     let mut player = music_state.player.lock().await;
     player.refresh_playlist();
+    // P2P 收到的歌：首次创建记录 → source=p2p、目录留空（前端拿到后按来源用户名补「{用户}传输」，用户已有目录不受影响）
+    let _ = player.ensure_song_record(&name, "", "p2p");
     let (songs, current_song, current_index) = player.get_playlist_with_tags();
     let _ = app.emit(
         "music-playlist",
@@ -756,6 +768,162 @@ pub async fn music_finalize_song(
     );
 
     Ok(json!({ "success": true, "song_name": name }))
+}
+
+// ===== 音乐库管理（目录树 + 播放集合 Set） =====
+
+/// 推送播放列表事件（复用 music-get-playlist 的格式，目录/标签变更后同步前端）
+async fn emit_playlist(app: &AppHandle, player: &mut AudioPlayer) {
+    let (songs, current_song, current_index) = player.get_playlist_with_tags();
+    let _ = app.emit(
+        "music-playlist",
+        json!({
+            "songs": songs,
+            "current_song": current_song,
+            "current_index": current_index
+        }),
+    );
+}
+
+/// 推送播放集合事件
+fn emit_queue(app: &AppHandle, player: &AudioPlayer) {
+    let _ = app.emit(
+        "music-queue",
+        json!({
+            "songs": player.active_list_songs(),
+            "active": player.has_active_list()
+        }),
+    );
+}
+
+/// 设置播放集合：把当前查询结果（歌名列表）推入播放引擎（Set 语义，去重保序）
+#[tauri::command]
+pub async fn music_set_playlist(app: AppHandle, songs: Vec<String>) -> Result<Value, String> {
+    ensure_init(&app).await?;
+    let music_state = app.state::<MusicState>();
+    let mut player = music_state.player.lock().await;
+    player.set_play_list(songs);
+    emit_queue(&app, &player);
+    Ok(json!({ "success": true }))
+}
+
+/// 清空播放集合：播完当前歌后停止自动切歌（手动切歌回落全库）
+#[tauri::command]
+pub async fn music_clear_playlist(app: AppHandle) -> Result<Value, String> {
+    ensure_init(&app).await?;
+    let music_state = app.state::<MusicState>();
+    let mut player = music_state.player.lock().await;
+    player.clear_play_list();
+    emit_queue(&app, &player);
+    Ok(json!({ "success": true }))
+}
+
+/// 单首移动目录
+#[tauri::command]
+pub async fn music_move_song(app: AppHandle, song: String, path: String) -> Result<Value, String> {
+    ensure_init(&app).await?;
+    let music_state = app.state::<MusicState>();
+    let mut player = music_state.player.lock().await;
+    match player.set_song_path(&song, &path) {
+        Ok(_) => {
+            emit_playlist(&app, &mut player).await;
+            Ok(json!({ "success": true }))
+        }
+        Err(e) => Ok(json!({ "success": false, "error": e })),
+    }
+}
+
+/// 批量移动目录
+#[tauri::command]
+pub async fn music_move_songs(
+    app: AppHandle,
+    songs: Vec<String>,
+    path: String,
+) -> Result<Value, String> {
+    ensure_init(&app).await?;
+    let music_state = app.state::<MusicState>();
+    let mut player = music_state.player.lock().await;
+    match player.set_songs_path(&songs, &path) {
+        Ok(updated) => {
+            emit_playlist(&app, &mut player).await;
+            Ok(json!({ "success": true, "updated": updated }))
+        }
+        Err(e) => Ok(json!({ "success": false, "error": e })),
+    }
+}
+
+/// P2P 自动归类：仅当记录尚无目录归属时设置（首次创建语义，用户移动过的歌不受影响）
+#[tauri::command]
+pub async fn music_move_song_if_default(
+    app: AppHandle,
+    song: String,
+    default_path: String,
+) -> Result<Value, String> {
+    ensure_init(&app).await?;
+    let music_state = app.state::<MusicState>();
+    let mut player = music_state.player.lock().await;
+    match player.set_song_path_if_empty(&song, &default_path) {
+        Ok(set) => {
+            if set {
+                emit_playlist(&app, &mut player).await;
+            }
+            Ok(json!({ "success": true, "set": set }))
+        }
+        Err(e) => Ok(json!({ "success": false, "error": e })),
+    }
+}
+
+/// 设置歌曲多值标签（整体替换）
+#[tauri::command]
+pub async fn music_set_song_tags(
+    app: AppHandle,
+    song: String,
+    tags: Vec<String>,
+) -> Result<Value, String> {
+    ensure_init(&app).await?;
+    let music_state = app.state::<MusicState>();
+    let mut player = music_state.player.lock().await;
+    match player.set_song_tags(&song, &tags) {
+        Ok(_) => {
+            emit_playlist(&app, &mut player).await;
+            Ok(json!({ "success": true }))
+        }
+        Err(e) => Ok(json!({ "success": false, "error": e })),
+    }
+}
+
+/// 重命名目录（一级，含子目录迁移；系统目录（内置/下载/喜欢/*传输）拒绝）
+#[tauri::command]
+pub async fn music_rename_dir(
+    app: AppHandle,
+    old_path: String,
+    new_name: String,
+) -> Result<Value, String> {
+    ensure_init(&app).await?;
+    let music_state = app.state::<MusicState>();
+    let mut player = music_state.player.lock().await;
+    match player.rename_dir(&old_path, &new_name) {
+        Ok(updated) => {
+            emit_playlist(&app, &mut player).await;
+            Ok(json!({ "success": true, "updated": updated }))
+        }
+        Err(e) => Ok(json!({ "success": false, "error": e })),
+    }
+}
+
+/// 删除目录（该目录下歌曲归「未分类」，不删文件；系统目录拒绝）
+#[tauri::command]
+pub async fn music_delete_dir(app: AppHandle, path: String) -> Result<Value, String> {
+    ensure_init(&app).await?;
+    let music_state = app.state::<MusicState>();
+    let mut player = music_state.player.lock().await;
+    match player.delete_dir(&path) {
+        Ok(updated) => {
+            emit_playlist(&app, &mut player).await;
+            Ok(json!({ "success": true, "updated": updated }))
+        }
+        Err(e) => Ok(json!({ "success": false, "error": e })),
+    }
 }
 
 #[cfg(test)]

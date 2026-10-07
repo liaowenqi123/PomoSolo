@@ -723,6 +723,68 @@ v4.5.8 在 `server-planning/API-implementation.md` 留言的三项服务器需�
 
 ---
 
+## 8. 音乐库管理（目录树 / 标签筛选 / 播放集合，v4.8）
+
+> 需求与数据模型定稿见 `docs/modules/music-player-playlist-redesign.md`（v3）。
+
+### 8.1 概念
+
+```
+表（tags.json 记录）── 唯一数据源；每首歌一条记录 { path(目录归属), tags(多值), source(来源) }
+树（目录树）──────── 表的实时投影（path 字段按 / 分层），不落盘
+播放集合（Set）───── 任意查询结果（目录/标签/搜索）的快照，交给播放引擎消费
+```
+
+- 系统目录（不可改名/删除）：`内置`、`下载`、`{用户名}传输`（P2P）、`喜欢`（特殊，不可删）；
+- `未分类` = 空 path 的特殊视图；未来"从本机导入"的落点（规划中）；
+- 自动归类只发生在记录**首次创建**：内置→`内置`、下载→`下载`、P2P→`{用户名}传输`、其余→未分类；用户移动过的不覆盖。
+
+### 8.2 数据结构（`music/tags.json` v2）
+
+```jsonc
+{
+  "_customTags": { "白噪音": "#48dbfb" },
+  "_v2": true,
+  "歌名A.mp3": { "path": "导入/周杰伦", "tags": ["学习"], "source": "download" }
+}
+```
+
+兼容：旧单标签（String 或 `{name,color}`）读作 `tags:[name]`、`path:""`；老客户端忽略新字段。
+
+### 8.3 新增 Rust 命令与行为
+
+| 命令 | 行为 |
+|------|------|
+| `music_set_playlist(songs)` / `music_clear_playlist()` | 设置/清空播放集合（Set，去重保序）；清空后自然结束即停，手动切歌回落全库 |
+| `music_move_song(song, path)` / `music_move_songs(songs, path)` | 单首/批量移动目录（字段写入） |
+| `music_move_song_if_default(song, defaultPath)` | 仅当记录尚无目录时设置（P2P 自动归类用） |
+| `music_set_song_tags(song, tags)` | 多值标签整体替换 |
+| `music_rename_dir(oldPath, newName)` / `music_delete_dir(path)` | 重命名（前缀迁移）/删除（歌曲归未分类）；系统目录拒绝 |
+| 事件 `music-queue` | 集合变更广播（songs + active） |
+
+`audio_player.rs` 播放集合实现：`active_list: Option<Vec<String>>`；`get_next_song/get_prev_song` 在集合内取歌（顺序=推入序取模=列表循环，随机=现场抽取），`Some(空)` = 已清空（自动切歌停止）。进度任务 `spawn_progress_task` 对已清空集合跳过自动切歌。
+
+> 扫描记录策略：`ensure_scan_records` 只为内置歌曲补默认记录（旧版种子自动升级为 `path:"内置"`，用户移动过的不覆盖）；其余文件**不落盘纯默认记录**（缺省读取即"未分类/无标签"），避免开发/构建种子 `music-player/music/tags.json` 被反复写脏。
+
+### 8.4 前端（浏览与播放分离，KTV 式）
+
+- `src/utils/musicLibrary.ts`：纯函数（路径解析 / 树投影 / 目录包含 / 显示名），已单测；
+- `src/stores/music.ts`：`songMeta`（v2 元数据）、`activeDir/selectedTags/searchQuery`（**浏览区**查询）、`dirTree/allTags/filteredSongs/filteredCount`（派生）、`selection`（批量）、`playSet/playSetActive/playSetSource`（**播放列表集合**，与浏览完全独立）；
+  - 浏览动作：`toggleDir/toggleTag/clearFilters`（只影响浏览结果）；
+  - 集合动作：`addSongsToPlaylist`（单曲加入，去重）、`addViewToPlaylist`（筛选结果全部加入）、`playCollection(shuffle)`（所有播放行为都发生在集合内）、`removeFromPlaylist`、`clearPlaylistSet`；浏览/预览（`playSong`）**永不改变集合**；
+- `MusicPlayer.vue` 面板**三个选项卡并排**（面板高度固定不收缩、不超出番茄钟窗口）：
+  - **📁 目录**：目录树（缩进+展开+计数）；
+  - **🔍 筛选**：搜索框 + 标签 chips（多选 + 计数）；
+  - **🎵 播放列表**：集合成员（无序、无序号，tab 带数量徽标）、当前播放高亮、✕ 移除、可拖放接收；底部「▶ 播放集合」「🔀 随机播放集合」「⏹ 清空」；
+  - **歌曲行交互（Windows 资源管理器风格）**：单击=选中、再次单击=取消、Shift 连续、Ctrl 增减、双击=加入播放列表、拖拽到播放列表区、**右键=原生手感菜单**（Teleport 到 body、锚定光标自动向上/向下展开）——▶ 播放 / 🎵 添加到播放列表 / 📁 移动到目录… / 🏷 设置标签… / ♥ 标记喜欢 / 🗑 删除所选（两步确认）；**多选时右键作用于整个选择集**（菜单顶部提示"已选 N 首"）；无"批量"按钮；
+  - 底部动作行（位置固定）：「➕ 全部加入播放列表」「✕ 清除筛选（只重置浏览）」。
+
+### 8.5 PWA
+
+新命令均有 registry shim（`src/pwa/tauri/commands/music.ts`）：目录/标签存 `localStorage:music-meta`（`paths`/`multiTags` 字段，见 `src/pwa/storage.ts`）；集合命令 no-op（PWA 引擎在前端）。
+
+---
+
 ## 附录：迁移要点速查
 
 1. **Rust 原生播放**：音频由 `modules/audio_player.rs`（rodio + cpal + symphonia）直接播放，无 Python 子进程、无 stdin/stdout。

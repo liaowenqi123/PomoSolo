@@ -111,9 +111,13 @@ export interface MusicMeta {
   tags: Record<string, { name: string; color: string | null }>;
   /** 自定义标签 名 → 颜色 */
   customTags: Record<string, string>;
+  /** v2：歌名 → 目录归属路径（"" = 未分类） */
+  paths: Record<string, string>;
+  /** v2：歌名 → 多值标签 */
+  multiTags: Record<string, string[]>;
 }
 
-const DEFAULT_META: MusicMeta = { tags: {}, customTags: {} };
+const DEFAULT_META: MusicMeta = { tags: {}, customTags: {}, paths: {}, multiTags: {} };
 
 export function loadMusicMeta(): MusicMeta {
   return loadJson<MusicMeta>("music-meta", DEFAULT_META);

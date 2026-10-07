@@ -72,7 +72,7 @@ fn clean_title(title: &str) -> String {
 }
 
 /// 清洗文件名中的非法字符（Windows 不允许的字符）
-fn clean_filename(name: &str) -> String {
+pub(crate) fn clean_filename(name: &str) -> String {
     let re = Regex::new(r#"[<>:"/\\|?*]"#).unwrap();
     re.replace_all(name, "").to_string()
 }

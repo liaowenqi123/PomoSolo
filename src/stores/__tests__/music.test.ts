@@ -21,6 +21,15 @@ const musicApi = vi.hoisted(() => ({
   musicAddCustomTag: vi.fn(),
   musicDeleteCustomTag: vi.fn(),
   musicUpdateTag: vi.fn(),
+  // 音乐库管理（目录树 / 播放集合 Set）
+  musicSetPlaylist: vi.fn(),
+  musicClearPlaylist: vi.fn(),
+  musicMoveSong: vi.fn(),
+  musicMoveSongs: vi.fn(),
+  musicMoveSongIfDefault: vi.fn(),
+  musicSetSongTags: vi.fn(),
+  musicRenameDir: vi.fn(),
+  musicDeleteDir: vi.fn(),
   // P2P 传歌
   musicReadSongChunk: vi.fn(),
   musicReceiveSongChunk: vi.fn(),
@@ -75,6 +84,7 @@ vi.mock("@/stores/auth", () => ({
 }));
 
 import { useMusicStore } from "../music";
+import type { PlaylistSong } from "@/api/music";
 
 // Phase 1 P2P 直连传歌：p2pReceive/p2pSend 选项类型（测试断言用）
 interface P2PReceiveOpts {
@@ -113,6 +123,15 @@ describe("useMusicStore", () => {
     musicSyncApi.musicSyncRequestState.mockResolvedValue(undefined);
     musicSyncApi.musicSyncReverseRequest.mockResolvedValue(undefined);
     musicApi.musicUpdateTag.mockResolvedValue({ success: true });
+    // 音乐库管理默认成功
+    musicApi.musicSetPlaylist.mockResolvedValue({ success: true });
+    musicApi.musicClearPlaylist.mockResolvedValue({ success: true });
+    musicApi.musicMoveSong.mockResolvedValue({ success: true });
+    musicApi.musicMoveSongs.mockResolvedValue({ success: true, updated: 1 });
+    musicApi.musicMoveSongIfDefault.mockResolvedValue({ success: true, set: false });
+    musicApi.musicSetSongTags.mockResolvedValue({ success: true });
+    musicApi.musicRenameDir.mockResolvedValue({ success: true, updated: 1 });
+    musicApi.musicDeleteDir.mockResolvedValue({ success: true, updated: 1 });
     dataApi.readData.mockResolvedValue({});
     dataApi.writeData.mockResolvedValue(undefined);
   });
@@ -1414,5 +1433,214 @@ describe("useMusicStore", () => {
       expect(musicSyncApi.musicSyncOfferSong).toHaveBeenCalled();
     });
     expect(p2pApi.p2pSend).not.toHaveBeenCalled();
+  });
+
+  // ===== 音乐库管理（目录树 / 标签筛选 / 播放集合 Set） =====
+
+  /** 构造带 v2 元数据的歌单对象 */
+  function songObj(name: string, path: string, tags: string[], source = ""): PlaylistSong {
+    return { name, path, tags, source };
+  }
+
+  it("handlePlaylist 填充 v2 元数据（path/tags/source）并兼容旧字段", () => {
+    const s = useMusicStore();
+    s.handlePlaylist({
+      songs: [
+        songObj("a.mp3", "导入/周杰伦", ["学习", "白噪音"], "download"),
+        { name: "b.mp3", tag: "运动", tagColor: "#ff6b6b" },
+        { name: "c.mp3" },
+      ],
+    });
+    expect(s.songMeta["a.mp3"]).toEqual({ path: "导入/周杰伦", tags: ["学习", "白噪音"], source: "download" });
+    // 旧字段 tag → tags 数组
+    expect(s.songMeta["b.mp3"]).toEqual({ path: "", tags: ["运动"], source: "" });
+    // 无标签 → 空数组
+    expect(s.songMeta["c.mp3"]).toEqual({ path: "", tags: [], source: "" });
+    // 旧的 playlistTags 兼容显示仍可用
+    expect(s.playlistTags["b.mp3"]).toEqual({ name: "运动", color: "#ff6b6b" });
+  });
+
+  it("filteredSongs 叠加目录/标签/搜索筛选", () => {
+    const s = useMusicStore();
+    s.handlePlaylist({
+      songs: [
+        songObj("a.mp3", "导入/周杰伦", ["学习"]),
+        songObj("b.mp3", "导入/周杰伦/范特西", ["学习", "白噪音"]),
+        songObj("c.mp3", "喜欢", ["休息"]),
+        songObj("d.mp3", "", []),
+      ],
+    });
+    // 目录筛选（含子目录）
+    s.toggleDir("导入/周杰伦");
+    expect(s.filteredSongs).toEqual(["a.mp3", "b.mp3"]);
+    // 叠加标签 AND
+    s.toggleTag("白噪音");
+    expect(s.filteredSongs).toEqual(["b.mp3"]);
+    // 叠加搜索
+    s.searchQuery = "b";
+    expect(s.filteredSongs).toEqual(["b.mp3"]);
+    s.searchQuery = "zzz";
+    expect(s.filteredSongs).toEqual([]);
+    // 清空筛选
+    s.clearFilters();
+    expect(s.filteredSongs).toEqual(["a.mp3", "b.mp3", "c.mp3", "d.mp3"]);
+  });
+
+  it("未分类视图只显示空路径歌曲", () => {
+    const s = useMusicStore();
+    s.handlePlaylist({ songs: [songObj("a.mp3", "", []), songObj("b.mp3", "喜欢", [])] });
+    s.toggleDir("");
+    expect(s.filteredSongs).toEqual(["a.mp3"]);
+  });
+
+  it("dirTree 由记录实时派生，allTags 带计数", () => {
+    const s = useMusicStore();
+    s.handlePlaylist({
+      songs: [songObj("a.mp3", "导入/周杰伦", ["学习"]), songObj("b.mp3", "导入/其他", ["学习", "白噪音"])],
+    });
+    expect(s.dirTree).toHaveLength(1);
+    expect(s.dirTree[0].subtreeCount).toBe(2);
+    expect(s.dirTree[0].children.map((n: { name: string }) => n.name).sort()).toEqual(["其他", "周杰伦"]);
+    const tags = s.allTags.map((t) => t.name).sort();
+    expect(tags).toEqual(["学习", "白噪音"]);
+    expect(s.allTags.find((t) => t.name === "学习")?.count).toBe(2);
+  });
+
+  it("addSongsToPlaylist：加入集合（Set 去重）并激活", async () => {
+    const s = useMusicStore();
+    s.handlePlaylist({ songs: [songObj("a.mp3", "", []), songObj("b.mp3", "", [])] });
+    const added1 = await s.addSongsToPlaylist(["a.mp3", "b.mp3", "a.mp3"]);
+    expect(added1).toBe(2); // 去重
+    expect(musicApi.musicSetPlaylist).toHaveBeenCalledWith(["a.mp3", "b.mp3"]);
+    expect(s.playSetActive).toBe(true);
+    expect(s.playSet.size).toBe(2);
+    // 重复加入不重复计数
+    const added2 = await s.addSongsToPlaylist(["a.mp3"]);
+    expect(added2).toBe(0);
+    expect(s.playSet.size).toBe(2);
+  });
+
+  it("addViewToPlaylist：把筛选结果全部加入播放列表（浏览不影响集合）", async () => {
+    const s = useMusicStore();
+    s.handlePlaylist({ songs: [songObj("a.mp3", "导入", []), songObj("b.mp3", "", [])] });
+    // 浏览筛选只影响 filteredSongs，集合仍为空（浏览与集合解耦）
+    s.toggleDir("");
+    expect(s.filteredSongs).toEqual(["b.mp3"]);
+    expect(s.playSet.size).toBe(0);
+    s.toggleDir(null);
+    const added = await s.addViewToPlaylist();
+    expect(added).toBe(2);
+    expect(s.playSet).toEqual(new Set(["a.mp3", "b.mp3"]));
+    // 之后筛选变化不影响集合
+    s.toggleDir("导入");
+    expect(s.filteredSongs).toEqual(["a.mp3"]);
+    expect(s.playSet.size).toBe(2);
+    s.clearFilters();
+  });
+
+  it("playCollection(false)：按当前模式从集合第一首播；true：随机模式", async () => {
+    const s = useMusicStore();
+    s.handlePlaylist({ songs: [songObj("a.mp3", "", []), songObj("b.mp3", "", [])] });
+    await s.addSongsToPlaylist(["a.mp3", "b.mp3"]);
+    const okOrder = await s.playCollection(false);
+    expect(okOrder).toBe(true);
+    expect(musicApi.musicPlaySong).toHaveBeenLastCalledWith("a.mp3");
+    const okShuffle = await s.playCollection(true);
+    expect(okShuffle).toBe(true);
+    expect(musicApi.musicSetPlayMode).toHaveBeenLastCalledWith("shuffle");
+    const calls = (musicApi.musicPlaySong as ReturnType<typeof vi.fn>).mock.calls;
+    const pick = calls[calls.length - 1][0];
+    expect(["a.mp3", "b.mp3"]).toContain(pick);
+  });
+
+  it("playCollection 空集合不播放", async () => {
+    const s = useMusicStore();
+    const ok = await s.playCollection(false);
+    expect(ok).toBe(false);
+    expect(musicApi.musicPlaySong).not.toHaveBeenCalled();
+  });
+
+  it("removeFromPlaylist：移除单曲并重推集合；移除到空则清空", async () => {
+    const s = useMusicStore();
+    s.handlePlaylist({ songs: [songObj("a.mp3", "", []), songObj("b.mp3", "", [])] });
+    await s.addSongsToPlaylist(["a.mp3", "b.mp3"]);
+    await s.removeFromPlaylist("a.mp3");
+    expect(s.playSet).toEqual(new Set(["b.mp3"]));
+    expect(musicApi.musicSetPlaylist).toHaveBeenLastCalledWith(["b.mp3"]);
+    await s.removeFromPlaylist("b.mp3");
+    expect(s.playSet.size).toBe(0);
+    expect(s.playSetActive).toBe(false);
+    expect(musicApi.musicClearPlaylist).toHaveBeenCalled();
+  });
+
+  it("clearPlaylistSet 清空集合并调用后端", async () => {
+    const s = useMusicStore();
+    s.handlePlaylist({ songs: [songObj("a.mp3", "", [])] });
+    await s.addSongsToPlaylist(["a.mp3"]);
+    await s.clearPlaylistSet();
+    expect(s.playSetActive).toBe(false);
+    expect(s.playSet.size).toBe(0);
+    expect(musicApi.musicClearPlaylist).toHaveBeenCalled();
+  });
+
+  it("moveSongsToDir 单首/批量移动并本地同步元数据", async () => {
+    const s = useMusicStore();
+    s.handlePlaylist({ songs: [songObj("a.mp3", "", []), songObj("b.mp3", "", [])] });
+    // 批量
+    await s.moveSongsToDir(["a.mp3", "b.mp3"], "喜欢");
+    expect(musicApi.musicMoveSongs).toHaveBeenCalledWith(["a.mp3", "b.mp3"], "喜欢");
+    expect(s.songMeta["a.mp3"].path).toBe("喜欢");
+    expect(s.songMeta["b.mp3"].path).toBe("喜欢");
+    // 单首
+    await s.moveSongsToDir(["a.mp3"], "导入/周杰伦");
+    expect(musicApi.musicMoveSong).toHaveBeenCalledWith("a.mp3", "导入/周杰伦");
+    expect(s.songMeta["a.mp3"].path).toBe("导入/周杰伦");
+  });
+
+  it("addToFavorites 一键标记到「喜欢」", async () => {
+    const s = useMusicStore();
+    s.handlePlaylist({ songs: [songObj("a.mp3", "", [])] });
+    await s.addToFavorites("a.mp3");
+    expect(musicApi.musicMoveSong).toHaveBeenCalledWith("a.mp3", "喜欢");
+    expect(s.songMeta["a.mp3"].path).toBe("喜欢");
+  });
+
+  it("setSongsTags 批量设置标签并本地同步", async () => {
+    const s = useMusicStore();
+    s.handlePlaylist({ songs: [songObj("a.mp3", "", []), songObj("b.mp3", "", [])] });
+    await s.setSongsTags(["a.mp3", "b.mp3"], ["学习", "白噪音"]);
+    expect(musicApi.musicSetSongTags).toHaveBeenCalledTimes(2);
+    expect(s.songMeta["a.mp3"].tags).toEqual(["学习", "白噪音"]);
+    expect(s.songMeta["b.mp3"].tags).toEqual(["学习", "白噪音"]);
+  });
+
+  it("renameDir 重命名后本地树投影同步（含子目录与当前筛选）", async () => {
+    const s = useMusicStore();
+    s.handlePlaylist({ songs: [songObj("a.mp3", "导入/周杰伦", []), songObj("b.mp3", "导入/周杰伦/范特西", [])] });
+    s.toggleDir("导入/周杰伦");
+    const res = await s.renameDir("导入/周杰伦", "依然范特西");
+    expect(res.ok).toBe(true);
+    expect(s.songMeta["a.mp3"].path).toBe("导入/依然范特西");
+    expect(s.songMeta["b.mp3"].path).toBe("导入/依然范特西/范特西");
+    expect(s.activeDir).toBe("导入/依然范特西");
+  });
+
+  it("deleteDir 目录删除后歌曲归未分类，筛选自动复位", async () => {
+    const s = useMusicStore();
+    s.handlePlaylist({ songs: [songObj("a.mp3", "旧目录", []), songObj("b.mp3", "旧目录/子", [])] });
+    s.toggleDir("旧目录");
+    const res = await s.deleteDir("旧目录");
+    expect(res.ok).toBe(true);
+    expect(s.songMeta["a.mp3"].path).toBe("");
+    expect(s.songMeta["b.mp3"].path).toBe("");
+    expect(s.activeDir).toBeNull();
+  });
+
+  it("markP2pSong 仅当无目录时设置「{用户名}传输」", async () => {
+    const s = useMusicStore();
+    s.handlePlaylist({ songs: [songObj("a.mp3", "", [], "p2p")] });
+    musicApi.musicMoveSongIfDefault.mockResolvedValue({ success: true, set: true });
+    await s.markP2pSong("a.mp3", "CC");
+    expect(musicApi.musicMoveSongIfDefault).toHaveBeenCalledWith("a.mp3", "CC传输");
   });
 });

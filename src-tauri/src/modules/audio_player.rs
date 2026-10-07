@@ -102,6 +102,11 @@ pub struct AudioPlayer {
     // 播放列表
     music_dir: PathBuf,
     playlist: Vec<String>,
+    /// 播放集合（用户自定义播放列表，Set 语义）：
+    /// - None：未设置，播放范围 = 全库（默认行为，历史兼容）
+    /// - Some(非空)：只播集合内的歌（推入序 = 顺序模式的迭代序）
+    /// - Some(空)：集合已清空 → 自然结束后停止自动切歌（手动切歌回落全库）
+    active_list: Option<Vec<String>>,
     play_history: Vec<(String, bool)>, // (song_name, is_manual)
     history_index: i32,
     current_song_index: i32,
@@ -133,6 +138,7 @@ impl AudioPlayer {
             play_mode: PlayMode::Shuffle,
             music_dir: PathBuf::new(),
             playlist: Vec::new(),
+            active_list: None,
             play_history: Vec::new(),
             history_index: -1,
             current_song_index: -1,
@@ -223,6 +229,16 @@ impl AudioPlayer {
     /// 刷新播放列表（热更新）
     pub fn refresh_playlist(&mut self) -> (bool, bool) {
         let new_files = self.scan_directory();
+
+        // 播放集合引用清理：文件已删除的歌从集合移除；
+        // 集合被清空后保持 Some(空) 标记（= 用户已清空 → 自然结束后停止自动切歌）
+        if let Some(list) = self.active_list.as_mut() {
+            list.retain(|s| new_files.contains(s));
+        }
+
+        // 首次扫描：为新文件创建默认记录（内置→「内置」目录，其余→未分类），已有记录不覆盖
+        self.ensure_scan_records(&new_files);
+
         if new_files.is_empty() {
             self.playlist.clear();
             return (false, false);
@@ -439,12 +455,27 @@ impl AudioPlayer {
             return None;
         }
 
+        // 播放集合语义：
+        // - Some(空) = 已清空：自然结束（auto_play=true）→ 停止；手动切歌回落全库
+        // - Some(非空) = 只在该集合内取歌；None = 全库
+        if matches!(&self.active_list, Some(l) if l.is_empty()) && auto_play {
+            return None;
+        }
+        let working: Vec<String> = match &self.active_list {
+            Some(l) if !l.is_empty() => l.clone(),
+            _ => self.playlist.clone(),
+        };
+        if working.is_empty() {
+            return None;
+        }
+
         // 单曲循环
         if self.play_mode == PlayMode::Loop {
             if self.current_song_index < 0 {
                 self.current_song_index = 0;
             }
-            return Some(self.playlist[self.current_song_index as usize].clone());
+            let idx = (self.current_song_index as usize).min(working.len().saturating_sub(1));
+            return Some(working[idx].clone());
         }
 
         // 当前歌曲
@@ -463,35 +494,34 @@ impl AudioPlayer {
 
         // 生成下一首
         let next = if self.play_mode == PlayMode::Shuffle {
-            if self.playlist.len() > 1 {
+            if working.len() > 1 {
                 let mut rng = rand::thread_rng();
-                let current_str = current.unwrap_or_default();
+                // 历史为空时以当前播放曲为"不重复对象"，避免随机到同一首重复播放
+                let current_str = current.unwrap_or_else(|| self.track_name.clone());
                 loop {
-                    let s = self.playlist.choose(&mut rng).unwrap().clone();
+                    let s = working.choose(&mut rng).unwrap().clone();
                     if s != current_str {
                         break s;
                     }
                 }
             } else {
-                self.playlist[0].clone()
+                working[0].clone()
             }
         } else {
-            // 顺序模式
-            if self.current_song_index < 0 {
-                self.current_song_index = 0;
-            } else {
-                self.current_song_index = ((self.current_song_index as usize + 1)
-                    % self.playlist.len())
-                    as i32;
-            }
-            self.playlist[self.current_song_index as usize].clone()
+            // 顺序/列表循环模式：在 working 列表内取模前进（列表循环）
+            let pos = working
+                .iter()
+                .position(|s| s == &self.track_name)
+                .map(|i| i as i32)
+                .unwrap_or(0);
+            let idx = ((pos + 1) % working.len() as i32) as usize;
+            working[idx].clone()
         };
 
         self.play_history
             .push((next.clone(), !auto_play));
         self.history_index = (self.play_history.len() - 1) as i32;
-        self.current_song_index = self
-            .playlist
+        self.current_song_index = working
             .iter()
             .position(|s| s == &next)
             .map(|i| i as i32)
@@ -507,20 +537,29 @@ impl AudioPlayer {
             return None;
         }
 
+        // 集合已清空：手动切歌回落全库（与 get_next_song 的 None 分支对称）
+        let working: Vec<String> = match &self.active_list {
+            Some(l) if !l.is_empty() => l.clone(),
+            _ => self.playlist.clone(),
+        };
+        if working.is_empty() {
+            return None;
+        }
+
         // 单曲循环
         if self.play_mode == PlayMode::Loop {
             if self.current_song_index < 0 {
                 self.current_song_index = 0;
             }
-            return Some(self.playlist[self.current_song_index as usize].clone());
+            let idx = (self.current_song_index as usize).min(working.len().saturating_sub(1));
+            return Some(working[idx].clone());
         }
 
         // 历史表中还有前一首
         if self.history_index > 0 {
             self.history_index -= 1;
             let prev = self.play_history[self.history_index as usize].0.clone();
-            self.current_song_index = self
-                .playlist
+            self.current_song_index = working
                 .iter()
                 .position(|s| s == &prev)
                 .map(|i| i as i32)
@@ -538,35 +577,35 @@ impl AudioPlayer {
         };
 
         let new_song = if self.play_mode == PlayMode::Shuffle {
-            if self.playlist.len() > 1 {
+            if working.len() > 1 {
                 let mut rng = rand::thread_rng();
-                let current_str = current.unwrap_or_default();
+                let current_str = current.unwrap_or_else(|| self.track_name.clone());
                 loop {
-                    let s = self.playlist.choose(&mut rng).unwrap().clone();
+                    let s = working.choose(&mut rng).unwrap().clone();
                     if s != current_str {
                         break s;
                     }
                 }
             } else {
-                self.playlist[0].clone()
+                working[0].clone()
             }
         } else {
-            if self.current_song_index < 0 {
-                self.current_song_index = (self.playlist.len() - 1) as i32;
+            let pos = working
+                .iter()
+                .position(|s| s == &self.track_name)
+                .map(|i| i as i32)
+                .unwrap_or(0);
+            let idx = if pos <= 0 {
+                working.len() - 1
             } else {
-                self.current_song_index = if self.current_song_index == 0 {
-                    (self.playlist.len() - 1) as i32
-                } else {
-                    self.current_song_index - 1
-                };
-            }
-            self.playlist[self.current_song_index as usize].clone()
+                (pos - 1) as usize
+            };
+            working[idx].clone()
         };
 
         self.play_history.insert(0, (new_song.clone(), true));
         self.history_index = 0;
-        self.current_song_index = self
-            .playlist
+        self.current_song_index = working
             .iter()
             .position(|s| s == &new_song)
             .map(|i| i as i32)
@@ -647,36 +686,22 @@ impl AudioPlayer {
             .playlist
             .iter()
             .map(|song| {
-                let tag_data = tags.get(song);
-                match tag_data {
-                    None => PlaylistSong {
-                        name: song.clone(),
-                        tag: "自定义".to_string(),
-                        tag_color: None,
-                    },
-                    Some(serde_json::Value::String(s)) => {
-                        let color = custom_tags
-                            .get(s)
-                            .map(|c| c.clone())
-                            .or_else(|| colors.get(s.as_str()).map(|c| c.to_string()));
-                        PlaylistSong {
-                            name: song.clone(),
-                            tag: s.clone(),
-                            tag_color: color,
-                        }
-                    }
-                    Some(obj) => PlaylistSong {
-                        name: song.clone(),
-                        tag: obj
-                            .get("name")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("自定义")
-                            .to_string(),
-                        tag_color: obj
-                            .get("color")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string()),
-                    },
+                let (path, tags, source) = match tags.get(song) {
+                    Some(v) => parse_song_record(v),
+                    None => (String::new(), Vec::new(), String::new()),
+                };
+                let primary = tags.first().cloned().unwrap_or_else(|| "自定义".to_string());
+                let color = custom_tags
+                    .get(&primary)
+                    .map(|c| c.clone())
+                    .or_else(|| colors.get(primary.as_str()).map(|c| c.to_string()));
+                PlaylistSong {
+                    name: song.clone(),
+                    tag: primary.clone(),
+                    tag_color: color,
+                    tags: Some(tags),
+                    path: Some(path),
+                    source: Some(source),
                 }
             })
             .collect();
@@ -694,8 +719,60 @@ impl AudioPlayer {
             return Err("歌曲文件不存在".to_string());
         }
         fs::remove_file(&path).map_err(|e| format!("删除文件失败: {}", e))?;
+        if let Some(list) = self.active_list.as_mut() {
+            list.retain(|s| s != song_name);
+        }
+        // 清理标签/记录
+        let mut tags = self.load_tags();
+        if tags.is_object() {
+            if tags.as_object().unwrap().contains_key(song_name) {
+                tags.as_object_mut().unwrap().remove(song_name);
+                let _ = self.save_tags(&tags);
+            }
+        }
         self.refresh_playlist();
         Ok(())
+    }
+
+    /// 首次扫描记录补全（仅在确有新信息时写盘，避免污染开发目录的 tags.json 构建种子）：
+    /// - 内置歌曲：无记录 → 建 {path:"内置", source:"builtin"}；
+    ///   有记录但无 path（旧版字符串/{name,color} 种子）→ 升级为 v2 对象并补「内置」目录（一次性迁移）；
+    ///   已有目录归属（用户移动过）→ 不覆盖。
+    /// - 其余文件：不建纯默认记录（缺省读取即"未分类/无标签"），等下载/P2P 等真实来源落库时再建。
+    fn ensure_scan_records(&mut self, files: &[String]) {
+        let mut tags = self.load_tags();
+        if !tags.is_object() {
+            tags = serde_json::json!({});
+        }
+        let mut changed = false;
+        for f in files {
+            if !is_builtin_song(f) {
+                continue;
+            }
+            let existing = tags.get(f).cloned(); // 拷贝，避免借用冲突
+            match existing {
+                None => {
+                    tags[f] = serde_json::json!({ "path": "内置", "tags": [], "source": "builtin" });
+                    changed = true;
+                }
+                Some(v) => {
+                    let (path, tags_vec, _) = parse_song_record(&v);
+                    if !path.is_empty() {
+                        continue; // 已有目录归属（含用户移动过）：不覆盖
+                    }
+                    // 旧格式（字符串 / {name,color}）：升级为 v2 对象并补「内置」目录
+                    let mut record = v.as_object().cloned().unwrap_or_default();
+                    record.insert("path".to_string(), serde_json::json!("内置"));
+                    record.insert("source".to_string(), serde_json::json!("builtin"));
+                    record.entry("tags".to_string()).or_insert(serde_json::json!(tags_vec));
+                    tags[f] = serde_json::Value::Object(record);
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            let _ = self.save_tags(&tags);
+        }
     }
 
     // ===== 标签管理 =====
@@ -779,6 +856,263 @@ impl AudioPlayer {
         });
 
         self.save_tags(&tags)
+    }
+
+    // ===== 歌曲记录 v2（目录归属 path / 多值标签 tags / 来源 source） =====
+
+    /// 首次创建记录时按来源自动归类（已有记录不覆盖）：
+    /// download → 「下载」，p2p → 空目录（前端按用户名补「{用户}传输」），其余按调用方传参。
+    /// 返回是否新建了记录。
+    pub fn ensure_song_record(
+        &mut self,
+        song: &str,
+        default_path: &str,
+        source: &str,
+    ) -> Result<bool, String> {
+        let mut tags = self.load_tags();
+        if !tags.is_object() {
+            tags = serde_json::json!({});
+        }
+        if tags.get(song).is_some() {
+            return Ok(false);
+        }
+        tags[song] = serde_json::json!({
+            "path": default_path,
+            "tags": [],
+            "source": source,
+        });
+        self.save_tags(&tags)?;
+        Ok(true)
+    }
+
+    /// 读取歌曲记录（path, tags, source）；无记录时返回默认（未分类/无标签/来源空）
+    pub fn get_song_meta(&self, song: &str) -> (String, Vec<String>, String) {
+        match self.load_tags().get(song) {
+            Some(v) => parse_song_record(v),
+            None => (String::new(), Vec::new(), String::new()),
+        }
+    }
+
+    /// 设置单首歌曲目录归属（无记录时按默认补全）
+    pub fn set_song_path(&mut self, song: &str, path: &str) -> Result<bool, String> {
+        let mut tags = self.load_tags();
+        if !tags.is_object() {
+            tags = serde_json::json!({});
+        }
+        let rec = tags
+            .as_object_mut()
+            .ok_or("tags.json 结构异常".to_string())?
+            .entry(song.to_string())
+            .or_insert(serde_json::json!({}));
+        if let Some(obj) = rec.as_object_mut() {
+            obj.insert("path".to_string(), serde_json::json!(path));
+            obj.entry("tags".to_string()).or_insert(serde_json::json!([]));
+        }
+        self.save_tags(&tags)?;
+        Ok(true)
+    }
+
+    /// 批量设置目录归属（一次性多首歌移动），返回实际更新的数量
+    pub fn set_songs_path(&mut self, songs: &[String], path: &str) -> Result<usize, String> {
+        let mut tags = self.load_tags();
+        if !tags.is_object() {
+            tags = serde_json::json!({});
+        }
+        let map = tags
+            .as_object_mut()
+            .ok_or("tags.json 结构异常".to_string())?;
+        let mut updated = 0usize;
+        for song in songs {
+            let rec = map
+                .entry(song.clone())
+                .or_insert(serde_json::json!({}));
+            if let Some(obj) = rec.as_object_mut() {
+                let cur = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                if cur != path {
+                    obj.insert("path".to_string(), serde_json::json!(path));
+                    obj.entry("tags".to_string()).or_insert(serde_json::json!([]));
+                    updated += 1;
+                }
+            }
+        }
+        if updated > 0 {
+            self.save_tags(&tags)?;
+        }
+        Ok(updated)
+    }
+
+    /// 仅当记录尚无目录归属时设置（P2P 自动归类用：首帧记录为空目录 → 补「{用户}传输」）
+    pub fn set_song_path_if_empty(&mut self, song: &str, default_path: &str) -> Result<bool, String> {
+        let mut tags = self.load_tags();
+        if !tags.is_object() {
+            tags = serde_json::json!({});
+        }
+        let rec = tags
+            .as_object_mut()
+            .ok_or("tags.json 结构异常".to_string())?
+            .entry(song.to_string())
+            .or_insert(serde_json::json!({}));
+        let obj = rec.as_object_mut().ok_or("记录结构异常".to_string())?;
+        let cur = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
+        if !cur.is_empty() {
+            return Ok(false);
+        }
+        obj.insert("path".to_string(), serde_json::json!(default_path));
+        obj.entry("tags".to_string()).or_insert(serde_json::json!([]));
+        self.save_tags(&tags)?;
+        Ok(true)
+    }
+
+    /// 设置单首歌曲的多值标签（整体替换）
+    pub fn set_song_tags(&mut self, song: &str, tags_list: &[String]) -> Result<bool, String> {
+        let mut tags = self.load_tags();
+        if !tags.is_object() {
+            tags = serde_json::json!({});
+        }
+        let rec = tags
+            .as_object_mut()
+            .ok_or("tags.json 结构异常".to_string())?
+            .entry(song.to_string())
+            .or_insert(serde_json::json!({}));
+        if let Some(obj) = rec.as_object_mut() {
+            obj.insert("tags".to_string(), serde_json::json!(tags_list));
+        }
+        self.save_tags(&tags)?;
+        Ok(true)
+    }
+
+    /// 目录是否系统目录（不可改名/删除）：内置 / 下载 / 喜欢 / 以"传输"结尾（P2P 目录）
+    pub fn is_system_dir(path: &str) -> bool {
+        path == "内置" || path == "下载" || path == "喜欢" || path.ends_with("传输")
+    }
+
+    /// 重命名目录（仅一级）：旧路径前缀 → 新路径；含子目录一并迁移。返回更新的记录数。
+    pub fn rename_dir(&mut self, old_path: &str, new_name: &str) -> Result<usize, String> {
+        if old_path.is_empty() {
+            return Err("「未分类」不是可操作的目录".to_string());
+        }
+        if Self::is_system_dir(old_path) {
+            return Err("系统目录不可重命名".to_string());
+        }
+        let new_name = new_name.trim();
+        if new_name.is_empty() {
+            return Err("新名称不能为空".to_string());
+        }
+        if new_name.contains('/') {
+            return Err("新名称不能包含 /（一次只重命名一级目录）".to_string());
+        }
+        let new_path = match old_path.rfind('/') {
+            Some(i) => format!("{}/{}", &old_path[..i], new_name),
+            None => new_name.to_string(),
+        };
+        let prefix = format!("{}/", old_path);
+
+        let mut tags = self.load_tags();
+        if !tags.is_object() {
+            tags = serde_json::json!({});
+        }
+        let mut updated = 0usize;
+        let map = tags
+            .as_object_mut()
+            .ok_or("tags.json 结构异常".to_string())?;
+        for val in map.values_mut() {
+            let Some(obj) = val.as_object_mut() else {
+                continue;
+            };
+            let Some(cur) = obj.get("path").and_then(|v| v.as_str()).map(|s| s.to_string()) else {
+                continue;
+            };
+            if cur == old_path || cur.starts_with(&prefix) {
+                let rest = if cur == old_path {
+                    String::new()
+                } else {
+                    cur[old_path.len()..].to_string()
+                };
+                obj.insert("path".to_string(), serde_json::json!(format!("{}{}", new_path, rest)));
+                updated += 1;
+            }
+        }
+        if updated > 0 {
+            self.save_tags(&tags)?;
+        }
+        Ok(updated)
+    }
+
+    /// 删除目录（仅清除归属字段，不删文件）：该目录及其子目录下的歌曲归入「未分类」。返回影响的记录数。
+    pub fn delete_dir(&mut self, path: &str) -> Result<usize, String> {
+        if path.is_empty() {
+            return Err("「未分类」不是可删除的目录".to_string());
+        }
+        if Self::is_system_dir(path) {
+            return Err("系统目录不可删除".to_string());
+        }
+        let prefix = format!("{}/", path);
+
+        let mut tags = self.load_tags();
+        if !tags.is_object() {
+            tags = serde_json::json!({});
+        }
+        let mut updated = 0usize;
+        let map = tags
+            .as_object_mut()
+            .ok_or("tags.json 结构异常".to_string())?;
+        for val in map.values_mut() {
+            let Some(obj) = val.as_object_mut() else {
+                continue;
+            };
+            let Some(cur) = obj.get("path").and_then(|v| v.as_str()).map(|s| s.to_string()) else {
+                continue;
+            };
+            if cur == path || cur.starts_with(&prefix) {
+                obj.insert("path".to_string(), serde_json::json!(""));
+                updated += 1;
+            }
+        }
+        if updated > 0 {
+            self.save_tags(&tags)?;
+        }
+        Ok(updated)
+    }
+
+    // ===== 播放集合（Set 语义，用户自定义播放列表） =====
+
+    /// 设置播放集合（去重保留推入序 = 顺序模式的迭代序），并重置播放历史
+    pub fn set_play_list(&mut self, songs: Vec<String>) {
+        let mut seen = std::collections::HashSet::new();
+        let dedup: Vec<String> = songs
+            .into_iter()
+            .filter(|s| seen.insert(s.clone()))
+            .collect();
+        self.active_list = Some(dedup);
+        self.play_history.clear();
+        self.history_index = -1;
+        if let Some(list) = &self.active_list {
+            self.current_song_index = list
+                .iter()
+                .position(|s| s == &self.track_name)
+                .map(|i| i as i32)
+                .unwrap_or(0);
+        }
+    }
+
+    /// 清空播放集合：Some(空) 标记已清空 → 自然结束后停止自动切歌（手动切歌回落全库）
+    pub fn clear_play_list(&mut self) {
+        self.active_list = Some(Vec::new());
+    }
+
+    /// 集合是否已清空（停止自动切歌）
+    pub fn active_list_cleared(&self) -> bool {
+        matches!(&self.active_list, Some(l) if l.is_empty())
+    }
+
+    /// 当前播放集合快照（推入序；None 时为空）
+    pub fn active_list_songs(&self) -> Vec<String> {
+        self.active_list.clone().unwrap_or_default()
+    }
+
+    /// 是否启用了自定义播放集合（含已清空的空集合）
+    pub fn has_active_list(&self) -> bool {
+        self.active_list.is_some()
     }
 
     // ===== 设备管理 =====
@@ -901,18 +1235,94 @@ impl AudioPlayer {
     }
 }
 
-/// 播放列表歌曲（带标签）
+/// 解析歌曲记录 JSON 为 (path, tags, source)，兼容旧版单标签结构：
+/// - String（旧式）→ 该字符串作为唯一标签
+/// - Object{name}（旧式）→ name 作为唯一标签
+/// - Object{path,tags,source}（v2）→ 直接读取
+pub(crate) fn parse_song_record(value: &serde_json::Value) -> (String, Vec<String>, String) {
+    match value {
+        serde_json::Value::String(s) => (String::new(), vec![s.clone()], String::new()),
+        serde_json::Value::Object(m) => {
+            let path = m
+                .get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let source = m
+                .get("source")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let tags: Vec<String> = m
+                .get("tags")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|t| t.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .or_else(|| {
+                    m.get("name")
+                        .and_then(|v| v.as_str())
+                        .map(|s| vec![s.to_string()])
+                })
+                .unwrap_or_default();
+            (path, tags, source)
+        }
+        _ => (String::new(), Vec::new(), String::new()),
+    }
+}
+
+/// 内置歌曲判定：文件名去掉扩展名后以「 - 番茄钟」结尾（与前端 displayName 一致）
+pub(crate) fn is_builtin_song(name: &str) -> bool {
+    let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
+    stem.trim_end().ends_with(" - 番茄钟")
+}
+
+/// 播放列表歌曲（带标签/目录/来源）
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistSong {
     pub name: String,
+    /// 兼容旧字段：首个标签（无标签时为 "自定义"）
     pub tag: String,
     pub tag_color: Option<String>,
+    /// v2：多值标签
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    /// v2：目录归属路径（"" = 未分类）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// v2：来源（builtin / download / p2p / 空）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_ensure_scan_records_builtin_upgrade_and_skip_unknown() {
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        std::fs::write(dir.path().join("内置歌 - 番茄钟.mp3"), b"x").expect("写入失败");
+        std::fs::write(dir.path().join("普通歌.mp3"), b"x").expect("写入失败");
+        let mut player = AudioPlayer::new();
+        player.set_music_dir(dir.path().to_path_buf());
+        // 预置旧版字符串记录（模拟旧种子：内置歌只有字符串标签、无 path）
+        let mut tags = player.load_tags();
+        tags["内置歌 - 番茄钟.mp3"] = serde_json::json!("学习");
+        player.save_tags(&tags).unwrap();
+        // 扫描：内置歌升级补「内置」目录；普通歌不建纯默认记录
+        player.refresh_playlist();
+        let (path, tags_vec, source) = player.get_song_meta("内置歌 - 番茄钟.mp3");
+        assert_eq!(path, "内置", "内置歌应补「内置」目录");
+        assert_eq!(tags_vec, vec!["学习"], "旧标签应保留");
+        assert_eq!(source, "builtin");
+        let (p, t, _) = player.get_song_meta("普通歌.mp3");
+        assert_eq!(p, "", "未知文件不落盘记录（缺省未分类）");
+        assert_eq!(t, Vec::<String>::new());
+    }
 
     // ===== PlayMode 转换 =====
 
@@ -1071,5 +1481,170 @@ mod tests {
         player.set_volume(0.3);
         let snap = player.snapshot();
         assert!((snap.volume - 0.3).abs() < f32::EPSILON, "快照音量应反映 set_volume");
+    }
+
+    // ===== 歌曲记录 v2（path/tags/source 解析与迁移） =====
+
+    #[test]
+    fn test_parse_song_record_v2_object() {
+        let v = serde_json::json!({ "path": "导入/周杰伦", "tags": ["学习", "白噪音"], "source": "download" });
+        let (path, tags, source) = parse_song_record(&v);
+        assert_eq!(path, "导入/周杰伦");
+        assert_eq!(tags, vec!["学习", "白噪音"]);
+        assert_eq!(source, "download");
+    }
+
+    #[test]
+    fn test_parse_song_record_legacy_string() {
+        // 旧版单标签：String → 该字符串为唯一标签
+        let (path, tags, source) = parse_song_record(&serde_json::json!("学习"));
+        assert_eq!(path, "");
+        assert_eq!(tags, vec!["学习"]);
+        assert_eq!(source, "");
+    }
+
+    #[test]
+    fn test_parse_song_record_legacy_object_name() {
+        // 旧版 object 只有 name/color → name 作为唯一标签
+        let v = serde_json::json!({ "name": "运动", "color": "#ff6b6b" });
+        let (path, tags, source) = parse_song_record(&v);
+        assert_eq!(path, "");
+        assert_eq!(tags, vec!["运动"]);
+        assert_eq!(source, "");
+    }
+
+    #[test]
+    fn test_is_builtin_song_detection() {
+        assert!(is_builtin_song("Opening - 番茄钟.mp3"), "带 - 番茄钟 后缀应为内置");
+        assert!(is_builtin_song("我最爱的歌 - 番茄钟.m4a"));
+        assert!(!is_builtin_song("普通歌.mp3"));
+        assert!(!is_builtin_song("literally - 番茄钟x.mp3"), "后缀需完整匹配");
+        assert!(!is_builtin_song(""));
+    }
+
+    // ===== 记录写入与目录操作（字段模拟树） =====
+
+    fn temp_player_with_files(names: &[&str]) -> (tempfile::TempDir, AudioPlayer) {
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        for n in names {
+            std::fs::write(dir.path().join(n), b"fake audio bytes").expect("写入测试文件失败");
+        }
+        let mut player = AudioPlayer::new();
+        player.set_music_dir(dir.path().to_path_buf());
+        player.refresh_playlist();
+        (dir, player)
+    }
+
+    #[test]
+    fn test_ensure_song_record_creates_once() {
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        std::fs::write(dir.path().join("a.mp3"), b"fake").expect("写入测试文件失败");
+        let mut player = AudioPlayer::new();
+        player.set_music_dir(dir.path().to_path_buf());
+        // 未扫描（无记录）→ 首次创建成功
+        assert!(player.ensure_song_record("a.mp3", "下载", "download").unwrap(), "首次应创建");
+        // 再次调用不覆盖（用户移动过/已有记录）
+        assert!(!player.ensure_song_record("a.mp3", "内置", "builtin").unwrap());
+        let (path, _, source) = player.get_song_meta("a.mp3");
+        assert_eq!(path, "下载");
+        assert_eq!(source, "download");
+        // 扫描刷新不应覆盖用户已设的目录（自动归类只作用于首次创建）
+        player.refresh_playlist();
+        assert_eq!(player.get_song_meta("a.mp3").0, "下载", "扫描不得覆盖已有记录");
+    }
+
+    #[test]
+    fn test_set_song_path_and_batch() {
+        let (_dir, mut player) = temp_player_with_files(&["a.mp3", "b.mp3"]);
+        player.set_song_path("a.mp3", "合集/白噪音").unwrap();
+        assert_eq!(player.get_song_meta("a.mp3").0, "合集/白噪音");
+        let updated = player.set_songs_path(&["a.mp3".to_string(), "b.mp3".to_string()], "喜欢").unwrap();
+        assert_eq!(updated, 2, "两首都应更新");
+        assert_eq!(player.get_song_meta("a.mp3").0, "喜欢");
+        assert_eq!(player.get_song_meta("b.mp3").0, "喜欢");
+    }
+
+    #[test]
+    fn test_set_song_path_if_empty_only_sets_empty() {
+        let (_dir, mut player) = temp_player_with_files(&["a.mp3", "b.mp3"]);
+        player.set_song_path("a.mp3", "喜欢").unwrap();
+        // a 已有目录 → 不覆盖；b 无目录 → 设置
+        assert!(!player.set_song_path_if_empty("a.mp3", "CC传输").unwrap());
+        assert!(player.set_song_path_if_empty("b.mp3", "CC传输").unwrap());
+        assert_eq!(player.get_song_meta("a.mp3").0, "喜欢");
+        assert_eq!(player.get_song_meta("b.mp3").0, "CC传输");
+    }
+
+    #[test]
+    fn test_rename_dir_moves_subtree_and_guards_system() {
+        let (_dir, mut player) = temp_player_with_files(&["a.mp3", "b.mp3"]);
+        player.set_song_path("a.mp3", "导入/周杰伦/范特西").unwrap();
+        player.set_song_path("b.mp3", "导入/周杰伦/叶惠美").unwrap();
+        let updated = player.rename_dir("导入/周杰伦", "依然范特西").unwrap();
+        assert_eq!(updated, 2);
+        assert_eq!(player.get_song_meta("a.mp3").0, "导入/依然范特西/范特西");
+        assert_eq!(player.get_song_meta("b.mp3").0, "导入/依然范特西/叶惠美");
+        // 系统目录守卫
+        assert!(player.rename_dir("下载", "我的下载").is_err(), "系统目录不可重命名");
+        assert!(player.rename_dir("喜欢", "其他").is_err());
+    }
+
+    #[test]
+    fn test_delete_dir_moves_to_uncategorized_and_guards_system() {
+        let (_dir, mut player) = temp_player_with_files(&["a.mp3", "b.mp3"]);
+        player.set_song_path("a.mp3", "旧目录/子目录").unwrap();
+        player.set_song_path("b.mp3", "旧目录/其他").unwrap();
+        let updated = player.delete_dir("旧目录").unwrap();
+        assert_eq!(updated, 2);
+        assert_eq!(player.get_song_meta("a.mp3").0, "");
+        assert_eq!(player.get_song_meta("b.mp3").0, "");
+        // 系统目录守卫
+        assert!(player.delete_dir("内置").is_err());
+        assert!(player.delete_dir("喜欢").is_err());
+        assert!(player.delete_dir("CC传输").is_err());
+    }
+
+    // ===== 播放集合（Set 语义） =====
+
+    #[test]
+    fn test_set_play_list_dedup_and_order_next() {
+        let (_dir, mut player) = temp_player_with_files(&["a.mp3", "b.mp3", "c.mp3"]);
+        player.set_play_mode(PlayMode::Order);
+        // 去重保序：重复的 b 只保留一个
+        player.set_play_list(vec!["b.mp3".to_string(), "c.mp3".to_string(), "b.mp3".to_string()]);
+        player.track_name = "b.mp3".to_string();
+        assert_eq!(player.get_next_song(false).unwrap(), "c.mp3");
+        // 模拟切歌后 track_name 更新，再取下一首 → 列表循环回到开头
+        player.track_name = "c.mp3".to_string();
+        assert_eq!(player.get_next_song(false).unwrap(), "b.mp3", "列表循环回到开头");
+        // 列表外歌曲不出现
+        player.track_name = "b.mp3".to_string();
+        assert_ne!(player.get_next_song(false).unwrap(), "a.mp3");
+    }
+
+    #[test]
+    fn test_clear_play_list_stops_auto_next_but_manual_falls_back() {
+        let (_dir, mut player) = temp_player_with_files(&["a.mp3", "b.mp3"]);
+        player.set_play_mode(PlayMode::Order);
+        player.set_play_list(vec!["a.mp3".to_string(), "b.mp3".to_string()]);
+        assert!(!player.active_list_cleared());
+        player.clear_play_list();
+        assert!(player.active_list_cleared());
+        assert!(player.has_active_list());
+        // 自然结束（auto_play=true）→ 停止
+        player.track_name = "a.mp3".to_string();
+        assert!(player.get_next_song(true).is_none(), "清空集合后自然结束应停止");
+        // 手动切歌（auto_play=false）→ 回落全库
+        assert!(player.get_next_song(false).is_some());
+    }
+
+    #[test]
+    fn test_active_list_songs_snapshot() {
+        let (_dir, mut player) = temp_player_with_files(&["a.mp3", "b.mp3"]);
+        player.set_play_list(vec!["a.mp3".to_string(), "b.mp3".to_string()]);
+        assert_eq!(player.active_list_songs(), vec!["a.mp3", "b.mp3"]);
+        assert!(player.has_active_list());
+        player.clear_play_list();
+        assert_eq!(player.active_list_songs(), Vec::<String>::new());
     }
 }

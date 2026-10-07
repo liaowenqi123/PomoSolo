@@ -46,6 +46,12 @@ export interface PlaylistSong {
   name: string;
   tag?: string;
   tagColor?: string | null;
+  /** v2：多值标签 */
+  tags?: string[];
+  /** v2：目录归属路径（"" = 未分类） */
+  path?: string;
+  /** v2：来源（builtin / download / p2p / 空） */
+  source?: string;
 }
 
 export interface PlaylistData {
@@ -204,6 +210,55 @@ export function musicUpdateTag(
   color: string | null,
 ): Promise<{ success: boolean; error?: string }> {
   return invoke<{ success: boolean; error?: string }>("music_update_tag", { songName, tag, color });
+}
+
+// ===== 音乐库管理（目录树 + 播放集合 Set） =====
+
+export type MusicDirResult = {
+  success: boolean;
+  updated?: number;
+  set?: boolean;
+  error?: string;
+};
+
+/** 设置播放集合：把当前查询结果（歌名列表）推入播放引擎（Set 语义，去重保序） */
+export function musicSetPlaylist(songs: string[]): Promise<{ success: boolean }> {
+  return invoke<{ success: boolean }>("music_set_playlist", { songs });
+}
+
+/** 清空播放集合：播完当前歌后停止自动切歌 */
+export function musicClearPlaylist(): Promise<{ success: boolean }> {
+  return invoke<{ success: boolean }>("music_clear_playlist");
+}
+
+/** 单首移动目录 */
+export function musicMoveSong(song: string, path: string): Promise<MusicDirResult> {
+  return invoke<MusicDirResult>("music_move_song", { song, path });
+}
+
+/** 批量移动目录 */
+export function musicMoveSongs(songs: string[], path: string): Promise<MusicDirResult> {
+  return invoke<MusicDirResult>("music_move_songs", { songs, path });
+}
+
+/** P2P 自动归类：仅当歌曲尚无目录归属时设置（首次创建语义） */
+export function musicMoveSongIfDefault(song: string, defaultPath: string): Promise<MusicDirResult> {
+  return invoke<MusicDirResult>("music_move_song_if_default", { song, defaultPath });
+}
+
+/** 设置歌曲多值标签（整体替换） */
+export function musicSetSongTags(song: string, tags: string[]): Promise<MusicDirResult> {
+  return invoke<MusicDirResult>("music_set_song_tags", { song, tags });
+}
+
+/** 重命名目录（一级，含子目录迁移；系统目录拒绝） */
+export function musicRenameDir(oldPath: string, newName: string): Promise<MusicDirResult> {
+  return invoke<MusicDirResult>("music_rename_dir", { oldPath, newName });
+}
+
+/** 删除目录（歌曲归「未分类」，不删文件；系统目录拒绝） */
+export function musicDeleteDir(path: string): Promise<MusicDirResult> {
+  return invoke<MusicDirResult>("music_delete_dir", { path });
 }
 
 // ===== P2P 传歌（服务器中转分片，见 server-planning/API-implementation.md） =====
