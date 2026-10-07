@@ -225,6 +225,9 @@ function handleBackdropClick(e: MouseEvent) {
   padding: 14px 18px;
   overflow-y: auto;
   flex: 1;
+  /* 出售面板在"无作物可卖"或作物很少时内容极短，
+     最小高度保证弹窗整体高度不收缩、按钮位置稳定 */
+  min-height: 260px;
 }
 
 .shop-grid {

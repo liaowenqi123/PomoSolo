@@ -142,15 +142,13 @@ function onModalVisibleChange(v: boolean): void {
   color: rgba(255, 255, 255, 0.55);
 }
 
-/* 卡片列表 */
+/* 卡片列表：不再设置内部 max-height / 独立滚动条，
+   由 Modal 的 .modal-body 作为唯一滚动区域（配合 min-height:0 修复），
+   展开详情再长也能完整滚动查看，避免嵌套滚动条造成的"文字被裁"观感 */
 .tutorial-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 300px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
 }
 
 .tutorial-card {
@@ -175,7 +173,7 @@ function onModalVisibleChange(v: boolean): void {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 10px;
+  padding: 10px 12px; /* 行高加大，容纳标题+两行简介不拥挤 */
 }
 .tutorial-card__icon {
   font-size: 18px;
@@ -196,13 +194,14 @@ function onModalVisibleChange(v: boolean): void {
   color: rgba(255, 255, 255, 0.92);
 }
 .tutorial-card__desc {
-  font-size: 11px;
+  font-size: 12px;
   color: rgba(255, 255, 255, 0.6);
-  line-height: 1.4;
+  line-height: 1.6;
 }
 .tutorial-card__hint {
-  font-size: 11px;
+  font-size: 12px;
   color: rgba(255, 213, 79, 0.85);
+  line-height: 1.6;
 }
 .tutorial-card__arrow {
   font-size: 12px;
@@ -214,14 +213,15 @@ function onModalVisibleChange(v: boolean): void {
 .tutorial-card__details {
   list-style: none;
   margin: 0;
-  padding: 0 10px 10px 44px;
+  padding: 2px 12px 12px 44px;
 }
 .tutorial-card__detail {
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.7;
   color: rgba(255, 255, 255, 0.78);
   position: relative;
   padding-left: 12px;
+  margin-bottom: 6px;
 }
 .tutorial-card__detail::before {
   content: "";

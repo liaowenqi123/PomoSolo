@@ -182,6 +182,10 @@ onBeforeUnmount(() => {
   color: rgba(255, 255, 255, 0.9);
   overflow-y: auto;
   flex: 1;
+  /* 关键修复：flex 列子项默认 min-height:auto，内容超过容器 max-height 时
+     本体会拒绝收缩、无法滚动，导致文字溢出被裁（教程展开、长内容弹窗均受影响）。
+     置 0 后内容统一在此滚动。 */
+  min-height: 0;
 }
 
 /* Scrollbar */

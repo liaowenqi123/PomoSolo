@@ -223,11 +223,17 @@ function handleBackdropClick(e: MouseEvent) {
 .signin-modal__panel {
   width: 360px;
   max-width: 90vw;
+  max-height: 85vh;
   background: #1f2233;
   border-radius: 14px;
   padding: 20px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
   position: relative;
+  /* 面板高度稳定化：min-height + flex 列，奖励多少不影响整体高度；
+     rewards 区 flex:1 吸收差额，签到按钮始终贴底 */
+  min-height: 380px;
+  display: flex;
+  flex-direction: column;
 }
 
 .signin-modal__header {
@@ -322,6 +328,9 @@ function handleBackdropClick(e: MouseEvent) {
 
 .signin-rewards {
   margin-bottom: 18px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .signin-rewards__title {

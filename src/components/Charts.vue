@@ -394,7 +394,9 @@ watch(
 .charts-toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap; /* 宽度不足时整组换行，绝不挤压按钮导致文字折行 */
+  column-gap: 12px;
+  row-gap: 8px;
   padding: 10px 18px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
@@ -415,6 +417,8 @@ watch(
   cursor: pointer;
   font-size: 12px;
   border-radius: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .charts-source__btn.active {
@@ -430,6 +434,8 @@ watch(
   color: rgba(255, 255, 255, 0.9);
   cursor: pointer;
   font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .charts-refresh-btn:disabled {
@@ -445,6 +451,8 @@ watch(
   color: #ffd54f;
   cursor: pointer;
   font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: background 0.2s;
 }
 
@@ -484,6 +492,8 @@ watch(
   font-size: 12px;
   color: rgba(255, 255, 255, 0.6);
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .charts-table-container {
@@ -610,6 +620,8 @@ watch(
   color: #fff;
   cursor: pointer;
   font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: background 0.2s;
 }
 

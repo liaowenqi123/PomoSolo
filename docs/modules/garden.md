@@ -28,7 +28,7 @@
 | 背包 | `GardenBag.vue` | 显示种子与已收获作物，传统模式下点击种子选中用于种植 |
 | 商店 | `GardenShop.vue` | 购买种子 / 出售作物双标签页弹窗 |
 | 每日签到 | `GardenSignin.vue` | 连续签到、累计签到、本周记录、每日/每周/里程碑奖励 |
-| 成就墙 | `GardenAchievement.vue` | 25 个成就（7 分类 + 1 隐藏彩蛋），含进度条与奖励展示 |
+| 成就墙 | `GardenAchievement.vue` | 25 个成就（7 分类 + 1 隐藏彩蛋），含进度条与奖励展示；分类为等宽网格 tab（每类带数量徽标，如"隐藏 1"），列表区有最小高度保证界面不随成就数收缩 |
 | 一键全收 | `GardenMain.vue` 导航 | 🌾 收获所有成熟非枯萎作物，汇总提示 + 成就统计 |
 | v3 状态条 | `GardenMain.vue` | 连击显示（🔥连击×N 加速）+ 微黄提示（🌱 菜园有点蔫了）+ 段位徽章（LvN 名称） |
 
@@ -773,6 +773,27 @@ Rust 端不定义强类型 struct，而是直接操作 `serde_json::Value`，手
 1. 前端取日期用 `new Date().toISOString().split("T")[0]`（UTC），Rust 用 `today_date_string()`（UTC）。两端必须同为 UTC，不能一端 UTC 一端本地时区。
 2. `canSignInToday` 比较 `signIn.lastDate !== today`——若 `lastDate` 是本地时区写入的字符串，与 UTC 的 today 比较会差一天。
 3. 连续签到判断：Rust 用 `date_string_offset(-1)` 取昨天，与 `lastDate` 比较（`garden.rs` 第 233-246 行）。
+
+### Q9：成就墙分类按钮太小难点击 / 切到"隐藏"后界面高度收缩
+
+**排查步骤**：
+1. 分类 tab 已改为等宽网格布局：`grid-template-columns: repeat(auto-fill, minmax(64px, 1fr))`，
+   每个按钮 `min-height: 34px`，点击热区与标签文字长度无关；若改回 flex + 按文字量宽度，会重新出现小按钮。
+2. 各分类按钮的数量徽标通过 `::after { content: attr(data-count) }` 渲染（数据在 `categoryCounts` computed），
+   若看不到徽标，检查 tab 是否带 `data-count` 属性。
+3. 列表高度收缩已由 `.achievement-list { min-height: 260px }` 兜底——删除它会复现"隐藏分类只有 1 个成就时弹窗缩矮"。
+4. 同类"内容少导致面板上下收缩"问题在商店（`.shop-panel` `min-height:260px`）与签到
+   （`.signin-modal__panel` `min-height:380px` + flex 列，`.signin-rewards` 区 `flex:1`）也做了兜底，
+   排查其他面板收缩问题时可循此模式：给内容区加 min-height。
+
+### Q10：教程卡片行高不够 / 展开详情文字被裁
+
+**排查步骤**：
+1. 根因是 `Modal.vue` 的 `.modal-body` 缺少 `min-height: 0`：flex 列子项默认 `min-height:auto`，
+   内容超过弹窗 `max-height: 85vh` 时 body 不收缩、`overflow-y:auto` 不生效，文字溢出被裁。确认该样式仍在。
+2. 教程列表自身**不应**再有 `max-height` 内部滚动（嵌套滚动条观感差），展开详情由 modal-body 统一滚动。
+3. 行距由 `.tutorial-card__head`（padding 10px 12px）与 `.tutorial-card__detail`（line-height 1.7、margin-bottom 6px）控制，
+   若改回紧凑值会复现"文字贴边/被裁"。涉及 `GardenTutorial.vue` 与通用 `Modal.vue`（改动影响所有 Modal 内容）。
 
 ---
 

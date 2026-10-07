@@ -29,6 +29,18 @@ const activeCategory = ref<string>("all");
 const unlockedCount = computed(() => store.unlockedAchievementCount);
 const totalCount = computed(() => store.totalAchievementCount);
 
+/** 每个分类下的成就数量（含"全部"），用于 tab 徽标 */
+const categoryCounts = computed<Record<string, number>>(() => {
+  const counts: Record<string, number> = {};
+  for (const cat of ACHIEVEMENT_CATEGORIES) {
+    counts[cat.key] =
+      cat.key === "all"
+        ? Object.keys(ACHIEVEMENT_CONFIG).length
+        : Object.values(ACHIEVEMENT_CONFIG).filter((a) => a.category === cat.key).length;
+  }
+  return counts;
+});
+
 const filteredAchievements = computed<AchievementConfig[]>(() => {
   const list = Object.values(ACHIEVEMENT_CONFIG);
   if (activeCategory.value === "all") return list;
@@ -90,7 +102,9 @@ function handleBackdropClick(e: MouseEvent) {
           v-for="cat in ACHIEVEMENT_CATEGORIES"
           :key="cat.key"
           class="achievement-tab"
-          :class="{ active: activeCategory === cat.key }"
+          :class="{ active: activeCategory === cat.key, all: cat.key === 'all' }"
+          :data-count="categoryCounts[cat.key]"
+          :title="`${cat.label} ${categoryCounts[cat.key]} 个成就`"
           @click="activeCategory = cat.key"
         >
           {{ cat.label }}
@@ -193,27 +207,76 @@ function handleBackdropClick(e: MouseEvent) {
 }
 
 .achievement-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding: 0 18px 10px;
+  /* 等宽网格：每个分类按钮占用相同的可点击区域，不受标签长度影响；
+     auto-fill 保证窄窗口换行后每列宽度一致（不拉伸成孤行大按钮） */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 6px;
+  padding: 0 18px 12px;
 }
 
 .achievement-tab {
-  padding: 4px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 4px;
+  min-height: 34px; /* 加大点击热区，精确点击不再困难 */
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid transparent;
-  border-radius: 6px;
-  color: rgba(255, 255, 255, 0.7);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.75);
   cursor: pointer;
   font-size: 12px;
+  white-space: nowrap;
   transition: all 0.2s ease;
+}
+
+/* 数量徽标：用 ::after + attr(data-count)，不进入文本内容，保证标签语义/测试文本不变 */
+.achievement-tab::after {
+  content: attr(data-count);
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+  font-variant-numeric: tabular-nums;
+}
+
+.achievement-tab:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .achievement-tab.active {
   background: rgba(233, 69, 96, 0.2);
   border-color: #e94560;
   color: #fff;
+}
+
+.achievement-tab.active::after {
+  background: rgba(233, 69, 96, 0.35);
+  color: #ffd9de;
+}
+
+/* 「全部」tab 独特性：琥珀金做轻微区分（汇总视图 vs 单类目，一眼可辨但不抢眼） */
+.achievement-tab.all {
+  background: rgba(255, 213, 79, 0.08);
+}
+
+.achievement-tab.all:hover {
+  background: rgba(255, 213, 79, 0.16);
+}
+
+.achievement-tab.all.active {
+  background: rgba(255, 213, 79, 0.22);
+  border-color: #ffd54f;
+  color: #fff;
+}
+
+.achievement-tab.all.active::after {
+  background: rgba(255, 213, 79, 0.32);
+  color: #fff7d6;
 }
 
 .achievement-list {
@@ -223,6 +286,9 @@ function handleBackdropClick(e: MouseEvent) {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* 最小高度：分类成就很少（如"隐藏"只有 1 个）时列表/弹窗高度不收缩，
+     避免点击目标随界面高度变化而跳动 */
+  min-height: 260px;
 }
 
 .achievement-item {

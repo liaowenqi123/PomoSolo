@@ -6,6 +6,69 @@
 
 ## 2026-08-16
 
+### 24. 成就墙「全部」tab 配色区分 + 商店/签到面板高度收缩兜底（主部门，用户验收后微调）
+
+**所属部门**：主部门。第 23 条三处修复经用户验收后，按反馈补两处微调：
+
+**（a）成就墙「全部」tab 独特配色**
+- 背景：用户验收"成就墙分类交互重构"后希望「全部」与其他分类有细微颜色差别以体现独特性。
+- 修复（`GardenAchievement.vue`）：「全部」tab 增加 `all` class，用琥珀金系配色做轻区分
+  （未选中淡金底 → hover 加深 → 选中金底金边 + 金徽标），与单类目的粉色区分但不抢眼；
+  徽标仍走 `::after attr(data-count)`，不改变 tab 文本。
+
+**（b）商店/签到面板内容少时上下收缩**
+- 现象：商店"出售作物"页无作物时、签到弹窗奖励条目少（普通天）时，弹窗整体缩矮，
+  点击目标随高度跳动（与成就墙同一类问题，用户指出其他面板也有）。
+- 修复：
+  - `GardenShop.vue`：`.shop-panel` 加 `min-height: 260px`，出售页为空/很少时高度稳定；
+  - `GardenSignin.vue`：面板改为 `min-height: 380px` + flex 列 + `max-height: 85vh`，
+    `.signin-rewards` 区 `flex:1` + `min-height:0` + `overflow-y:auto` ——奖励多少不影响整体高度，
+    签到按钮始终贴底，奖励极端多时该区内部滚动。
+
+**验证**：`GardenAchievement / GardenShop / GardenSignin / GardenMain` 4 个测试文件 101 例全部通过；
+`npx vue-tsc --noEmit` 通过。
+待用户双机实测：成就墙「全部」金色辨识度合意、商店售空页/签到普通天弹窗高度稳定不跳。
+
+---
+
+### 23. 三处 UI 交互修复：榜单工具栏溢出挤字 / 成就墙分类难点且高度收缩 / 教程行高与展开文字被裁（主部门）
+
+**所属部门**：主部门。全部为前端 Vue 组件改动（`src/components/`），无 Rust 改动、无接口变化。
+
+**（a）音乐榜单工具栏：下载模式勾选后按钮文字被挤成两排（根因：flex 子项收缩换行）
+- 现象：自"🎚 统一响度"按钮加入榜单工具栏后，勾选"下载模式"（多出"📥 手动下载"按钮）时，
+  最上方一行总宽超过容器，flex 默认允许子项收缩 → 按钮文字折成两排，很丑。
+- 修复（`Charts.vue`，纯 CSS）：工具栏 `flex-wrap: wrap` + `column-gap/row-gap` 分开设置；
+  所有工具栏按钮/开关加 `white-space: nowrap` + `flex-shrink: 0` —— 宽度不足时整组换行，
+  每个按钮保持自然尺寸、文字永不折行。
+
+**（b）成就墙分类选项交互重构（根因：小尺寸文字量宽度的 tab + 列表高度随内容收缩）
+- 现象：分类 tab 按钮（padding 4px 10px、字号 12px）点击热区过小，精确点击困难；
+  且各分类成就数差异大（如"隐藏"仅 1 个），切换后列表/弹窗高度收缩，点击目标随高度跳动。
+- 修复（`GardenAchievement.vue`）：
+  - tab 改等宽网格 `grid-template-columns: repeat(auto-fill, minmax(64px, 1fr))`，
+    每个分类占用相同可点击区域（min-height 34px、字号 12px、圆角 8px），窄窗口换行时各列宽度一致；
+  - 新增数量徽标：`::after { content: attr(data-count) }` 显示每类成就数（如"隐藏 1"），
+    不进文本内容（不污染 tab 语义/测试文本），hover/active 态同步；
+  - `.achievement-list` 增加 `min-height: 260px`，成就少的分类不再压缩弹窗高度。
+
+**（c）菜园子教程行高不足 / 展开后文字装不下（根因：Modal body flex 滚动失效 + 嵌套滚动条）
+- 现象：教程每行高度容纳不下文字；点开卡片展开详情后，展开的文字被裁掉一部分。
+- 根因：`Modal.vue` 的 `.modal-body`（flex 列子项）默认 `min-height:auto`，
+  内容超过容器 `max-height:85vh` 时 body 拒绝收缩、`overflow-y:auto` 不生效 → 文字溢出被裁；
+  且 `GardenTutorial.vue` 列表自身还有 `max-height:300px` 的内部滚动，形成嵌套滚动条、观感更糟。
+- 修复：
+  - `Modal.vue`：`.modal-body` 加 `min-height: 0`（经典 flex 滚动修复，所有 Modal 内容受益）；
+  - `GardenTutorial.vue`：去掉列表内部 `max-height:300px` 滚动，由 modal-body 统一滚动；
+    行距加高（head padding 10px 12px、desc/hint 字号 12px + line-height 1.6、
+    detail line-height 1.7 + 条目间距 6px），展开详情完整可读。
+
+**验证**：`npx vue-tsc --noEmit` 通过；`npm test` 60 个文件 1180 例全部通过。
+待用户双机实测：榜单勾选下载模式后按钮不折行；成就墙分类按钮点击顺手、隐藏分类下界面高度稳定；
+教程展开详情完整显示且滚动流畅。
+
+---
+
 ### 22. PWA 六项问题修复（反馈不可见 / 下载音乐丢失 / 锁屏按钮 / 前台打断不同步 / 进程被杀恢复 / 手机按钮重叠）（PWA部门，v0.5.0）
 
 **所属部门**：PWA部门（仅改 `src/pwa/`，桌面端零改动）。六项均针对 PWA 端（`start.pomogrow.top`），
