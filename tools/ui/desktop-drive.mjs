@@ -217,22 +217,30 @@ async function main() {
        * launch-app.ps1 用 CreateProcess + SW_SHOWNOACTIVATE(4) 让窗口
        *   **可见但不激活**（可见是必需的：最小化/隐藏时 WebView2 不渲染，
        *   PrintWindow 抓空白、无障碍树退化），并在启动后把焦点还给原窗口。
+       *
+       * ⚠️ 这里必须用 `stdio: "ignore"`，**不能用管道**（encoding/pipes）：
+       *   为了让子进程拿到 NUL 标准句柄，launch-app.ps1 里 CreateProcess 要以
+       *   bInheritHandles=true 调用 —— 那会连带继承 pwsh **所有**可继承句柄，
+       *   其中包括 Node 给 stdout 的管道（Node 特意把它标记为可继承）。
+       *   结果是：pwsh 早就退出，但**应用一直持着管道写端**，管道永不 EOF，
+       *   spawnSync 就永远等下去（实测卡死 10 分钟以上）。
+       *   stdio:"ignore" 让 pwsh 根本没有管道可继承，问题从根上消失。
+       *   代价是拿不到 pid 输出 —— 但清理走 taskkill /IM，本来就不需要 pid。
        */
       const launchScript = join(HERE, "lib", "launch-app.ps1");
       const launched = spawnSync(
         "pwsh",
         ["-NoProfile", "-NonInteractive", "-File", launchScript, "-Exe", exe],
-        { encoding: "utf8" },
+        { stdio: "ignore", timeout: 30000 },
       );
+      if (launched.error?.code === "ETIMEDOUT") {
+        throw new Error("启动应用超时（30s 未返回）。检查 launch-app.ps1 / 是否有残留进程。");
+      }
       if (launched.status !== 0) {
-        throw new Error(`启动失败：${launched.stderr || launched.stdout || `退出码 ${launched.status}`}`);
+        throw new Error(`启动失败（退出码 ${launched.status}）。用 pwsh -File tools/ui/lib/launch-app.ps1 -Exe <exe> 手工复现看报错。`);
       }
-      const pidMatch = /pid=(\d+)/.exec(launched.stdout ?? "");
-      const launchedPid = pidMatch ? Number(pidMatch[1]) : null;
-      if (launchedPid) {
-        // 只记录 PID 用于结束进程；不持有子进程句柄（它由 Windows 独立持有）
-        app = { pid: launchedPid, kill: () => { try { process.kill(launchedPid); } catch { /* 已退出 */ } } };
-      }
+      // 清理阶段按进程名 taskkill，不需要 pid；这里只标记"应用由本次运行启动"
+      app = { launched: true, exe };
       await sleep(9000);   // 等窗口出现 + 前端加载 + 加载遮罩消失
     } else {
       console.log("▸ --no-launch：附着到已在运行的应用");
