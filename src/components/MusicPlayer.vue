@@ -249,7 +249,7 @@ watch(
  *
  * 为什么分两种：这两个任务的**频率和退出成本要求差一个数量级**。挤在一起时，
  * 为 full 争取空间就会牺牲 compact 的退出成本（点外部即关）。
- * 详见 docs/modules/music-player.md §8.6。
+ * 详见 docs/modules/music-player.md §8.5。
  */
 const panelMode = ref<"compact" | "full">("compact");
 
@@ -299,8 +299,14 @@ const playlistBtnTitle = computed(() => {
 function togglePlaylist() {
   isPlaylistOpen.value = !isPlaylistOpen.value;
   if (isPlaylistOpen.value) {
-    // 每次**打开**都从紧凑模式起（展开是本次会话内的临时动作，不跨次记忆）
-    panelMode.value = "compact";
+    /*
+     * 每次**打开**都按偏好决定初始尺寸：
+     *   compact（默认）→ 紧凑浮层：瞄一眼队列 / 随手切歌，按外部或 Esc 即关
+     *   full           → 直接全屏曲库：偏好"大列表"的用户
+     * 「展开 / 收回」只影响本次会话，不写回偏好 —— 否则在面板里点一下展开
+     * 就永久改变了下次的打开方式，用户会莫名其妙。
+     */
+    panelMode.value = settings.settings.musicLibraryStyle === "full" ? "full" : "compact";
     void store.requestPlaylist();
   }
 }
@@ -1102,7 +1108,7 @@ if (typeof document !== "undefined") {
         <!--
           ===== 全屏模式：曲库管理（显式展开进入）=====
           全窗 sheet，铺满窗口（原为锚在播放器上方的 348×340 小弹窗）。
-          为什么改结构见 docs/modules/music-player.md §8.6。
+          为什么改结构见 docs/modules/music-player.md §8.5。
         -->
         <Teleport to=".container" :disabled="!sheetTeleportEnabled" defer>
         <div v-show="isPlaylistOpen && panelMode === 'full'" class="music-playlist">

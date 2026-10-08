@@ -22,6 +22,8 @@ export type Theme = "dark" | "light";
 
 /** 同步听歌传歌方案：immediate 边下边播 / wait_all 全员就绪统一播 */
 export type SyncTransferMode = "immediate" | "wait_all";
+/** 音乐库打开方式：紧凑浮层（默认，瞄一眼/随手切歌）| 全屏曲库（挑选/整理） */
+export type MusicLibraryStyle = "compact" | "full";
 
 /** 应用设置（核心子集，对应 electron settings.js 的 SETTING_MAP） */
 export interface AppSettings {
@@ -42,6 +44,15 @@ export interface AppSettings {
   showVolumeBtn: boolean;
   showDeviceBtn: boolean;
   showChartsBtn: boolean;
+  /**
+   * 音乐库的打开方式：
+   *   "compact"（默认）—— 点 📋 开**紧凑浮层**（扁平列表，瞄一眼队列 / 随手切歌，
+   *                        按外部或 Esc 即关）；全屏曲库从浮层里的 ⤢ 展开。
+   *   "full"            —— 点 📋 直接开**全屏曲库**（目录树 / 筛选 / 批量管理），
+   *                        照顾偏好"大列表"的用户。
+   * 详见 docs/modules/music-player.md §8.5。
+   */
+  musicLibraryStyle: MusicLibraryStyle;
   advancedColorCustomization: boolean;
   // 同步听歌（DJ 生效）
   syncTransferMode: SyncTransferMode;
@@ -76,6 +87,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showVolumeBtn: true,
   showDeviceBtn: true,
   showChartsBtn: true,
+  musicLibraryStyle: "compact",
   advancedColorCustomization: false,
   syncTransferMode: "immediate",
   p2pCompress: true,
@@ -100,6 +112,11 @@ function mergeSettings(raw: JsonObject): AppSettings {
     } else if (typeof defaultVal === "string") {
       (result[key] as string) = String(val);
     }
+  }
+  // 受约束的字符串枚举：mergeSettings 的通用分支只做 String()、不校验取值，
+  // 配置文件被写坏时会透传非法值 → 这里收敛回默认值。
+  if (result.musicLibraryStyle !== "compact" && result.musicLibraryStyle !== "full") {
+    result.musicLibraryStyle = DEFAULT_SETTINGS.musicLibraryStyle;
   }
   return result;
 }

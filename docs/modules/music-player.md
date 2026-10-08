@@ -309,7 +309,7 @@
 ### 4.10 播放列表样式
 
 > ⚠️ **本节记录的是"小弹窗时代"的历史方案（`240px` 宽 / `z-index: 9999`），
-> 已被 §8.6 的「全窗 sheet」取代。** 保留作为演进记录，**不要照着改代码**。
+> 已被 §8.5 的「一个界面两种尺寸」取代（默认是紧凑浮层）。** 保留作为演进记录，**不要照着改代码**。
 
 - **现象**：
   - 迁移版播放列表宽度只有 200px，歌曲名带扩展名时被截断；条目间距过大，单屏显示歌曲数少。
@@ -599,7 +599,7 @@ v4.5.8 在 `server-planning/API-implementation.md` 留言的三项服务器需�
 | 输出设备列表     | `.music-info`   | `bottom: 100%; right: 0`      | 9999    | 🎧 设备按钮    |
 | 音乐库           | `.container`（Teleport） | `inset: 0`（**全窗 sheet**） | `--z-popup`(1000) | 📋 播放列表按钮 |
 
-> 音乐库已不是"向上弹出的浮层"，而是铺满整个窗口的 sheet，详见 §8.6。
+> 音乐库**默认仍是向上弹出的紧凑浮层**（`.music-list`，见 §8.5）；全屏 sheet 是显式展开后的形态。
 
 ### 5.4 z-index 层级总表
 
@@ -611,7 +611,8 @@ v4.5.8 在 `server-planning/API-implementation.md` 留言的三项服务器需�
 | `.music-collapse-btn`         | 10      | `.music-player` 内部 | 最低，正常态不遮挡内容          |
 | `.music-volume__slider`       | 1000    | `.music-player` 内部 | 高于收起按钮(10)，调音量时临时遮住收起按钮 |
 | `.music-device__list`         | 9999    | `.music-player` 内部 | 设备弹框，浮层最高              |
-| `.music-playlist`（音乐库 sheet） | `--z-popup`(1000) | `.container` | 全窗 sheet，见 §8.6 |
+| `.music-list`（紧凑浮层，默认） | `--z-popup`(1000) | `.music-player` 内 | 锚在播放器上方，见 §8.5 |
+| `.music-playlist`（全屏曲库，展开后） | `--z-popup`(1000) | `.container` | 全窗 sheet，见 §8.5 |
 | 窗口 chrome（📍−×）           | `--z-window-chrome`(1100) | `.container` | **必须高于 sheet**，否则全窗 sheet 会盖住关闭按钮（本窗口 `decorations:false`，标题栏是唯一关闭途径） |
 
 ### 5.5 收起状态结构
@@ -782,66 +783,106 @@ v4.5.8 在 `server-planning/API-implementation.md` 留言的三项服务器需�
   - 集合动作：`addSongsToPlaylist`（单曲加入，去重）、`addViewToPlaylist`（筛选结果全部加入）、`playCollection(shuffle)`（所有播放行为都发生在集合内）、`removeFromPlaylist`、`clearPlaylistSet`；浏览/预览（`playSong`）**永不改变集合**；
 - `MusicPlayer.vue` 面板**三个选项卡并排**：
 
-### 8.6 音乐库 = 全窗 sheet（v4.8 后续改版，重要）
+### 8.5 音乐库 = 一个界面两种尺寸（v4.8 后续改版，重要）
 
-**改动前**：`.music-playlist` 是锚在播放器上方的 `348×340` 小弹窗
-（`bottom: 100%; right: 0`，`height: min(380px,64vh)`）。
+#### 为什么不能只做一个尺寸
 
-**问题（结构性，不是细节）**：那块区域可用纵向空间只有约 340px，却要同时放
-「目录树」和「歌单」**两个纵向列表** → 两者互相挤压，歌单只能看到 3-4 行，
-必须长距离上下滚动。无论怎么调 padding / 字号都逃不掉。
+点 📋 有两类**频率和退出成本要求差一个数量级**的用法：
 
-**改版方案**：改为**铺满整个窗口的 sheet**（520×560），目录树从"占一行纵向空间"
-改为**占一栏横向空间**：
+| | 任务 A：瞄一眼 / 随手切歌 | 任务 B：挑选 / 整理曲库 |
+|---|---|---|
+| 典型动作 | 看队列里有什么、下一首是什么、随手换一首 | 按目录/标签筛选、批量删除、改标签、建队列 |
+| 频率 | **高频** | 低频 |
+| 空间需求 | 小 | 大 |
+| 退出成本 | **必须接近零** | 可以显式关闭 |
 
-| 项 | 改动前 | 改动后 |
-|----|--------|--------|
-| 尺寸 | 348×340（锚在播放器上方） | **520×560**（铺满窗口） |
-| 挂载点 | `.music-wraper` 内（`.music-player` 里） | `<Teleport to=".container" defer>` |
-| 目录树 | 主体里的一个"行"（`max-height:112px`） | **左栏** `flex: 0 0 150px`，独立滚动 |
-| 歌单 | 剩余高度 | **右栏** `flex:1`，占满高度 |
-| 可见歌曲行 | 3-4 行 | **12-13 行**（实测真实曲库一屏尽收） |
-| 关闭方式 | 点面板外 | header 左侧 `←` 返回按钮（全窗 sheet 没有"外面"） |
+**演进过程中的两次教训**：
 
-结构：`header(52) / tabs(44) / body(tree 150 + main flex:1) / 底部动作条`
-—— `body` 在目录 tab 加 `--split` 变两栏，其余 tab 单栏（`main` 内部是
-`filters / items / collection` + 动作条，纵向 flex）。
+1. 最初是 `348×340` 小弹窗 —— 这块空间要同时放「目录树」和「歌单」两个纵向
+   列表 → 互相挤压，歌单只能看到 3-4 行、必须长距离滚动。**这是结构问题，
+   调 padding/字号解决不了。**
+2. 于是改成 `520×560` 全窗 sheet —— 选歌确实方便了（一屏 13 首），
+   但**为任务 B 争取空间就毁掉了任务 A 的退出成本**：点外部即关的逻辑一直都在，
+   可全窗 sheet 把"外面"这个区域**物理消灭**了，只剩左上角一个 `←` 可关。
 
-**踩坑（都必须知道）**：
+正确解法是**一个界面两种尺寸**，而不是两个功能：
 
-1. **Teleport 目标解析时机**：Vue **自底向上**挂载 DOM，`MusicPlayer` 挂载时
-   `.container` 还没被插进 document → `Teleport` 解析不到目标、**静默不渲染**
-   （现象：面板完全不出现，且没有报错）。必须用 Vue 3.5 的 `<Teleport defer>`。
-2. **单测里没有 `.container`**：孤立挂载组件时目标不存在 → 面板不渲染，
-   27 个用例失败。**不要**用 VTU 的 `stubs: { teleport: true }` —— 那会把**所有**
-   Teleport 都戳掉，连带改变右键菜单（`to="body"`）的传送语义，导致"两步确认删除"
-   用例失败。正确做法是 `<Teleport :disabled="!sheetTeleportEnabled">`：
-   挂载后探测目标，不存在就**就地渲染**（优雅降级）。
-3. **不能自己写 `border-radius`**：圆角由上层 `.window-frame` 的
-   `overflow:hidden` 提供。自己写会在圆角处露出 `.container` 的红色渐变。
-4. **窗口 chrome 必须抬到 sheet 之上**：本窗口 `decorations:false`，
-   标题栏是唯一的移动/关闭途径。sheet 若以 `--z-popup`(1000) 铺满窗口就会盖住
-   关闭按钮 → **关不掉**。故新增 `--z-window-chrome: 1100` 给
-   `WindowControls.vue` / `PinButton.vue`，并让 header 右侧留 108px 空位。
-5. **不要出现两个 ✕**：返回按钮放**左侧**。放右侧会紧邻窗口 chrome，
-   看起来像"第 4 个窗口按钮"，用户不知道该点哪个关闭。
-6. **`height:auto` 的 flex 收缩**：只有列表区该吸收压缩，固定区
-   （header/tabs/dirs/filters/动作条）必须 `flex-shrink:0`，否则会出现
-   "目录树最后一行被切一半"。
-7. **配色统一**：选中态原来用项目外的蓝 `#42a5f5`，已统一到主题红；
-   刷新按钮的 `🔄` emoji 在 Windows 上渲染成**亮蓝方块**，改用文本字形 `⟳`。
+| | 紧凑模式（默认） | 全屏模式 |
+|---|---|---|
+| 尺寸 | `262×340`，锚在播放器上方 | `520×560` 铺满窗口 |
+| 内容 | **扁平列表**（队列优先） | 目录树 + 筛选 + 批量管理 |
+| 行高 | **28px**（扫得快） | 40px（信息多） |
+| 行内容 | 标签 chip → 曲名 → 🗑/✕/▶ | 曲名 → 路径 → 标签 → ＋ |
+| 进入 | 点 📋 | 紧凑模式点 `⤢` |
+| 退出 | **按下外部 / Esc** | `←` 收回紧凑（不是关闭） |
+| 类名 | `.music-list`（**不 Teleport**） | `.music-playlist`（Teleport 到 `.container`） |
 
-**验证方式**：`npm run ui:shot -- --target desktop --click ".music-playlist-btn"`
-（浏览器 + IPC mock，三个 tab 各截一张）；真实窗口
-`npm run ui:drive -- --recipe desktop-music-panel`。
+**关键领悟**：紧凑模式的好用来自**密度**，不是面积。上一版（`cd5a1ed^`）
+用 `240×280` 就能一屏 8 首；全窗 sheet 一屏 13 首却"扫得慢"。
 
-  - **📁 目录**：目录树（缩进+展开+计数）；
-  - **🔍 筛选**：搜索框 + 标签 chips（多选 + 计数）；
-  - **🎵 播放列表**：集合成员（无序、无序号，tab 带数量徽标）、当前播放高亮、✕ 移除、可拖放接收；底部「▶ 播放集合」「🔀 随机播放集合」「⏹ 清空」；
-  - **歌曲行交互（Windows 资源管理器风格）**：单击=选中、再次单击=取消、Shift 连续、Ctrl 增减、双击=加入播放列表、拖拽到播放列表区、**右键=原生手感菜单**（Teleport 到 body、锚定光标自动向上/向下展开）——▶ 播放 / 🎵 添加到播放列表 / 📁 移动到目录… / 🏷 设置标签… / ♥ 标记喜欢 / 🗑 删除所选（两步确认）；**多选时右键作用于整个选择集**（菜单顶部提示"已选 N 首"）；无"批量"按钮；
-  - 底部动作行（位置固定）：「➕ 全部加入播放列表」「✕ 清除筛选（只重置浏览）」。
+#### 紧凑模式的三个设计点
 
-### 8.5 PWA
+1. **列表显示什么**：`playSetActive` → **队列**（"再次打开面板"的主要动机是看队列 /
+   下一首）；否则 → **全部歌曲**（退回上一版行为，避免打开一个空面板）。
+2. **动作图标按语义分离**：队列模式 `✕` 从队列移除（非破坏性）；
+   曲库模式 `🗑` 删除文件（上一版行为）。同一个 🗑 兼两种语义会让人不敢点。
+3. **"下一首"不用开界面**：📋 的 `title` 动态显示
+   `播放列表 · 12 首 · 下一首：xxx` —— 高频需求的最优解是**不开界面**。
+   （不加数字徽标：24px 的按钮上挂徽标太挤。）
+
+#### 偏好设置
+
+`settings.musicLibraryStyle: "compact" | "full"`（默认 `compact`）。
+
+- `compact`：点 📋 开紧凑浮层；全屏曲库从浮层里的 `⤢` 展开。
+- `full`：点 📋 直接开全屏曲库（照顾偏好"大列表"的用户）。
+
+**「展开/收回」只影响本次会话，不写回偏好** —— 否则在面板里点一下展开就永久
+改变了下次的打开方式，用户会莫名其妙。每次打开时按偏好决定初始尺寸。
+
+`mergeSettings` 的通用分支对字符串只做 `String()`、**不校验取值**，
+所以 `musicLibraryStyle` 额外做了一次枚举收敛（配置文件被写坏时回退默认值）。
+
+#### ★ 坑（都必须知道）
+
+1. **弹层关闭必须用 `pointerdown`/`mousedown`，禁止用 `click`**。
+   `click` 是 **mouseup 语义**：在面板内按下、移到面板外再松开，`click` 会在
+   共同祖先触发 → 面板被误关。受害场景正是拖拽与"按下后往外滑走再松手"。
+   音量、设备、播放列表、右键菜单**四处原本都有**这个问题。
+   已写进 `AGENTS.md` §5 硬约束。
+2. **`in-app 面板` 不做窗口失焦自动关**；只有独立窗口语义才需要，
+   且同样必须是"在窗口外**按下**鼠标"而不是松开。
+3. **Teleport 目标解析时机**：Vue **自底向上**挂载 DOM，本组件挂载时 `.container`
+   还没进 document → `Teleport` 解析不到目标、**静默不渲染且无报错**。
+   必须用 Vue 3.5 的 `<Teleport defer>`。
+4. **单测里没有 `.container`**：孤立挂载组件时目标不存在 → 全屏 sheet 不渲染。
+   **不要**用 VTU 的 `stubs: { teleport: true }` —— 那会戳掉**所有** Teleport，
+   连带改变右键菜单（`to="body"`）的传送语义，导致"两步确认删除"用例失败。
+   正确做法：`<Teleport :disabled="!sheetTeleportEnabled">`，
+   探测不到目标就**就地渲染**（优雅降级）。
+5. **不能自己写 `border-radius`**：圆角由上层 `.window-frame` 的 `overflow:hidden`
+   提供，自己写会在圆角处露出 `.container` 的红色渐变。
+6. **窗口 chrome 必须抬到 sheet 之上**：本窗口 `decorations:false`，标题栏是唯一
+   关闭途径。全屏 sheet 会盖住关闭按钮 → **关不掉**。故新增
+   `--z-window-chrome: 1100` 给 `WindowControls.vue` / `PinButton.vue`。
+7. **`height:auto` 时的 flex 收缩**：只有列表区该吸收压缩，固定区
+   （header/tabs/dirs/filters/动作条）必须 `flex-shrink:0`，
+   否则会出现"目录树最后一行被切一半"。
+8. **Esc 分层**：全屏时先收回紧凑，再按一次才关闭。
+
+#### 验证方式
+
+```bash
+# 浏览器 + IPC mock（快）：紧凑浮层 / 全屏 / 筛选 tab
+npm run ui:shot -- --target desktop --scenario music-playing --click ".music-playlist-btn"
+# 真实 Tauri 窗口（含 UIA 点击校验与热区审计）
+npm run ui:drive -- --recipe desktop-music-panel
+```
+
+行为验证要点（`temp-debug/_probe-compact-behavior.mjs` 是当时的探针）：
+**在面板内按下 → 移到面板外松开 → 面板不能关**。
+
+### 8.6 PWA
 
 新命令均有 registry shim（`src/pwa/tauri/commands/music.ts`）：目录/标签存 `localStorage:music-meta`（`paths`/`multiTags` 字段，见 `src/pwa/storage.ts`）；集合命令 no-op（PWA 引擎在前端）。
 
@@ -854,7 +895,7 @@ v4.5.8 在 `server-planning/API-implementation.md` 留言的三项服务器需�
 3. **事件驱动**：前端通过 `useTauriEvent` 注册监听，Store 的 `handle*` 方法更新状态；事件全部由 Rust 层 `app.emit`。
 4. **同步命令**：需要返回值的命令（删除/标签）由命令函数直接返回 `Result`，Tauri IPC 同步回传。
 5. **样式对照旧版**：`deprecated/electron/src/styles/music-player.css` 是权威参考，迁移时类名从 kebab-case 改为 BEM（`.music-device-list` → `.music-device__list`），但布局结构与尺寸完全对齐。
-6. **z-index 规划**：一律用 `global.css` 的 CSS 变量——`.music-player` 用 `--z-overlay-ui`(200)，音量拨动条 1000，设备弹框 9999，音乐库 sheet 用 `--z-popup`(1000)，窗口 chrome（📍−×）用 `--z-window-chrome`(1100，**必须高于 sheet**)。详见 §5.4 / §8.6。
+6. **z-index 规划**：一律用 `global.css` 的 CSS 变量——`.music-player` 用 `--z-overlay-ui`(200)，音量拨动条 1000，设备弹框 9999，音乐库 sheet 用 `--z-popup`(1000)，窗口 chrome（📍−×）用 `--z-window-chrome`(1100，**必须高于 sheet**)。详见 §5.4 / §8.5。
 7. **三行结构**：信息行 → 进度条行 → 控制行，中间按钮居中，左右按钮绝对定位。
 8. **收起动画**：`max-height` 过渡 + `opacity/visibility` 配合，0.45s `cubic-bezier(0.5,0,0.5,1)`。
 9. **音乐目录**：开发模式 `<project_root>/music-player/music/`，生产模式 `app_data_dir/music`（安装/更新不覆盖，见 4.1）。

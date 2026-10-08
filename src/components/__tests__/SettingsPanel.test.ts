@@ -488,35 +488,62 @@ describe("SettingsPanel.vue", () => {
   });
 
   // ===== 更新源选择 =====
+  //
+  // ⚠️ `.settings-seg` 是**通用**分段控件，页面上不止一处（音乐库打开方式也用它）。
+  //    所以必须按行的 label 文本限定作用域，不能直接 findAll 取全局索引。
+  const segBtnsOf = (wrapper: ReturnType<typeof mountComponent>, rowLabel: string) => {
+    const row = wrapper
+      .findAll(".settings-row--toggle")
+      .find((r) => r.find(".settings-row__label").exists() && r.find(".settings-row__label").text() === rowLabel);
+    return row ? row.findAll(".settings-seg__btn") : [];
+  };
 
   it("默认更新源为 github（GitHub 按钮激活）", () => {
     const wrapper = mountComponent();
-    const btns = wrapper.findAll(".update-source-seg__btn");
+    const btns = segBtnsOf(wrapper, "更新源");
     expect(btns.length).toBe(2);
     expect(btns[0].text()).toBe("GitHub");
-    expect(btns[0].classes()).toContain("update-source-seg__btn--active");
+    expect(btns[0].classes()).toContain("settings-seg__btn--active");
     expect(btns[1].text()).toBe("服务器");
-    expect(btns[1].classes()).not.toContain("update-source-seg__btn--active");
+    expect(btns[1].classes()).not.toContain("settings-seg__btn--active");
   });
 
   it("应显示更新源提示文案（P2P 种子优先）", () => {
     const wrapper = mountComponent();
-    const hint = wrapper.find(".update-source-hint");
-    expect(hint.exists()).toBe(true);
-    expect(hint.text()).toContain("P2P 种子");
+    const hints = wrapper.findAll(".settings-hint");
+    expect(hints.length).toBeGreaterThan(0);
+    expect(hints.some((h) => h.text().includes("P2P 种子"))).toBe(true);
   });
 
   it("点击『服务器』应调用 settings.update('updateSource', 'server') 并切换激活态", async () => {
     const store = useSettingsStore();
     const updateSpy = vi.spyOn(store, "update");
     const wrapper = mountComponent();
-    const serverBtn = wrapper.findAll(".update-source-seg__btn")[1];
+    const serverBtn = segBtnsOf(wrapper, "更新源")[1];
     await serverBtn.trigger("click");
     await flushPromises();
     expect(updateSpy).toHaveBeenCalledWith("updateSource", "server");
-    const btns = wrapper.findAll(".update-source-seg__btn");
-    expect(btns[1].classes()).toContain("update-source-seg__btn--active");
-    expect(btns[0].classes()).not.toContain("update-source-seg__btn--active");
+    const btns = segBtnsOf(wrapper, "更新源");
+    expect(btns[1].classes()).toContain("settings-seg__btn--active");
+    expect(btns[0].classes()).not.toContain("settings-seg__btn--active");
+  });
+
+  // ===== 音乐库打开方式（默认紧凑列表）=====
+
+  it("音乐库打开方式默认 compact，且可切到 full 并持久化", async () => {
+    const store = useSettingsStore();
+    const updateSpy = vi.spyOn(store, "update");
+    const wrapper = mountComponent();
+
+    const btns = segBtnsOf(wrapper, "音乐库打开方式");
+    expect(btns.length).toBe(2);
+    expect(btns[0].text()).toBe("紧凑列表");
+    expect(btns[0].classes()).toContain("settings-seg__btn--active");
+    expect(btns[1].text()).toBe("全屏面板");
+
+    await btns[1].trigger("click");
+    await flushPromises();
+    expect(updateSpy).toHaveBeenCalledWith("musicLibraryStyle", "full");
   });
 
   // ===== 接收 Beta 版本更新（v4.5.18）=====

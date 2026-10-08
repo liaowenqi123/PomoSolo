@@ -13,6 +13,7 @@ import {
   useSettingsStore,
   type MinimizeBehavior,
   type MiniExitMode,
+  type MusicLibraryStyle,
   type Theme,
   type UpdateSource,
 } from "../stores/settings";
@@ -578,6 +579,11 @@ async function onMiniExitModeChange(value: MiniExitMode): Promise<void> {
   await settings.update("miniExitMode", value);
 }
 
+/** 音乐库打开方式：紧凑浮层（默认）| 全屏曲库 */
+async function onMusicLibraryStyleChange(value: MusicLibraryStyle): Promise<void> {
+  await settings.update("musicLibraryStyle", value);
+}
+
 async function onToggle(
   key:
     | "showDarkModeBtn"
@@ -985,6 +991,36 @@ function statusLabel(status: number): string {
                 <span class="toggle__slider"></span>
               </label>
             </div>
+            <!--
+              音乐库打开方式。为什么做成可配置：
+              点 📋 有两种真实用法，频率和退出成本要求差一个数量级 ——
+                · 瞄一眼队列 / 随手切一首（高频，退出成本必须接近零）
+                · 挑选 / 整理曲库（低频，需要空间）
+              默认给前者（紧凑浮层），但把选择权留给用户。
+            -->
+            <div class="settings-row settings-row--toggle">
+              <label class="settings-row__label">音乐库打开方式</label>
+              <div class="settings-seg">
+                <button
+                  class="settings-seg__btn"
+                  :class="{ 'settings-seg__btn--active': local.musicLibraryStyle === 'compact' }"
+                  @click="onMusicLibraryStyleChange('compact')"
+                >
+                  紧凑列表
+                </button>
+                <button
+                  class="settings-seg__btn"
+                  :class="{ 'settings-seg__btn--active': local.musicLibraryStyle === 'full' }"
+                  @click="onMusicLibraryStyleChange('full')"
+                >
+                  全屏面板
+                </button>
+              </div>
+            </div>
+            <p class="settings-hint">
+              「紧凑列表」点 📋 弹出窄列表（看队列 / 随手切歌，按面板外或 Esc 即关），
+              要筛选/批量时再点右上角 ⤢ 展开；「全屏面板」则直接打开完整曲库。
+            </p>
           </section>
 
           <!-- 种植（PWA 已砍菜园子，隐藏） -->
@@ -1045,24 +1081,24 @@ function statusLabel(status: number): string {
             <template v-if="!isPwa">
             <div class="settings-row settings-row--toggle">
               <label class="settings-row__label">更新源</label>
-              <div class="update-source-seg">
+              <div class="settings-seg">
                 <button
-                  class="update-source-seg__btn"
-                  :class="{ 'update-source-seg__btn--active': local.updateSource === 'github' }"
+                  class="settings-seg__btn"
+                  :class="{ 'settings-seg__btn--active': local.updateSource === 'github' }"
                   @click="onUpdateSourceChange('github')"
                 >
                   GitHub
                 </button>
                 <button
-                  class="update-source-seg__btn"
-                  :class="{ 'update-source-seg__btn--active': local.updateSource === 'server' }"
+                  class="settings-seg__btn"
+                  :class="{ 'settings-seg__btn--active': local.updateSource === 'server' }"
                   @click="onUpdateSourceChange('server')"
                 >
                   服务器
                 </button>
               </div>
             </div>
-            <p class="update-source-hint">
+            <p class="settings-hint">
               GitHub 下载快但可能不稳定；服务器稳定但较慢。下载时自动优先寻找 P2P 种子直连下载（需他人开启分享），无种子时回退至此处选择的源。
             </p>
             <div class="settings-row settings-row--toggle">
@@ -1078,7 +1114,7 @@ function statusLabel(status: number): string {
                 <span class="toggle__slider"></span>
               </label>
             </div>
-            <p class="update-source-hint">
+            <p class="settings-hint">
               默认只推送正式版本；开启后可接收 Beta/测试版（如 4.6.0-beta），Beta 版本可能有未修复的问题。
             </p>
             <div class="settings-row settings-row--toggle">
@@ -1094,7 +1130,7 @@ function statusLabel(status: number): string {
                 <span class="toggle__slider"></span>
               </label>
             </div>
-            <p class="update-source-hint">
+            <p class="settings-hint">
               {{ seedStatusText || "开启后本机作为种子，其他客户端更新时可 P2P 直连下载安装包（需登录）。" }}
             </p>
             <div class="settings-row">
@@ -1578,7 +1614,7 @@ function statusLabel(status: number): string {
 }
 
 /* 更新源分段选择（GitHub / 服务器） */
-.update-source-seg {
+.settings-seg {
   display: flex;
   gap: 4px;
   padding: 3px;
@@ -1586,7 +1622,7 @@ function statusLabel(status: number): string {
   background: rgba(255, 255, 255, 0.08);
 }
 
-.update-source-seg__btn {
+.settings-seg__btn {
   padding: 4px 12px;
   border-radius: 6px;
   font-size: 12px;
@@ -1594,17 +1630,17 @@ function statusLabel(status: number): string {
   transition: all 0.15s ease;
 }
 
-.update-source-seg__btn:hover {
+.settings-seg__btn:hover {
   color: rgba(255, 255, 255, 0.95);
 }
 
-.update-source-seg__btn--active {
+.settings-seg__btn--active {
   background: var(--accent, #e94560);
   color: #fff;
 }
 
 /* 更新源提示文案 */
-.update-source-hint {
+.settings-hint {
   margin: 2px 0 10px;
   font-size: 11px;
   line-height: 1.5;
