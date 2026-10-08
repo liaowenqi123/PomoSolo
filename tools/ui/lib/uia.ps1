@@ -104,8 +104,19 @@ if (-not $proc) {
   Fail "进程 '$ProcessName' 在跑，但没有标题含 '$TitleMatch' 的窗口。现有标题：$(($all | ForEach-Object { $_.MainWindowTitle }) -join ' / ')"
 }
 $hwnd = $proc.MainWindowHandle
-if ([W32]::IsIconic($hwnd)) { [W32]::ShowWindow($hwnd, 9) | Out-Null; Start-Sleep -Milliseconds 600 }
-[W32]::SetForegroundWindow($hwnd) | Out-Null
+# ── 不抢焦点 ───────────────────────────────────────────────────────────
+# 这里**故意不调用 SetForegroundWindow**（原来调了，导致每次点击/审计都把
+# 用户的前台窗口挤到后台，很打扰人）。要点：
+#   · UIA 的 InvokePattern / LegacyIAccessible 是**直接调用提供程序**，
+#     不需要窗口在前台；
+#   · 无障碍树只要求窗口**可见**（非最小化）—— 被别的窗口盖住也算可见。
+# 唯一需要的动作：窗口若被最小化则不渲染、树会退化，用 SW_SHOWNOACTIVATE(4)
+# 让它显示出来但**不激活**（原来的 SW_RESTORE(9) 会激活）。
+# 真需要前台（例如 --allow-sendinput 走 Win32 真鼠标）时才由调用方显式要求。
+if ([W32]::IsIconic($hwnd)) {
+  [W32]::ShowWindow($hwnd, 4) | Out-Null   # SW_SHOWNOACTIVATE
+  Start-Sleep -Milliseconds 600
+}
 $dpi = [W32]::GetDpiForWindow($hwnd); if ($dpi -eq 0) { $dpi = 96 }
 $dpiScale = [double]$dpi / 96.0
 

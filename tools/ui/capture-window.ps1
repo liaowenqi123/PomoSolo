@@ -150,15 +150,24 @@ $h = $target.Handle
 $title = $target.Title
 $cls = $target.Class
 
-# ── 最小化则先恢复（最小化窗口 PrintWindow 只能抓到空白）──
+# ── 最小化则先显示（最小化窗口 PrintWindow 只能抓到空白）──
+# 用 SW_SHOWNOACTIVATE(4) 而不是 SW_RESTORE(9)：后者会**激活**窗口、
+# 把用户的前台工作挤到后台。PrintWindow 不需要窗口在前台，只要可见。
 if ([WinCap]::IsIconic($h)) {
-  Write-Output "窗口已最小化 → 先恢复"
-  [WinCap]::ShowWindow($h, [WinCap]::SW_RESTORE) | Out-Null
+  Write-Output "窗口已最小化 → 用 SW_SHOWNOACTIVATE 显示（不抢焦点）"
+  [WinCap]::ShowWindow($h, 4) | Out-Null
   Start-Sleep -Milliseconds 700
 }
 
-[WinCap]::SetForegroundWindow($h) | Out-Null
-Start-Sleep -Milliseconds 400
+# ⚠️ 这里**故意不调用 SetForegroundWindow**：
+#    PrintWindow 对后台窗口一样有效（它让窗口把内容渲染到 DC）。
+#    只有 Mode=screen（抓屏幕像素）才必须在前台 —— 那个分支里会显式调用。
+if ($Mode -eq 'screen') {
+  [WinCap]::SetForegroundWindow($h) | Out-Null
+  Start-Sleep -Milliseconds 400
+} else {
+  Start-Sleep -Milliseconds 250
+}
 
 # ── 尺寸与 DPI ──
 $r = [WinCap]::Bounds($h)

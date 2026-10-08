@@ -37,7 +37,7 @@
  * 前置：默认自动起 dev server 并启动 debug exe（它指向 localhost:18421）。
  * 产物：temp-debug/ui-shots/<时间戳>-drive-<标签>/（PNG + index.md + manifest.json）
  */
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { openSync, mkdirSync, writeFileSync, existsSync, statSync, readdirSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -208,8 +208,31 @@ async function main() {
           `  · 或直接开发模式：npm run tauri:dev（然后用 --no-launch 附着）`,
         );
       }
-      console.log(`▸ 启动应用：${basename(exe)}`);
-      app = spawn(exe, [], { stdio: "ignore", windowsHide: false, detached: false });
+      console.log(`▸ 启动应用：${basename(exe)}（不抢焦点）`);
+      /*
+       * 用 launch-app.ps1 而不是 spawn：
+       *   spawn/Start-Process 会按 SW_SHOWNORMAL 创建窗口 → **激活**新窗口，
+       *   把用户正在用的前台窗口挤到后台。UI 取证工具每次跑都打断用户工作，
+       *   体验很差。
+       * launch-app.ps1 用 CreateProcess + SW_SHOWNOACTIVATE(4) 让窗口
+       *   **可见但不激活**（可见是必需的：最小化/隐藏时 WebView2 不渲染，
+       *   PrintWindow 抓空白、无障碍树退化），并在启动后把焦点还给原窗口。
+       */
+      const launchScript = join(HERE, "lib", "launch-app.ps1");
+      const launched = spawnSync(
+        "pwsh",
+        ["-NoProfile", "-NonInteractive", "-File", launchScript, "-Exe", exe],
+        { encoding: "utf8" },
+      );
+      if (launched.status !== 0) {
+        throw new Error(`启动失败：${launched.stderr || launched.stdout || `退出码 ${launched.status}`}`);
+      }
+      const pidMatch = /pid=(\d+)/.exec(launched.stdout ?? "");
+      const launchedPid = pidMatch ? Number(pidMatch[1]) : null;
+      if (launchedPid) {
+        // 只记录 PID 用于结束进程；不持有子进程句柄（它由 Windows 独立持有）
+        app = { pid: launchedPid, kill: () => { try { process.kill(launchedPid); } catch { /* 已退出 */ } } };
+      }
       await sleep(9000);   // 等窗口出现 + 前端加载 + 加载遮罩消失
     } else {
       console.log("▸ --no-launch：附着到已在运行的应用");
