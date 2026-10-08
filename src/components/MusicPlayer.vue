@@ -284,6 +284,18 @@ function collapseToCompact() {
   panelMode.value = "compact";
 }
 
+/**
+ * 📋 按钮的 title：把"瞄一眼队列 / 下一首"这个高频需求做到**不用打开任何界面**。
+ * 悬停即见，零成本。
+ */
+const playlistBtnTitle = computed(() => {
+  const list = compactSongs.value;
+  const parts = [compactTitle.value];
+  if (list.length > 0) parts.push(`${list.length} 首`);
+  if (nextSongName.value) parts.push(`下一首：${nextSongName.value}`);
+  return parts.join(" · ");
+});
+
 function togglePlaylist() {
   isPlaylistOpen.value = !isPlaylistOpen.value;
   if (isPlaylistOpen.value) {
@@ -935,8 +947,8 @@ if (typeof document !== "undefined") {
             </div>
           </div>
 
-          <!-- 播放列表 -->
-          <button class="music-btn music-playlist-btn" title="播放列表" @click="togglePlaylist">
+          <!-- 播放列表：title 悬停即可看到"几首 + 下一首"，不用打开界面 -->
+          <button class="music-btn music-playlist-btn" :title="playlistBtnTitle" @click="togglePlaylist">
             📋
           </button>
         </div>
@@ -1048,11 +1060,16 @@ if (typeof document !== "undefined") {
               :title="displayName(song)"
               @click="handleSongClick(song)"
             >
-              <!-- 标签 chip 前置：上一版的设计语言（一眼看出分类） -->
+              <!--
+                标签 chip 前置：上一版的设计语言（一眼看出分类）。
+                补 title 是因为它**点击可编辑标签**，但要给屏幕阅读器/自动化一个
+                可访问名 —— 否则它在 UIA 里是个无名元素（实测确认过这个缺口）。
+              -->
               <span
                 class="music-list__tag"
                 :data-tag="store.playlistTags[song]?.name || '自定义'"
                 :style="tagStyle(song)"
+                :title="`标签「${store.playlistTags[song]?.name || '自定义'}」· 点击修改`"
                 @click.stop="handleTagClick(song, $event)"
               >{{ store.playlistTags[song]?.name || "自定义" }}</span>
 
@@ -1673,10 +1690,17 @@ if (typeof document !== "undefined") {
   cursor: not-allowed;
 }
 
-/* 小按钮（榜单/模式/播放列表）：20x20 圆形，参照原版 .music-btn-small */
+/*
+ * 小按钮（榜单/模式）：20x20 圆形，参照原版 .music-btn-small
+ *
+ * ⚠️ `.music-playlist-btn` **不在**这一组里（这里是它原来的位置）：
+ *   它是音乐库的唯一入口，20×20 低于桌面指针目标下限（WCAG 2.5.8 = 24px）；
+ *   而且信息行里的邻居（🔊 音量、🎧 设备）用的都是基础 .music-btn = 24px，
+ *   它是那一行**唯一** 20px 的按钮 —— 本来就是一处不一致。
+ *   故单独让 📋 回到 24px，既达标又让信息行三个按钮对齐。
+ */
 .music-btn--small,
-.music-btn--mode,
-.music-playlist-btn {
+.music-btn--mode {
   width: 20px;
   height: 20px;
   font-size: 10px;
@@ -1685,7 +1709,21 @@ if (typeof document !== "undefined") {
 }
 
 .music-btn--small:hover,
-.music-btn--mode:hover,
+.music-btn--mode:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+  transform: scale(1.1);
+}
+
+/* 📋 音乐库入口：24×24（跟随基础 .music-btn），与同行的音量/设备按钮一致 */
+.music-playlist-btn {
+  width: 24px;
+  height: 24px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .music-playlist-btn:hover {
   background: rgba(255, 255, 255, 0.2);
   color: rgba(255, 255, 255, 0.9);

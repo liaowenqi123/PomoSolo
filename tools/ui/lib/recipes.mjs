@@ -220,22 +220,44 @@ export const DRIVE_RECIPES = {
   },
 
   /**
-   * 真实窗口：音乐库面板（对照"浏览器截图里看到的半透明"是否为截图假象）
-   * 用 className 定位播放列表按钮（它的可访问名是 📋，不够语义化）。
+   * 真实窗口：音乐库的两态（紧凑浮层 → 全屏曲库）。
+   *
+   * 设计：点 📋 默认开**紧凑浮层**（扁平列表，瞄一眼/随手切歌），
+   * 全屏曲库（目录树/筛选/批量）需要显式点 ⤢ 展开。
+   * 定位一律用 **title**（UIA 的 HelpText）—— 图标按钮的可访问名是 emoji
+   * 或为空，靠 className 又会和同族按钮混淆，只有 title 是稳定且唯一的。
    */
   "desktop-music-panel": {
-    label: "真实窗口 · 音乐库面板",
+    label: "真实窗口 · 音乐库（紧凑 + 全屏）",
     steps: [
       { name: "00-main" },
       {
-        name: "01-music-panel",
+        name: "01-compact-list",
         click: { controlType: "Button", classNameContains: "music-playlist-btn" },
-        expect: ["音乐库"],
-        note: "用真窗口 PrintWindow 截图，与浏览器 CDP 截图对照面板是否真的半透明",
+        // 用紧凑浮层里**恒存在**的元素名做校验：
+        //   标题是「播放列表」还是「全部歌曲」取决于有没有建过队列，不确定；
+        //   而 ⤢ 展开按钮一定在。注意 expect 要求**列出的名字全部命中**，
+        //   所以不能把两个候选都写上。
+        expect: ["展开为音乐库"],
+        note: "默认打开紧凑浮层（扁平列表，瞄一眼 / 随手切歌）",
       },
       {
-        name: "02-tab-playlist",
-        click: { controlType: "Button", classNameContains: "music-playlist__tab" },
+        name: "02-expand-full",
+        click: byTitle("展开为音乐库"),
+        expect: ["音乐库"],
+        note: "⤢ 展开为全屏曲库",
+      },
+      {
+        name: "03-tab-filter",
+        click: { controlType: "Button", classNameContains: "music-playlist__tab filter" },
+        expect: ["🔍 搜索歌曲…"],
+        note: "搜索框的可访问名就是它的 placeholder",
+      },
+      {
+        name: "04-back-to-compact",
+        click: byTitle("返回紧凑列表"),
+        expectGone: ["音乐库"],
+        note: "← 收回紧凑浮层（不是关闭面板）",
       },
     ],
   },
