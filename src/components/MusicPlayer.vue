@@ -1719,16 +1719,32 @@ if (typeof document !== "undefined") {
   position: absolute;
   bottom: 100%;
   right: 0;
-  background: rgba(40, 40, 50, 0.98);
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  /*
+   * 不透明背景（原来是 rgba(40,40,50,0.98)）：
+   *   ① 0.98 的 alpha 会让**计时器文字**在面板上留下可见鬼影 ——
+   *      实测新鲜截图里鬼影亮度差达 79/255（强制重绘后才消失），
+   *      属于合成层失效残留；不透明是唯一彻底可靠的解法。
+   *   ② 歌单文字压在计时器上，本来就需要一个实心表面保证对比度。
+   */
+  background: #282833;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   margin-bottom: 8px;
-  width: 340px;
-  height: min(360px, 60vh);
+  width: 348px;
+  /*
+   * 按内容定高（原来是固定 height: min(360px, 60vh)）：
+   *   固定高度在曲库很小/为空时会在面板中间留下一大片空黑，
+   *   看上去像"坏了"。改成 auto + 上下限：
+   *     · 内容少 → 面板收紧（最小 168px，不至于太局促）
+   *     · 内容多 → 到 360px/62vh 后由列表内部滚动
+   */
+  height: auto;
+  min-height: 168px;
+  max-height: min(360px, 62vh);
   display: flex;
   flex-direction: column;
   z-index: var(--z-popup);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(0, 0, 0, 0.25);
 }
 
 /* 浏览 tab 内模式切换（目录 / 筛选 拆开） */
@@ -1767,6 +1783,7 @@ if (typeof document !== "undefined") {
   gap: 4px;
   padding: 6px 10px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
 }
 
 .music-playlist__tab {
@@ -1815,6 +1832,9 @@ if (typeof document !== "undefined") {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 13px;
   font-weight: 600;
+  /* 面板高度自适应后，只有"列表区"应该吸收压缩；固定区一律不许被压扁，
+     否则会出现"目录树最后一行被切一半"这种难看的效果（改 height:auto 时踩到过）。 */
+  flex-shrink: 0;
 }
 
 .music-playlist__refresh {
@@ -1827,7 +1847,10 @@ if (typeof document !== "undefined") {
 
 .music-playlist__items {
   overflow-y: auto;
-  flex: 1;
+  /* min-height:0 是必需的：flex 子项默认 min-height:auto 会拒绝收缩，
+     面板改成 auto 高度后列表就无法内部滚动、会把面板撑破 max-height */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /* 播放列表滚动条 */
@@ -1850,8 +1873,10 @@ if (typeof document !== "undefined") {
 
 .music-playlist__empty {
   text-align: center;
-  color: #666;
-  padding: 24px;
+  color: rgba(255, 255, 255, 0.42);
+  /* 原来是 24px，空列表时把面板撑出一大块空白；收紧到 18px 让面板随内容收拢 */
+  padding: 18px 24px;
+  font-size: 12px;
 }
 
 .music-playlist__item {
@@ -2007,6 +2032,8 @@ if (typeof document !== "undefined") {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   max-height: 150px;
   overflow-y: auto;
+  /* 不许被压扁：压缩全部由列表区吸收（否则最后一行会被切一半） */
+  flex-shrink: 0;
 }
 
 .music-playlist__dir-row {
@@ -2206,6 +2233,7 @@ if (typeof document !== "undefined") {
 
 .music-playlist__filters {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
 }
 
 .music-playlist__filterbar {
@@ -2227,6 +2255,7 @@ if (typeof document !== "undefined") {
   gap: 6px;
   padding: 8px 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
 }
 
 /* 单曲加入播放列表（集合）按钮 */
@@ -2281,6 +2310,7 @@ if (typeof document !== "undefined") {
   font-weight: 600;
   color: rgba(255, 255, 255, 0.85);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
 }
 
 .music-playlist__collection-clear {
@@ -2355,6 +2385,7 @@ if (typeof document !== "undefined") {
   gap: 6px;
   padding: 8px 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
 }
 
 /* 底部动作条 */
@@ -2364,6 +2395,7 @@ if (typeof document !== "undefined") {
   gap: 6px;
   padding: 8px 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
 }
 
 .music-playlist__action {

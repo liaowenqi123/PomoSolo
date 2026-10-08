@@ -47,17 +47,26 @@ export const BASE_FIXTURES = {
   update_seed_has_installer: false,
 
   // ── 音乐：空标签表 + 无播放状态（"未播放"是合法界面状态）
+  //
+  // ⚠️ 注意这些命令是 **fire-and-forget**：调用它们只是"请求"，真实数据由后端
+  //    **事件**返回（见 src/api/music.ts 的注释「结果通过 xxx 事件返回」）。
+  //    所以光给 fixture 不够 —— 还要在命令被调用时派发对应事件，
+  //    否则界面永远停在"暂无音乐"（这是本 mock 早期的一个真实缺口）。
+  //    映射表见下面的 COMMAND_EMITS。
   music_get_custom_tags: {},
   music_get_devices: [],
-  music_get_playlist: [],
+  music_get_playlist: {
+    songs: [],
+    current_song: null,
+  },
   music_get_status: {
-    isPlaying: false,
-    currentSong: null,
+    is_playing: false,
+    current_song: null,
     progress: 0,
     duration: 0,
     volume: 80,
-    playMode: "order",
-    autoNext: true,
+    play_mode: "order",
+    auto_next: true,
   },
   get_download_status: null,
 
@@ -94,8 +103,25 @@ export const BASE_FIXTURES = {
 };
 
 /**
+ * 「命令 → 事件」映射：某些命令是 fire-and-forget 的**请求**，
+ * 真实数据由后端通过**事件**推回（见 src/api/music.ts 的注释）。
+ * mock 必须在命令被调用时把这些事件派发出去，否则依赖事件的界面永远是空态。
+ */
+export const COMMAND_EMITS = {
+  music_get_playlist: "music-playlist",
+  music_get_status: "music-status",
+  music_get_devices: "music-devices",
+  music_get_custom_tags: "music-custom-tags",
+  check_update: "update-status",
+};
+
+/**
  * 场景预设：在基础 fixture 之上覆盖，用来"摆出"特定界面状态再截图。
  * 键名与 BASE_FIXTURES 的命令名一致。
+ *
+ * ⚠️ 音乐的 fixture 形状必须与**事件载荷**一致（不是命令返回值形状）：
+ *    music-playlist 事件 = { songs: [{name, tag, tagColor, path, tags, source}], current_song }
+ *    见 src/stores/music.ts 的 handlePlaylist。
  */
 export const SCENARIOS = {
   /** 全新安装态（无数据、未登录、未播放） */
@@ -150,20 +176,55 @@ export const SCENARIOS = {
   /** 音乐播放中（用于核对播放器/播放列表面板） */
   "music-playing": {
     music_get_status: {
-      isPlaying: true,
-      currentSong: "深度专注 Deep Focus - 番茄钟.mp3",
+      is_playing: true,
+      current_song: "深度专注 Deep Focus - 番茄钟.mp3",
       progress: 42,
       duration: 213,
       volume: 80,
-      playMode: "order",
-      autoNext: true,
+      play_mode: "order",
+      auto_next: true,
     },
-    music_get_playlist: [
-      { name: "深度专注 Deep Focus - 番茄钟.mp3", path: "内置", tags: ["学习"] },
-      { name: "图书馆时光 Library Hours - 番茄钟.mp3", path: "内置", tags: ["学习", "安静"] },
-      { name: "键盘交响乐 Keyboard Symphony - 番茄钟.mp3", path: "下载", tags: ["白噪音"] },
-    ],
-    music_get_custom_tags: { 白噪音: "#48dbfb", 学习: "#ff9ff3" },
+    // 形状 = music-playlist **事件载荷**（不是命令返回值）
+    music_get_playlist: {
+      current_song: "深度专注 Deep Focus - 番茄钟.mp3",
+      songs: [
+        { name: "深度专注 Deep Focus - 番茄钟.mp3", tag: "学习", tagColor: "#ff9ff3", path: "内置", tags: ["学习", "专注"], source: "builtin" },
+        { name: "图书馆时光 Library Hours - 番茄钟.mp3", tag: "学习", tagColor: "#ff9ff3", path: "内置", tags: ["学习", "安静"], source: "builtin" },
+        { name: "键盘交响乐 Keyboard Symphony - 番茄钟.mp3", tag: "白噪音", tagColor: "#48dbfb", path: "下载", tags: ["白噪音"], source: "download" },
+        { name: "Are you lost", tag: "运动", tagColor: "#ff9664", path: "导入/周杰伦/范特西", tags: ["运动"], source: "" },
+        { name: "Closer", tag: "休息", tagColor: "#5AB48C", path: "导入", tags: ["休息"], source: "" },
+        { name: "Dance monkey", tag: "运动", tagColor: "#ff9664", path: "", tags: [], source: "" },
+        { name: "Faded", tag: "自定义", tagColor: null, path: "下载", tags: [], source: "download" },
+        { name: "Flower Dance", tag: "学习", tagColor: "#ff9ff3", path: "喜欢", tags: ["学习"], source: "" },
+        { name: "夜空中最亮的星", tag: "自定义", tagColor: null, path: "", tags: [], source: "" },
+        { name: "海阔天空", tag: "自定义", tagColor: null, path: "导入/Beyond", tags: [], source: "" },
+        { name: "晴天", tag: "自定义", tagColor: null, path: "导入/周杰伦/叶惠美", tags: [], source: "" },
+        { name: "稻香", tag: "自定义", tagColor: null, path: "导入/周杰伦/魔杰座", tags: [], source: "" },
+      ],
+    },
+    music_get_custom_tags: { 白噪音: "#48dbfb", 学习: "#ff9ff3", 运动: "#ff9664", 休息: "#5AB48C" },
+  },
+
+  /** 曲库很大（用于核对长列表滚动、目录树多级、标签很多时的表现） */
+  "music-large-library": {
+    music_get_status: {
+      is_playing: false, current_song: null, progress: 0, duration: 0,
+      volume: 80, play_mode: "order", auto_next: true,
+    },
+    music_get_playlist: {
+      current_song: null,
+      songs: Array.from({ length: 60 }, (_, i) => {
+        const dirs = ["内置", "下载", "导入/周杰伦/范特西", "导入/周杰伦/叶惠美", "导入/Beyond", "喜欢", ""];
+        const tagsPool = [["学习"], ["运动"], ["休息"], ["白噪音"], ["学习", "专注"], []];
+        const p = dirs[i % dirs.length];
+        return {
+          name: `测试曲目 ${String(i + 1).padStart(2, "0")}`,
+          tag: "自定义", tagColor: null,
+          path: p, tags: tagsPool[i % tagsPool.length], source: p === "内置" ? "builtin" : (p === "下载" ? "download" : ""),
+        };
+      }),
+    },
+    music_get_custom_tags: { 白噪音: "#48dbfb", 学习: "#ff9ff3", 运动: "#ff9664", 休息: "#5AB48C", 专注: "#a29bfe" },
   },
 
   /** 榜单有数据（用于核对工具栏换行/表格） */
@@ -208,10 +269,11 @@ export function buildMockInitScript(opts = {}) {
   const FIXTURES = ${JSON.stringify(fixtures)};
   const SCENARIO = ${JSON.stringify(scenarioName)};
   const QUIET = ${quiet ? "true" : "false"};
+  const COMMAND_EMITS = ${JSON.stringify(COMMAND_EMITS)};
 
 ${installMock.toString()}
 
-  installMock(FIXTURES, { scenario: SCENARIO, quiet: QUIET });
+  installMock(FIXTURES, { scenario: SCENARIO, quiet: QUIET, emits: COMMAND_EMITS });
 })();`;
 }
 
@@ -291,7 +353,19 @@ function installMock(fixtures, opts) {
         if (!opts.quiet) console.warn('[ui-mock] 未覆盖命令（返回 null）:', cmd, args);
         return null;
       }
-      return typeof hit === 'function' ? hit(args) : clone(hit);
+      const value = typeof hit === 'function' ? hit(args) : clone(hit);
+
+      // ── 命令 → 事件：有些命令只是"请求"，真实数据由后端**事件**推回
+      //    （如 music_get_playlist → music-playlist 事件）。不派发的话，
+      //    依赖事件的界面永远停在空态 —— 这是本 mock 早期的一个真实缺口。
+      const evt = opts.emits && opts.emits[cmd];
+      if (evt) {
+        const payload = clone(value);
+        // 异步派发，模拟真实后端"先返回、后推事件"的时序
+        setTimeout(() => { try { emit(evt, payload); } catch (e) { console.error('[ui-mock] 派发事件失败', evt, e); } }, 0);
+      }
+
+      return value;
     },
   };
 
