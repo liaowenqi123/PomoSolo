@@ -28,6 +28,15 @@
 .PARAMETER Flags
   只试某个 PrintWindow flag；不给则依次试 2 和 0
 
+.PARAMETER Mode
+  printwindow（默认）= 只走 PrintWindow
+  screen            = 只走屏幕抓取（CopyFromScreen）
+  auto              = 两者都存（推荐用于排查"PrintWindow 是否产生残影"）
+  ⚠️ PrintWindow 对 WebView2（独立进程 + GPU 合成）可能产生**残影/半透明假象**：
+     它把窗口"渲染到 DC"，而 WebView2 是 DirectComposition 表面，容易出现两层帧叠加。
+     screen 模式抓的是**屏幕上真实呈现的像素**，是判定"用户到底看到什么"的基准。
+     screen 模式要求窗口可见且未被遮挡，脚本会先 SetForegroundWindow。
+
 .PARAMETER Background
   透明窗口的垫底色，默认 #2b2b2b
 
@@ -40,6 +49,8 @@ param(
   [string]$TitleMatch = '',
   [Parameter(Mandatory = $true)][string]$OutDir,
   [int]$Flags = -1,
+  [ValidateSet('printwindow', 'screen', 'auto')]
+  [string]$Mode = 'auto',
   [string]$Background = '#2b2b2b'
 )
 
@@ -170,8 +181,31 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 # 垫底色（透明窗口用）
 $bgColor = [System.Drawing.ColorTranslator]::FromHtml($Background)
 
-$flagList = if ($Flags -ge 0) { @($Flags) } else { @(2, 0) }
 $saved = @()
+
+# ── 屏幕抓取（屏幕上真实呈现的像素）────────────────────────────────
+if ($Mode -eq 'screen' -or $Mode -eq 'auto') {
+  [WinCap]::SetForegroundWindow($h) | Out-Null
+  Start-Sleep -Milliseconds 500
+  $bmp = New-Object System.Drawing.Bitmap($w, $hgt)
+  $g = [System.Drawing.Graphics]::FromImage($bmp)
+  try {
+    $g.CopyFromScreen($r.Left, $r.Top, 0, 0, (New-Object System.Drawing.Size($w, $hgt)))
+    $name = 'window-screen.png'
+    $bmp.Save((Join-Path $OutDir $name), [System.Drawing.Imaging.ImageFormat]::Png)
+    Write-Output ("mode=screen saved={0}" -f $name)
+    $saved += [pscustomobject]@{ mode = 'screen'; ok = $true; file = $name }
+  } catch {
+    Write-Warning "屏幕抓取失败（窗口可能被遮挡或远程会话）：$($_.Exception.Message)"
+    $saved += [pscustomobject]@{ mode = 'screen'; ok = $false; file = $null }
+  } finally {
+    $g.Dispose(); $bmp.Dispose()
+  }
+}
+
+# ── PrintWindow（可离屏，但 WebView2 可能残影）──────────────────────
+if ($Mode -eq 'printwindow' -or $Mode -eq 'auto') {
+$flagList = if ($Flags -ge 0) { @($Flags) } else { @(2, 0) }
 
 foreach ($f in $flagList) {
   $bmp = New-Object System.Drawing.Bitmap($w, $hgt)
@@ -197,6 +231,7 @@ foreach ($f in $flagList) {
   Write-Output ("flags={0} ok={1} saved={2}" -f $f, $ok, $name)
   $saved += [pscustomobject]@{ flag = $f; ok = [bool]$ok; file = $name }
 }
+}   # end printwindow 分支
 
 # 机读元信息（尺寸/DPI 用于核对"浏览器里 520x560"是否等于"真机 520x560"）
 $meta = [ordered]@{
@@ -209,6 +244,7 @@ $meta = [ordered]@{
   dpi = $dpi
   scale = $scale
   logical = @{ width = $logicalW; height = $logicalH }
+  mode = $Mode
   background = $Background
   attempts = $saved
 }

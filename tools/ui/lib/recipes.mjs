@@ -218,6 +218,27 @@ export const DRIVE_RECIPES = {
     label: "真实窗口 · 仅截图",
     steps: [{ name: "00-main" }],
   },
+
+  /**
+   * 真实窗口：音乐库面板（对照"浏览器截图里看到的半透明"是否为截图假象）
+   * 用 className 定位播放列表按钮（它的可访问名是 📋，不够语义化）。
+   */
+  "desktop-music-panel": {
+    label: "真实窗口 · 音乐库面板",
+    steps: [
+      { name: "00-main" },
+      {
+        name: "01-music-panel",
+        click: { controlType: "Button", classNameContains: "music-playlist-btn" },
+        expect: ["音乐库"],
+        note: "用真窗口 PrintWindow 截图，与浏览器 CDP 截图对照面板是否真的半透明",
+      },
+      {
+        name: "02-tab-playlist",
+        click: { controlType: "Button", classNameContains: "music-playlist__tab" },
+      },
+    ],
+  },
 };
 
 export function listDriveRecipes() {
