@@ -280,6 +280,18 @@ npm run ui:android
 - 临时文件放 `temp-debug/`；本机长期配置放 `.local/`；**不要散落在正式代码目录**；
 - 不要为了"统一"去改 `deprecated/` 下的代码 —— 它是冻结的历史参考。
 
+### ⚠️ 已知坑：跑应用会改写 `music-player/music/tags.json`
+
+**dev 模式启动应用后，它会把这个已跟踪的文件从 v1 格式迁移成 v2**
+（`_customTags` + 字符串值 → `{name,color}` 对象；v4.8 音乐库升级引入）。
+后果：`git status` 里总是多出一个改动，`git add -A` 会顺手把它提交进去（**已踩过两次**）。
+
+- **提交前务必看一眼** `git status`，别把它的改动混进无关提交；
+- 若不慎提交：`git restore --source=HEAD~1 --staged --worktree music-player/music/tags.json` 再 `git commit --amend`；
+- 若确实要做 v2 迁移（有意的），单独一个 `chore:` 提交并说明；
+- **根治办法**（尚未实施）：让应用把运行时音乐元数据写到 app data 目录，
+  而不是仓库里的 `music-player/music/`；或在 dev 模式下把该文件指向临时副本。
+
 ---
 
 ## 6. 工作流（改完怎么交付）
