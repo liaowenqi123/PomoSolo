@@ -918,7 +918,18 @@ if (typeof document !== "undefined") {
               class="music-playlist__source"
               :title="`播放集合来源：${store.playSetSource}`"
             >🎵 {{ store.playSetSource }}</span>
-            <button class="music-playlist__refresh" @click.stop="store.requestPlaylist()">🔄</button>
+            <!--
+              刷新按钮：原来用 emoji「🔄」，它在 Windows 上渲染成**亮蓝色方块**，
+              与面板的暗红主题冲突、看着像个没样式化的默认按钮。
+              改用文本字形「⟳」（U+27F3，由 CSS 着色），并补 title ——
+              title 会变成 UIA 的 HelpText，是自动化里最稳定的定位标识。
+            -->
+            <button
+              class="music-playlist__refresh"
+              title="刷新曲库"
+              aria-label="刷新曲库"
+              @click.stop="store.requestPlaylist()"
+            >⟳</button>
           </div>
 
           <!-- 三个选项卡并排：目录 / 筛选 / 播放列表 -->
@@ -1042,7 +1053,7 @@ if (typeof document !== "undefined") {
           <!-- 浏览区底部：全部加入播放列表 + 清除筛选（同一行，位置稳定）；批量操作走右键 -->
           <div v-show="panelTab !== 'playlist'" class="music-playlist__browse-actions">
             <button
-              class="music-playlist__action"
+              class="music-playlist__action music-playlist__action--primary"
               :disabled="store.filteredSongs.length === 0 || controlsDisabled"
               @click="handleAddViewToPlaylist"
             >➕ 全部加入播放列表</button>
@@ -1103,7 +1114,7 @@ if (typeof document !== "undefined") {
             </div>
             <div class="music-playlist__collection-actions">
               <button
-                class="music-playlist__action"
+                class="music-playlist__action music-playlist__action--primary"
                 :disabled="store.playSet.size === 0 || controlsDisabled || store.syncEnabled"
                 title="按当前播放模式从集合第一首播"
                 @click="store.playCollection(false)"
@@ -1116,6 +1127,16 @@ if (typeof document !== "undefined") {
               >🔀 随机播放集合</button>
             </div>
           </div>
+
+          <!--
+            Toast 提示：**放在面板内部**并锚到面板上方（bottom:100%）。
+            原来它是播放器的兄弟节点（bottom:100% 于播放器），面板打开时
+            正好落在面板底部的动作按钮上，把「🔀 随机播放集合」整个盖住。
+            移到面板内后：面板开 → 浮在面板上方，不遮住任何控件。
+            ⚠️ 因此它只在面板打开时可见 —— 而所有 showToast 流程
+            （加入/移动/标签/删除）都发生在面板打开时，故无影响。
+          -->
+          <div v-if="toastVisible" class="music-toast">{{ toastMessage }}</div>
         </div>
       </div>
     </div>
@@ -1169,9 +1190,6 @@ if (typeof document !== "undefined") {
       @add-tag="onTagAdd"
       @delete-tag="onTagDelete"
     />
-
-    <!-- Toast 提示 -->
-    <div v-if="toastVisible" class="music-toast">{{ toastMessage }}</div>
   </div>
 </template>
 
@@ -1740,7 +1758,11 @@ if (typeof document !== "undefined") {
    */
   height: auto;
   min-height: 168px;
-  max-height: min(360px, 62vh);
+  /*
+   * 上限从 min(360px,62vh) 放宽到 min(380px,64vh)：
+   * 目录树 + 歌单同时要地方，太矮会把歌单挤成 2 行（实测过）。
+   */
+  max-height: min(380px, 64vh);
   display: flex;
   flex-direction: column;
   z-index: var(--z-popup);
@@ -1806,10 +1828,17 @@ if (typeof document !== "undefined") {
   background: rgba(255, 255, 255, 0.1);
 }
 
+/*
+ * 激活态：**实心填充**而不是描边。
+ * 原来用 border-color:#e94560 的描边，三个 tab 看起来像三个输入框、
+ * 而不是"当前选中的页签"。实心填充才是分段控件的通用语义。
+ */
 .music-playlist__tab.active {
-  background: rgba(233, 69, 96, 0.22);
-  border-color: #e94560;
+  background: #c8405a;
+  border-color: #c8405a;
   color: #fff;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(200, 64, 90, 0.35);
 }
 
 .music-playlist__tab-badge {
@@ -1818,7 +1847,8 @@ if (typeof document !== "undefined") {
   min-width: 16px;
   padding: 1px 5px;
   border-radius: 8px;
-  background: rgba(233, 69, 96, 0.5);
+  /* 改用中性浅色胶囊：原来的半透明红在"已激活的红底 tab"上会糊成一片看不见 */
+  background: rgba(255, 255, 255, 0.28);
   color: #fff;
   text-align: center;
   font-variant-numeric: tabular-nums;
@@ -1838,11 +1868,32 @@ if (typeof document !== "undefined") {
 }
 
 .music-playlist__refresh {
-  background: none;
-  border: none;
-  color: #aaa;
+  /* 从"无样式 emoji 按钮"改为一个有明确热区的图标按钮：
+     24×24 达到桌面指针目标下限（WCAG 2.5.8），原来只有 19×19 */
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.62);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 15px;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.2s ease;
+}
+
+.music-playlist__refresh:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(233, 69, 96, 0.6);
+  color: #fff;
+}
+
+.music-playlist__refresh:active {
+  transform: rotate(180deg);
 }
 
 .music-playlist__items {
@@ -2030,7 +2081,12 @@ if (typeof document !== "undefined") {
 .music-playlist__dirs {
   padding: 6px 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  max-height: 150px;
+  /*
+   * 从 150px 收到 112px（约 4 行）：目录树是**导航**、歌单是**主内容**，
+   * 原来树占 150px 会把歌单挤到只剩 2 行，主次颠倒。
+   * 超出部分由树自身滚动，不影响歌单。
+   */
+  max-height: 112px;
   overflow-y: auto;
   /* 不许被压扁：压缩全部由列表区吸收（否则最后一行会被切一半） */
   flex-shrink: 0;
@@ -2054,7 +2110,9 @@ if (typeof document !== "undefined") {
 
 .music-playlist__dir-caret--leaf {
   cursor: default;
-  color: rgba(255, 255, 255, 0.2);
+  /* 原来是一个"·"点：既无信息量又是视觉噪声（每行都有）。
+     改成透明但保留宽度 —— 缩进对齐不受影响。 */
+  color: transparent;
 }
 
 .music-playlist__dir {
@@ -2081,9 +2139,11 @@ if (typeof document !== "undefined") {
 }
 
 .music-playlist__dir.active {
-  background: rgba(233, 69, 96, 0.2);
-  border-color: #e94560;
+  /* 同 tab：实心填充，去掉"红框"（原来满宽的描边像被聚焦的输入框） */
+  background: rgba(233, 69, 96, 0.26);
+  border-color: transparent;
   color: #fff;
+  font-weight: 600;
 }
 
 .music-playlist__dir-count {
@@ -2424,6 +2484,25 @@ if (typeof document !== "undefined") {
   border-color: rgba(255, 255, 255, 0.2);
 }
 
+/*
+ * 主操作（每个 tab 里"最该点的那个"）：
+ *   · 浏览 tab → 「全部加入播放列表」
+ *   · 播放列表 tab → 「播放集合」
+ * 原来是和其它动作一样的浅红描边（看着像次要/半禁用）。改实心，
+ * 让"下一步该点哪"一眼可见。
+ */
+.music-playlist__action--primary {
+  background: #c8405a;
+  border-color: #c8405a;
+  color: #fff;
+  font-weight: 600;
+}
+
+.music-playlist__action--primary:hover:not(:disabled) {
+  background: #d94a63;
+  border-color: #d94a63;
+}
+
 /* 批量菜单 */
 .music-playlist__batchmenu {
   display: flex;
@@ -2568,19 +2647,25 @@ if (typeof document !== "undefined") {
 }
 
 /* ============ Toast 提示 ============ */
+/*
+ * 位置：作为 .music-playlist 的最后一个子节点，bottom:100% → 浮在**面板上方**。
+ * 这样面板打开时它永远不会盖住面板自己的按钮（原来它锚在播放器上，
+ * 正好压住底部动作条里的「🔀 随机播放集合」）。
+ */
 .music-toast {
   position: absolute;
   bottom: 100%;
   left: 50%;
   transform: translateX(-50%);
-  margin-bottom: 12px;
-  background: rgba(40, 40, 50, 0.96);
+  margin-bottom: 8px;
+  /* 不透明：与面板一致，避免半透明造成的鬼影/对比度问题 */
+  background: #32323f;
   color: #fff;
   font-size: 12px;
   padding: 8px 14px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   white-space: nowrap;
   z-index: var(--z-popup);
   pointer-events: none;
