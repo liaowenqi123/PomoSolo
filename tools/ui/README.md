@@ -20,18 +20,38 @@
 
 ---
 
-## 2. 四条取证路径
+## 2. 五条取证路径
 
-| 路径 | 命令 | 截的是什么 | 什么时候用 |
-|------|------|-----------|-----------|
-| **Web / PWA** | `npm run ui:shot -- --target desktop` | 浏览器里跑的真实前端（注入 Tauri IPC mock） | 日常改样式、查任意状态，**最快最灵活** |
+| 路径 | 命令 | 做什么 | 什么时候用 |
+|------|------|--------|-----------|
+| **Web / PWA** | `npm run ui:shot -- --target desktop` | 浏览器里跑真实前端（注入 Tauri IPC mock），截图 + 审计 | 日常改样式、查任意状态，**最快最灵活** |
 | **配方** | `npm run ui:shot -- --recipe desktop-panels` | 一次把一组真实面板全截下来 | 改完一轮要通盘核对 |
-| **Tauri 真窗口** | `npm run ui:desktop` | **真实 Tauri 进程的窗口**（真 WebView2 + 真 Rust 后端） | 确认"浏览器里的效果"与真机一致 |
-| **Android** | `npm run ui:android` | 手机/模拟器当前画面 + UI 层级审计 | 安卓端（独立仓库）改完核对 |
+| **Tauri 真窗口截图** | `npm run ui:desktop` | 截**真实 Tauri 进程**的窗口（真 WebView2 + 真 Rust 后端） | 确认"浏览器里的效果"与真机一致 |
+| **Tauri 真窗口驱动** | `npm run ui:drive -- --recipe desktop-quick` | **用代码点击真实窗口**并校验点击真的生效 | 端到端功能核对、真实热区审计 |
+| **Android** | `npm run ui:android` | 手机/模拟器画面 + UI 层级审计 | 安卓端（独立仓库）改完核对 |
 
-> **两者关系**：`ui:shot` 快、可编排、能摆出任意状态，但数据是 mock；
-> `ui:desktop` 慢、要先把应用跑起来，但数据是真的。
+> **四者关系**：`ui:shot` 快、可编排、能摆任意状态，但数据是 mock；
+> `ui:desktop` 截真图但不动它；`ui:drive` **既截真图又真的点它**。
 > **不一致时以真窗口为准。**
+
+### ★ 问题会直接打到终端
+
+跑完命令后，布局审计结果会**汇总打印到终端**（按类型分组、按元素去重、按严重度排序），
+不用去翻产物文件：
+
+```
+┌─ 发现的问题 ─────────────────────────────────────────────
+│ 🔍 点击热区过小（<24px）：5 个元素
+│    · … > button.sidebar-collapse-btn:nth-of-type(2)   8×50px
+│    · … > button.music-collapse-btn   60×8px
+│ 🔍 字号过小：5 个元素
+│    · … > span.sidebar-collapse-icon   8px
+└──────────────────────────────────────────────────────────
+  完整表格（含说明与复现信息）：上面那个 index.md
+```
+
+> 早期版本只把问题写进 `index.md`（产物目录还被 gitignore），
+> 结果**没人注意到有问题** —— 这是工具的失误，已修正为直接输出。
 
 ---
 
@@ -50,11 +70,14 @@ npm run ui:shot -- --target desktop-garden
 # ④ PWA 断点全覆盖（手机/桌面 + 断点边界值）
 npm run ui:shot -- --recipe pwa-screens
 
-# ⑤ 真实 Tauri 窗口（需应用在跑）
+# ⑤ 真实 Tauri 窗口：只截图（需应用在跑）
 npm run tauri:dev            # 另开一个终端
 npm run ui:desktop
 
-# ⑥ Android（需模拟器已启动）
+# ⑥ 真实 Tauri 窗口：用代码点击它并校验（自动起 dev server + 应用）
+npm run ui:drive -- --recipe desktop-quick
+
+# ⑦ Android（需模拟器已启动）
 npm run ui:android -- --devices
 npm run ui:android
 ```
@@ -208,9 +231,11 @@ Android 端用 `uiautomator dump` 做**同一套判据**（`tiny-target` 按 dp�
 
 ---
 
-## 9. 真窗口截图（`ui:desktop`）的实现要点
+## 9. 真实窗口：截图与驱动（`ui:desktop` / `ui:drive`）
 
-用 Win32 `PrintWindow`（`capture-window.ps1`）。踩过的坑都写在脚本注释里：
+### 9.1 截图（`ui:desktop`，Win32 PrintWindow）
+
+踩过的坑都写在 `capture-window.ps1` 注释里：
 
 1. **WebView2 必须用 `PW_RENDERFULLCONTENT`（flag=2）**，否则只能抓到空白/边框；
    脚本同时试 flag=2 与 0 各存一张，便于对照；
@@ -225,6 +250,74 @@ Android 端用 `uiautomator dump` 做**同一套判据**（`tiny-target` 按 dp�
 同时产出 `window-meta.json`（尺寸/DPI/logical），可直接核对
 "浏览器里 520×560"是否等于"真机 520×560"。
 
+### 9.2 驱动（`ui:drive`，UI Automation）
+
+**用代码点击真实窗口，并校验点击真的生效。**
+
+#### 为什么不用 CDP 驱动 WebView2
+
+实测：**Tauri v2 会程序化注入 WebView2 的 `additionalBrowserArgs`，从而覆盖
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 环境变量** → 调试端口不开放
+（`--remote-debugging-port=9333` 探测失败，即使 `tauri.conf.json` 里没写这个字段）。
+要开 CDP 必须改 `tauri.conf.json` 并**重新编译**。
+
+所以改用 **UI Automation**：无需改动应用、无需重编译，而且拿到的是
+**真实屏幕坐标与真实热区尺寸**。
+
+#### 三个必须知道的坑
+
+1. **WebView2 的无障碍树是惰性构建的** —— 第一次遍历只能看到宿主 Pane
+   （17 个节点），必须「走一遍 → 等 0.9s → 再走一遍」才拿得到 DOM 内容（90+ 节点）。
+   脚本已内置双次遍历并取节点更多的那次。
+2. **`BoundingRectangle` 是屏幕物理像素**，要除以 `dpi/96` 才是 CSS 像素。
+   本机 150% → 除以 1.5（与 Web 端审计因此可以互相印证）。
+3. **定位元素优先用 `HelpTextContains`（= HTML `title` 属性），不要用 emoji 名称**：
+   主题按钮的 Name 会随主题在 `☀️`/`🌙` 之间变，写死 `🌙` 会在浅色模式下报
+   "找不到元素"。`helpTextContains: "切换深色模式"` 两种状态都能命中。
+
+#### 两种点击方式（重要区别）
+
+| 方式 | 走真实输入管线 | 移动光标 | 能测什么 |
+|------|--------------|---------|---------|
+| **UIA Invoke/Legacy/Selection**（默认） | ❌ 绕过命中测试 | ❌ 不动 | 「功能逻辑通不通」 |
+| **`--allow-sendinput`**（Win32 真鼠标） | ✅ | ✅ 会动 | 「用户点不点得到」（遮挡、热区、z-index） |
+
+> **两种都做一遍才完整**：InvokePattern 通 + SendInput 也通 = 功能与可用性都 OK。
+> 只用 InvokePattern 会漏掉"按钮被浮层盖住"这类问题。
+
+#### 点击"生效"怎么判
+
+不靠"没报错就算成功"（早期版本因此把**点击失败误判成生效**）。判据是：
+
+- `expect: [...]` → 这些文案必须在点击后**从无到有**出现（最多重试 4s）
+- `expectGone: [...]` → 这些文案必须**从有到无**（关闭动作用它）
+
+判定依据是点击前后的 **UIA 元素名称集合差集**，比截图对比更精确。
+
+#### 配方里踩出来的两条经验
+
+- **面板关闭后顶部图标栏会收起**，主题/统计/AI 等按钮**从无障碍树消失**
+  → 点面板按钮前必须先点「展开/收起」（配方里写成 `clicks: [UIA_EXPAND, byTitle("设置")]`）；
+- **`×` 有歧义**：既是窗口关闭按钮（`window-controls__btn--close`）也是各面板关闭按钮
+  （`settings-panel__close`）。不加 `classNameNotContains: "window-controls"`
+  会匹配到窗口关闭按钮，**一点就把整个应用关掉**。
+
+#### 真实热区审计
+
+`ui:drive` 会顺带审计真实窗口的点击热区，报的是 **CSS 类名**（= 去哪改），不是 emoji：
+
+```
+🔍 真实点击热区审计：5 条（阈值 24 css px）
+   · sidebar-collapse-btn  8×50.7 css px  (12×76 @1.5x)
+   · music-collapse-btn  60×8.7 css px  (90×13 @1.5x)
+   · music-btn music-playlist-btn  20×20 css px  (30×30 @1.5x)
+```
+
+> **阈值分桌面与触摸两种，别用错**：
+> `24` = 桌面指针目标下限（WCAG 2.5.8，默认）；
+> `44` = 触摸目标（WCAG 2.5.5 / 本项目 PWA 规矩，用于手机）。
+> 对 520×560 的桌面窗口用 44 会把 39×39 的正常图标**全报成问题**（32 条噪声 vs 5 条真问题）。
+
 ---
 
 ## 10. 目录结构
@@ -234,17 +327,19 @@ tools/ui/
 ├── README.md                  ← 本文件
 ├── shot.mjs                   Web/PWA 截图 CLI（目标/视口/配方/mock/审计）
 ├── desktop-shot.mjs           Tauri 真窗口截图 CLI
+├── desktop-drive.mjs          Tauri 真窗口**驱动** CLI（UIA 点击 + 校验 + 热区审计）
 ├── android-shot.mjs           Android 截图 + 层级审计 CLI
 ├── capture-window.ps1         Win32 PrintWindow 实现（DPI 感知）
 └── lib/
-    ├── cdp.mjs                ★ 零依赖 CDP 客户端（浏览器/页面/截图/DOM 静止等待）
+    ├── cdp.mjs                ★ 零依赖 CDP 客户端（启动/附着/截图/真实输入/DOM 静止等待）
     ├── browsers.mjs           定位本机 Chrome/Edge
     ├── tauri-mock.mjs         ★ Tauri IPC mock + fixture + 场景
     ├── probe.mjs              ★ 控制台/异常/网络采集 + 布局审计
     ├── targets.mjs            内置目标 + 视口预设
-    ├── recipes.mjs            截图配方
+    ├── recipes.mjs            截图配方（RECIPES）+ 真实窗口驱动配方（DRIVE_RECIPES）
     ├── servers.mjs            dev server 生命周期（不用管道，重定向到日志）
     ├── shots.mjs              产物目录 + index.md/manifest.json
+    ├── uia.ps1                ★ UI Automation：dump / click / audit（真实窗口驱动内核）
     ├── android-audit.mjs      uiautomator XML 解析 + 布局审计
     ├── _selftest.mjs          CDP 内核自测（不需要服务器）
     └── _android-audit-selftest.mjs  Android 审计自测（不需要设备）
@@ -266,6 +361,8 @@ npm run ui:selftest
 
 ## 12. 常用参数速查
 
+### `ui:shot`（浏览器）
+
 ```
 --target <名>       内置目标（--list-targets）
 --recipe <名>       配方（--list-recipes）
@@ -285,6 +382,26 @@ npm run ui:selftest
 --json              只输出 manifest JSON
 --list-browsers / --list-views / --list-targets / --list-recipes / --list-scenarios
 ```
+
+### `ui:drive`（真实窗口）
+
+```
+--recipe <名>       驱动配方（--list-recipes）
+--click <UIA定位>   自定义点击（可重复；见下）
+--name <标签>       本轮标签
+--allow-sendinput   改用真鼠标（会动光标，但能测遮挡/热区）
+--no-launch         附着到已在运行的应用
+--no-server         不起 dev server
+--exe <路径>        指定 exe（默认 src-tauri/target/debug/pomo-solo.exe）
+--process <名> / --title <子串>   定位窗口
+--no-audit          跳过真实热区审计
+--min-target-css <px>  热区阈值（默认 24 桌面 / 44 触摸）
+--keep-open         驱动完不关应用
+```
+
+> 自定义点击的定位语法在配方里（`lib/recipes.mjs` 的 `DRIVE_RECIPES`），
+> 支持 `helpTextContains`（推荐）/ `name` / `nameContains` / `controlType` /
+> `classNameContains` / `classNameNotContains` / `index`。
 
 ### 为什么默认等"DOM 静止"
 

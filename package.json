@@ -20,6 +20,7 @@
     "pwa:preview": "vite preview --config src/pwa/vite.config.ts",
     "ui:shot": "node tools/ui/shot.mjs",
     "ui:desktop": "node tools/ui/desktop-shot.mjs",
+    "ui:drive": "node tools/ui/desktop-drive.mjs",
     "ui:android": "node tools/ui/android-shot.mjs",
     "ui:selftest": "node tools/ui/lib/_selftest.mjs && node tools/ui/lib/_android-audit-selftest.mjs"
   },

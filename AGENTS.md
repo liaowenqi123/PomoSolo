@@ -93,15 +93,18 @@ npm run ui:shot -- --recipe desktop-panels
 # PWA 断点全覆盖（含断点边界 ±1px）
 npm run ui:shot -- --recipe pwa-screens
 
-# 真实 Tauri 窗口（真 WebView2 + 真 Rust 后端；需先 npm run tauri:dev）
+# 真实 Tauri 窗口：只截图（需先 npm run tauri:dev）
 npm run ui:desktop
+
+# 真实 Tauri 窗口：用代码点击它并校验点击真的生效（自动起 dev server + 应用）
+npm run ui:drive -- --recipe desktop-quick
 
 # Android（需模拟器已启动）
 npm run ui:android
 ```
 
 **产物**：`temp-debug/ui-shots/<时间戳>-<标签>/`
-→ **先读 `index.md`**（人/agent 读的清单），它包含截图索引 + 页面错误 + 布局审计问题表。
+→ **问题会直接打在终端**（按类型分组、按元素去重）；完整表格在产物的 `index.md`。
 
 工具会**自动审计**这些（判据对应历史上真出过的 bug）：
 `overlay-blocking`（整屏遮罩挡住界面）、`text-clip`（文字被裁）、
@@ -110,6 +113,13 @@ npm run ui:android
 
 > 完整说明见 **[`tools/ui/README.md`](./tools/ui/README.md)**。
 > 零新增依赖：用 Node 自带 `fetch` + 全局 `WebSocket` 直驱 CDP，复用本机 Chrome/Edge。
+
+### 真实窗口驱动的两条注意
+
+- **`ui:drive` 默认用 UIA InvokePattern 点击，会绕过命中测试** ——
+  它能证明"功能逻辑通"，**不能**证明"用户点得到"。要测遮挡/热区加 `--allow-sendinput`（会移动光标）；
+- **热区阈值分两种，别用错**：`24` = 桌面指针下限（WCAG 2.5.8，默认）；
+  `44` = 触摸目标（PWA/手机规矩）。对 520×560 桌面窗口用 44 会产出大量噪声。
 
 ---
 
@@ -372,9 +382,11 @@ git push origin main && git push self main
 
 | 我想… | 怎么做 |
 |-------|--------|
-| 看 UI 现在长什么样 | `npm run ui:shot -- --target desktop`，读产物的 `index.md` |
+| 看 UI 现在长什么样 | `npm run ui:shot -- --target desktop`（**问题会直接打在终端**） |
 | 看某个面板 | `npm run ui:shot -- --recipe desktop-panels` |
 | 核对真机效果 | `npm run tauri:dev` 另开终端 → `npm run ui:desktop` |
+| **验证点击真的能用** | `npm run ui:drive -- --recipe desktop-quick`（真实窗口 + UIA 点击 + 校验） |
+| 查真实点击热区 | `npm run ui:drive -- --recipe desktop-plain`（看终端的热区审计） |
 | 查手机端 | `npm run ui:android`（先开模拟器） |
 | 改样式 | 改 `src/styles/global.css` token 或组件 scoped 样式 → 截图核对 |
 | 加一个 Tauri 命令 | 见 §3.1 四步（**别忘了 `lib.rs` 注册**） |

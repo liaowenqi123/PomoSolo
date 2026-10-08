@@ -616,10 +616,11 @@ npm run tauri:build          # 完整构建（复制音乐资源 → vue-tsc 类
 | `npm run test:coverage` | 前端测试 + 覆盖率 |
 | `cd src-tauri && cargo test` | Rust 测试 |
 | **UI 取证** | |
-| `npm run ui:shot -- --target desktop` | 桌面端主窗口截图（真实尺寸 520×560）+ 布局审计 |
+| `npm run ui:shot -- --target desktop` | 桌面端主窗口截图（真实尺寸 520×560）+ 布局审计（**问题直接打在终端**） |
 | `npm run ui:shot -- --recipe desktop-panels` | 所有面板各截一张 |
 | `npm run ui:shot -- --list-targets` | 看全部目标 / `--list-recipes` 配方 / `--list-views` 视口 / `--list-scenarios` mock 场景 |
 | `npm run ui:desktop` | 真实 Tauri 窗口截图（需应用在跑） |
+| `npm run ui:drive -- --recipe desktop-quick` | **驱动真实 Tauri 窗口**：UIA 点击 + 校验点击生效 + 真实热区审计 |
 | `npm run ui:android` | Android 截图 + UI 层级审计（需模拟器） |
 | `npm run ui:selftest` | UI 工具自测（不需服务器/设备） |
 | **交付** | |

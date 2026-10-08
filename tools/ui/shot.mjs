@@ -158,6 +158,98 @@ Tauri IPC mock（浏览器里让真实前端跑起来，**桌面端目标默认�
   └─ manifest.json  同数据的机读版
 `;
 
+/* ─────────────── 终端问题摘要 ─────────────── */
+
+/**
+ * 把布局审计结果**汇总打印到终端**。
+ *
+ * 为什么要有：早期版本只把问题写进 index.md，结果使用者（包括 agent）
+ * 根本没注意到有问题 —— 报告埋在 gitignored 的产物目录里。
+ * 现在跑完命令就能直接看到"哪些元素有问题、多大、该改哪个类"。
+ *
+ * 汇总策略：按 `kind` 分组、**按元素选择器去重**（同一元素在多张图里重复出现只报一次），
+ * 每组最多列 N 条，避免刷屏。
+ */
+function printFindingsToStdout(entries, tinyTarget) {
+  const KIND_LABEL = {
+    "overlay-blocking": "整屏遮罩挡住界面",
+    "text-clip": "文字被裁",
+    "overflow-x": "内容横向溢出未滚动",
+    "overflow-y": "内容纵向溢出未滚动",
+    "out-of-viewport": "元素越界",
+    covered: "元素被遮挡点不到",
+    "tiny-target": `点击热区过小（<${tinyTarget}px）`,
+    "tiny-font": "字号过小",
+  };
+  const KIND_ORDER = ["overlay-blocking", "text-clip", "out-of-viewport", "overflow-y", "overflow-x", "covered", "tiny-target", "tiny-font"];
+
+  // 按 kind → 去重后的选择器 → 首次出现的信息
+  const byKind = new Map();
+  const errorSet = new Map();   // 页面错误去重
+  for (const e of entries) {
+    for (const err of e.errors ?? []) {
+      const key = String(err).split("\n")[0].slice(0, 160);
+      if (!errorSet.has(key)) errorSet.set(key, { count: 0, shots: new Set() });
+      const rec = errorSet.get(key);
+      rec.count++;
+      rec.shots.add(e.viewKey ?? e.name);
+    }
+    for (const f of e.audit?.findings ?? []) {
+      if (!byKind.has(f.kind)) byKind.set(f.kind, new Map());
+      const m = byKind.get(f.kind);
+      if (!m.has(f.selector)) m.set(f.selector, { ...f, shots: new Set(), count: 0 });
+      const rec = m.get(f.selector);
+      rec.count++;
+      rec.shots.add(e.viewKey ?? e.name);
+    }
+  }
+
+  const realErrors = [...errorSet.entries()].filter(([k]) => !k.includes("favicon.ico"));
+  const totalFindings = [...byKind.values()].reduce((n, m) => n + m.size, 0);
+
+  if (!realErrors.length && !totalFindings) return;
+
+  console.log("");
+  console.log("┌─ 发现的问题 ─────────────────────────────────────────────");
+
+  if (realErrors.length) {
+    console.log(`│ ❌ 页面错误 ${realErrors.length} 类（favicon 404 已忽略）`);
+    for (const [msg, rec] of realErrors.slice(0, 6)) {
+      console.log(`│    · ${msg}`);
+      if (rec.count > 1) console.log(`│      （在 ${rec.count} 张里出现：${[...rec.shots].join(", ")}）`);
+    }
+    if (realErrors.length > 6) console.log(`│    … 其余 ${realErrors.length - 6} 类见 index.md`);
+  }
+
+  for (const kind of KIND_ORDER) {
+    const m = byKind.get(kind);
+    if (!m?.size) continue;
+    const items = [...m.values()];
+    // tiny-target / tiny-font 按"越小越严重"排序，其余按出现次数
+    if (kind === "tiny-target" || kind === "tiny-font") {
+      items.sort((a, b) => parseFloat(a.value) - parseFloat(b.value));
+    } else {
+      items.sort((a, b) => b.count - a.count);
+    }
+    console.log(`│ 🔍 ${KIND_LABEL[kind] ?? kind}：${items.length} 个元素`);
+    for (const f of items.slice(0, 6)) {
+      const short = shortenSelector(f.selector);
+      console.log(`│    · ${short}   ${f.value}${f.count > 1 ? `  ×${f.count}` : ""}`);
+    }
+    if (items.length > 6) console.log(`│    … 其余 ${items.length - 6} 个见 index.md`);
+  }
+
+  console.log("└──────────────────────────────────────────────────────────");
+  console.log("  完整表格（含说明与复现信息）：上面那个 index.md");
+}
+
+/** 选择器太长，压成"最后 2 段 + 关键类名"，终端里才读得下 */
+function shortenSelector(sel) {
+  const parts = String(sel).split(" > ").filter(Boolean);
+  if (parts.length <= 2) return sel;
+  return "… > " + parts.slice(-2).join(" > ");
+}
+
 /* ─────────────── 主流程 ─────────────── */
 
 async function main() {
@@ -437,8 +529,11 @@ async function main() {
       console.log("");
       console.log(`✅ 完成 ${entries.length} 张 → ${run.rel}`);
       console.log(`   清单（先读这个）：${run.rel}/index.md`);
-      if (bad.length) console.log(`   ⚠️ ${bad.length} 张有问题，详情见清单「问题详情」小节`);
+      if (bad.length) console.log(`   ⚠️ ${bad.length} 张有问题`);
       else console.log("   未发现页面错误或布局问题");
+
+      // ★ 把问题**直接打到终端**，不要只埋在 index.md 里
+      printFindingsToStdout(entries, args.tinyTarget);
     }
   } finally {
     if (!args.keepOpen) {

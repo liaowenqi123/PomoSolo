@@ -22,6 +22,14 @@ import { findBrowser } from "./browsers.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** 常用按键的 Windows 虚拟键码（Input.dispatchKeyEvent 需要） */
+const KEYCODES = {
+  Enter: 13, Tab: 9, Escape: 27, Backspace: 8, Delete: 46,
+  ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39,
+  Home: 36, End: 35, PageUp: 33, PageDown: 34,
+  " ": 32, Space: 32,
+};
+
 /** 等待条件成立 */
 async function until(fn, { timeout = 15000, interval = 50, what = "条件" } = {}) {
   const deadline = Date.now() + timeout;
@@ -125,15 +133,21 @@ class Connection {
 
 export class Page {
   /** @param {Browser} browser @param {string} sessionId */
-  constructor(browser, sessionId) {
+  constructor(browser, sessionId, opts = {}) {
     this.browser = browser;
     this.sessionId = sessionId;
     this.conn = browser.conn;
     this.closed = false;
+    /** true = 附着在**已存在**的页面上（如真实 Tauri 的 WebView2）→ 关连接但不关目标 */
+    this.attached = opts.attached === true;
   }
 
   send(method, params) { return this.conn.send(method, params, this.sessionId); }
-  on(method, fn) { return this.conn.on(method, (p, sid) => { if (sid === this.sessionId) fn(p, sid); }); }
+  on(method, fn) {
+    // 附着模式下 sessionId 为 undefined，事件也不带 sessionId → 直接透传
+    if (this.attached) return this.conn.on(method, fn);
+    return this.conn.on(method, (p, sid) => { if (sid === this.sessionId) fn(p, sid); });
+  }
 
   /** 设置视口（含 DPI 缩放与移动端模拟） */
   async setViewport({ width, height, deviceScaleFactor = 1, mobile = false }) {
@@ -297,6 +311,90 @@ export class Page {
     } finally { offReq(); offDone(); offFail(); }
   }
 
+  /* ─────────────── 真实输入（走输入管线，不是 el.click()） ───────────────
+   *
+   * 为什么不用 `el.click()`：那是**直接调用 DOM 事件**，绕过了命中测试，
+   * 所以"元素被浮层盖住"、"z-index 错了"、"热区太小点不到"这类问题**测不出来**。
+   * Input.dispatchMouseEvent 走浏览器真实输入管线 → 与用户点击同路径。
+   */
+
+  /** 在视口坐标处点击 */
+  async clickAt(x, y, { button = "left", clickCount = 1, delay = 30 } = {}) {
+    const base = { x: Math.round(x), y: Math.round(y), button, clickCount };
+    await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", ...base, buttons: 0 });
+    await sleep(delay);
+    await this.send("Input.dispatchMouseEvent", { type: "mousePressed", ...base, buttons: 1 });
+    await sleep(delay);
+    await this.send("Input.dispatchMouseEvent", { type: "mouseReleased", ...base, buttons: 0 });
+    return { x, y };
+  }
+
+  /** 取元素中心坐标（视口坐标） */
+  async centerOf(selector, { scrollIntoView = true } = {}) {
+    if (scrollIntoView) {
+      await this.evaluate(`(() => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (el) el.scrollIntoView({ block: 'center', inline: 'center' });
+      })()`);
+      await sleep(80);
+    }
+    const info = await this.evaluate(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)});
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, w: r.width, h: r.height, cx: r.x + r.width / 2, cy: r.y + r.height / 2 };
+    })()`);
+    return info;
+  }
+
+  /**
+   * 用真实鼠标事件点击元素。
+   * 返回点击后的**命中对象**（document.elementFromPoint 结果）——
+   * 若命中的不是目标元素本身，说明被遮挡，会明确报出来（这正是要测的）。
+   */
+  async clickSelector(selector, { timeout = 5000, verify = true } = {}) {
+    await this.waitForFunction(`document.querySelector(${JSON.stringify(selector)})`, { timeout });
+    const info = await this.centerOf(selector);
+    if (!info) throw new Error(`点击目标不存在：${selector}`);
+    if (info.w === 0 || info.h === 0) throw new Error(`点击目标尺寸为 0，点不到：${selector}`);
+
+    const hit = await this.evaluate(`(() => {
+      const el = document.elementFromPoint(${info.cx}, ${info.cy});
+      if (!el) return null;
+      return { tag: el.tagName.toLowerCase(), cls: el.getAttribute('class') || '', text: (el.textContent || '').trim().slice(0, 30) };
+    })()`);
+
+    await this.clickAt(info.cx, info.cy);
+    await sleep(120);
+
+    let hitOk = null;
+    if (verify) {
+      hitOk = await this.evaluate(`(() => {
+        const el = document.querySelector(${JSON.stringify(selector)});
+        const top = document.elementFromPoint(${info.cx}, ${info.cy});
+        return !!(el && top && (top === el || el.contains(top) || top.contains(el)));
+      })()`);
+    }
+    return { selector, x: info.cx, y: info.cy, hitBefore: hit, hitOk };
+  }
+
+  /** 输入文本（走真实输入） */
+  async typeText(text) {
+    await this.send("Input.insertText", { text });
+  }
+
+  /** 按键（如 Enter / Tab / Escape） */
+  async pressKey(key, { code, keyCode, text } = {}) {
+    const common = {
+      key,
+      code: code ?? key,
+      windowsVirtualKeyCode: keyCode ?? KEYCODES[key] ?? 0,
+      nativeVirtualKeyCode: keyCode ?? KEYCODES[key] ?? 0,
+    };
+    await this.send("Input.dispatchKeyEvent", { type: text ? "keyDown" : "rawKeyDown", ...common, text });
+    await this.send("Input.dispatchKeyEvent", { type: "keyUp", ...common });
+  }
+
   /** 取元素信息 */
   async elementInfo(selector) {
     return this.evaluate(`(() => {
@@ -368,6 +466,11 @@ export class Page {
   async close() {
     if (this.closed) return;
     this.closed = true;
+    if (this.attached) {
+      // 附着在别人的页面上（真实 Tauri 的 WebView2）→ 只断开自己的连接，**不要关掉人家的窗口**
+      this.conn.close();
+      return;
+    }
     try { await this.conn.send("Target.closeTarget", { targetId: this.targetId }); } catch { /* ignore */ }
   }
 }
@@ -455,6 +558,81 @@ export class Browser {
     return inst;
   }
 
+  /**
+   * 连接到**已经在跑**的 CDP 端点（不自建浏览器、不杀进程）。
+   *
+   * 用途：真实 Tauri 桌面端的 WebView2 —— 用环境变量
+   *   WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222
+   * 启动应用后，就能像浏览器一样驱动**真实窗口**（真 Rust 后端 + 真数据），
+   * 而且点的是真实输入管线。
+   *
+   * @param {{ port: number, host?: string, timeout?: number }} opts
+   */
+  static async connect({ port, host = "127.0.0.1", timeout = 20000 } = {}) {
+    if (!port) throw new Error("Browser.connect 需要 port");
+    const ver = await until(async () => {
+      try {
+        const res = await fetch(`http://${host}:${port}/json/version`);
+        return res.ok ? res.json() : null;
+      } catch { return null; }
+    }, { timeout, interval: 200, what: `CDP 端点 http://${host}:${port}/json/version` });
+
+    const conn = await Connection.connect(ver.webSocketDebuggerUrl);
+    const inst = new Browser({
+      conn, proc: null, port, userDataDir: null, keepProfile: true,
+      info: {
+        name: "attached",
+        label: `已连接的实例 (${ver.Browser})`,
+        version: ver.Browser,
+        protocolVersion: ver["Protocol-Version"],
+      },
+    });
+    inst.attached = true;
+    inst.host = host;
+    return inst;
+  }
+
+  /** 列出该端点下的所有页面目标（附着模式下用来挑要驱动哪个窗口） */
+  async listTargets() {
+    const res = await fetch(`http://${this.host ?? "127.0.0.1"}:${this.port}/json/list`);
+    const all = await res.json();
+    return all.map((t) => ({ id: t.id, type: t.type, title: t.title, url: t.url, ws: t.webSocketDebuggerUrl }));
+  }
+
+  /**
+   * 附着到**已存在**的页面（不新建、不关闭）。
+   * @param {{ match?: (t: {title:string,url:string}) => boolean, index?: number }} [opts]
+   */
+  async attachToPage({ match, index = 0 } = {}) {
+    const targets = await this.listTargets();
+    const pages = targets.filter((t) => t.type === "page");
+    if (!pages.length) {
+      throw new Error(
+        `CDP 端点里没有 page 目标。现有：${targets.map((t) => `${t.type}(${t.url || t.title})`).join(", ") || "（无）"}`,
+      );
+    }
+    const picked = match ? pages.filter(match) : pages;
+    const target = picked[index];
+    if (!target) {
+      throw new Error(
+        `没有匹配的页面目标。现有页面：\n` + pages.map((p) => `  · ${p.title} — ${p.url}`).join("\n"),
+      );
+    }
+    if (!target.ws) throw new Error(`目标 ${target.id} 没有 webSocketDebuggerUrl（无法附着）`);
+
+    // 页面级连接：命令不带 sessionId，事件也不带 → Page 用 attached 模式
+    const pageConn = await Connection.connect(target.ws);
+    const page = new Page({ conn: pageConn }, undefined, { attached: true });
+    page.targetId = target.id;
+    page.targetInfo = { title: target.title, url: target.url };
+    page.attached = true;
+    page.ownConn = pageConn;
+
+    await page.send("Page.enable");
+    await page.send("Runtime.enable");
+    return page;
+  }
+
   /** 新建页面 */
   async newPage({ viewport = { width: 1280, height: 800 }, freezeAnimations = true } = {}) {
     const { targetId } = await this.conn.send("Target.createTarget", { url: "about:blank" });
@@ -473,6 +651,12 @@ export class Browser {
   async close() {
     for (const p of this.pages) { try { await p.close(); } catch { /* ignore */ } }
     this.pages.clear();
+
+    // 附着模式：绝不动别人的进程/窗口，只断开连接
+    if (this.attached) {
+      this.conn.close();
+      return;
+    }
 
     // 优雅关闭：浏览器级 Browser.close（比 taskkill 干净，且不依赖那个已退出的启动器进程）
     try {

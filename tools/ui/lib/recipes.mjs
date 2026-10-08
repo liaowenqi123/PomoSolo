@@ -133,3 +133,110 @@ export function listRecipes() {
     shots: (r.shots ?? []).map((s) => s.name),
   }));
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 真实窗口驱动配方（desktop-drive.mjs 用）
+ *
+ * 与上面的浏览器配方区别：
+ *   - 上面用 CSS 选择器 + CDP 输入（在**浏览器**里点）
+ *   - 这里用 **UIA 无障碍名称**（在**真实 Tauri 窗口**里点）
+ *
+ * `expect` 是关键：点击后要求这些文案**从无到有**出现，否则判为点击未生效。
+ * 不写 expect 的步骤只截图，不做点击验证。
+ *
+ * ⚠️ InvokePattern 会**绕过命中测试**（直接调 handler）——它能证明"逻辑通"，
+ *    但不能证明"用户点得到"。要测遮挡/热区，加 --allow-sendinput 走真鼠标。
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/** 按 HTML `title`（→ UIA HelpText）定位按钮 —— 比 emoji 稳定得多 */
+const byTitle = (title) => ({ controlType: "Button", helpTextContains: title });
+
+/** 真实窗口里那排图标按钮的 emoji 名称（**不推荐**，仅留作对照） */
+const uiaBtn = (icon) => ({ name: icon, controlType: "Button" });
+
+/**
+ * 面板关闭按钮。
+ *
+ * ⚠️ **必须排除窗口控件**：`×` 这个名字同时属于
+ *   · 窗口关闭按钮  `window-controls__btn window-controls__btn--close`
+ *   · 各面板关闭按钮 `settings-panel__close` 等
+ * 不加 `classNameNotContains` 就会匹配到**窗口关闭按钮**，一点就把整个应用关掉
+ * （踩过：drive 第 3 步报"进程未运行"，因为第 2 步把应用关了）。
+ */
+const UIA_CLOSE = { name: "×", controlType: "Button", classNameNotContains: "window-controls" };
+
+/**
+ * 顶部图标栏的「展开/收起」。
+ *
+ * ⚠️ **点面板前后图标栏状态不同**：面板打开时图标栏是展开的（9 个按钮都在无障碍树里），
+ * 面板关闭后图标栏**收起**，主题/统计/AI 等按钮**从树里消失**（浏览器侧审计里
+ * `header-buttons-hidden` 被 `covered` 就是同一机制）。
+ * 所以「先展开再点」在关闭过面板之后是**必需**的，否则会报"找不到元素"。
+ */
+const UIA_EXPAND = byTitle("展开/收起");
+
+export const DRIVE_RECIPES = {
+  /** 真实窗口：主界面 + 各面板逐个点开并校验 */
+  "desktop-panels": {
+    label: "真实窗口 · 面板巡检",
+    steps: [
+      { name: "00-main" },
+      { name: "01-settings", clicks: [UIA_EXPAND, byTitle("设置")], expect: ["外观模式", "恢复默认", "最小化行为"] },
+      { name: "02-close-settings", click: UIA_CLOSE, expectGone: ["外观模式", "恢复默认"] },
+      { name: "03-stats", clicks: [UIA_EXPAND, byTitle("数据统计")], expect: ["今日番茄", "今日专注（分钟）", "累计专注（分钟）"] },
+      { name: "04-close-stats", click: UIA_CLOSE, expectGone: ["今日番茄"] },
+      { name: "05-tutorial", clicks: [UIA_EXPAND, byTitle("教程")], expect: ["教程"] },
+      { name: "06-close-tutorial", click: UIA_CLOSE, optional: true },
+      { name: "07-ai", clicks: [UIA_EXPAND, byTitle("AI规划助手")], expect: ["AI"] },
+      { name: "08-close-ai", click: UIA_CLOSE, optional: true },
+      { name: "09-charts", clicks: [UIA_EXPAND, byTitle("图表")], expect: ["榜单"] },
+      { name: "10-close-charts", click: UIA_CLOSE, optional: true },
+      { name: "11-auth", clicks: [UIA_EXPAND, byTitle("云端登录")], expect: ["登录"] },
+    ],
+  },
+
+  /** 真实窗口：主界面 + 设置面板开合 + 主题切换（最短的有效巡检） */
+  "desktop-quick": {
+    label: "真实窗口 · 快速巡检",
+    steps: [
+      { name: "00-main" },
+      { name: "01-settings", clicks: [UIA_EXPAND, byTitle("设置")], expect: ["外观模式", "恢复默认"] },
+      { name: "02-close", click: UIA_CLOSE, expectGone: ["外观模式", "恢复默认"] },
+      {
+        name: "03-toggle-theme",
+        clicks: [UIA_EXPAND, byTitle("切换深色模式")],
+        // 主题切换没有稳定的"新增文案"可断言（深色/浅色标签在设置面板里，此时面板已关）。
+        // 证据 = 截图 + 该步 UIA dump 里主题按钮 Name 的翻转（☀️ ↔ 🌙）。
+        note: "证据见截图与该步 UIA dump：主题按钮 Name 应在 ☀️ / 🌙 之间翻转",
+      },
+      { name: "04-settings-in-dark", clicks: [UIA_EXPAND, byTitle("设置")], expect: ["外观模式", "恢复默认"] },
+    ],
+  },
+
+  /** 真实窗口：只截主界面（不点击，纯取证） */
+  "desktop-plain": {
+    label: "真实窗口 · 仅截图",
+    steps: [{ name: "00-main" }],
+  },
+};
+
+export function listDriveRecipes() {
+  const describe = (c) => {
+    if (!c) return "";
+    if (c.helpTextContains) return `title=「${c.helpTextContains}」`;
+    if (c.name) return `name=「${c.name}」${c.classNameNotContains ? `（排除 ${c.classNameNotContains}）` : ""}`;
+    if (c.nameContains) return `name 含「${c.nameContains}」`;
+    return JSON.stringify(c);
+  };
+  return Object.entries(DRIVE_RECIPES).map(([k, r]) => ({
+    name: k,
+    label: r.label ?? k,
+    steps: (r.steps ?? []).map((s) => {
+      const clicks = s.clicks?.length ? s.clicks : (s.click ? [s.click] : []);
+      const what = clicks.map(describe).filter(Boolean).join(" → ");
+      const assert = s.expect?.length ? `  [期望出现: ${s.expect.join("/")}]`
+        : (s.expectGone?.length ? `  [期望消失: ${s.expectGone.join("/")}]` : "");
+      return `${s.name}${what ? `  ← ${what}` : ""}${assert}`;
+    }),
+  }));
+}
