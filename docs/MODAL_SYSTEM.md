@@ -1,5 +1,17 @@
 # 弹窗系统说明
 
+> ## ⚠️ 历史文档（Electron 时代）—— 不要照着它改代码
+>
+> 本文描述的是**旧 Electron 版**的弹窗系统，实现在
+> `deprecated/electron/src/scripts/modules/modal.js`（`BaseModal` / `AnimatedModal` / `window.modalManager`）。
+> **那套代码已废弃**，仅作迁移参考。
+>
+> **当前（Tauri + Vue 3）的弹窗系统见 [`docs/modules/modal-system.md`](./modules/modal-system.md)** ——
+> 它是 Vue 组件 `<Modal>` + `.app-modal-overlay` 遮罩 + `global.css` 的 `--z-modal*` 层级体系。
+>
+> 保留本文的原因：迁移时用它核对"原版每个弹窗的配置"（哪些允许点遮罩关闭、
+> 哪些要展开侧边栏、多级弹窗栈顶才可关闭），这些**行为约定**在新版里依然成立。
+
 ## 核心实现
 
 弹窗系统集中在 `src/scripts/modules/modal.js`，提供两个类：

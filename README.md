@@ -7,8 +7,11 @@
 [![Vue](https://img.shields.io/badge/Vue-3.5-42b883)](https://vuejs.org)
 [![Rust](https://img.shields.io/badge/Rust-2021-orange)](https://www.rust-lang.org)
 
-> ### 🧭 新来的开发者，请先读 [**TEAM_GUIDE.md**](./TEAM_GUIDE.md)
-> 部门分工（主部门 / 服务器部门 / PWA 部门 / 安卓端部门）、部门声明规则、双仓库推送流程、工作流与文档地图都在里面。读完即可投入工作。
+> ### 🧭 在这个文件夹里启动 agent / 新来的开发者，请先读 [**AGENTS.md**](./AGENTS.md)
+> **agent 单文件入口**：四个端（桌面端 / PWA / 服务器 / 安卓端）各自代码在哪、怎么改、怎么验证，
+> 以及**什么能上 GitHub、什么只能留在本机**（`.local/` 私密区）。
+>
+> 更细的团队规则（部门分工、部门声明、双仓库推送、工作流与红线）见 [**TEAM_GUIDE.md**](./TEAM_GUIDE.md)。
 
 ---
 
@@ -111,12 +114,30 @@ Copy-Item -Recurse -Force music-player\music src-tauri\target\release\resources
 .\src-tauri\target\release\pomo-solo.exe
 ```
 
+### 6. 看 UI（改样式前必做）
+
+**改任何 UI 之前先截图看一眼** —— 以前只能靠读 CSS 猜，UI bug 都是用户实测才发现的。
+
+```bash
+npm run ui:shot -- --target desktop        # 桌面端主窗口（真实尺寸 520×560）
+npm run ui:shot -- --recipe desktop-panels # 所有面板各截一张
+npm run ui:shot -- --recipe pwa-screens    # PWA 断点全覆盖
+npm run ui:desktop                         # 真实 Tauri 窗口（需先 npm run tauri:dev）
+npm run ui:android                         # Android（需先开模拟器）
+```
+
+产物在 `temp-debug/ui-shots/<时间戳>-<标签>/`，**先读里面的 `index.md`**：
+它含截图索引 + 页面错误 + 布局审计问题表（整屏遮罩 / 文字被裁 / 元素越界 / 点击热区过小 …）。
+
+> 零新增依赖（用 Node 自带能力直驱 CDP，复用本机 Chrome/Edge）。
+> 完整说明见 [`tools/ui/README.md`](./tools/ui/README.md)。
+
 ---
 
 ## 项目结构
 
 > 本仓库同时承载**桌面端**与 **PWA 端**；**服务器端代码不在本仓库**（只有接口文档）；
-> **安卓端在独立仓库**。四端关系见 [TEAM_GUIDE.md](./TEAM_GUIDE.md) §3。
+> **安卓端在独立仓库**。四端关系与"什么能上 GitHub"见 [**AGENTS.md**](./AGENTS.md)。
 
 ```
 electron_pomodoro/
@@ -314,23 +335,34 @@ npm run pwa:build
 
 ## 安卓端（安卓端部门）
 
-> 部门：安卓端部门 ｜ 状态：🚧 筹备中（2026-09-10 成立，v0 开发中） ｜ 仓库：[PomoSolo-Android](https://github.com/liaowenqi123/PomoSolo-Android)
+> 部门：安卓端部门 ｜ 状态：🚧 **v1 开发中（原生落地）** ｜ 仓库：[PomoSolo-Android](https://github.com/liaowenqi123/PomoSolo-Android)
+> 本机路径：`C:\Users\admin\AndroidStudioProjects\pomodoro`
 
-手机端移植（Android）。**目标是把 PomoSolo 变成真正的原生 Android 应用**，代码由安卓端部门自研
-（可参考 PWA 部门的"真实复用"思路，但不 copy 其代码）。
+手机端移植（Android）。**已经是 Kotlin + Jetpack Compose 原生应用**，代码在**独立仓库**、
+全部自研；桌面端/PWA 的 Vue/Rust 源码只作界面与交互参考，**不 copy、不引用**。
 
-路线分两步：
+> ⚠️ **路线已变更（2026-09-10 定调）**：安卓端**不再把 PWA 构建产物当作应用内容**。
+> 早期"v0 WebView 壳 + `pwa-dist/`"的方案**已从该仓库移除**（只留在它的 git 历史里）。
+> 早期文档若仍写"v0 WebView 壳"，属于**过时描述**，以安卓仓库 README 为准。
 
-1. **v0（当前）**：以 WebView 壳复用 PWA 构建产物（`pwa-dist/`）快速跑通 —— 验证计时、音乐、登录、
-   自习室等在手机上的可行性；
-2. **v1+**：逐步用原生组件/服务替换 WebView 层（系统通知、后台播放、锁屏媒体控制、前台检测等），
-   沉淀安卓端自己的代码与架构。
+当前形态：
+
+| 项 | 方案 |
+|----|------|
+| 语言 / UI | Kotlin 2.4.20 + Jetpack Compose（Material3），单 Activity，**无 WebView** |
+| 构建 | AGP 9.3.0 + Gradle 9.7.1（Kotlin 由 AGP 内置），compileSdk 37 / minSdk 26 |
+| 播放 | Media3 ExoPlayer（本地 `file://` + 在线流） |
+| 存储 | `filesDir/music/` + `index.json`；设置/统计用 SharedPreferences（**真正落盘**，不受 WebView 的 SW/Cache/IndexedDB 限制） |
+| 已实现 | 专注页（计时/圆环/拨轮）、音乐页（曲库·热榜·本地 + 全局播放条）、热榜爬取与单曲下载（B站搜索 → DeepSeek 选片 → DASH 音频流）、设置与账号、自习室（WS + DJ 同步听歌）、P2P 直连（WebRTC DataChannel） |
 
 约束与协作：
 
-- 跨端接口一律以 `server-planning/` 文档为准；跨部门改动需在相关文档留痕并同步（见 TEAM_GUIDE §3.4/§9）；
-- 提交规范、部门声明规则与主仓库一致（见 TEAM_GUIDE §7/§15）；
-- 详细规划见安卓端仓库 README。
+- 跨端接口一律以 `server-planning/` 文档为准；接口改动必须同步该目录（见 `TEAM_GUIDE.md` §3.4/§10.4）；
+- 提交规范、部门声明规则与主仓库一致（见 `TEAM_GUIDE.md` §7/§15）；
+- **截图与 UI 核对**用本仓库工具：`npm run ui:android`（见 `tools/ui/README.md`）；
+- 本机视角的完整备忘（设备端口、构建安装命令）见 **`.local/ANDROID.md`**；
+- 详细现状与逐轮改版记录见安卓端仓库的 `README.md` 与 `docs/CHANGELOG.md`。
+
 
 ---
 

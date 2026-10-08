@@ -118,9 +118,9 @@ PyInstaller **构建中间产物**（不是源码，也不是成品 exe）已从
 
 | 位置 | 内容 | 体积 |
 |------|------|------|
-| `music-player/build/` | `music.pkg`(21.8MB)、`PYZ-00.pyz`(4.5MB)、`base_library.zip`、`.toc`、`xref-*.html` | ~28 MB |
-| `foreground_inspection/build/` | `foreground_inspection.pkg`(11.2MB)、`PYZ-00.pyz`(4.0MB)、`base_library.zip`、`.toc`、`xref-*.html` | ~16 MB |
-| `music-player/__pycache__/` | 3 个 `.pyc` | 忽略不计 |
+| `deprecated/music-player/build/` | `music.pkg`(21.8MB)、`PYZ-00.pyz`(4.5MB)、`base_library.zip`、`.toc`、`xref-*.html` | ~28 MB |
+| `deprecated/foreground_inspection/build/` | `foreground_inspection.pkg`(11.2MB)、`PYZ-00.pyz`(4.0MB)、`base_library.zip`、`.toc`、`xref-*.html` | ~16 MB |
+| `deprecated/music-player/__pycache__/` | 3 个 `.pyc` | 忽略不计 |
 
 **为什么移除**：这些是 PyInstaller 打包时的临时中间物，既不能运行也无法阅读，
 纯粹是仓库噪声。删掉不影响任何源码或成品。
@@ -130,11 +130,11 @@ PyInstaller **构建中间产物**（不是源码，也不是成品 exe）已从
 
 | 文件 | 体积 | 说明 |
 |------|------|------|
-| `music-player/ffmpeg.exe` | 98.7 MB | 旧版音频转码依赖 |
-| `music-player/music.exe` | 22.2 MB | PyInstaller 打包的 `music.py` |
-| `music-player/you-get.exe` | 13.1 MB | B 站视频下载工具 |
-| `music-player/manual_downloader.exe` | 11.7 MB | 打包的 `manual_downloader.py` |
-| `foreground_inspection/foreground_inspection.exe` | 11.5 MB | 打包的前台检测脚本 |
+| `deprecated/music-player/ffmpeg.exe` | 98.7 MB | 旧版音频转码依赖 |
+| `deprecated/music-player/music.exe` | 22.2 MB | PyInstaller 打包的 `music.py` |
+| `deprecated/music-player/you-get.exe` | 13.1 MB | B 站视频下载工具 |
+| `deprecated/music-player/manual_downloader.exe` | 11.7 MB | 打包的 `manual_downloader.py` |
+| `deprecated/foreground_inspection/foreground_inspection.exe` | 11.5 MB | 打包的前台检测脚本 |
 
 **为什么保留**：它们是"曾经长这样"的**可运行成品存档**，2026-09 重构时经确认保留。
 当前版本**完全不依赖**它们 ——

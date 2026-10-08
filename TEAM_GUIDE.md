@@ -3,10 +3,15 @@
 > **这份文档是每一位新加入开发者的第一份必读文档。**
 > 读完本文档 + 各文档入口，你就可以直接投入工作。
 >
-> - 最后更新：2026-08-16（新增"每次工作完及时推送双仓库"纪律，PWA部门）
+> - 最后更新：2026-09（仓库重构：新增 [AGENTS.md](./AGENTS.md) 单文件入口、`tools/ui/` UI 取证工具、`.local/` 本地私密区）
 > - 当前版本：v4.7.12（Tauri v2 + Vue 3 + Rust）
 > - 适用范围：所有在本仓库工作的人，以及通过 SSH 维护服务器的协作者（含 AI 助手）
 > - 本文档沉淀自主部门长期实践，包含**项目理念与红线**——这些是踩过坑换来的，请务必遵守。
+
+> ### 📌 先读 [AGENTS.md](./AGENTS.md)
+> 它是 **agent / 新人的单文件入口**：四个端（桌面端 / PWA / 服务器 / 安卓端）各自代码在哪、
+> 怎么改、怎么验证，以及**什么能上 GitHub、什么只能留在本机**。
+> 本文档是**更细的团队规则**（部门分工、声明规则、双仓库、工作流、发版红线），与 AGENTS.md 互补。
 
 ---
 
@@ -54,7 +59,7 @@
 | 🖥 桌面端（Windows） | ✅ 已上线（v4.7.12） | Tauri v2 + Vue 3 + 纯 Rust 后端，安装包约 17MB，自动更新 |
 | 🖥 服务器端 | ✅ 运行中 | 自建公网服务器：JWT 认证、REST API、WebSocket（自习室/同步听歌等）、P2P 信令 |
 | 📱 PWA 端 | 🚧 建设中（PWA部门） | 桌面优先的 PWA，代码在 `src/pwa/`（真实复用桌面端 `src/`），部署于 `start.pomogrow.top`（见第 11 节） |
-| 🤖 安卓端 | 🚧 筹备中（安卓端部门，2026-09-10 成立） | 独立 Android 原生应用（**自研代码**，参考 PWA 部门的复用思路，不 copy）；v0 先以 WebView 复用 PWA 构建产物跑通，代码在**独立仓库**（见 §3.4） |
+| 🤖 安卓端 | 🚧 **v1 开发中（原生落地）**（安卓端部门，2026-09-10 成立） | **Kotlin + Jetpack Compose 原生应用**（自研代码，参考桌面端/PWA 但不 copy）；代码在**独立仓库**（见 §3.4）。⚠️ 早期"v0 WebView 壳"方案已移除，仅存于该仓库 git 历史 |
 
 ### 核心功能
 
@@ -93,7 +98,7 @@
 | **主部门** | `主` | **负责所有事情**：桌面端开发、构建、发布、CI/CD、仓库与双仓库维护、通用文档维护 | 本仓库全部代码（`src/`、`src-tauri/`、`scripts/`、`docs/` 等） | ✅ **默认部门** |
 | **服务器部门** | `服务器` | 服务器相关问题：认证、REST API、WebSocket、P2P 信令、数据库、部署、Nginx、域名/备案、HTTPS | **运行代码不在本仓库**（维护在服务器上）；接口约定与规划通过本仓库 `server-planning/` 沟通 | ❌ |
 | **PWA 部门** | `PWA` | 桌面优先的 PWA 端：浏览器内计时 + 音乐 + 自习室 | 本仓库 `src/pwa/`（复用 `src/` 下的组件/store/API） | ❌ |
-| **安卓端部门** | `安卓` | Android 手机端：把 PomoSolo 移植为原生 Android 应用（**代码自研**，思路参考 PWA 的复用方式，不 copy）；v0 用 WebView 壳复用 PWA 构建产物 | **独立 GitHub 仓库** [PomoSolo-Android](https://github.com/liaowenqi123/PomoSolo-Android)（2026-09-10 成立）；本仓库文档/接口仍为沟通权威 | ❌ |
+| **安卓端部门** | `安卓` | Android 手机端：把 PomoSolo 移植为 **Kotlin + Jetpack Compose 原生应用**（**代码自研**，不 copy 桌面端/PWA 源码）；v1 起原生实现界面与业务，数据真正落盘到 App 私有目录 | **独立 GitHub 仓库** [PomoSolo-Android](https://github.com/liaowenqi123/PomoSolo-Android)（2026-09-10 成立）；本仓库文档/接口仍为沟通权威 | ❌ |
 
 ### 3.1 主部门（Main）
 
@@ -122,17 +127,24 @@
 
 ### 3.4 安卓端部门（Android，2026-09-10 成立）
 
-- 职责：把 PomoSolo 移植为 **Android 原生应用**（代码自研，不 copy PWA/桌面端源码）；
-  - **v0（WebView 壳）**：复用 PWA 构建产物（`pwa-dist/`）打包进 APK，用 WebView 跑通第一版，快速验证
-    核心计时/音乐/登录/自习室在手机上的可行性；
-  - **v1+（原生化）**：逐步以原生实现替换 WebView 能力（系统通知、后台播放 + 锁屏媒体控制、
-    前台检测、本地文件/下载等），沉淀安卓端自己的架构；
+- 职责：把 PomoSolo 移植为 **Kotlin + Jetpack Compose 原生应用**（代码自研，不 copy 桌面端/PWA 源码）；
+- **技术形态（v1，当前）**：单 Activity、**无 WebView**；Media3 ExoPlayer 播放、OkHttp 网络、
+  `filesDir/music/` + `index.json` 落盘、SharedPreferences 存设置/统计、
+  `SystemClock.elapsedRealtime()` 时间戳基准计时（切后台/锁屏回来依然准确）；
+- ⚠️ **路线已变更**：早期 **v0"WebView 壳 + 复用 `pwa-dist/` 构建产物"的方案已从该仓库移除**
+  （只保留在其 git 历史中）。**本仓库任何仍写"v0 WebView 壳"的描述均为过时**，以安卓仓库 README 为准。
+  变更原因：Service Worker / Cache API / IndexedDB 在 WebView 中的妥协与限制太多
+  （可靠文件下载、屏幕常亮、系统媒体控制、本地音频落盘都做不到），不如原生直做；
 - 代码位置：**独立 GitHub 仓库** [PomoSolo-Android](https://github.com/liaowenqi123/PomoSolo-Android)；
-  文档沉淀于该仓库 README，本仓库 `TEAM_GUIDE.md`/`README.md`/`server-planning/` 仍是团队协作与接口沟通的权威；
+  文档沉淀于该仓库 `README.md` 与 `docs/CHANGELOG.md`（逐轮改版记录），
+  本仓库 `AGENTS.md`/`TEAM_GUIDE.md`/`server-planning/` 仍是团队协作与接口沟通的权威；
 - 协作边界（同 PWA 部门 §11.5 思路）：
   - **共享**：服务器接口（REST/WS/P2P）、账号体系、产品功能定义 —— 改动必须同步 `server-planning/` 文档；
-  - **不共享**：任何依赖"浏览器/系统 WebView 之外能力"的功能需要安卓端自行原生实现；
+  - **参考不复制**：桌面端 Vue/Rust 源码与 PWA 的 `src/pwa/` 仅作界面/交互参考，不 copy、不引用；
+  - **不依赖**：安卓交付内容与 PWA 构建产物**解耦**；浏览器做不到的能力（可靠下载、屏幕常亮、
+    系统媒体控制、本地音频落盘）安卓端用原生方案达成；
   - 跨部门改动 → 按第 9.2 节更新对应文档，并在提交/文档中声明 `[安卓端部门]`；
+- **UI 核对**：用本仓库 `npm run ui:android`（截图 + uiautomator 层级审计，见 `tools/ui/README.md`）；
 - 目标平台：Android 手机（后续按需兼容平板/折叠屏）。
 
 ---
@@ -231,7 +243,17 @@
 
 ### 6.3 工程约定
 
-- **临时调试脚本/HTML/一次性工具**统一放根目录 `temp-debug/`（已 gitignore，含密钥可放心放），不要散落在正式代码目录；Rust example 类调试文件需先拷回 `src-tauri/examples/` 再运行；
+- **临时文件与本地配置分两处放**（2026-09 起）：
+  - `temp-debug/` —— **一次性**调试脚本/HTML/临时产物，用完即弃（已 gitignore）；
+  - `.local/` —— **本机/服务器专属事实**（长期有效）：工具链路径、SSH 细节、测试账号、
+    密钥**位置引用**、发版踩坑（已 gitignore，仅 `README.md` 入库）。
+  **判断口诀**：*换一台机器就不一样*或*泄漏会造成损失* → `.local/`；*只是这次排查用* → `temp-debug/`。
+  契约见 `.local/README.md`。不要散落在项目根目录、`src/`、`src-tauri/` 等正式代码目录；
+  Rust example 类调试文件需先拷回 `src-tauri/examples/` 再运行；
+- **改 UI 前先截图**（2026-09 起）：用 `tools/ui/` 的取证工具
+  （`npm run ui:shot` / `ui:desktop` / `ui:android`），它会同时做布局审计
+  （整屏遮罩 / 文字被裁 / 元素越界 / 点击热区过小 …）。
+  以前"改样式靠读 CSS 猜"导致的返工都因此可避免。见 `tools/ui/README.md`；
 - 音乐下载/播放**必须是纯 Rust 实现**，禁止引入 Python（you-get.exe / manual_downloader.exe）或 ffmpeg.exe 依赖；
 - Tauri 版本的功能、图标、导航栏、颜色、布局须与旧 Electron 版一致（迁移目标）。
 
@@ -505,8 +527,11 @@ npm run pwa:preview    # 预览产物
 
 | 文档 | 说明 |
 |------|------|
+| **`AGENTS.md`** | ★ **单文件入口**：四个端（桌面端/PWA/服务器/安卓端）各自代码在哪、怎么改、怎么验证 + **什么能上 GitHub、什么只能留在本机** |
 | **本文件 `TEAM_GUIDE.md`** | 部门分工 + 工作流程 + 双仓库规则 + 项目理念与红线 |
 | `README.md` | 项目总览、技术栈、快速开始、项目结构（**以它为准**） |
+| `tools/ui/README.md` | UI 取证工具：截图 + 布局审计（改 UI 前必看） |
+| `.local/README.md` | 本地私密区契约：什么该放这里、什么必须入库 |
 | `docs/ARCHITECTURE.md` | 整体架构详解 |
 | `server-planning/EXTERNAL-INTERFACES.md` | 对外接口唯一权威索引（REST / WS / P2P / 更新源） |
 
@@ -590,6 +615,14 @@ npm run tauri:build          # 完整构建（复制音乐资源 → vue-tsc 类
 | `npm test` / `npm run test:watch` | 前端测试（单次 / 监听） |
 | `npm run test:coverage` | 前端测试 + 覆盖率 |
 | `cd src-tauri && cargo test` | Rust 测试 |
+| **UI 取证** | |
+| `npm run ui:shot -- --target desktop` | 桌面端主窗口截图（真实尺寸 520×560）+ 布局审计 |
+| `npm run ui:shot -- --recipe desktop-panels` | 所有面板各截一张 |
+| `npm run ui:shot -- --list-targets` | 看全部目标 / `--list-recipes` 配方 / `--list-views` 视口 / `--list-scenarios` mock 场景 |
+| `npm run ui:desktop` | 真实 Tauri 窗口截图（需应用在跑） |
+| `npm run ui:android` | Android 截图 + UI 层级审计（需模拟器） |
+| `npm run ui:selftest` | UI 工具自测（不需服务器/设备） |
+| **交付** | |
 | `git push origin main && git push self main` | 推送双仓库 |
 | `git tag -a v4.x.x -m "..." && git push origin v4.x.x && git push self v4.x.x` | 发版打 tag |
 | `fuck-u-code analyze <dir> -f markdown -o <file> -l zh -t 20` | 发版前代码质量核验 |
@@ -615,7 +648,7 @@ npm run tauri:build          # 完整构建（复制音乐资源 → vue-tsc 类
 [主部门] fix: 修复计时器暂停后时间重置的问题
 [服务器部门] docs: 更新 API-implementation.md 同步听歌接口
 [PWA部门] feat: 完成 PWA manifest 与离线缓存配置
-[安卓端部门] feat: WebView 壳接入 PWA 构建产物，跑通安卓端 v0
+[安卓端部门] feat: 专注页原生落地（Compose 计时圆环 + 拨轮选时长）
 ```
 
 ### 15.3 其他

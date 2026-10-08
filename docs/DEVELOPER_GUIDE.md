@@ -1,7 +1,23 @@
 # 开发者指南
 
-> 本文档含旧版 Electron + Supabase 内容（历史参考）。当前版本为 **Tauri v2 + Vue 3 + Rust**，
-> 云端后端为自建服务器（JWT + WebSocket），对接文档见 `server-planning/API-implementation.md`。
+> ## ⚠️ 历史文档（Electron + Supabase 时代）—— 当前版本以 README/AGENTS.md 为准
+>
+> 本文档**大部分内容描述的是已废弃的 Electron + Python + Supabase 架构**，
+> 目录结构、模块划分、进程通信、构建打包等章节**均与实际不符**，仅作历史参考。
+>
+> **请改看：**
+> | 你想了解 | 看哪里 |
+> |---------|--------|
+> | 项目怎么跑、结构是什么 | [`README.md`](../README.md) |
+> | 四端导航、怎么改、入库边界 | [`AGENTS.md`](../AGENTS.md) |
+> | 团队规则、双仓库、发版红线 | [`TEAM_GUIDE.md`](../TEAM_GUIDE.md) |
+> | 架构与数据流 | [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) |
+> | 模块级实现 | [`docs/modules/`](./modules/) |
+>
+> 本文**唯一仍有参考价值**的部分：「发布流程约定（强制）」一节中关于
+> 本地自建 runner（`d:\actions-runner`）与缓存目录（`D:\pomosolo-cache`）的说明，
+> 以及 `@electron/packager --ignore` 等**旧版打包**细节（仅用于理解历史）。
+> 发版请以 `TEAM_GUIDE.md` §16 与 `.local/RELEASE.md` 为准。
 
 本文档为番茄钟项目的开发者提供技术参考，包含项目架构、模块说明、开发规范等内容。
 

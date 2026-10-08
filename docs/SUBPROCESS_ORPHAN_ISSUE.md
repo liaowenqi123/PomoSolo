@@ -1,5 +1,18 @@
 # 子进程残留问题分析
 
+> ## ⚠️ 历史文档（Electron + Python 时代）—— 问题已不复存在
+>
+> 本文记录的是**旧架构**下"Electron 主进程崩溃后 Python 子进程残留"的问题与分析。
+> 该架构已废弃：**当前版本是纯 Rust 实现，没有任何 Python 子进程**
+> （播放 `src-tauri/src/modules/audio_player.rs`、下载 `downloader.rs`、
+> 前台检测 `foreground_inspection.rs`）。
+>
+> **本问题在当前版本不可能发生** —— 本文只作为"为什么当初要迁到纯 Rust"的历史依据保留。
+> 如果你在排查子进程/孤儿进程问题，先确认现象是否真的来自当前版本（见 `docs/ARCHITECTURE.md`）。
+>
+> 现行约定见 `TEAM_GUIDE.md` §6.3：音乐下载/播放**必须纯 Rust**，
+> 禁止引入 Python 或 ffmpeg.exe 依赖。
+
 本文档详细记录了 Electron 主进程崩溃后 Python 子进程残留的问题、分析过程及解决方案。
 
 ---
