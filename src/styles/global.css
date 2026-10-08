@@ -49,6 +49,11 @@
   --z-header-btn: 100;
   --z-overlay-ui: 200;
   --z-popup: 1000;
+  /* 窗口 chrome（最小化/关闭/置顶）：必须**高于 --z-popup**，
+     因为音乐库是全窗 sheet（铺满整个窗口），若不抬高就会盖住关闭按钮 ——
+     本窗口是 decorations:false，标题栏是唯一的移动/关闭途径，盖住等于关不掉。
+     仍低于 --z-modal：弹窗遮罩本来就该盖住一切，包括 chrome。 */
+  --z-window-chrome: 1100;
   --z-modal: 3000;
   --z-modal-upper: 3100;
   --z-modal-top: 3200;

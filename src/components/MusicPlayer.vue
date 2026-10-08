@@ -40,6 +40,24 @@ const isPlaylistOpen = ref(false);
 const isVolumeOpen = ref(false);
 const isDeviceOpen = ref(false);
 
+/**
+ * 音乐库是全窗 sheet，需要 <Teleport to=".container"> 才能铺满窗口
+ * （组件自身嵌套在 .music-player 里，而它带 transform，position:fixed 会以它为
+ * 包含块，所以必须传送出去）。
+ *
+ * 但**单测是孤立挂载组件的**，DOM 里没有 .container → Teleport 解析不到目标，
+ * 面板整个不渲染（27 个用例因此失败）。
+ * 所以先探测目标是否存在：不存在就 `disabled` 掉传送，内容**就地渲染**，
+ * wrapper.find 照常可查；生产环境里 .container 一定在，走正常传送。
+ *
+ * 为什么不用 VTU 的 `stubs: { teleport: true }`：那会把**所有** Teleport 都戳掉，
+ * 连带改变右键菜单（to="body"）的传送语义，导致"两步确认删除"用例失败。
+ */
+const sheetTeleportEnabled = ref(false);
+onMounted(() => {
+  sheetTeleportEnabled.value = !!document.querySelector(".container");
+});
+
 /** 同步听歌时非 DJ 用户禁止控制播放器（由 DJ 统一控制播放/切歌/进度/音量） */
 const controlsDisabled = computed(() => store.syncEnabled && !store.isDj);
 
@@ -909,27 +927,67 @@ if (typeof document !== "undefined") {
           </button>
         </div>
 
-        <!-- 音乐库面板：浏览区（筛选/目录）与播放列表区（集合）用小标签切换，控制面板高度不超出番茄钟窗口 -->
+        <!--
+          音乐库 = **全窗 sheet**（设计变更，原为锚在播放器上方的 348×340 小弹窗）。
+
+          为什么要改结构而不是继续微调：
+            小弹窗里可用纵向空间只有约 340px，却要同时放下「目录树」和「歌单」
+            两个纵向列表 → 两者互相挤压、必须长距离上下滚动，无论怎么调细节
+            都逃不掉。这是**结构**问题，不是细节问题。
+
+          新结构：
+            · Teleport 到 .container —— 与 .app-modal-overlay 同一套惯例
+              （"相对 .container 定位，被 .container/.window-frame 的
+              overflow:hidden 裁剪在圆角内"）。圆角自动正确；而且 .container
+              是 v-show（不是 v-if）→ 迷你模式下会被一起隐藏，无需额外规则。
+            · 可用面积 348×340 → **520×560**。
+            · 目录树从"占一行纵向空间"变成**左栏**（固定 150px，独立滚动），
+              歌单独占右栏全部高度 → 两个列表不再争抢纵向空间。
+            · 窗口 chrome（📍−×）已抬到 --z-window-chrome(1100) 浮在 sheet 之上；
+              故 header 右侧留 108px 空位，避免自己的按钮压到它们。
+
+          因为是全窗 sheet，"点外面关闭"不再适用 → header 补了显式关闭按钮。
+
+          注意 `defer`：Vue 是**自底向上**挂载 DOM 的，本组件挂载时 .container
+          还没被插进 document，Teleport 会解析不到目标而静默不渲染（已踩到）。
+          Vue 3.5 的 `<Teleport defer>` 把目标解析推迟到当前渲染周期之后，
+          正是为这种情况设计的。
+        -->
+        <Teleport to=".container" :disabled="!sheetTeleportEnabled" defer>
         <div v-show="isPlaylistOpen" class="music-playlist">
           <div class="music-playlist__header">
-            <span>音乐库</span>
+            <!--
+              返回按钮放**左侧**，不放右侧：
+              右侧紧邻窗口 chrome（📍−×，浮在 sheet 之上），放个 ✕ 会看起来
+              像"第 4 个窗口按钮"，用户会犹豫该点哪个关闭。左侧从空间上把
+              "内容控件"和"窗口 chrome"分开，也是全屏浮层最常规的关闭位置。
+            -->
+            <button
+              class="music-playlist__back"
+              title="返回计时（关闭音乐库）"
+              aria-label="返回计时"
+              @click.stop="isPlaylistOpen = false"
+            >←</button>
+            <span class="music-playlist__title">音乐库</span>
             <span
               v-if="store.playSetActive"
               class="music-playlist__source"
               :title="`播放集合来源：${store.playSetSource}`"
             >🎵 {{ store.playSetSource }}</span>
-            <!--
-              刷新按钮：原来用 emoji「🔄」，它在 Windows 上渲染成**亮蓝色方块**，
-              与面板的暗红主题冲突、看着像个没样式化的默认按钮。
-              改用文本字形「⟳」（U+27F3，由 CSS 着色），并补 title ——
-              title 会变成 UIA 的 HelpText，是自动化里最稳定的定位标识。
-            -->
-            <button
-              class="music-playlist__refresh"
-              title="刷新曲库"
-              aria-label="刷新曲库"
-              @click.stop="store.requestPlaylist()"
-            >⟳</button>
+            <div class="music-playlist__header-actions">
+              <!--
+                刷新按钮：原来用 emoji「🔄」，它在 Windows 上渲染成**亮蓝色方块**，
+                与面板的暗红主题冲突、看着像个没样式化的默认按钮。
+                改用文本字形「⟳」（U+27F3，由 CSS 着色），并补 title ——
+                title 会变成 UIA 的 HelpText，是自动化里最稳定的定位标识。
+              -->
+              <button
+                class="music-playlist__refresh"
+                title="刷新曲库"
+                aria-label="刷新曲库"
+                @click.stop="store.requestPlaylist()"
+              >⟳</button>
+            </div>
           </div>
 
           <!-- 三个选项卡并排：目录 / 筛选 / 播放列表 -->
@@ -953,8 +1011,16 @@ if (typeof document !== "undefined") {
             </button>
           </div>
 
-          <!-- 目录 tab：目录树（字段投影，实时派生） -->
-          <div v-show="panelTab === 'dir'" class="music-playlist__dirs">
+          <!--
+            主体：目录 tab 时是「左栏目录树 | 右栏歌单」的两栏（master-detail），
+            其余 tab 是单栏。--split 只在目录 tab 生效，避免其它 tab 留一条空栏。
+          -->
+          <div
+            class="music-playlist__body"
+            :class="{ 'music-playlist__body--split': panelTab === 'dir' }"
+          >
+          <!-- 左栏：目录树（字段投影，实时派生）。独立滚动，不再抢歌单的纵向空间 -->
+          <aside v-show="panelTab === 'dir'" class="music-playlist__dirs">
             <div class="music-playlist__dir-row">
               <span class="music-playlist__dir-caret music-playlist__dir-caret--leaf">·</span>
               <button
@@ -985,8 +1051,10 @@ if (typeof document !== "undefined") {
                 @click="store.toggleDir(row.path)"
               >📁 {{ row.name }} <span class="music-playlist__dir-count">{{ row.count }}</span></button>
             </div>
-          </div>
+          </aside>
 
+          <!-- 右栏：筛选条 / 歌单 / 底部动作（目录与筛选两个 tab 共用同一个歌单列表） -->
+          <section class="music-playlist__main">
           <!-- 筛选 tab：搜索 + 标签 chips（多选 AND + 计数） -->
           <div v-show="panelTab === 'filter'" class="music-playlist__filters">
             <div class="music-playlist__toolbar">
@@ -1127,17 +1195,17 @@ if (typeof document !== "undefined") {
               >🔀 随机播放集合</button>
             </div>
           </div>
+          </section>
+          </div>
 
           <!--
-            Toast 提示：**放在面板内部**并锚到面板上方（bottom:100%）。
-            原来它是播放器的兄弟节点（bottom:100% 于播放器），面板打开时
-            正好落在面板底部的动作按钮上，把「🔀 随机播放集合」整个盖住。
-            移到面板内后：面板开 → 浮在面板上方，不遮住任何控件。
-            ⚠️ 因此它只在面板打开时可见 —— 而所有 showToast 流程
-            （加入/移动/标签/删除）都发生在面板打开时，故无影响。
+            Toast 提示：浮在 sheet 底部动作条上方（不是面板外）。
+            全窗 sheet 下它不再有"遮住面板按钮"的风险，但仍在 sheet 内部，
+            保证任何布局下都不会跑到窗口外面。
           -->
           <div v-if="toastVisible" class="music-toast">{{ toastMessage }}</div>
         </div>
+        </Teleport>
       </div>
     </div>
 
@@ -1731,42 +1799,30 @@ if (typeof document !== "undefined") {
   font-weight: 700;
 }
 
-/* ============ 音乐库面板（浏览 / 播放列表 小标签切换） ============ */
-/* z-index 使用 --z-popup；高度固定（内容再多也不收缩/超出，全部在番茄钟窗口内） */
+/* ============ 音乐库（全窗 sheet）============ */
+/*
+ * 设计：铺满整个窗口（520×560），不是锚在播放器上方的小弹窗。
+ *
+ * 为什么必须改结构：原来只有 348×340，却要同时放「目录树」和「歌单」两个
+ * 纵向列表 → 两者互相挤压、必须长距离上下滚动。这是结构问题，微调细节解决不了。
+ * 现在：目录树是左栏（独立滚动），歌单占右栏全部高度。
+ *
+ * 定位说明：属性写 absolute + inset:0，实际相对 .container（Teleport 目标）。
+ * 圆角由上层 .window-frame 的 overflow:hidden 提供 —— 这里**不要再写
+ * border-radius**，否则会在圆角处露出 .container 的红色渐变。
+ *
+ * z-index: --z-popup(1000)。窗口 chrome（📍−×）已抬到 --z-window-chrome(1100)
+ * 浮在其上，保证 decorations:false 的窗口始终关得掉。
+ */
 .music-playlist {
   position: absolute;
-  bottom: 100%;
-  right: 0;
-  /*
-   * 不透明背景（原来是 rgba(40,40,50,0.98)）：
-   *   ① 0.98 的 alpha 会让**计时器文字**在面板上留下可见鬼影 ——
-   *      实测新鲜截图里鬼影亮度差达 79/255（强制重绘后才消失），
-   *      属于合成层失效残留；不透明是唯一彻底可靠的解法。
-   *   ② 歌单文字压在计时器上，本来就需要一个实心表面保证对比度。
-   */
+  inset: 0;
+  /* 不透明：半透明会让背后的计时器透出来（实测有可见鬼影），
+     而且歌单文字需要实心表面保证对比度 */
   background: #282833;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  margin-bottom: 8px;
-  width: 348px;
-  /*
-   * 按内容定高（原来是固定 height: min(360px, 60vh)）：
-   *   固定高度在曲库很小/为空时会在面板中间留下一大片空黑，
-   *   看上去像"坏了"。改成 auto + 上下限：
-   *     · 内容少 → 面板收紧（最小 168px，不至于太局促）
-   *     · 内容多 → 到 360px/62vh 后由列表内部滚动
-   */
-  height: auto;
-  min-height: 168px;
-  /*
-   * 上限从 min(360px,62vh) 放宽到 min(380px,64vh)：
-   * 目录树 + 歌单同时要地方，太矮会把歌单挤成 2 行（实测过）。
-   */
-  max-height: min(380px, 64vh);
   display: flex;
   flex-direction: column;
   z-index: var(--z-popup);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(0, 0, 0, 0.25);
 }
 
 /* 浏览 tab 内模式切换（目录 / 筛选 拆开） */
@@ -1794,18 +1850,39 @@ if (typeof document !== "undefined") {
 }
 
 .music-playlist__browse-mode.active {
-  background: rgba(66, 165, 245, 0.22);
-  border-color: #42a5f5;
+  background: rgba(233, 69, 96, 0.22);
+  border-color: #e94560;
   color: #fff;
 }
 
-/* 小标签切换 */
+/* 小标签切换（全宽三段，高 44px：整条都是热区，好点） */
 .music-playlist__tabs {
   display: flex;
-  gap: 4px;
-  padding: 6px 10px;
+  gap: 6px;
+  padding: 6px 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
+  height: 44px;
+  box-sizing: border-box;
+}
+
+/*
+ * 主体：目录 tab = 两栏（目录树 | 歌单），其余 tab = 单栏。
+ * 这是本次设计的核心 —— 把目录树从"占纵向空间的一行"改成"占横向空间的一栏"，
+ * 两个列表从此各有一整列高度、各自独立滚动，不再互相挤压。
+ */
+.music-playlist__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.music-playlist__main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .music-playlist__tab {
@@ -1854,31 +1931,52 @@ if (typeof document !== "undefined") {
   font-variant-numeric: tabular-nums;
 }
 
+/* ── 全窗 sheet 分三层：header / tabs / body（+ 主体内部各自的底栏）─── */
+
 .music-playlist__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
+  gap: 10px;
+  height: 52px;
+  box-sizing: border-box;
+  /*
+   * 右侧留 108px：窗口 chrome（📍置顶 + − 最小化 + × 关闭）浮在 sheet 之上，
+   * 占据 x≈426..510。不留空位的话本面板的按钮会被压在它们下面、点不到。
+   */
+  padding: 0 108px 0 18px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 13px;
   font-weight: 600;
-  /* 面板高度自适应后，只有"列表区"应该吸收压缩；固定区一律不许被压扁，
-     否则会出现"目录树最后一行被切一半"这种难看的效果（改 height:auto 时踩到过）。 */
   flex-shrink: 0;
 }
 
+/* 刷新按钮靠右（返回按钮在左，见 header 注释） */
+.music-playlist__header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.music-playlist__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+/* 返回 / 刷新共用一套图标按钮外观（都是 28×28，达到桌面指针目标下限） */
+.music-playlist__back,
 .music-playlist__refresh {
-  /* 从"无样式 emoji 按钮"改为一个有明确热区的图标按钮：
-     24×24 达到桌面指针目标下限（WCAG 2.5.8），原来只有 19×19 */
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: rgba(255, 255, 255, 0.62);
   cursor: pointer;
   font-size: 15px;
   line-height: 1;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1886,6 +1984,7 @@ if (typeof document !== "undefined") {
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.2s ease;
 }
 
+.music-playlist__back:hover,
 .music-playlist__refresh:hover {
   background: rgba(255, 255, 255, 0.12);
   border-color: rgba(233, 69, 96, 0.6);
@@ -1896,10 +1995,17 @@ if (typeof document !== "undefined") {
   transform: rotate(180deg);
 }
 
+/* 返回按钮 hover 用红色，语义上区别于刷新 */
+.music-playlist__back:hover {
+  background: rgba(233, 69, 96, 0.75);
+  border-color: rgba(233, 69, 96, 0.9);
+  color: #fff;
+}
+
 .music-playlist__items {
   overflow-y: auto;
   /* min-height:0 是必需的：flex 子项默认 min-height:auto 会拒绝收缩，
-     面板改成 auto 高度后列表就无法内部滚动、会把面板撑破 max-height */
+     列表就无法在 sheet 内滚动 */
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -1923,11 +2029,17 @@ if (typeof document !== "undefined") {
 }
 
 .music-playlist__empty {
-  text-align: center;
+  /* 在整片列表区里**垂直居中**（原来只是顶部一块小 padding，
+     在全窗 sheet 的大片空白里会显得像"内容丢了"） */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 24px;
   color: rgba(255, 255, 255, 0.42);
-  /* 原来是 24px，空列表时把面板撑出一大块空白；收紧到 18px 让面板随内容收拢 */
-  padding: 18px 24px;
-  font-size: 12px;
+  font-size: 13px;
+  text-align: center;
 }
 
 .music-playlist__item {
@@ -1950,13 +2062,13 @@ if (typeof document !== "undefined") {
 }
 
 .music-playlist__item.selected {
-  background: rgba(66, 165, 245, 0.18);
-  box-shadow: inset 2px 0 0 #42a5f5;
+  background: rgba(233, 69, 96, 0.18);
+  box-shadow: inset 2px 0 0 #e94560;
 }
 
 .music-playlist__item.selected.current {
   background: rgba(180, 120, 160, 0.25);
-  box-shadow: inset 2px 0 0 #42a5f5;
+  box-shadow: inset 2px 0 0 #e94560;
 }
 
 .music-playlist__tag {
@@ -2077,19 +2189,29 @@ if (typeof document !== "undefined") {
   flex-shrink: 0;
 }
 
-/* 目录树（字段投影） */
+/* 左栏：目录树。固定宽 150px，占满主体高度、自己滚动。
+   原来它是主体里的一个"行"（max-height:112px），会把歌单挤到只剩 2-3 行。 */
 .music-playlist__dirs {
-  padding: 6px 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  /*
-   * 从 150px 收到 112px（约 4 行）：目录树是**导航**、歌单是**主内容**，
-   * 原来树占 150px 会把歌单挤到只剩 2 行，主次颠倒。
-   * 超出部分由树自身滚动，不影响歌单。
-   */
-  max-height: 112px;
+  flex: 0 0 150px;
+  min-height: 0;
   overflow-y: auto;
-  /* 不许被压扁：压缩全部由列表区吸收（否则最后一行会被切一半） */
-  flex-shrink: 0;
+  padding: 8px 6px;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  box-sizing: border-box;
+}
+
+/* 目录树的滚动条（与歌单一致） */
+.music-playlist__dirs::-webkit-scrollbar {
+  width: 4px;
+}
+
+.music-playlist__dirs::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.music-playlist__dirs::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
 }
 
 .music-playlist__dir-row {
@@ -2540,7 +2662,7 @@ if (typeof document !== "undefined") {
 /* 选中计数 + 清除筛选（与"全部加入播放列表"同行） */
 .music-playlist__selection-count {
   font-size: 11px;
-  color: #42a5f5;
+  color: #ff8a9c;
   align-self: center;
   font-variant-numeric: tabular-nums;
 }
@@ -2563,9 +2685,9 @@ if (typeof document !== "undefined") {
 
 /* 播放列表集合区：拖入高亮 */
 .music-playlist__collection-items--dragover {
-  outline: 2px dashed rgba(66, 165, 245, 0.7);
+  outline: 2px dashed rgba(233, 69, 96, 0.7);
   outline-offset: -2px;
-  background: rgba(66, 165, 245, 0.08);
+  background: rgba(233, 69, 96, 0.08);
 }
 
 .music-playlist__collection-items--empty {
@@ -2630,7 +2752,7 @@ if (typeof document !== "undefined") {
 .music-playlist__ctxmenu-hint {
   padding: 5px 10px 7px;
   font-size: 11px;
-  color: #42a5f5;
+  color: #ff8a9c;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   margin-bottom: 3px;
   white-space: nowrap;
@@ -2648,17 +2770,16 @@ if (typeof document !== "undefined") {
 
 /* ============ Toast 提示 ============ */
 /*
- * 位置：作为 .music-playlist 的最后一个子节点，bottom:100% → 浮在**面板上方**。
- * 这样面板打开时它永远不会盖住面板自己的按钮（原来它锚在播放器上，
- * 正好压住底部动作条里的「🔀 随机播放集合」）。
+ * 位置：浮在 sheet 底部动作条**上方**（原来是 bottom:100% = 面板之上，
+ * 在全窗 sheet 下那已经跑到窗口外面去了，必须改）。
+ * 用几何而非"面板之上"来定位，任何 tab 下都落在可视区内。
  */
 .music-toast {
   position: absolute;
-  bottom: 100%;
+  bottom: 66px;
   left: 50%;
   transform: translateX(-50%);
-  margin-bottom: 8px;
-  /* 不透明：与面板一致，避免半透明造成的鬼影/对比度问题 */
+  /* 不透明：与 sheet 一致，避免半透明造成的鬼影/对比度问题 */
   background: #32323f;
   color: #fff;
   font-size: 12px;

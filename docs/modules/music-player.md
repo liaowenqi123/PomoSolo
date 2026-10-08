@@ -308,6 +308,9 @@
 
 ### 4.10 播放列表样式
 
+> ⚠️ **本节记录的是"小弹窗时代"的历史方案（`240px` 宽 / `z-index: 9999`），
+> 已被 §8.6 的「全窗 sheet」取代。** 保留作为演进记录，**不要照着改代码**。
+
 - **现象**：
   - 迁移版播放列表宽度只有 200px，歌曲名带扩展名时被截断；条目间距过大，单屏显示歌曲数少。
 - **根因**：
@@ -322,7 +325,7 @@
   - `.music-playlist__name { font-size: 10px; }`（与旧版 `.playlist-item-name` 一致）
   - `.music-playlist__tag { font-size: 8px; padding: 2px 6px; border-radius: 4px; }`（与旧版 `.playlist-item-tag` 一致）
   - `.music-playlist__header { padding: 10px 12px; font-size: 13px; font-weight: 600; }`（标题比旧版略大，更醒目）
-  - `.music-playlist` 同样 `z-index: 9999`，与设备弹框层级一致。
+  - ~~`.music-playlist` 同样 `z-index: 9999`~~（z-index 现统一用 `global.css` 的 CSS 变量，见 §5.4）
 - **验证**：列表宽度合适，歌曲名完整显示；条目紧凑，单屏能显示 8-10 首歌。
 
 ### 4.11 z-index 层级
@@ -594,17 +597,22 @@ v4.5.8 在 `server-planning/API-implementation.md` 留言的三项服务器需�
 | ---------------- | --------------- | ----------------------------- | ------- | -------------- |
 | 音量拨动条       | `.music-volume` | `bottom: 100%; left: 50%`     | 1000    | 🔊 音量按钮    |
 | 输出设备列表     | `.music-info`   | `bottom: 100%; right: 0`      | 9999    | 🎧 设备按钮    |
-| 播放列表面板     | `.music-player__main` | `bottom: 100%; right: 0` | 9999    | 📋 播放列表按钮 |
+| 音乐库           | `.container`（Teleport） | `inset: 0`（**全窗 sheet**） | `--z-popup`(1000) | 📋 播放列表按钮 |
+
+> 音乐库已不是"向上弹出的浮层"，而是铺满整个窗口的 sheet，详见 §8.6。
 
 ### 5.4 z-index 层级总表
 
+> z-index 一律使用 `global.css` 的 CSS 变量，禁止 magic number。
+
 | 元素                          | z-index | 所在层叠上下文       | 说明                            |
 | ----------------------------- | ------- | -------------------- | ------------------------------- |
-| `.music-player`（根容器）     | 200     | `.main-content`      | 高于 HeaderButtons(100)/ModeSlider(50)/sidebar-collapse-btn(10) |
+| `.music-player`（根容器）     | 200（`--z-overlay-ui`） | `.main-content` | 高于 HeaderButtons(100)/ModeSlider(50)/sidebar-collapse-btn(10) |
 | `.music-collapse-btn`         | 10      | `.music-player` 内部 | 最低，正常态不遮挡内容          |
 | `.music-volume__slider`       | 1000    | `.music-player` 内部 | 高于收起按钮(10)，调音量时临时遮住收起按钮 |
 | `.music-device__list`         | 9999    | `.music-player` 内部 | 设备弹框，浮层最高              |
-| `.music-playlist`             | 9999    | `.music-player` 内部 | 播放列表弹框，与设备弹框同级    |
+| `.music-playlist`（音乐库 sheet） | `--z-popup`(1000) | `.container` | 全窗 sheet，见 §8.6 |
+| 窗口 chrome（📍−×）           | `--z-window-chrome`(1100) | `.container` | **必须高于 sheet**，否则全窗 sheet 会盖住关闭按钮（本窗口 `decorations:false`，标题栏是唯一关闭途径） |
 
 ### 5.5 收起状态结构
 
@@ -772,7 +780,61 @@ v4.5.8 在 `server-planning/API-implementation.md` 留言的三项服务器需�
 - `src/stores/music.ts`：`songMeta`（v2 元数据）、`activeDir/selectedTags/searchQuery`（**浏览区**查询）、`dirTree/allTags/filteredSongs/filteredCount`（派生）、`selection`（批量）、`playSet/playSetActive/playSetSource`（**播放列表集合**，与浏览完全独立）；
   - 浏览动作：`toggleDir/toggleTag/clearFilters`（只影响浏览结果）；
   - 集合动作：`addSongsToPlaylist`（单曲加入，去重）、`addViewToPlaylist`（筛选结果全部加入）、`playCollection(shuffle)`（所有播放行为都发生在集合内）、`removeFromPlaylist`、`clearPlaylistSet`；浏览/预览（`playSong`）**永不改变集合**；
-- `MusicPlayer.vue` 面板**三个选项卡并排**（面板高度固定不收缩、不超出番茄钟窗口）：
+- `MusicPlayer.vue` 面板**三个选项卡并排**：
+
+### 8.6 音乐库 = 全窗 sheet（v4.8 后续改版，重要）
+
+**改动前**：`.music-playlist` 是锚在播放器上方的 `348×340` 小弹窗
+（`bottom: 100%; right: 0`，`height: min(380px,64vh)`）。
+
+**问题（结构性，不是细节）**：那块区域可用纵向空间只有约 340px，却要同时放
+「目录树」和「歌单」**两个纵向列表** → 两者互相挤压，歌单只能看到 3-4 行，
+必须长距离上下滚动。无论怎么调 padding / 字号都逃不掉。
+
+**改版方案**：改为**铺满整个窗口的 sheet**（520×560），目录树从"占一行纵向空间"
+改为**占一栏横向空间**：
+
+| 项 | 改动前 | 改动后 |
+|----|--------|--------|
+| 尺寸 | 348×340（锚在播放器上方） | **520×560**（铺满窗口） |
+| 挂载点 | `.music-wraper` 内（`.music-player` 里） | `<Teleport to=".container" defer>` |
+| 目录树 | 主体里的一个"行"（`max-height:112px`） | **左栏** `flex: 0 0 150px`，独立滚动 |
+| 歌单 | 剩余高度 | **右栏** `flex:1`，占满高度 |
+| 可见歌曲行 | 3-4 行 | **12-13 行**（实测真实曲库一屏尽收） |
+| 关闭方式 | 点面板外 | header 左侧 `←` 返回按钮（全窗 sheet 没有"外面"） |
+
+结构：`header(52) / tabs(44) / body(tree 150 + main flex:1) / 底部动作条`
+—— `body` 在目录 tab 加 `--split` 变两栏，其余 tab 单栏（`main` 内部是
+`filters / items / collection` + 动作条，纵向 flex）。
+
+**踩坑（都必须知道）**：
+
+1. **Teleport 目标解析时机**：Vue **自底向上**挂载 DOM，`MusicPlayer` 挂载时
+   `.container` 还没被插进 document → `Teleport` 解析不到目标、**静默不渲染**
+   （现象：面板完全不出现，且没有报错）。必须用 Vue 3.5 的 `<Teleport defer>`。
+2. **单测里没有 `.container`**：孤立挂载组件时目标不存在 → 面板不渲染，
+   27 个用例失败。**不要**用 VTU 的 `stubs: { teleport: true }` —— 那会把**所有**
+   Teleport 都戳掉，连带改变右键菜单（`to="body"`）的传送语义，导致"两步确认删除"
+   用例失败。正确做法是 `<Teleport :disabled="!sheetTeleportEnabled">`：
+   挂载后探测目标，不存在就**就地渲染**（优雅降级）。
+3. **不能自己写 `border-radius`**：圆角由上层 `.window-frame` 的
+   `overflow:hidden` 提供。自己写会在圆角处露出 `.container` 的红色渐变。
+4. **窗口 chrome 必须抬到 sheet 之上**：本窗口 `decorations:false`，
+   标题栏是唯一的移动/关闭途径。sheet 若以 `--z-popup`(1000) 铺满窗口就会盖住
+   关闭按钮 → **关不掉**。故新增 `--z-window-chrome: 1100` 给
+   `WindowControls.vue` / `PinButton.vue`，并让 header 右侧留 108px 空位。
+5. **不要出现两个 ✕**：返回按钮放**左侧**。放右侧会紧邻窗口 chrome，
+   看起来像"第 4 个窗口按钮"，用户不知道该点哪个关闭。
+6. **`height:auto` 的 flex 收缩**：只有列表区该吸收压缩，固定区
+   （header/tabs/dirs/filters/动作条）必须 `flex-shrink:0`，否则会出现
+   "目录树最后一行被切一半"。
+7. **配色统一**：选中态原来用项目外的蓝 `#42a5f5`，已统一到主题红；
+   刷新按钮的 `🔄` emoji 在 Windows 上渲染成**亮蓝方块**，改用文本字形 `⟳`。
+
+**验证方式**：`npm run ui:shot -- --target desktop --click ".music-playlist-btn"`
+（浏览器 + IPC mock，三个 tab 各截一张）；真实窗口
+`npm run ui:drive -- --recipe desktop-music-panel`。
+
   - **📁 目录**：目录树（缩进+展开+计数）；
   - **🔍 筛选**：搜索框 + 标签 chips（多选 + 计数）；
   - **🎵 播放列表**：集合成员（无序、无序号，tab 带数量徽标）、当前播放高亮、✕ 移除、可拖放接收；底部「▶ 播放集合」「🔀 随机播放集合」「⏹ 清空」；
@@ -792,7 +854,7 @@ v4.5.8 在 `server-planning/API-implementation.md` 留言的三项服务器需�
 3. **事件驱动**：前端通过 `useTauriEvent` 注册监听，Store 的 `handle*` 方法更新状态；事件全部由 Rust 层 `app.emit`。
 4. **同步命令**：需要返回值的命令（删除/标签）由命令函数直接返回 `Result`，Tauri IPC 同步回传。
 5. **样式对照旧版**：`deprecated/electron/src/styles/music-player.css` 是权威参考，迁移时类名从 kebab-case 改为 BEM（`.music-device-list` → `.music-device__list`），但布局结构与尺寸完全对齐。
-6. **z-index 规划**：`.music-player` 200，内部弹层 9999，音量拨动条 1000，收起按钮 10。
+6. **z-index 规划**：一律用 `global.css` 的 CSS 变量——`.music-player` 用 `--z-overlay-ui`(200)，音量拨动条 1000，设备弹框 9999，音乐库 sheet 用 `--z-popup`(1000)，窗口 chrome（📍−×）用 `--z-window-chrome`(1100，**必须高于 sheet**)。详见 §5.4 / §8.6。
 7. **三行结构**：信息行 → 进度条行 → 控制行，中间按钮居中，左右按钮绝对定位。
 8. **收起动画**：`max-height` 过渡 + `opacity/visibility` 配合，0.45s `cubic-bezier(0.5,0,0.5,1)`。
 9. **音乐目录**：开发模式 `<project_root>/music-player/music/`，生产模式 `app_data_dir/music`（安装/更新不覆盖，见 4.1）。
