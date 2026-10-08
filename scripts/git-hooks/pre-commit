@@ -1,0 +1,68 @@
+#!/bin/sh
+#
+# pre-commit 钩子（入库版本）—— 部门：主部门
+#
+# 安装（一次性，克隆后需各人执行一次）：
+#   git config core.hooksPath scripts/git-hooks
+#
+# 为什么需要它：
+#   dev 模式启动应用时，应用会把 music-player/music/tags.json 从 v1 迁移成 v2 格式
+#   （v4.8 音乐库升级引入）。这个文件**已被跟踪**，于是每次跑完应用
+#   `git status` 就多出一处改动，`git add -A` 会顺手把它提交进无关的 commit。
+#   已因此误提交三次（见 AGENTS.md §5「已知坑」）。
+#
+# 本钩子做两件事：
+#   1) 若本次提交**只**动了 tags.json → 提示这是运行时产物，让用户确认；
+#   2) 若本次提交**顺带**动了 tags.json（提交信息里没提音乐库迁移）→ 拦下来。
+#
+# 需要有意提交 v2 迁移时，用：
+#   SKIP_TAGS_GUARD=1 git commit ...
+#   或在提交信息里包含「tags.json」/「音乐库迁移」。
+
+TAGS_FILE="music-player/music/tags.json"
+
+# 该文件不在本次暂存区 → 直接放行（绝大多数提交走这条）
+if ! git diff --cached --name-only | grep -qx "$TAGS_FILE"; then
+  exit 0
+fi
+
+if [ "$SKIP_TAGS_GUARD" = "1" ]; then
+  echo "[pre-commit] 已按 SKIP_TAGS_GUARD=1 放行 tags.json 改动"
+  exit 0
+fi
+
+# 提交信息里明确提到它 → 视为有意提交
+MSG_FILE="$1"
+if [ -n "$MSG_FILE" ] && [ -f "$MSG_FILE" ]; then
+  if grep -qiE 'tags\.json|音乐库迁移|music library migration' "$MSG_FILE"; then
+    exit 0
+  fi
+fi
+
+STAGED_TOTAL=$(git diff --cached --name-only | wc -l | tr -d ' ')
+
+echo ""
+echo "┌─ pre-commit 拦截 ────────────────────────────────────────────"
+echo "│ 本次提交包含 $TAGS_FILE"
+echo "│"
+if [ "$STAGED_TOTAL" = "1" ]; then
+  echo "│ 它是本次**唯一**的改动。"
+else
+  echo "│ 它和另外 $((STAGED_TOTAL - 1)) 个文件一起被提交。"
+fi
+echo "│"
+echo "│ 这个文件会被 dev 模式的应用**自动改写**（v1 → v2 格式迁移），"
+echo "│ 通常不是你想要的改动。三种处理方式："
+echo "│"
+echo "│  1) 不要提交它（最常见）："
+echo "│       git restore --staged --worktree $TAGS_FILE"
+echo "│"
+echo "│  2) 确实要做 v2 迁移：在提交信息里写明「tags.json」或「音乐库迁移」，"
+echo "│     或临时跳过本检查："
+echo "│       SKIP_TAGS_GUARD=1 git commit ..."
+echo "│"
+echo "│  3) 永久不再跟踪它（需团队同意，会让新克隆缺内置曲元数据）："
+echo "│       git rm --cached $TAGS_FILE && echo '$TAGS_FILE' >> .gitignore"
+echo "└──────────────────────────────────────────────────────────────"
+echo ""
+exit 1
