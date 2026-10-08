@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 菜园子 - 商店组件
- * 迁移自 electron/src/scripts/modules/gardenShop.js
+ * 迁移自 deprecated/electron/src/scripts/modules/gardenShop.js
  *
  * 弹窗形式，包含购买种子和出售作物两个标签页。
  */

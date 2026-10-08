@@ -1,0 +1,782 @@
+/**
+ * 云端登录弹窗样式
+ * 番茄主题配色
+ */
+
+/* 登录弹窗 */
+#auth-modal {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 3000;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  border-radius: 20px;
+  box-sizing: border-box;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+#auth-modal.show,
+#auth-modal.hiding {
+  display: flex;
+}
+
+#auth-modal.show {
+  opacity: 1;
+}
+
+#auth-modal.show.no-animation {
+  opacity: 1;
+  transition: none;
+}
+
+#auth-modal.hiding {
+  opacity: 0;
+}
+
+.api-key-modal-content {
+  background: linear-gradient(180deg, #fff5f5 0%, #ffffff 100%);
+  border-radius: 20px;
+  padding: 24px 20px;
+  width: 85%;
+  max-width: 320px;
+  box-shadow: 0 20px 60px rgba(231, 76, 60, 0.25), 0 8px 24px rgba(0, 0, 0, 0.1);
+  position: relative;
+  border: 1px solid rgba(231, 76, 60, 0.1);
+  /* 默认状态：正常显示 */
+  transform: translate(0, 0) scale(1);
+  opacity: 1;
+}
+
+#auth-modal.show:not(.no-animation) .api-key-modal-content {
+  /* 只有在有动画的情况下才设置初始状态 */
+  transform: translate(200px, -250px) scale(0.05);
+  transform-origin: center center;
+  opacity: 0;
+  animation: popOutFromCloudButton 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+#auth-modal.hiding .api-key-modal-content {
+  animation: popBackToCloudButton 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+}
+
+@keyframes popBackToCloudButton {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+    border-radius: 24px;
+  }
+  40% {
+    transform: translate(0, 0) scale(1.05);
+    border-radius: 24px;
+  }
+  70% {
+    opacity: 1;
+    border-radius: 50%;
+  }
+  100% {
+    transform: translate(200px, -250px) scale(0.05);
+    opacity: 0;
+    border-radius: 50%;
+  }
+}
+
+@keyframes popOutFromCloudButton {
+  0% {
+    transform: translate(200px, -250px) scale(0.05);
+    opacity: 0;
+    border-radius: 50%;
+  }
+  30% {
+    opacity: 1;
+    border-radius: 50%;
+  }
+  60% {
+    transform: translate(0, 0) scale(1.08);
+    border-radius: 24px;
+  }
+  80% {
+    transform: translate(0, 0) scale(0.95);
+  }
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+    border-radius: 24px;
+  }
+}
+
+.dark-mode .api-key-modal-content {
+  background: linear-gradient(180deg, #3d2a2a 0%, #2d2d2d 100%);
+  color: #e0e0e0;
+  border-color: rgba(231, 76, 60, 0.2);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(231, 76, 60, 0.15);
+}
+
+.api-key-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.api-key-modal-icon {
+  font-size: 26px;
+  filter: drop-shadow(0 2px 4px rgba(231, 76, 60, 0.3));
+}
+
+.api-key-modal-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.dark-mode .api-key-modal-header h2 {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* 登录 Tab 切换 */
+.login-tabs {
+  display: flex;
+  margin-bottom: 18px;
+  background: rgba(231, 76, 60, 0.08);
+  border-radius: 10px;
+  padding: 3px;
+}
+
+.dark-mode .login-tabs {
+  background: rgba(255, 107, 107, 0.1);
+}
+
+.login-tab {
+  flex: 1;
+  padding: 10px;
+  text-align: center;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  color: #888;
+  transition: all 0.3s ease;
+  font-size: 13px;
+}
+
+.login-tab:hover {
+  color: #e74c3c;
+}
+
+.login-tab.active {
+  background: white;
+  color: #e74c3c;
+  box-shadow: 0 4px 12px rgba(231, 76, 60, 0.2);
+  font-weight: 600;
+}
+
+.dark-mode .login-tab.active {
+  background: #4d3d3d;
+  color: #ff6b6b;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* 登录表单 */
+.login-form {
+  display: none;
+}
+
+.login-form.active {
+  display: block;
+}
+
+/* 登录选项（记住密码、自动登录） */
+.login-options {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  margin-top: -2px;
+}
+
+.login-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #888;
+  user-select: none;
+  transition: color 0.2s ease;
+}
+
+.dark-mode .login-checkbox {
+  color: #aaa;
+}
+
+.login-checkbox input[type="checkbox"] {
+  width: 12px;
+  height: 12px;
+  cursor: pointer;
+  accent-color: #e74c3c;
+}
+
+.login-checkbox:hover {
+  color: #e74c3c;
+}
+
+.dark-mode .login-checkbox:hover {
+  color: #ff6b6b;
+}
+
+/* 输入框组 */
+.api-key-input-group {
+  margin-bottom: 14px;
+}
+
+.api-key-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #555;
+}
+
+.dark-mode .api-key-label {
+  color: #ccc;
+}
+
+.api-key-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 2px solid #ffeaea;
+  border-radius: 10px;
+  font-size: 13px;
+  transition: all 0.3s ease;
+  background: #fffafa;
+}
+
+.api-key-input:focus {
+  outline: none;
+  border-color: #e74c3c;
+  background: white;
+  box-shadow: 0 0 0 4px rgba(231, 76, 60, 0.1);
+}
+
+.api-key-input::placeholder {
+  color: #ccc;
+}
+
+.dark-mode .api-key-input {
+  background: #3d3d3d;
+  border-color: #4d4d4d;
+  color: #e0e0e0;
+}
+
+.dark-mode .api-key-input:focus {
+  border-color: #ff6b6b;
+  box-shadow: 0 0 0 4px rgba(255, 107, 107, 0.15);
+}
+
+/* 登录按钮 */
+.login-btn {
+  width: 100%;
+  margin-top: 6px;
+}
+
+/* 消息提示 */
+.login-message {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  text-align: center;
+  display: none;
+}
+
+.login-message.success {
+  background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+  color: #155724;
+  display: block;
+  border: 1px solid #b1dfbb;
+}
+
+.login-message.error {
+  background: linear-gradient(135deg, #fff5f5 0%, #fee2e2 100%);
+  color: #c0392b;
+  display: block;
+  border: 1px solid #fecaca;
+}
+
+.dark-mode .login-message.success {
+  background: linear-gradient(135deg, #1a4d1a 0%, #234d23 100%);
+  color: #90ee90;
+  border-color: #2d5a2d;
+}
+
+.dark-mode .login-message.error {
+  background: linear-gradient(135deg, #4d2a2a 0%, #3d2020 100%);
+  color: #ffb0b0;
+  border-color: #5a3030;
+}
+
+/* 用户信息卡片 */
+.user-info-card {
+  background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+  color: white;
+  box-shadow: 0 8px 24px rgba(231, 76, 60, 0.3);
+}
+
+.dark-mode .user-info-card {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+  box-shadow: 0 8px 24px rgba(255, 107, 107, 0.2);
+}
+
+.user-info-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-avatar {
+  font-size: 24px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+}
+
+.user-info-name {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.user-info-meta {
+  font-size: 11px;
+  opacity: 0.85;
+  margin-top: 2px;
+}
+
+/* API Key 面板 */
+.api-key-panel {
+  margin-top: 12px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+  padding: 12px;
+  backdrop-filter: blur(4px);
+}
+
+.api-key-panel h3 {
+  font-size: 11px;
+  color: #ffd700;
+  margin-bottom: 8px;
+}
+
+.api-key-display {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-family: 'Consolas', monospace;
+  font-size: 10px;
+  color: #f0f0f0;
+  word-break: break-all;
+  border: 1px solid rgba(255, 215, 0, 0.3);
+}
+
+/* 退出登录按钮 */
+.logout-btn {
+  width: 100%;
+  background: rgba(231, 76, 60, 0.1);
+  color: #e74c3c;
+  border: 2px solid rgba(231, 76, 60, 0.3);
+  font-weight: 500;
+}
+
+.logout-btn:hover {
+  background: rgba(231, 76, 60, 0.15);
+  border-color: rgba(231, 76, 60, 0.5);
+}
+
+.dark-mode .logout-btn {
+  background: rgba(255, 107, 107, 0.1);
+  color: #ff6b6b;
+  border-color: rgba(255, 107, 107, 0.3);
+}
+
+.dark-mode .logout-btn:hover {
+  background: rgba(255, 107, 107, 0.15);
+  border-color: rgba(255, 107, 107, 0.5);
+}
+
+/* 连接状态 */
+.connection-status {
+  text-align: center;
+  font-size: 10px;
+  color: #aaa;
+  margin-top: 12px;
+}
+
+.connection-status.connected {
+  color: #27ae60;
+}
+
+.connection-status.disconnected {
+  color: #e74c3c;
+}
+
+/* 按钮通用样式 */
+.api-key-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.api-key-btn-cancel {
+  background: #f5f5f5;
+  color: #666;
+}
+
+.api-key-btn-cancel:hover {
+  background: #eee;
+}
+
+.dark-mode .api-key-btn-cancel {
+  background: #3d3d3d;
+  color: #aaa;
+}
+
+.api-key-btn-save {
+  background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+  color: white;
+  box-shadow: 0 4px 16px rgba(231, 76, 60, 0.35);
+}
+
+.api-key-btn-save:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(231, 76, 60, 0.45);
+}
+
+.api-key-btn-save:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 10px rgba(231, 76, 60, 0.35);
+}
+
+.api-key-btn-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.dark-mode .api-key-btn-save {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+  box-shadow: 0 4px 16px rgba(255, 107, 107, 0.3);
+}
+
+/* ============ 模式切换拨杆 ============ */
+.mode-toggle-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  background: rgba(231, 76, 60, 0.06);
+  border-radius: 12px;
+}
+
+.dark-mode .mode-toggle-container {
+  background: rgba(255, 107, 107, 0.08);
+}
+
+.api-mode-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #999;
+  transition: color 0.2s ease;
+  user-select: none;
+}
+
+.api-mode-label.active {
+  color: #e74c3c;
+  font-weight: 600;
+}
+
+.dark-mode .api-mode-label.active {
+  color: #ff6b6b;
+}
+
+/* 拨杆开关 */
+.mode-toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 52px;
+  height: 28px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.mode-toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  margin: 0;
+  position: absolute;
+}
+
+.mode-toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+  border-radius: 28px;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.dark-mode .mode-toggle-slider {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+}
+
+.mode-toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 22px;
+  width: 22px;
+  left: 3px;
+  top: 3px;
+  background-color: white;
+  transition: transform 0.2s ease;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.mode-toggle-switch input:checked + .mode-toggle-slider {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.dark-mode .mode-toggle-switch input:checked + .mode-toggle-slider {
+  background: linear-gradient(135deg, #a855f7 0%, #7c3aed 100%);
+}
+
+.mode-toggle-switch input:checked + .mode-toggle-slider:before {
+  transform: translateX(24px);
+}
+
+.mode-toggle-switch input:focus + .mode-toggle-slider {
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1), 0 0 0 3px rgba(231, 76, 60, 0.2);
+}
+
+/* ============ 本地配置面板 ============ */
+.local-config-info {
+  background: rgba(231, 76, 60, 0.06);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.dark-mode .local-config-info {
+  background: rgba(255, 107, 107, 0.08);
+}
+
+.local-config-info p {
+  margin: 0 0 4px 0;
+  font-size: 11px;
+  color: #666;
+  line-height: 1.5;
+}
+
+.dark-mode .local-config-info p {
+  color: #bbb;
+}
+
+.local-config-info p:last-child {
+  margin-bottom: 0;
+}
+
+.local-config-hint {
+  color: #888;
+}
+
+.local-config-hint a {
+  color: #e74c3c;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.local-config-hint a:hover {
+  text-decoration: underline;
+}
+
+.dark-mode .local-config-hint a {
+  color: #ff6b6b;
+}
+
+/* ============ 确认弹窗 ============ */
+.confirm-modal {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 4000;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  border-radius: 20px;
+  box-sizing: border-box;
+}
+
+.confirm-modal.show {
+  display: flex;
+}
+
+.confirm-modal-content {
+  background: linear-gradient(180deg, #fff5f5 0%, #ffffff 100%);
+  border-radius: 16px;
+  padding: 22px 20px;
+  width: 85%;
+  max-width: 280px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(231, 76, 60, 0.1);
+}
+
+.dark-mode .confirm-modal-content {
+  background: linear-gradient(180deg, #3d2a2a 0%, #2d2d2d 100%);
+  border-color: rgba(255, 107, 107, 0.2);
+}
+
+.confirm-modal-icon {
+  font-size: 40px;
+  margin-bottom: 10px;
+}
+
+.confirm-modal-title {
+  margin: 0 0 10px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+
+.dark-mode .confirm-modal-title {
+  color: #e0e0e0;
+}
+
+.confirm-modal-message {
+  margin: 0 0 18px 0;
+  font-size: 12px;
+  color: #666;
+  line-height: 1.6;
+  white-space: pre-line;
+}
+
+.dark-mode .confirm-modal-message {
+  color: #bbb;
+}
+
+.confirm-modal-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.confirm-btn {
+  flex: 1;
+  padding: 10px 14px;
+  border: none;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.confirm-btn-cancel {
+  background: #f5f5f5;
+  color: #666;
+}
+
+.confirm-btn-cancel:hover {
+  background: #eee;
+}
+
+.dark-mode .confirm-btn-cancel {
+  background: #3d3d3d;
+  color: #aaa;
+}
+
+.confirm-btn-confirm {
+  background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+  color: white;
+}
+
+.confirm-btn-confirm:hover {
+  opacity: 0.9;
+}
+
+.dark-mode .confirm-btn-confirm {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+}
+
+/* ============ 非 Admin 用户提示 ============ */
+.non-admin-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 12px;
+  background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 152, 0, 0.3);
+}
+
+.dark-mode .non-admin-hint {
+  background: linear-gradient(135deg, rgba(255, 152, 0, 0.15) 0%, rgba(255, 152, 0, 0.1) 100%);
+  border-color: rgba(255, 152, 0, 0.3);
+}
+
+.non-admin-hint-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.non-admin-hint-text {
+  font-size: 12px;
+  color: #e65100;
+  line-height: 1.6;
+}
+
+.dark-mode .non-admin-hint-text {
+  color: #ffcc80;
+}
+
+.non-admin-hint-text strong {
+  color: #bf360c;
+  font-weight: 600;
+}
+
+.dark-mode .non-admin-hint-text strong {
+  color: #ff9800;
+}

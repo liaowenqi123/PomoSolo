@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>菜园子</title>
+  <!-- 基础样式 -->
+  <link rel="stylesheet" href="styles/base.css">
+  <!-- 菜园样式 - 分模块 -->
+  <link rel="stylesheet" href="styles/garden.css">
+  <link rel="stylesheet" href="styles/gardenBag.css">
+  <link rel="stylesheet" href="styles/gardenShop.css">
+  <link rel="stylesheet" href="styles/gardenSignin.css">
+  <link rel="stylesheet" href="styles/gardenAchievement.css">
+  <link rel="stylesheet" href="styles/gardenPlantWheel.css">
+</head>
+<body>
+  <div class="garden-frame">
+    <!-- 顶部栏 -->
+    <div class="garden-header">
+      <div class="garden-draggable"></div>
+      <div class="garden-info">
+        <span class="garden-title">🌱 我的菜园</span>
+        <div class="garden-coins">
+          <span class="coin-icon">💰</span>
+          <span id="coinCount">0</span>
+        </div>
+        <button class="garden-signin-btn" id="signinBtn" title="签到">📅</button>
+        <button class="garden-shop-btn" id="shopBtn" title="商店">🏪</button>
+      </div>
+      <button class="garden-btn-close" id="gardenCloseBtn">×</button>
+    </div>
+    
+    <!-- 菜园网格 -->
+    <div class="garden-content">
+      <div class="garden-grid" id="gardenGrid">
+        <!-- 格子由 JS 动态生成 -->
+      </div>
+    </div>
+    
+    <!-- 背包区域 -->
+    <div class="bags-container" id="bagsContainer">
+      <!-- 按钮行 - 在棕色区域内 -->
+      <div class="buttons-row">
+        <div class="bag-expand-btn seed-expand-btn" id="seed-expand-btn" title="展开种子背包">
+          <span class="expand-btn-icon">🎒</span>
+          <span class="expand-btn-bar"></span>
+        </div>
+        <div class="bag-expand-btn crop-expand-btn" id="crop-expand-btn" title="展开作物背包">
+          <span class="expand-btn-icon">🧺</span>
+          <span class="expand-btn-bar"></span>
+        </div>
+      </div>
+      
+      <!-- 种子背包 -->
+      <div class="garden-seed-bag bag-panel" id="garden-seed-bag">
+        <div class="bag-content seed-bag-content">
+          <div class="bag-header">
+            <h3>🎒 种子背包</h3>
+            <button class="garden-achievement-btn-small" id="achievementBtn" title="成就墙">🏆</button>
+          </div>
+          <div class="seed-list" id="seedList">
+            <!-- 种子由 JS 动态生成 -->
+          </div>
+        </div>
+      </div>
+      
+      <!-- 作物背包 -->
+      <div class="garden-crop-bag bag-panel" id="garden-crop-bag">
+        <div class="bag-content crop-bag-content">
+          <div class="bag-header">
+            <h3>🧺 作物背包</h3>
+            <button class="garden-achievement-btn-small" id="achievementBtnCrop" title="成就墙">🏆</button>
+          </div>
+          <div class="crop-list" id="cropList">
+            <!-- 作物由 JS 动态生成 -->
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 提示信息 -->
+    <div class="garden-tip" id="gardenTip">
+      点击种子，然后点击空格子种植
+    </div>
+  </div>
+
+  <!-- 商店弹窗 -->
+  <div class="shop-modal" id="shopModal">
+    <div class="shop-content">
+      <div class="shop-header">
+        <span class="shop-title">🏪 商店</span>
+        <button class="shop-close" id="shopCloseBtn">×</button>
+      </div>
+      
+      <!-- 标签页切换 -->
+      <div class="shop-tabs">
+        <button class="shop-tab active" data-tab="buy">🌱 购买种子</button>
+        <button class="shop-tab" data-tab="sell">🧺 出售作物</button>
+      </div>
+      
+      <!-- 购买种子区域 -->
+      <div class="shop-panel active" id="buyPanel">
+        <div class="shop-grid" id="shopBuyGrid">
+          <!-- 种子由 JS 动态生成 -->
+        </div>
+      </div>
+      
+      <!-- 出售作物区域 -->
+      <div class="shop-panel" id="sellPanel">
+        <div class="shop-grid" id="shopSellGrid">
+          <!-- 作物由 JS 动态生成 -->
+        </div>
+        <button class="shop-sell-all" id="sellAllBtn">💰 一键出售全部</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 签到弹窗 -->
+  <div class="signin-modal" id="signinModal">
+    <div class="signin-content">
+      <div class="signin-header">
+        <span class="signin-title">📅 每日签到</span>
+        <button class="signin-close" id="signinCloseBtn">×</button>
+      </div>
+      
+      <!-- 签到统计 -->
+      <div class="signin-stats">
+        <div class="signin-stat">
+          <span class="signin-stat-value" id="signinContinuous">0</span>
+          <span class="signin-stat-label">连续签到</span>
+        </div>
+        <div class="signin-stat-divider">|</div>
+        <div class="signin-stat">
+          <span class="signin-stat-value" id="signinTotal">0</span>
+          <span class="signin-stat-label">累计签到</span>
+        </div>
+      </div>
+      
+      <!-- 本周签到日历 -->
+      <div class="signin-calendar">
+        <div class="signin-calendar-row">
+          <span class="signin-day-label">一</span>
+          <span class="signin-day-label">二</span>
+          <span class="signin-day-label">三</span>
+          <span class="signin-day-label">四</span>
+          <span class="signin-day-label">五</span>
+          <span class="signin-day-label">六</span>
+          <span class="signin-day-label">日</span>
+        </div>
+        <div class="signin-calendar-row" id="signinWeekDots">
+          <span class="signin-dot" data-day="1"></span>
+          <span class="signin-dot" data-day="2"></span>
+          <span class="signin-dot" data-day="3"></span>
+          <span class="signin-dot" data-day="4"></span>
+          <span class="signin-dot" data-day="5"></span>
+          <span class="signin-dot" data-day="6"></span>
+          <span class="signin-dot" data-day="0"></span>
+        </div>
+      </div>
+      
+      <!-- 今日奖励 -->
+      <div class="signin-rewards">
+        <div class="signin-rewards-title">━━━ 今日奖励 ━━━</div>
+        <div class="signin-rewards-list" id="signinRewardsList">
+          <!-- 奖励由 JS 动态生成 -->
+        </div>
+      </div>
+      
+      <!-- 签到按钮 -->
+      <button class="signin-btn" id="signinConfirmBtn">✅ 立即签到</button>
+    </div>
+  </div>
+
+  <!-- 成就墙弹窗 -->
+  <div class="achievement-modal" id="achievementModal">
+    <div class="achievement-content">
+      <div class="achievement-header">
+        <span class="achievement-title">🏆 成就墙</span>
+        <button class="achievement-close" id="achievementCloseBtn">×</button>
+      </div>
+      
+      <!-- 成就统计 -->
+      <div class="achievement-stats">
+        <div class="achievement-stat">
+          <span class="achievement-stat-value" id="achievementUnlocked">0</span>
+          <span class="achievement-stat-label">已解锁</span>
+        </div>
+        <div class="achievement-stat-divider">|</div>
+        <div class="achievement-stat">
+          <span class="achievement-stat-value" id="achievementTotal">0</span>
+          <span class="achievement-stat-label">总成就</span>
+        </div>
+      </div>
+      
+      <!-- 成就分类标签 -->
+      <div class="achievement-tabs" id="achievementTabs">
+        <button class="achievement-tab active" data-category="all">全部</button>
+        <button class="achievement-tab" data-category="focus">⏱️ 专注</button>
+        <button class="achievement-tab" data-category="harvest">🌾 收获</button>
+        <button class="achievement-tab" data-category="plant">🌱 种植</button>
+        <button class="achievement-tab" data-category="collect">📦 收藏</button>
+        <button class="achievement-tab" data-category="wealth">💰 财富</button>
+        <button class="achievement-tab" data-category="persist">📅 坚持</button>
+        <button class="achievement-tab" data-category="hidden">🔮 隐藏</button>
+      </div>
+      
+      <!-- 成就列表 -->
+      <div class="achievement-list" id="achievementList">
+        <!-- 成就由 JS 动态生成 -->
+      </div>
+    </div>
+  </div>
+
+  <!-- 引入依赖 - 按顺序加载 -->
+  <script src="scripts/modules/utils.js"></script>
+  <!-- 菜园子模块 - 分模块加载 -->
+  <script src="scripts/modules/gardenPlot.js"></script>
+  <script src="scripts/modules/gardenBag.js"></script>
+  <script src="scripts/modules/gardenShop.js"></script>
+  <script src="scripts/modules/gardenSignin.js"></script>
+  <script src="scripts/modules/gardenAchievement.js"></script>
+  <script src="scripts/modules/gardenPlantWheel.js"></script>
+  <!-- 主入口 -->
+  <script src="scripts/modules/garden.js"></script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 菜园子 - 背包组件
- * 迁移自 electron/src/scripts/modules/gardenBag.js
+ * 迁移自 deprecated/electron/src/scripts/modules/gardenBag.js
  *
  * 显示拥有的种子和作物。传统模式下点击种子选中用于种植。
  */

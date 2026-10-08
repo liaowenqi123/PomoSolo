@@ -1,0 +1,15 @@
+﻿[Arrow]
+Path=tomato normal select.cur
+
+[Hand]
+Path=tomato link select.cur
+
+[AppStarting]
+Path=tomato working in background.cur
+
+[IBeam]
+Path=tomato text select.cur
+
+[Wait]
+Path=tomato busy.cur
+

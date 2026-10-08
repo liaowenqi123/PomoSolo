@@ -455,20 +455,20 @@ PomoSolo.exe (Tauri 主进程)
 
 | Electron 模块 | Tauri 对应 |
 |---------------|-----------|
-| `electron/main/state.js` | `src-tauri/src/state.rs` |
-| `electron/main/ipc-data.js` | `commands/data.rs` + `modules/data_manager.rs` |
-| `electron/main/ipc-cloud.js` | `commands/cloud_auth.rs` + `modules/cloud_auth.rs` |
-| `electron/main/ipc-garden.js` | `commands/garden.rs` |
-| `electron/main/ipc-foreground.js` | `commands/foreground.rs` + `modules/foreground_inspection.rs` |
-| `electron/main/ipc-music.js` | `modules/music_process.rs`（命令待补全） |
-| `electron/main/ipc-window.js` | `commands/window.rs` |
-| `electron/main/ipc-ai.js` | 待迁移 |
-| `electron/preload.js` | `src/api/index.ts` + 子模块 |
-| `electron/src/scripts/modules/*.js` | `src/stores/*.ts` + `src/components/*.vue` |
-| `electron/src/modules/cloudAuth.js` | `modules/cloud_auth.rs` |
-| `electron/src/modules/dataManager.js` | `modules/data_manager.rs` |
-| `electron/src/modules/foregroundInspection.js` + Python | `modules/foreground_inspection.rs`（无 Python） |
-| `electron/src/modules/musicProcess.js` | `modules/music_process.rs` |
+| `deprecated/electron/main/state.js` | `src-tauri/src/state.rs` |
+| `deprecated/electron/main/ipc-data.js` | `commands/data.rs` + `modules/data_manager.rs` |
+| `deprecated/electron/main/ipc-cloud.js` | `commands/cloud_auth.rs` + `modules/cloud_auth.rs` |
+| `deprecated/electron/main/ipc-garden.js` | `commands/garden.rs` |
+| `deprecated/electron/main/ipc-foreground.js` | `commands/foreground.rs` + `modules/foreground_inspection.rs` |
+| `deprecated/electron/main/ipc-music.js` | `modules/music_process.rs`（命令待补全） |
+| `deprecated/electron/main/ipc-window.js` | `commands/window.rs` |
+| `deprecated/electron/main/ipc-ai.js` | 待迁移 |
+| `deprecated/electron/preload.js` | `src/api/index.ts` + 子模块 |
+| `deprecated/electron/src/scripts/modules/*.js` | `src/stores/*.ts` + `src/components/*.vue` |
+| `deprecated/electron/src/modules/cloudAuth.js` | `modules/cloud_auth.rs` |
+| `deprecated/electron/src/modules/dataManager.js` | `modules/data_manager.rs` |
+| `deprecated/electron/src/modules/foregroundInspection.js` + Python | `modules/foreground_inspection.rs`（无 Python） |
+| `deprecated/electron/src/modules/musicProcess.js` | `modules/music_process.rs` |
 
 > 完整迁移对照表见 [MIGRATION.md](./MIGRATION.md)。
 

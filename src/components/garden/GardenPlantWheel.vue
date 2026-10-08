@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 菜园子 - 种植轮盘组件
- * 迁移自 electron/src/scripts/modules/gardenPlantWheel.js
+ * 迁移自 deprecated/electron/src/scripts/modules/gardenPlantWheel.js
  *
  * 点击空地时弹出的径向选种子菜单。使用 Canvas 绘制 5 个扇形，
  * 鼠标悬停高亮，点击选中可种植的种子。

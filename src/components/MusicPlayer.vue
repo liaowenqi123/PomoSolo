@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 音乐播放器组件
- * 迁移自 electron/src/scripts/modules/musicPlayer.js
+ * 迁移自 deprecated/electron/src/scripts/modules/musicPlayer.js
  *
  * 播放/暂停/上一首/下一首、音量控制、进度条、播放列表。
  * 音乐播放通过 Rust 后端调用 Python 子进程，前端只管 UI 与状态同步。

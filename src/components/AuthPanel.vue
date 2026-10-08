@@ -2,7 +2,7 @@
 /**
  * 认证面板组件
  *
- * 简化版登录/注册面板，参考 electron/src/scripts/modules/apiKeyManager.js（967 行）。
+ * 简化版登录/注册面板，参考 deprecated/electron/src/scripts/modules/apiKeyManager.js（967 行）。
  *
  * 功能：
  * - 模式切换拨杆：云端登录 ↔ 本地配置

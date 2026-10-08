@@ -1,7 +1,7 @@
 /**
  * 音乐播放器 Pinia Store
  *
- * 迁移自 electron/src/scripts/modules/musicPlayer.js 的状态管理部分。
+ * 迁移自 deprecated/electron/src/scripts/modules/musicPlayer.js 的状态管理部分。
  * 维护播放器运行时状态，所有播放操作通过 src/api/music.ts 调用 Rust 后端
  * （后端再调用 Python 子进程 music.py），前端只管 UI。
  *

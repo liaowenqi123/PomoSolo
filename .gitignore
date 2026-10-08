@@ -8,22 +8,29 @@ dist/
 pwa-dist/
 
 # Python build artifacts
-music-player/build/
-music-player/dist/
-music-player/__pycache__/
-music-player/*.spec
+# ⚠️ 这些规则原本指向项目根目录下的 music-player/ 与 foreground_inspection/，
+#    它们早已归档到 deprecated/ 下 → 规则已同步（否则规则形同虚设）。
+#    注意：deprecated/ 下**已跟踪的 .exe 仍保留**（历史存档，见 deprecated/README.md）；
+#    被移出版本控制的是 PyInstaller **构建中间产物**（build/、__pycache__/，约 44MB）。
+deprecated/music-player/build/
+deprecated/music-player/dist/
+deprecated/music-player/__pycache__/
+deprecated/music-player/*.pyc
+deprecated/foreground_inspection/build/
+deprecated/foreground_inspection/dist/
+deprecated/foreground_inspection/__pycache__/
+deprecated/foreground_inspection/*.pyc
+deprecated/foreground_inspection/api_config.json
+
+# 根目录的 music-player/ 现在只承载**内置音乐资源**（由 Rust 端读取，构建时复制到 src-tauri/resources/）
+# 目录整体忽略、只放行 3 首内置曲与元数据 —— 避免应用运行时下载的歌误入库
 music-player/music/
 !music-player/music/番茄小宇宙 - 番茄钟.mp3
 !music-player/music/番茄倒数快一点 - 番茄钟.mp3
 !music-player/music/Tick Tock, Take Control - 番茄钟.mp3
 !music-player/music/tags.json
+music-player/*.spec
 music-player/*.bat
-
-foreground_inspection/build/
-foreground_inspection/dist/
-foreground_inspection/__pycache__/
-foreground_inspection/*.spec
-foreground_inspection/api_config.json
 
 # Python build artifacts (server planning)
 server-planning/__pycache__/
@@ -46,8 +53,15 @@ nul
 *.swo
 .workbuddy/
 
-# AI Agent context
-AGENTS.md
+# ══════════════════════════════════════════════════════════════════════════
+# 本地私密区 .local/ —— 只保留 README（契约说明），其余一律不入库
+# ══════════════════════════════════════════════════════════════════════════
+# 放什么：机器/服务器专属事实、SSH 与密钥的**位置引用**、测试账号、
+#         本机工具链路径、运维备忘 —— 即「必须在文件夹里存在、但不能上 GitHub」的东西。
+# 不放什么：源码、文档、任何需要在克隆里就有的东西（那些进 docs/ 或 AGENTS.md）。
+# 契约见 .local/README.md（唯一入库文件）。
+.local/*
+!.local/README.md
 
 # 临时调试文件（统一存放，不纳入版本控制）
 temp-debug/
@@ -67,7 +81,7 @@ src-tauri/resources/
 # Test artifacts / debug output
 *.txt
 !docs/**/*.txt
-!src/cursors/readme.txt
+!deprecated/electron/src/cursors/readme.txt
 test-output.log
 test-result.json
 test-results.json

@@ -1,7 +1,7 @@
 # 侧边栏 + 模式拨杆 + 迷你模式模块文档
 
 > 本文档记录 Tauri 番茄钟应用"侧边栏收起 / 模式拨杆 / 专注模式 / 迷你模式"四个紧密耦合子模块的实现方案与踩坑历史。
-> 模块从 Electron 旧版（`electron/src/scripts/renderer.js` + `electron/src/styles/*.css`）迁移至 Tauri + Vue 3 + Pinia 架构，Rust 端（`src-tauri/src/commands/window.rs`）负责窗口尺寸/置顶/任务栏的底层控制。
+> 模块从 Electron 旧版（`deprecated/electron/src/scripts/renderer.js` + `deprecated/electron/src/styles/*.css`）迁移至 Tauri + Vue 3 + Pinia 架构，Rust 端（`src-tauri/src/commands/window.rs`）负责窗口尺寸/置顶/任务栏的底层控制。
 
 ---
 
@@ -120,8 +120,8 @@ App.vue 本地状态
 | Rust 窗口尺寸调整 | `src-tauri/src/commands/window.rs` | `enter_mini_mode` (L60) / `exit_mini_mode` (L73) |
 | 最小化 → 迷你模式判定 | `src/App.vue` | `onMinimize()` |
 | 备注框定位 | `src/components/NoteManager.vue` | `.note-manager { position:absolute; top:50px; left:50%; transform:translateX(-50%); max-width:100px; width:100px }` |
-| 原版模式拨杆逻辑 | `electron/src/scripts/renderer.js` | L338 `DOM.modeSlider.addEventListener('click', ...)` |
-| 原版迷你模式逻辑 | `electron/src/scripts/renderer.js` | L572 `enterMiniMode()` / L600 `exitMiniMode()` |
+| 原版模式拨杆逻辑 | `deprecated/electron/src/scripts/renderer.js` | L338 `DOM.modeSlider.addEventListener('click', ...)` |
+| 原版迷你模式逻辑 | `deprecated/electron/src/scripts/renderer.js` | L572 `enterMiniMode()` / L600 `exitMiniMode()` |
 
 ---
 
@@ -632,6 +632,6 @@ Vue 重新渲染：
 - 计时器 store：`src/stores/timer.ts`
 - 窗口 API：`src/api/window.ts`
 - Rust 窗口命令：`src-tauri/src/commands/window.rs`
-- 原版 Electron 逻辑：`electron/src/scripts/renderer.js`
+- 原版 Electron 逻辑：`deprecated/electron/src/scripts/renderer.js`
 - Modal 系统文档：`docs/MODAL_SYSTEM.md`
 - 音乐播放器文档：`docs/modules/music-player.md`

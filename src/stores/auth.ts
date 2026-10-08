@@ -2,7 +2,7 @@
  * 认证 Store
  *
  * 管理当前会话、登录状态、API Key 模式。
- * 参考 electron/src/scripts/modules/apiKeyManager.js。
+ * 参考 deprecated/electron/src/scripts/modules/apiKeyManager.js。
  *
  * 两种互斥模式：
  * - cloud（云端登录）：通过自建服务器登录获取 API Key（仅内存）

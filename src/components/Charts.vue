@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 音乐榜单组件
- * 迁移自 electron/src/scripts/modules/charts.js
+ * 迁移自 deprecated/electron/src/scripts/modules/charts.js
  *
  * 弹窗形式，展示网易云/QQ 音乐热歌榜，支持下载（通过 Rust 后端调用 Python 子进程）。
  */

@@ -115,83 +115,122 @@ Copy-Item -Recurse -Force music-player\music src-tauri\target\release\resources
 
 ## 项目结构
 
+> 本仓库同时承载**桌面端**与 **PWA 端**；**服务器端代码不在本仓库**（只有接口文档）；
+> **安卓端在独立仓库**。四端关系见 [TEAM_GUIDE.md](./TEAM_GUIDE.md) §3。
+
 ```
 electron_pomodoro/
-├── src-tauri/                    # Rust 后端（Tauri v2）
+│
+├── src-tauri/                    # 【桌面端·后端】Rust（Tauri v2）
 │   ├── src/
 │   │   ├── lib.rs                # 应用入口，注册所有 commands
 │   │   ├── main.rs               # Windows 入口（防止控制台窗口）
 │   │   ├── state.rs              # 全局 MusicState
 │   │   ├── commands/             # Tauri 命令层（前端可调用）
-│   │   │   ├── timer.rs          # 计时器状态
-│   │   │   ├── data.rs           # 数据/设置读写
-│   │   │   ├── window.rs         # 窗口控制
-│   │   │   ├── cloud_auth.rs     # 云端认证 + API Key 管理
-│   │   │   ├── garden.rs         # 菜园子操作
-│   │   │   ├── foreground.rs     # 前台检测控制
-│   │   │   ├── music.rs          # 音乐播放控制 + 进度上报
-│   │   │   ├── charts.rs         # 榜单数据 + 歌曲下载
-│   │   │   ├── ai.rs             # AI 规划助手
-│   │   │   ├── study_room.rs     # 自习室
-│   │   │   └── update.rs         # 自动更新
-│   │   └── modules/              # 业务模块（不直接暴露给前端）
-│   │       ├── audio_player.rs   # 音频播放器（rodio + Sink::try_seek）
-│   │       ├── downloader.rs     # B 站音频下载（纯 Rust，DASH 解析）
-│   │       ├── cloud_auth.rs     # AES-GCM 加密 + PBKDF2 + 自建服务器认证
-│   │       ├── data_manager.rs   # JSON 文件持久化（带锁）
-│   │       └── foreground_inspection.rs  # windows crate 前台检测
-│   ├── resources/music/          # 内置歌曲（构建时由 copy-resources.mjs 复制）
-│   ├── capabilities/default.json # Tauri 权限配置
-│   ├── Cargo.toml                # Rust 依赖
-│   └── tauri.conf.json           # Tauri 应用配置（窗口/CSP/打包/updater）
+│   │   │   ├── timer.rs data.rs window.rs cloud_auth.rs garden.rs
+│   │   │   ├── foreground.rs music.rs charts.rs ai.rs study_room.rs
+│   │   │   ├── music_sync.rs p2p.rs sync.rs system.rs update.rs
+│   │   ├── modules/              # 业务模块（不直接暴露给前端）
+│   │   │   ├── audio_player.rs   # 音频播放（rodio + cpal + symphonia，纯 Rust）
+│   │   │   ├── downloader.rs     # B 站音频下载（纯 Rust，DASH 解析）
+│   │   │   ├── cloud_auth.rs     # AES-256-GCM + PBKDF2-SHA512 + 自建服务器认证
+│   │   │   ├── data_manager.rs   # JSON 文件持久化（带锁）
+│   │   │   ├── foreground_inspection.rs  # windows crate 前台检测
+│   │   │   ├── server_api.rs ws.rs       # REST / WebSocket 客户端
+│   │   ├── resources/music/      # 内置歌曲（构建时由 copy-resources.mjs 复制）
+│   │   ├── capabilities/default.json     # Tauri 权限配置
+│   │   ├── Cargo.toml / tauri.conf.json  # 依赖 / 应用配置（窗口·CSP·打包·updater）
+│   │   └── target/               # [不入库] Rust 编译产物
 │
-├── src/                          # Vue 3 前端
+├── src/                          # 【桌面端·前端】Vue 3 + TS + Pinia
 │   ├── main.ts                   # 入口，挂载 Pinia
-│   ├── App.vue                   # 主布局
-│   ├── api/                      # Tauri 命令封装
+│   ├── App.vue                   # 主布局（含加载遮罩逻辑）
+│   ├── api/                      # Tauri 命令封装（约 160 个 invoke）
 │   ├── stores/                   # Pinia stores
-│   ├── components/               # Vue 单文件组件
-│   ├── styles/global.css         # 全局样式（含 z-index 层级体系）
-│   └── pwa/                      # PWA 端（真实复用本目录组件/store/API，见 src/pwa/README.md）
+│   ├── components/               # Vue 单文件组件（含 garden/ 子目录）
+│   ├── utils/                    # 纯函数工具（musicLibrary 等）
+│   ├── styles/global.css         # 全局样式（含 z-index 层级体系与颜色 token）
+│   └── pwa/                      # 【PWA 端】alias 换层复用本目录，见 src/pwa/README.md
 │
-├── music-player/                 # 音乐资源目录（仅保留 music/ 子目录）
-│   └── music/                    # 内置歌曲 + tags.json
+├── tools/ui/                     # 【工具】UI 取证工具（截图 + 布局审计）
+│   ├── README.md                 # ★ 用法总览
+│   ├── shot.mjs                  # Web/PWA 截图（CDP + Tauri IPC mock + 配方）
+│   ├── desktop-shot.mjs          # Tauri 真窗口截图（Win32 PrintWindow）
+│   ├── android-shot.mjs          # Android 截图 + UI 层级审计（adb）
+│   └── lib/                      # CDP 客户端 / mock / 审计 / 配方
 │
 ├── scripts/
-│   └── copy-resources.mjs        # 构建前复制音乐资源到 src-tauri/resources/
+│   ├── copy-resources.mjs        # 构建前复制音乐资源到 src-tauri/resources/
+│   ├── generate-music.mjs        # 生成内置曲目
+│   ├── migrate-supabase.mjs      # 旧 Supabase 迁移脚本
+│   └── p2p-test/                 # P2P 联调工具（含独立 package.json）
 │
-├── build/
-│   └── installer.nsh             # NSIS 安装器自定义配置
+├── server-planning/              # 【服务器端】接口权威文档（代码不在本仓库）
+│   ├── EXTERNAL-INTERFACES.md    # ★ 对外接口唯一权威索引（REST/WS/P2P/更新源）
+│   ├── API-implementation.md     # 接口实现记录 + 留言区
+│   ├── API-quickref.md           # REST 速查
+│   ├── README.md                 # 服务端需求规格
+│   ├── PWA-requirements.md       # PWA 部署要求
+│   ├── MESSAGE-BOARD-ARCHIVE.md  # 留言区归档
+│   └── nginx.conf / ws_server.py / notice.json   # 参考配置与实现
 │
-├── docs/                         # 项目文档
+├── music-player/                 # 音乐资源（构建时复制进应用）
+│   ├── music/                    # 3 首内置曲 + tags.json
+│   └── generated-music/          # 生成曲库
 │
-├── temp-debug/                   # 临时调试脚本/工具（不纳入版本控制，见下方说明）
-│   ├── feedback.mjs              # 反馈管理 CLI
-│   ├── test_download.rs          # B站下载流程测试（需拷回 src-tauri/examples/ 运行）
-│   ├── analyze-coverage*.cjs     # 覆盖率分析脚本（旧 Electron 代码用）
-│   └── run-vitest*.cjs           # vitest 运行包装脚本
+├── build/installer.nsh           # NSIS 安装器自定义配置
+├── .github/workflows/ci.yml      # CI：测试 + 构建 + 双推 + 自动发布 Release
+├── docs/                         # 项目文档（架构/模块/安全/踩坑记录）
 │
-├── .github/workflows/ci.yml      # CI：测试 + 构建 + 自动发布 Release
+├── .local/                       # 【本地私密区】不入库，仅 README 入库
+│   └── README.md                 # ★ 契约：这里放什么、不放什么
+├── temp-debug/                   # 【一次性调试产物】不入库
 │
-├── electron/                     # [废弃] 旧 Electron 源码（保留参考）
-├── deprecated/                   # [废弃] 旧 Python 模块、脚本、安装包
+├── deprecated/                   # 【归档】旧实现，冻结不改（见 deprecated/README.md）
+│   ├── electron/                 # 旧 Electron 完整源码（151 文件）
+│   ├── music-player/             # 旧 Python 音乐模块 + 成品 exe
+│   ├── foreground_inspection/    # 旧 Python 前台检测
+│   ├── supabase-test/            # 旧 Supabase 测试应用
+│   ├── legacy-scripts/           # 旧调试脚本
+│   └── old-builds/               # 旧安装包（不入库）
 │
-├── index.html                    # Vite 入口 HTML
+├── index.html / garden.html      # Vite 双入口（主窗口 / 菜园子窗口）
 ├── package.json                  # 前端依赖与脚本
-├── vite.config.ts                # Vite 配置
-└── tsconfig.json                 # TypeScript 配置
+├── vite.config.ts                # Vite 配置（桌面端）
+├── vitest.config.ts              # 测试配置（排除 deprecated/electron）
+└── tsconfig.json / tsconfig.node.json
 ```
+
+### 入库 / 不入库 一览
+
+| 位置 | 入库 | 说明 |
+|------|------|------|
+| `src/` `src-tauri/src/` `tools/` `scripts/` `docs/` `server-planning/` | ✅ | 正式代码与文档 |
+| `music-player/music/`（3 首内置曲 + tags.json） | ✅ | 应用内置资源 |
+| `deprecated/**`（源码 + 成品 exe） | ✅ | 冻结的历史存档，见 `deprecated/README.md` |
+| `.local/*`（**仅** `README.md` 入库） | ⚠️ 部分 | 本机/服务器专属事实、密钥**位置引用**、测试账号 |
+| `temp-debug/` `coverage/` `dist/` `pwa-dist/` | ❌ | 一次性产物 / 构建输出 |
+| `src-tauri/target/` `src-tauri/resources/` `node_modules/` | ❌ | 编译与安装产物 |
+| `temp-debug/ui-shots/` | ❌ | UI 截图产物（见 `tools/ui/README.md`） |
 
 ---
 
 ## 临时调试文件规范
 
-**所有用于 debug / 临时测试的脚本、HTML 页面、一次性工具，统一放到项目根目录的 `temp-debug/` 文件夹下。**
+**两类东西分开放，不要混：**
 
-- `temp-debug/` 已在 `.gitignore` 中忽略，**不会纳入版本控制**，可放心放入含密钥或本地路径的调试脚本。
-- 不要把临时调试文件散落在项目根目录、`src/`、`src-tauri/` 等正式代码目录中。
-- 临时文件如需调用 Rust example（`cargo run --example xxx`），需先拷贝回 `src-tauri/examples/` 再运行，用完移回 `temp-debug/`。
+| 目录 | 语义 | 生命周期 | 入库 |
+|------|------|---------|------|
+| **`temp-debug/`** | 一次性调试脚本、临时产物 | 用完即弃 | ❌ |
+| **`.local/`** | 本机/服务器专属事实与密钥引用（长期有效） | 跟着这台机器走 | ❌（仅 README） |
+
+- 两者都已 gitignore，**含密钥或本地路径的内容可以放心放**；
+- 不要把临时文件散落在根目录、`src/`、`src-tauri/` 等正式代码目录；
+- **判断口诀**：这条信息*换一台机器就不一样*或*泄漏会造成损失* → `.local/`；*只是这次排查用* → `temp-debug/`；
+- 契约详见 [`.local/README.md`](./.local/README.md)；
+- 临时文件如需调用 Rust example（`cargo run --example xxx`），需先拷回 `src-tauri/examples/` 再运行，用完移回 `temp-debug/`；
 - 不再需要的临时文件应及时删除，避免堆积。
+
 
 ---
 
@@ -213,7 +252,7 @@ electron_pomodoro/
 | **前端框架** | 原生 JS + 全局变量 | Vue 3 + TypeScript + Pinia |
 | **构建工具** | electron-builder + PyInstaller | Tauri CLI + Vite |
 
-> 旧代码完整保留在 `electron/` 和 `deprecated/` 目录，详见 `deprecated/README.md`。
+> 旧代码完整保留在 `deprecated/electron/` 和 `deprecated/` 目录，详见 `deprecated/README.md`。
 
 ---
 

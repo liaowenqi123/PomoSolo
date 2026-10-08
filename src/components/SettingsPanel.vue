@@ -2,7 +2,7 @@
 /**
  * 设置面板
  *
- * 参考 electron/src/scripts/modules/settings.js 的核心设置项，
+ * 参考 deprecated/electron/src/scripts/modules/settings.js 的核心设置项，
  * 用 Vue 响应式数据替代原来的 DOM 操作。
  *
  * 包含：主题切换、最小化行为、迷你退出方式、开机自启、界面显示开关。
@@ -73,7 +73,7 @@ const isPwa =
 const local = computed(() => settings.settings);
 
 // ===== 隐藏彩蛋（连续点击版本号 5 次触发）=====
-// 参照旧版 electron/src/scripts/modules/settings.js 的 handleVersionClick：
+// 参照旧版 deprecated/electron/src/scripts/modules/settings.js 的 handleVersionClick：
 // 5 次点击间隔 < 1.5s 即触发彩蛋（粒子效果 + 解锁 easteregg 成就 + 太空旅行）。
 const EASTER_EGG_REQUIRED_CLICKS = 5;
 const EASTER_EGG_CLICK_INTERVAL_MS = 1500;

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 菜园子 - 主界面组件
- * 迁移自 electron/src/scripts/modules/garden.js
+ * 迁移自 deprecated/electron/src/scripts/modules/garden.js
  *
  * 协调土地格子、商店、背包、签到、成就墙、种植轮盘子组件。
  * 所有数据操作通过 useGardenStore 调用后端。

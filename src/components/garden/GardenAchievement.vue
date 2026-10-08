@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 菜园子 - 成就墙组件
- * 迁移自 electron/src/scripts/modules/gardenAchievement.js
+ * 迁移自 deprecated/electron/src/scripts/modules/gardenAchievement.js
  *
  * 显示 25 个成就（6 个分类），含进度条、奖励、解锁状态。
  */

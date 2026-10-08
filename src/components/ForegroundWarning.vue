@@ -2,7 +2,7 @@
 /**
  * 前台检测警告弹窗组件
  *
- * 参考 electron/src/scripts/modules/foregroundDetection.js。
+ * 参考 deprecated/electron/src/scripts/modules/foregroundDetection.js。
  *
  * 功能：
  * - 监听 foreground-entertainment-detected 事件

@@ -3,7 +3,7 @@
  * 统计面板
  *
  * 显示今日番茄数、总专注分钟数，用 Chart.js 绘制最近 7 天的专注时长柱状图。
- * 参考 electron/src/scripts/modules/statistics.js。
+ * 参考 deprecated/electron/src/scripts/modules/statistics.js。
  */
 import { ref, watch, onMounted, onUnmounted, nextTick } from "vue";
 import Chart from "chart.js/auto";

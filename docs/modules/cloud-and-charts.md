@@ -7,7 +7,7 @@
 
 > 本文档记录 Tauri 番茄钟应用"云端认证（Supabase）"和"歌曲热榜 + 下载"两个模块的实现方案与踩坑历史。
 > 两个模块共用同一套 DeepSeek API Key 体系（云端模式从 Supabase 用户表派生、本地模式由用户手动输入），因此合并文档。
-> 迁移自 Electron 旧版 `electron/src/modules/cloudAuth.js` + `electron/src/scripts/modules/charts.js` + `electron/main/ipc-cloud.js` + `electron/main/ipc-music.js`。
+> 迁移自 Electron 旧版 `deprecated/electron/src/modules/cloudAuth.js` + `deprecated/electron/src/scripts/modules/charts.js` + `deprecated/electron/main/ipc-cloud.js` + `deprecated/electron/main/ipc-music.js`。
 
 ---
 
@@ -866,7 +866,7 @@ Supabase 通过 PostgreSQL 错误码 `23505`（unique_violation）识别。若 S
 
 - Supabase 项目：`https://sjexeynibnfqxvwehnxk.supabase.co`
 - 下载器：`music-player/manual_downloader.exe`（Python 实现，源码 `manual_downloader.py`，依赖 `ffmpeg.exe` + `you-get.exe`）
-- 旧版 Electron 实现（参考）：`electron/src/modules/cloudAuth.js` / `electron/src/scripts/modules/charts.js` / `electron/main/ipc-cloud.js` / `electron/main/ipc-music.js`
+- 旧版 Electron 实现（参考）：`deprecated/electron/src/modules/cloudAuth.js` / `deprecated/electron/src/scripts/modules/charts.js` / `deprecated/electron/main/ipc-cloud.js` / `deprecated/electron/main/ipc-music.js`
 
 ### 相关文档
 

@@ -2,7 +2,7 @@
 /**
  * 通用弹窗组件
  *
- * 参考 electron/src/scripts/modules/modal.js（BaseModal / AnimatedModal）。
+ * 参考 deprecated/electron/src/scripts/modules/modal.js（BaseModal / AnimatedModal）。
  *
  * 用法：
  * ```vue

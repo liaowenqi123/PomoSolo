@@ -2,7 +2,7 @@
 /**
  * 备注管理
  *
- * 参考 electron/src/scripts/modules/noteManager.js。
+ * 参考 deprecated/electron/src/scripts/modules/noteManager.js。
  * 当前专注任务的备注输入，完成番茄钟时随统计记录一起保存。
  */
 import { ref, watch } from "vue";

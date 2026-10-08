@@ -1,0 +1,400 @@
+/**
+ * 统计功能样式
+ */
+
+/* 统计弹窗 */
+.statistics-modal {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 2000;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  border-radius: 20px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.statistics-modal.show,
+.statistics-modal.hiding {
+  display: flex;
+}
+
+.statistics-modal.show {
+  opacity: 1;
+}
+
+.statistics-modal.hiding {
+  opacity: 0;
+}
+
+.statistics-modal-content {
+  background: linear-gradient(135deg, #D8E4F0 0%, #C9D6E8 100%);
+  border-radius: 20px;
+  padding: 24px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 85vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  position: relative;
+  transform: translate(200px, -250px) scale(0.05);
+  transform-origin: center center;
+  opacity: 0;
+  animation: popOutFromStatsButton 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(140, 170, 200, 0.3) transparent;
+  color: #4A5A6B;
+}
+
+.statistics-modal.hiding .statistics-modal-content {
+  animation: popBackToStatsButton 0.5s cubic-bezier(0.6, -0.28, 0.74, 0.05) forwards;
+}
+
+@keyframes popBackToStatsButton {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+    border-radius: 20px;
+  }
+  40% {
+    transform: translate(0, 0) scale(1.05);
+    border-radius: 20px;
+  }
+  70% {
+    opacity: 1;
+    border-radius: 50%;
+  }
+  100% {
+    transform: translate(200px, -250px) scale(0.05);
+    opacity: 0;
+    border-radius: 50%;
+  }
+}
+
+.statistics-modal-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.statistics-modal-content::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 10px;
+}
+
+.statistics-modal-content::-webkit-scrollbar-thumb {
+  background: rgba(200, 213, 224, 0.4);
+  border-radius: 10px;
+}
+
+.statistics-modal-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(200, 213, 224, 0.6);
+}
+
+@keyframes popOutFromStatsButton {
+  0% {
+    transform: translate(200px, -250px) scale(0.05);
+    opacity: 0;
+    border-radius: 50%;
+  }
+  30% {
+    opacity: 1;
+    border-radius: 50%;
+  }
+  60% {
+    transform: translate(0, 0) scale(1.08);
+    border-radius: 20px;
+  }
+  80% {
+    transform: translate(0, 0) scale(0.95);
+  }
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+    border-radius: 20px;
+  }
+}
+
+.dark-mode .statistics-modal-content {
+  background: linear-gradient(135deg, #1A1A1A 0%, #0F0F0F 100%);
+  color: #e0e0e0;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.dark-mode .statistics-modal-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.dark-mode .statistics-modal-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.statistics-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: none;
+  border: none;
+  font-size: 28px;
+  color: #999;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.statistics-modal-close:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #333;
+}
+
+.dark-mode .statistics-modal-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.statistics-modal h2 {
+  margin: 0 0 20px 0;
+  font-size: 24px;
+  color: #4C6B8A;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dark-mode .statistics-modal h2 {
+  color: #e0e0e0;
+}
+
+/* 时间范围选择器 */
+.stats-period-selector {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  background: rgba(240, 248, 255, 0.6);
+  padding: 4px;
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(180, 200, 220, 0.4);
+}
+
+.dark-mode .stats-period-selector {
+  background: #3d3d3d;
+}
+
+.stats-period-btn {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: #6B7B8B;
+  transition: all 0.3s ease;
+}
+
+.stats-period-btn:hover {
+  color: #4C6B8A;
+  background: rgba(200, 213, 224, 0.4);
+}
+
+.stats-period-btn.active {
+  background: rgba(200, 213, 224, 0.9);
+  color: #4A5A6B;
+  box-shadow: 0 2px 8px rgba(200, 213, 224, 0.5);
+}
+
+.dark-mode .stats-period-btn {
+  color: #aaa;
+}
+
+.dark-mode .stats-period-btn.active {
+  background: #4d4d4d;
+  color: #C8D5E0;
+}
+
+/* 图表类型选择器 */
+.stats-chart-selector {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  justify-content: center;
+}
+
+.stats-chart-btn {
+  padding: 8px 16px;
+  border: 2px solid rgba(180, 200, 220, 0.5);
+  background: rgba(240, 248, 255, 0.4);
+  backdrop-filter: blur(10px);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 20px;
+  transition: all 0.3s ease;
+  color: #4C6B8A;
+}
+
+.stats-chart-btn:hover {
+  border-color: #C8D5E0;
+  background: rgba(200, 213, 224, 0.5);
+  transform: scale(1.1);
+}
+
+.stats-chart-btn.active {
+  border-color: #C8D5E0;
+  background: #C8D5E0;
+  color: #4A5A6B;
+  box-shadow: 0 4px 12px rgba(200, 213, 224, 0.6);
+}
+
+.dark-mode .stats-chart-btn {
+  background: #3d3d3d;
+  border-color: #555;
+}
+
+.dark-mode .stats-chart-btn.active {
+  background: #C8D5E0;
+  border-color: #C8D5E0;
+}
+
+/* 统计概览卡片 */
+.stats-overview {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.stats-card {
+  background: linear-gradient(135deg, #C8D5E0 0%, #B8C9D9 100%);
+  border-radius: 12px;
+  padding: 16px;
+  text-align: center;
+  color: white;
+  box-shadow: 0 4px 12px rgba(200, 213, 224, 0.4);
+}
+
+.stats-card:nth-child(2) {
+  background: linear-gradient(135deg, #E8D5C4 0%, #D9C4B0 100%);
+}
+
+.stats-card:nth-child(3) {
+  background: linear-gradient(135deg, #D4E4D7 0%, #C4D9C8 100%);
+}
+
+.stats-card-value {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 4px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.stats-card-label {
+  font-size: 12px;
+  opacity: 0.95;
+}
+
+/* 图表容器 */
+.stats-chart-container {
+  position: relative;
+  height: 300px;
+  margin-bottom: 20px;
+  background: rgba(240, 248, 255, 0.5);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid rgba(180, 200, 220, 0.4);
+}
+
+.dark-mode .stats-chart-container {
+  background: #3d3d3d;
+  border-color: #555;
+}
+
+/* 详细数据表格 */
+.stats-details {
+  margin-top: 20px;
+}
+
+.stats-details h3 {
+  font-size: 16px;
+  margin-bottom: 12px;
+  color: #4C6B8A;
+}
+
+.dark-mode .stats-details h3 {
+  color: #e0e0e0;
+}
+
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: rgba(240, 248, 255, 0.5);
+  backdrop-filter: blur(10px);
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(180, 200, 220, 0.4);
+}
+
+.dark-mode .stats-table {
+  background: #3d3d3d;
+}
+
+.stats-table th,
+.stats-table td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid rgba(180, 200, 220, 0.4);
+}
+
+.dark-mode .stats-table th,
+.dark-mode .stats-table td {
+  border-bottom-color: #555;
+}
+
+.stats-table th {
+  background: rgba(200, 213, 224, 0.9);
+  color: white;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.stats-table tr:last-child td {
+  border-bottom: none;
+}
+
+.stats-table td {
+  font-size: 14px;
+  color: #5D6D7A;
+}
+
+.dark-mode .stats-table td {
+  color: #ccc;
+}
+
+/* 空状态 */
+.stats-empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: #7B8B9A;
+}
+
+.stats-empty-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.stats-empty-text {
+  font-size: 16px;
+}

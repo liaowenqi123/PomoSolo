@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * AI 规划助手组件
- * 迁移自 electron/src/scripts/modules/aiHelper.js
+ * 迁移自 deprecated/electron/src/scripts/modules/aiHelper.js
  *
  * 输入工作/学习需求，调用后端（DeepSeek）生成番茄钟计划，可应用到计划模式。
  */

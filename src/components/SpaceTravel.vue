@@ -6,7 +6,7 @@
  * 深空背景 + 闪烁星星 + 漂浮行星 + 番茄火箭升空 + 感谢信息。
  * 8 秒后出现"点击任意处或按 ESC 返回"，点击 / ESC 退出。
  *
- * 参照旧版 electron/src/scripts/modules/settings.js 的 launchSpaceTravel
+ * 参照旧版 deprecated/electron/src/scripts/modules/settings.js 的 launchSpaceTravel
  * 与 index.html 的 #space-travel 容器 + settings.css 动画。
  */
 import { ref, watch, onBeforeUnmount } from "vue";

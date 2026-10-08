@@ -2,7 +2,7 @@
 /**
  * 自习室面板组件
  *
- * 简化版，参考 electron/src/scripts/modules/studyRoom.js（1704 行）。
+ * 简化版，参考 deprecated/electron/src/scripts/modules/studyRoom.js（1704 行）。
  *
  * 功能：
  * - 创建自习室（名称、描述）

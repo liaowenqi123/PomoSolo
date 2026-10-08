@@ -1,7 +1,7 @@
 /**
  * 设置 Store
  *
- * 从 electron/src/scripts/modules/settings.js 提取核心设置项，
+ * 从 deprecated/electron/src/scripts/modules/settings.js 提取核心设置项，
  * 通过 src/api/data.ts 的 readSettings/writeSettings 持久化。
  */
 import { defineStore, acceptHMRUpdate } from "pinia";

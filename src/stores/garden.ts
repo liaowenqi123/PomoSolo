@@ -1,7 +1,7 @@
 /**
  * 菜园子 Store
  *
- * 参考 electron/src/scripts/modules/garden.js 与 utils.js 中的数据结构，
+ * 参考 deprecated/electron/src/scripts/modules/garden.js 与 utils.js 中的数据结构，
  * 通过 src/api/garden.ts 调用后端原子操作。
  *
  * 同时导出作物 / 成就 / 签到 / 土地解锁等静态配置，供 garden 子组件使用。

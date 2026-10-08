@@ -6,7 +6,7 @@
  * - 有枯萎作物：列出每株作物的图标 / 名称 / 已生长分钟 + 总计损失分钟
  * - 无枯萎作物：显示"幸好没有正在生长的作物"
  *
- * 参照旧版 electron/src/scripts/modules/foregroundDetection.js 的 showPunishmentModal。
+ * 参照旧版 deprecated/electron/src/scripts/modules/foregroundDetection.js 的 showPunishmentModal。
  */
 import { computed } from "vue";
 import Modal from "./Modal.vue";

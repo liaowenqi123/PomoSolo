@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 菜园子 - 土地格子组件
- * 迁移自 electron/src/scripts/modules/gardenPlot.js
+ * 迁移自 deprecated/electron/src/scripts/modules/gardenPlot.js
  *
  * 显示 12 块土地，根据状态渲染：锁定 / 空地 / 已种植（含进度）。
  * 点击空地触发 plant 事件，点击成熟作物触发 harvest，点击锁定土地触发 unlock。

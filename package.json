@@ -17,7 +17,11 @@
     "pwa:manifest": "node src/pwa/scripts/generate-music-manifest.mjs",
     "pwa:dev": "npm run pwa:manifest && vite --config src/pwa/vite.config.ts",
     "pwa:build": "npm run pwa:manifest && vue-tsc --noEmit -p src/pwa/tsconfig.json && vite build --config src/pwa/vite.config.ts",
-    "pwa:preview": "vite preview --config src/pwa/vite.config.ts"
+    "pwa:preview": "vite preview --config src/pwa/vite.config.ts",
+    "ui:shot": "node tools/ui/shot.mjs",
+    "ui:desktop": "node tools/ui/desktop-shot.mjs",
+    "ui:android": "node tools/ui/android-shot.mjs",
+    "ui:selftest": "node tools/ui/lib/_selftest.mjs && node tools/ui/lib/_android-audit-selftest.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

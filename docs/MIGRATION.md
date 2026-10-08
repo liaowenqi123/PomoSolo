@@ -26,28 +26,28 @@
 
 | Electron 模块 | Rust 对应 | 迁移状态 |
 |---------------|-----------|---------|
-| `electron/main.js`（主进程入口、窗口创建） | `src-tauri/src/lib.rs` + `main.rs` + `tauri.conf.json` | ✅ 完成 |
-| `electron/main/state.js`（全局状态） | `src-tauri/src/state.rs` | ✅ 完成 |
-| `electron/main/ipc-data.js` | `commands/data.rs` + `modules/data_manager.rs` | ✅ 完成 |
-| `electron/main/ipc-cloud.js` | `commands/cloud_auth.rs` | ✅ 完成 |
-| `electron/main/ipc-garden.js` | `commands/garden.rs` | ✅ 完成 |
-| `electron/main/ipc-foreground.js` | `commands/foreground.rs` | ✅ 完成 |
-| `electron/main/ipc-window.js` | `commands/window.rs` | ✅ 完成 |
-| `electron/main/ipc-music.js` | `modules/music_process.rs`（基础设施） | ⚠️ 部分完成（命令未注册） |
-| `electron/main/ipc-ai.js` | （未迁移） | ❌ 待办 |
-| `electron/main/ipc-update.js` | （未迁移） | ❌ 待办 |
-| `electron/main/achievements.js` | （合入 `commands/garden.rs` 逻辑） | ⚠️ 简化实现 |
-| `electron/main/auto-update.js` | （未迁移） | ❌ 待办（评估 `tauri-plugin-updater`） |
-| `electron/main/userData-backup.js` | （未迁移） | ❌ 待办 |
-| `electron/main/windows.js`（多窗口：主/迷你/菜园子） | `tauri.conf.json` 单窗口 | ⚠️ 仅主窗口 |
-| `electron/src/modules/cloudAuth.js` | `modules/cloud_auth.rs` | ✅ 完成 |
-| `electron/src/modules/dataManager.js` | `modules/data_manager.rs` | ✅ 完成 |
-| `electron/src/modules/foregroundInspection.js` + Python `.exe` | `modules/foreground_inspection.rs`（纯 Rust，无 Python） | ✅ 完成 |
-| `electron/src/modules/musicProcess.js` | `modules/music_process.rs` | ⚠️ 基础设施完成，命令未注册 |
-| `electron/src/modules/aiAssistant.js` | （未迁移） | ❌ 待办 |
-| `electron/src/modules/chartsFetcher.js` | （未迁移） | ❌ 待办 |
-| `electron/src/modules/songDownloader.js` | （未迁移，沿用 Python `manual_downloader.exe`） | ❌ 待办 |
-| `electron/src/modules/studyRoomSync.js` | （未迁移） | ❌ 待办 |
+| `deprecated/electron/main.js`（主进程入口、窗口创建） | `src-tauri/src/lib.rs` + `main.rs` + `tauri.conf.json` | ✅ 完成 |
+| `deprecated/electron/main/state.js`（全局状态） | `src-tauri/src/state.rs` | ✅ 完成 |
+| `deprecated/electron/main/ipc-data.js` | `commands/data.rs` + `modules/data_manager.rs` | ✅ 完成 |
+| `deprecated/electron/main/ipc-cloud.js` | `commands/cloud_auth.rs` | ✅ 完成 |
+| `deprecated/electron/main/ipc-garden.js` | `commands/garden.rs` | ✅ 完成 |
+| `deprecated/electron/main/ipc-foreground.js` | `commands/foreground.rs` | ✅ 完成 |
+| `deprecated/electron/main/ipc-window.js` | `commands/window.rs` | ✅ 完成 |
+| `deprecated/electron/main/ipc-music.js` | `modules/music_process.rs`（基础设施） | ⚠️ 部分完成（命令未注册） |
+| `deprecated/electron/main/ipc-ai.js` | （未迁移） | ❌ 待办 |
+| `deprecated/electron/main/ipc-update.js` | （未迁移） | ❌ 待办 |
+| `deprecated/electron/main/achievements.js` | （合入 `commands/garden.rs` 逻辑） | ⚠️ 简化实现 |
+| `deprecated/electron/main/auto-update.js` | （未迁移） | ❌ 待办（评估 `tauri-plugin-updater`） |
+| `deprecated/electron/main/userData-backup.js` | （未迁移） | ❌ 待办 |
+| `deprecated/electron/main/windows.js`（多窗口：主/迷你/菜园子） | `tauri.conf.json` 单窗口 | ⚠️ 仅主窗口 |
+| `deprecated/electron/src/modules/cloudAuth.js` | `modules/cloud_auth.rs` | ✅ 完成 |
+| `deprecated/electron/src/modules/dataManager.js` | `modules/data_manager.rs` | ✅ 完成 |
+| `deprecated/electron/src/modules/foregroundInspection.js` + Python `.exe` | `modules/foreground_inspection.rs`（纯 Rust，无 Python） | ✅ 完成 |
+| `deprecated/electron/src/modules/musicProcess.js` | `modules/music_process.rs` | ⚠️ 基础设施完成，命令未注册 |
+| `deprecated/electron/src/modules/aiAssistant.js` | （未迁移） | ❌ 待办 |
+| `deprecated/electron/src/modules/chartsFetcher.js` | （未迁移） | ❌ 待办 |
+| `deprecated/electron/src/modules/songDownloader.js` | （未迁移，沿用 Python `manual_downloader.exe`） | ❌ 待办 |
+| `deprecated/electron/src/modules/studyRoomSync.js` | （未迁移） | ❌ 待办 |
 
 ### 2.2 前端模块（Electron `src/scripts/modules/` → Vue 3）
 
@@ -271,8 +271,8 @@
 
 | 待办 | 涉及文件 | 说明 |
 |------|---------|------|
-| **自习室** | `commands/study_room.rs`（新建） | 迁移 `electron/src/modules/studyRoomSync.js`，前端 `api/studyRoom.ts` 已就绪 |
-| **图表数据** | `commands/charts.rs`（新建） | 迁移 `electron/src/modules/chartsFetcher.js`，前端 `api/charts.ts` 已就绪 |
+| **自习室** | `commands/study_room.rs`（新建） | 迁移 `deprecated/electron/src/modules/studyRoomSync.js`，前端 `api/studyRoom.ts` 已就绪 |
+| **图表数据** | `commands/charts.rs`（新建） | 迁移 `deprecated/electron/src/modules/chartsFetcher.js`，前端 `api/charts.ts` 已就绪 |
 | **多窗口（迷你模式 / 菜园子窗口）** | `tauri.conf.json` + `commands/window.rs` | Electron 有主窗口 / 迷你窗口 / 菜园子独立窗口，Tauri 当前只有主窗口 |
 | **歌曲下载** | `commands/music.rs` | 通过 Rust 调用 `manual_downloader.exe`，封装为命令 |
 | **成就系统完整化** | `commands/garden.rs` | 当前 `commands/garden.rs` 只做了基本的 plant/harvest/buy/sell/unlock/signin，成就解锁逻辑未迁移 |
@@ -282,8 +282,8 @@
 | 待办 | 涉及文件 | 说明 |
 |------|---------|------|
 | **自动更新** | `tauri-plugin-updater` | Electron 用 `electron-updater`，Tauri 需用官方 plugin |
-| **用户数据备份** | `commands/backup.rs`（新建） | 迁移 `electron/main/userData-backup.js` |
-| **教程系统** | `components/Tutorial.vue` | 迁移 `electron/src/scripts/modules/tutorial.js` |
+| **用户数据备份** | `commands/backup.rs`（新建） | 迁移 `deprecated/electron/main/userData-backup.js` |
+| **教程系统** | `components/Tutorial.vue` | 迁移 `deprecated/electron/src/scripts/modules/tutorial.js` |
 | **单点登录心跳** | `modules/cloud_auth.rs` | Electron 版有 60s 心跳 + 2min 超时检查，Tauri 版当前未实现 |
 | **托盘图标** | `tauri.conf.json` (tray-icon feature 已开启) | Electron 版有托盘菜单，Tauri 需补全 |
 | **全局快捷键** | `tauri-plugin-global-shortcut` | Electron 版音乐播放器有全局快捷键 |

@@ -84,7 +84,7 @@ electron_pomodoro/
 │       │   └── charts.rs       # 含 DownloadStatus 字面量
 │       └── modules/            # 业务实现
 ├── docs/                       # 文档（本文档、MIGRATION.md、ARCHITECTURE.md、modules/）
-└── electron/                  # 原版 Electron 代码（保留作参考，第 8 节）
+└── deprecated/electron/                  # 原版 Electron 代码（保留作参考，第 8 节）
 ```
 
 ### 3.3 分层职责
@@ -707,7 +707,7 @@ html, body, #app {
 
 ### 7.1 前端单测：Vitest
 
-- **配置**：`vitest.config.ts`，环境 `jsdom`，仅包含 `src/**/*.{test,spec}.ts`，排除 `electron/`、`dist/`、`node_modules/`。
+- **配置**：`vitest.config.ts`，环境 `jsdom`，仅包含 `src/**/*.{test,spec}.ts`，排除 `deprecated/electron/`、`dist/`、`node_modules/`。
 - **运行**：`npm test`（单次）/ `npm run test:watch`（监听）/ `npm run test:coverage`（覆盖率，provider=v8）。
 - **组件测试**：`@vue/test-utils` + `jsdom`，例如 `src/components/__tests__/Charts.test.ts` 已验证"下载模式切换显示自定义免责声明弹窗（不使用 `window.confirm`）"。
 - **覆盖范围**：`src/**/*.{ts,vue}`。
@@ -743,10 +743,10 @@ html, body, #app {
 
 ## 8. 原版参考
 
-`electron/` 目录保留了完整的原版 Electron 代码，作为迁移参考，**不再修改**：
+`deprecated/electron/` 目录保留了完整的原版 Electron 代码，作为迁移参考，**不再修改**：
 
 ```
-electron/
+deprecated/electron/
 ├── main.js                    # Electron 主进程入口
 ├── preload.js                 # IPC 桥接（contextBridge）
 ├── package.json               # 原版依赖
@@ -762,14 +762,14 @@ electron/
 
 ### 8.1 参考场景
 
-- **迁移新模块时**：先读 `electron/src/scripts/modules/xxx.js` 理解原版行为，再读 `electron/src/modules/xxx.js` 理解原主进程逻辑，最后参照本项目的 `commands/` + `modules/` 实现。
-- **调试样式问题时**：原版 CSS 在 `electron/src/styles/*.css`，可作为"在 Chromium 下原本长什么样"的基准。
+- **迁移新模块时**：先读 `deprecated/electron/src/scripts/modules/xxx.js` 理解原版行为，再读 `deprecated/electron/src/modules/xxx.js` 理解原主进程逻辑，最后参照本项目的 `commands/` + `modules/` 实现。
+- **调试样式问题时**：原版 CSS 在 `deprecated/electron/src/styles/*.css`，可作为"在 Chromium 下原本长什么样"的基准。
 - **理解 IPC 通道**：原版 `preload.js` 列出了所有 `electronAPI.*` 方法，与本项目 `src/api/*.ts` 一一对应（详见 `MIGRATION.md` 第 2.3 节）。
 
 ### 8.2 注意事项
 
-- `electron/` 目录**不参与构建**，`vitest.config.ts` 已显式 `exclude: ['electron/**']`。
-- 不要为了"统一"去修改 `electron/` 中的代码——它是冻结的历史参考。
+- `deprecated/electron/` 目录**不参与构建**，`vitest.config.ts` 已显式 `exclude: ['deprecated/electron/**']`。
+- 不要为了"统一"去修改 `deprecated/electron/` 中的代码——它是冻结的历史参考。
 - 原版的某些行为（如 `window.confirm` 弹窗）是 Electron 时代的遗留，迁移时必须替换（见 B4），不要照抄。
 
 ---

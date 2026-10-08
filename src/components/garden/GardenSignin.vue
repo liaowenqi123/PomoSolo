@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 菜园子 - 签到组件
- * 迁移自 electron/src/scripts/modules/gardenSignin.js
+ * 迁移自 deprecated/electron/src/scripts/modules/gardenSignin.js
  *
  * 显示连续签到天数、本周签到记录、今日奖励，执行签到操作。
  */

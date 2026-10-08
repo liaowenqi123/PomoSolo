@@ -2,7 +2,7 @@
 /**
  * 音乐标签选择弹窗
  *
- * 迁移自 electron/src/scripts/modules/musicPlayer.js 第 257-701 行标签逻辑。
+ * 迁移自 deprecated/electron/src/scripts/modules/musicPlayer.js 第 257-701 行标签逻辑。
  * 用户点击播放列表中歌曲的标签后弹出，可：
  * 1. 选择预设标签（学习/运动/休息）
  * 2. 添加自定义标签（最多 3 字，带颜色）

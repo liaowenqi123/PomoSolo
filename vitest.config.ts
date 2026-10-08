@@ -12,9 +12,9 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    // 仅运行 src/ 下的测试，排除旧 Electron 代码（electron/ 目录不修改）
+    // 仅运行 src/ 下的测试，排除旧 Electron 代码（deprecated/electron/ 目录不修改）
     include: ['src/**/*.{test,spec}.ts'],
-    exclude: ['node_modules/**', 'dist/**', 'electron/**'],
+    exclude: ['node_modules/**', 'dist/**', 'deprecated/electron/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

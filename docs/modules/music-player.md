@@ -1,7 +1,7 @@
 # 音乐播放器模块文档
 
 > 本文档记录 Tauri 番茄钟应用"音乐播放器"模块的实现方案与踩坑历史。
-> 模块从 Electron 旧版（`electron/src/scripts/modules/musicPlayer.js` + `electron/src/styles/music-player.css`）迁移至 Tauri + Vue 3 + Pinia 架构，**音频播放为 Rust 原生实现（rodio + cpal + symphonia），无 Python 子进程**（旧版 `music.py` 子进程方案已废弃）。
+> 模块从 Electron 旧版（`deprecated/electron/src/scripts/modules/musicPlayer.js` + `deprecated/electron/src/styles/music-player.css`）迁移至 Tauri + Vue 3 + Pinia 架构，**音频播放为 Rust 原生实现（rodio + cpal + symphonia），无 Python 子进程**（旧版 `music.py` 子进程方案已废弃）。
 
 ---
 
@@ -121,8 +121,8 @@
 | `src-tauri/src/commands/music.rs`                                       | L163–L500      | 所有 `#[tauri::command]` 函数                     |
 | `src-tauri/src/modules/audio_player.rs`                                 | L119–L460      | `AudioPlayer`：rodio 播放/seek/音量/模式/列表/标签 |
 | `src-tauri/src/commands/system.rs`                                      | L78–L110       | 媒体键全局快捷键注册（`global_shortcut`）          |
-| `electron/src/styles/music-player.css`                                  | 全文           | 旧版样式（对照参考）                              |
-| `electron/src/scripts/modules/musicPlayer.js`                           | 全文           | 旧版逻辑（对照参考）                              |
+| `deprecated/electron/src/styles/music-player.css`                                  | 全文           | 旧版样式（对照参考）                              |
+| `deprecated/electron/src/scripts/modules/musicPlayer.js`                           | 全文           | 旧版逻辑（对照参考）                              |
 
 ---
 
@@ -791,7 +791,7 @@ v4.5.8 在 `server-planning/API-implementation.md` 留言的三项服务器需�
 2. **前端只管 UI**：所有播放操作走 `invoke` → Rust `music_*` 命令 → 直接操作 `AudioPlayer`。
 3. **事件驱动**：前端通过 `useTauriEvent` 注册监听，Store 的 `handle*` 方法更新状态；事件全部由 Rust 层 `app.emit`。
 4. **同步命令**：需要返回值的命令（删除/标签）由命令函数直接返回 `Result`，Tauri IPC 同步回传。
-5. **样式对照旧版**：`electron/src/styles/music-player.css` 是权威参考，迁移时类名从 kebab-case 改为 BEM（`.music-device-list` → `.music-device__list`），但布局结构与尺寸完全对齐。
+5. **样式对照旧版**：`deprecated/electron/src/styles/music-player.css` 是权威参考，迁移时类名从 kebab-case 改为 BEM（`.music-device-list` → `.music-device__list`），但布局结构与尺寸完全对齐。
 6. **z-index 规划**：`.music-player` 200，内部弹层 9999，音量拨动条 1000，收起按钮 10。
 7. **三行结构**：信息行 → 进度条行 → 控制行，中间按钮居中，左右按钮绝对定位。
 8. **收起动画**：`max-height` 过渡 + `opacity/visibility` 配合，0.45s `cubic-bezier(0.5,0,0.5,1)`。
