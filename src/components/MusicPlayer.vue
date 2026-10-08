@@ -241,9 +241,54 @@ watch(
 );
 
 // ===== 播放列表 =====
+/**
+ * 音乐库的两种尺寸（同一个界面的两种形态，不是两个功能）：
+ *   compact —— 轻量浮层，锚在播放器上方，**扁平列表 + 小行高**，
+ *              用来"瞄一眼队列 / 随手切一首"。退出成本必须接近零。
+ *   full    —— 全窗 sheet，目录树 + 筛选 + 批量管理，用来"挑选 / 整理"。
+ *
+ * 为什么分两种：这两个任务的**频率和退出成本要求差一个数量级**。挤在一起时，
+ * 为 full 争取空间就会牺牲 compact 的退出成本（点外部即关）。
+ * 详见 docs/modules/music-player.md §8.6。
+ */
+const panelMode = ref<"compact" | "full">("compact");
+
+/**
+ * 紧凑模式显示的歌：
+ *   · 已建播放集合（队列）→ 显示**队列**（这是"再次打开面板"的主要动机：
+ *     看队列里有什么 / 下一首是什么）
+ *   · 否则 → 显示全部歌曲（退回上一版的行为，避免打开一个空面板）
+ */
+const compactSongs = computed<string[]>(() =>
+  store.playSetActive ? [...store.playSet] : store.playlist,
+);
+
+const compactTitle = computed(() => (store.playSetActive ? "播放列表" : "全部歌曲"));
+
+/** 紧凑模式里"下一首"提示（给 📋 按钮的 title 用，零成本满足"瞄一眼"需求） */
+const nextSongName = computed(() => {
+  const list = store.playSetActive ? [...store.playSet] : store.playlist;
+  if (list.length === 0) return "";
+  const idx = list.indexOf(store.trackName);
+  const next = idx >= 0 ? list[(idx + 1) % list.length] : list[0];
+  return next && next !== store.trackName ? displayName(next) : "";
+});
+
+/** 从紧凑模式展开成全窗曲库 */
+function expandToFull() {
+  panelMode.value = "full";
+}
+
+/** 从全窗曲库收回紧凑模式（不是关闭面板） */
+function collapseToCompact() {
+  panelMode.value = "compact";
+}
+
 function togglePlaylist() {
   isPlaylistOpen.value = !isPlaylistOpen.value;
   if (isPlaylistOpen.value) {
+    // 每次**打开**都从紧凑模式起（展开是本次会话内的临时动作，不跨次记忆）
+    panelMode.value = "compact";
     void store.requestPlaylist();
   }
 }
@@ -738,14 +783,28 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (typeof document !== "undefined") {
-    document.removeEventListener("click", handleGlobalClick);
+    document.removeEventListener("pointerdown", handleGlobalPointerDown);
+    document.removeEventListener("keydown", handleGlobalKeydown);
     document.removeEventListener("mousemove", handleProgressMouseMove);
     document.removeEventListener("mouseup", handleProgressMouseUp);
   }
 });
 
 // 关闭弹层（点击外部）
-function handleGlobalClick(e: MouseEvent) {
+/*
+ * ⚠️ 使用 **mousedown（pointerdown）**，不是 click！
+ *
+ * 这是一个很容易踩的坑：click 是 **mouseup 语义**。若在面板内按下鼠标、
+ * 移到面板外再松开，click 会在共同祖先上触发 → 面板被误关。
+ * 典型受害场景：想从面板里把东西拖出去、或"按下后觉得不该点、往外滑走再松手"。
+ * 用 mousedown（按下的那一刻判定）就没有这个问题：
+ *   · 在面板内按下 → 不关（不论在哪松手）
+ *   · 在面板外按下 → 立刻关（响应也更跟手）
+ *
+ * 同理，**不要做"窗口失焦自动关"**（本组件是 in-app 面板，不是独立窗口）：
+ * 面板只需要"按下外部 + Esc"两种零瞄准退出方式。
+ */
+function handleGlobalPointerDown(e: MouseEvent) {
   const target = e.target as HTMLElement;
   if (isVolumeOpen.value && !target.closest(".music-volume")) {
     isVolumeOpen.value = false;
@@ -753,18 +812,38 @@ function handleGlobalClick(e: MouseEvent) {
   if (isDeviceOpen.value && !target.closest(".music-device")) {
     isDeviceOpen.value = false;
   }
-  if (isPlaylistOpen.value && !target.closest(".music-playlist") && !target.closest(".music-playlist-btn")) {
+  if (
+    isPlaylistOpen.value &&
+    !target.closest(".music-playlist") &&
+    !target.closest(".music-list") &&
+    !target.closest(".music-playlist-btn")
+  ) {
     isPlaylistOpen.value = false;
   }
-  // 右键菜单：点击菜单外关闭
+  // 右键菜单：在菜单外按下关闭
   if (ctxMenu.value.visible && !target.closest(".music-playlist__ctxmenu")) {
     closeCtxMenu();
   }
 }
 
-// 注册全局点击用于关闭弹层
+/** Esc 关闭弹层（第二种零瞄准退出方式） */
+function handleGlobalKeydown(e: KeyboardEvent) {
+  if (e.key !== "Escape") return;
+  if (ctxMenu.value.visible) { closeCtxMenu(); return; }
+  if (isPlaylistOpen.value) {
+    // 全屏时先收回紧凑模式；再按一次才关闭 —— 与「← 返回」语义一致
+    if (panelMode.value === "full") { panelMode.value = "compact"; return; }
+    isPlaylistOpen.value = false;
+    return;
+  }
+  if (isDeviceOpen.value) { isDeviceOpen.value = false; return; }
+  if (isVolumeOpen.value) { isVolumeOpen.value = false; }
+}
+
+// 注册全局监听：关闭弹层用 pointerdown（不是 click，见 handleGlobalPointerDown 注释）
 if (typeof document !== "undefined") {
-  document.addEventListener("click", handleGlobalClick);
+  document.addEventListener("pointerdown", handleGlobalPointerDown);
+  document.addEventListener("keydown", handleGlobalKeydown);
 }
 </script>
 
@@ -928,33 +1007,88 @@ if (typeof document !== "undefined") {
         </div>
 
         <!--
-          音乐库 = **全窗 sheet**（设计变更，原为锚在播放器上方的 348×340 小弹窗）。
+          ===== 紧凑模式：轻量浮层（默认）=====
+          留在播放器内部（**不 Teleport**），沿用上一版验证过的锚定方式
+          `bottom:100%; right:0` —— 这样它天然贴着播放器，且"点外部即关"
+          仍然成立（浮层之外就是"外部"）。
 
-          为什么要改结构而不是继续微调：
-            小弹窗里可用纵向空间只有约 340px，却要同时放下「目录树」和「歌单」
-            两个纵向列表 → 两者互相挤压、必须长距离上下滚动，无论怎么调细节
-            都逃不掉。这是**结构**问题，不是细节问题。
+          设计语言刻意对齐上一版（cd5a1ed^）：
+            标签 chip 前置 → 曲名 → 🗑/▶，行高 28px，窄（260px）。
+          它的好用来自**密度**（一眼扫完），不是面积 —— 上一版用 240×280
+          就能一屏 8 首；全窗 sheet 一屏 13 首但"扫得慢"。
+        -->
+        <div
+          v-show="isPlaylistOpen && panelMode === 'compact'"
+          class="music-list"
+        >
+          <div class="music-list__header">
+            <span class="music-list__title">{{ compactTitle }}</span>
+            <span class="music-list__count">{{ compactSongs.length }}</span>
+            <button
+              class="music-list__btn"
+              title="展开为音乐库（目录 / 筛选 / 批量）"
+              aria-label="展开为音乐库"
+              @click.stop="expandToFull"
+            >⤢</button>
+            <button
+              class="music-list__btn"
+              title="刷新曲库"
+              aria-label="刷新曲库"
+              @click.stop="store.requestPlaylist()"
+            >⟳</button>
+          </div>
 
-          新结构：
-            · Teleport 到 .container —— 与 .app-modal-overlay 同一套惯例
-              （"相对 .container 定位，被 .container/.window-frame 的
-              overflow:hidden 裁剪在圆角内"）。圆角自动正确；而且 .container
-              是 v-show（不是 v-if）→ 迷你模式下会被一起隐藏，无需额外规则。
-            · 可用面积 348×340 → **520×560**。
-            · 目录树从"占一行纵向空间"变成**左栏**（固定 150px，独立滚动），
-              歌单独占右栏全部高度 → 两个列表不再争抢纵向空间。
-            · 窗口 chrome（📍−×）已抬到 --z-window-chrome(1100) 浮在 sheet 之上；
-              故 header 右侧留 108px 空位，避免自己的按钮压到它们。
+          <div class="music-list__items">
+            <div v-if="compactSongs.length === 0" class="music-list__empty">暂无音乐</div>
+            <div
+              v-for="song in compactSongs"
+              :key="song"
+              class="music-list__item"
+              :class="{ current: song === store.trackName, disabled: controlsDisabled }"
+              :title="displayName(song)"
+              @click="handleSongClick(song)"
+            >
+              <!-- 标签 chip 前置：上一版的设计语言（一眼看出分类） -->
+              <span
+                class="music-list__tag"
+                :data-tag="store.playlistTags[song]?.name || '自定义'"
+                :style="tagStyle(song)"
+                @click.stop="handleTagClick(song, $event)"
+              >{{ store.playlistTags[song]?.name || "自定义" }}</span>
 
-          因为是全窗 sheet，"点外面关闭"不再适用 → header 补了显式关闭按钮。
+              <span class="music-list__name">{{ displayName(song) }}</span>
 
-          注意 `defer`：Vue 是**自底向上**挂载 DOM 的，本组件挂载时 .container
-          还没被插进 document，Teleport 会解析不到目标而静默不渲染（已踩到）。
-          Vue 3.5 的 `<Teleport defer>` 把目标解析推迟到当前渲染周期之后，
-          正是为这种情况设计的。
+              <!--
+                队列模式 → ✕ 从队列移除（非破坏性）
+                曲库模式 → 🗑 删除文件（上一版行为，破坏性）
+                用不同图标区分两种语义，避免同一个 🗑 一会儿删队列一会儿删文件
+              -->
+              <button
+                v-if="song !== store.trackName && store.playSetActive"
+                class="music-list__action"
+                :disabled="controlsDisabled"
+                title="从播放列表移除"
+                @click.stop="store.removeFromPlaylist(song)"
+              >✕</button>
+              <button
+                v-else-if="song !== store.trackName"
+                class="music-list__action"
+                :disabled="controlsDisabled"
+                title="删除歌曲文件"
+                @click.stop="handleDeleteSong(song, $event)"
+              >🗑</button>
+              <span v-else class="music-list__playing">▶</span>
+            </div>
+          </div>
+        </div>
+
+        <!--
+          ===== 全屏模式：曲库管理（显式展开进入）=====
+          全窗 sheet，铺满窗口（原为锚在播放器上方的 348×340 小弹窗）。
+          为什么改结构见 docs/modules/music-player.md §8.6。
         -->
         <Teleport to=".container" :disabled="!sheetTeleportEnabled" defer>
-        <div v-show="isPlaylistOpen" class="music-playlist">
+        <div v-show="isPlaylistOpen && panelMode === 'full'" class="music-playlist">
           <div class="music-playlist__header">
             <!--
               返回按钮放**左侧**，不放右侧：
@@ -964,9 +1098,9 @@ if (typeof document !== "undefined") {
             -->
             <button
               class="music-playlist__back"
-              title="返回计时（关闭音乐库）"
-              aria-label="返回计时"
-              @click.stop="isPlaylistOpen = false"
+              title="返回紧凑列表（不是关闭面板）"
+              aria-label="返回紧凑列表"
+              @click.stop="collapseToCompact"
             >←</button>
             <span class="music-playlist__title">音乐库</span>
             <span
@@ -1797,6 +1931,215 @@ if (typeof document !== "undefined") {
 .music-device__check {
   color: #4caf50;
   font-weight: 700;
+}
+
+/* ============ 紧凑模式：轻量浮层 ============ */
+/*
+ * 对齐上一版（cd5a1ed^）的设计语言，只做必要的现代化修正：
+ *   · 240→262px：上一版长曲名截断得厉害；262 是"少截断"与"保持窄"的折中
+ *   · max-height 280→340：可用的纵向空间本来就有约 430px，多显示几首
+ *   · 背景 rgba(...,0.98)→不透明：半透明会让背后的计时器留下可见鬼影（实测过）
+ *   · 行高保持 28px —— 这是"一眼扫完"的关键，不要为了好看加大
+ */
+.music-list {
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  margin-bottom: 8px;
+  width: 262px;
+  max-height: 340px;
+  display: flex;
+  flex-direction: column;
+  background: #282833;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(0, 0, 0, 0.25);
+  z-index: var(--z-popup);
+  overflow: hidden;
+}
+
+.music-list__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.music-list__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.music-list__count {
+  font-size: 10px;
+  font-weight: 600;
+  min-width: 16px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.8);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ⤢ / ⟳ 图标按钮：28×28（达到桌面指针目标下限），放在 count 之后的右侧 */
+.music-list__btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.62);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+/* 第一个按钮（⤢）推开到最右，⟳ 紧跟其后 */
+.music-list__btn:first-of-type {
+  margin-left: auto;
+}
+
+.music-list__btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(233, 69, 96, 0.6);
+  color: #fff;
+}
+
+.music-list__items {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.music-list__items::-webkit-scrollbar {
+  width: 4px;
+}
+
+.music-list__items::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.music-list__items::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+}
+
+.music-list__items::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.music-list__empty {
+  padding: 22px 24px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 12px;
+}
+
+/* 行：上一版是 min-height:28px + padding 6px 10px —— 保持这个密度 */
+.music-list__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  min-height: 28px;
+  box-sizing: border-box;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.music-list__item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.music-list__item.current {
+  background: rgba(233, 69, 96, 0.14);
+}
+
+.music-list__item.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 标签 chip：固定最小宽度，让右侧曲名起始位置对齐（上一版的观感） */
+.music-list__tag {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ccc;
+  flex-shrink: 0;
+  min-width: 28px;
+  text-align: center;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.music-list__tag:hover {
+  filter: brightness(1.25);
+}
+
+.music-list__tag[data-tag="学习"] { background: rgba(116, 185, 255, 0.28); color: #cfe6ff; }
+.music-list__tag[data-tag="运动"] { background: rgba(255, 150, 100, 0.28); color: #ffd9c4; }
+.music-list__tag[data-tag="休息"] { background: rgba(90, 180, 140, 0.28); color: #c6f0dc; }
+.music-list__tag[data-tag="白噪音"] { background: rgba(72, 219, 251, 0.28); color: #c9f2fd; }
+
+.music-list__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.music-list__item.current .music-list__name {
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ✕ 移除 / 🗑 删除：24×24 热区，hover 才显形（不抢曲名的视觉注意力） */
+.music-list__action {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.music-list__item:hover .music-list__action {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.music-list__action:hover {
+  background: rgba(233, 69, 96, 0.35);
+  color: #fff;
+}
+
+.music-list__playing {
+  width: 24px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 10px;
+  color: #ff8a9c;
 }
 
 /* ============ 音乐库（全窗 sheet）============ */

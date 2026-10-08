@@ -113,6 +113,18 @@ describe("MusicPlayer.vue", () => {
 
   const mountComponent = () => mount(MusicPlayer, { attachTo: document.body });
 
+  /**
+   * 打开音乐库并**展开成全屏曲库**。
+   * 设计变更：点 📋 默认开的是**紧凑浮层**（`.music-list`，扁平列表，
+   * 用于"瞄一眼队列 / 随手切一首"），全屏曲库（目录树/筛选/批量）需要显式展开。
+   * 详见 docs/modules/music-player.md §8.6。
+   */
+  const openFullLibrary = async (wrapper: ReturnType<typeof mountComponent>) => {
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    await wrapper.find(".music-list__btn").trigger("click");   // 第一个按钮 = ⤢ 展开
+    await wrapper.vm.$nextTick();
+  };
+
   it("收起状态：显示律动条 + 曲名，点击展开调用 toggleCollapse", async () => {
     mockStore = makeStore({ isCollapsed: true, trackName: "song.mp3" });
     const wrapper = mountComponent();
@@ -303,12 +315,89 @@ describe("MusicPlayer.vue", () => {
     wrapper.unmount();
   });
 
-  it("播放列表按钮切换面板并调用 requestPlaylist", async () => {
+  it("播放列表按钮：默认打开紧凑浮层并调用 requestPlaylist；⤢ 可展开为全屏曲库", async () => {
     const wrapper = mountComponent();
+    expect(wrapper.find(".music-list").isVisible()).toBe(false);
     expect(wrapper.find(".music-playlist").isVisible()).toBe(false);
+
     await wrapper.find(".music-playlist-btn").trigger("click");
     expect(mockStore.requestPlaylist).toHaveBeenCalled();
+
+    // 默认 = 紧凑浮层（扁平列表），全屏曲库还不显示
+    expect(wrapper.find(".music-list").isVisible()).toBe(true);
+    expect(wrapper.find(".music-playlist").isVisible()).toBe(false);
+
+    // ⤢ 展开 → 全屏曲库；紧凑浮层隐藏
+    await wrapper.find(".music-list__btn").trigger("click");
     expect(wrapper.find(".music-playlist").isVisible()).toBe(true);
+    expect(wrapper.find(".music-list").isVisible()).toBe(false);
+
+    // ← 返回 → 收回紧凑浮层（**不是**关闭面板）
+    await wrapper.find(".music-playlist__back").trigger("click");
+    expect(wrapper.find(".music-list").isVisible()).toBe(true);
+    expect(wrapper.find(".music-playlist").isVisible()).toBe(false);
+
+    wrapper.unmount();
+  });
+
+  it("紧凑浮层：显示队列（无队列时退回全部歌曲），点行即播放，标签 chip 前置", async () => {
+    mockStore = makeStore({
+      playlist: ["a.mp3", "b.mp3"],
+      playSet: new Set(["b.mp3", "a.mp3"]),
+      playSetActive: true,
+      playSetSource: "目录 · 导入",
+      trackName: "b.mp3",
+    });
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+
+    // 有队列 → 显示队列（顺序按 Set 推入序）
+    const rows = wrapper.findAll(".music-list__item");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].find(".music-list__name").text()).toBe("b");
+    // 当前歌显示 ▶ 而不是删除/移除按钮
+    expect(rows[0].find(".music-list__playing").exists()).toBe(true);
+    // 队列模式用 ✕ 从队列移除（非破坏性），不是 🗑 删文件
+    expect(rows[1].find(".music-list__action").text()).toBe("✕");
+    // 标签 chip 是每行的**第一个**子元素（上一版的设计语言）
+    expect(rows[0].element.firstElementChild?.className).toContain("music-list__tag");
+    // 点行即播放
+    await rows[1].trigger("click");
+    expect(mockStore.playSong).toHaveBeenCalledWith("a.mp3");
+    wrapper.unmount();
+  });
+
+  it("紧凑浮层：无队列时退回显示全部歌曲（避免打开一个空面板）", async () => {
+    mockStore = makeStore({
+      playlist: ["a.mp3", "b.mp3"],
+      playSet: new Set<string>(),
+      playSetActive: false,
+    });
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    expect(wrapper.findAll(".music-list__item")).toHaveLength(2);
+    // 曲库模式用 🗑 删除文件（上一版行为）
+    expect(wrapper.find(".music-list__action").text()).toBe("🗑");
+    wrapper.unmount();
+  });
+
+  it("弹层关闭用 pointerdown 而非 click：面板内按下、面板外松开**不关**", async () => {
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    expect(wrapper.find(".music-list").isVisible()).toBe(true);
+
+    // 在面板内按下，在面板外松开 —— click 语义会误关，pointerdown 语义不会
+    const inside = wrapper.find(".music-list__items").element as HTMLElement;
+    inside.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find(".music-list").isVisible()).toBe(true);
+
+    // 在面板外按下 → 关
+    document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find(".music-list").isVisible()).toBe(false);
+
     wrapper.unmount();
   });
 
@@ -328,7 +417,7 @@ describe("MusicPlayer.vue", () => {
       }),
     });
     const wrapper = mountComponent();
-    await wrapper.find(".music-playlist-btn").trigger("click");
+    await openFullLibrary(wrapper);
     const items = wrapper.findAll(".music-playlist__item");
     expect(items).toHaveLength(3);
     // 单击未选中行 → 单选
@@ -357,7 +446,7 @@ describe("MusicPlayer.vue", () => {
       filteredSongs: ["a.mp3"],
     });
     const wrapper = mountComponent();
-    await wrapper.find(".music-playlist-btn").trigger("click");
+    await openFullLibrary(wrapper);
     await wrapper.find(".music-playlist__item").trigger("dblclick");
     expect(mockStore.addSongsToPlaylist).toHaveBeenCalledWith(["a.mp3"]);
     wrapper.unmount();
@@ -375,7 +464,7 @@ describe("MusicPlayer.vue", () => {
       selection: new Set(["a.mp3"]),
     });
     const wrapper = mountComponent();
-    await wrapper.find(".music-playlist-btn").trigger("click");
+    await openFullLibrary(wrapper);
     await wrapper.find(".music-playlist__item").trigger("contextmenu", { clientX: 100, clientY: 100 });
     const menu = ctxMenuEl();
     expect(menu).toBeTruthy();
@@ -394,7 +483,7 @@ describe("MusicPlayer.vue", () => {
       selection: new Set(["a.mp3", "b.mp3"]),
     });
     const wrapper = mountComponent();
-    await wrapper.find(".music-playlist-btn").trigger("click");
+    await openFullLibrary(wrapper);
     // 在任意一个已选中的行右键
     await wrapper.findAll(".music-playlist__item")[1].trigger("contextmenu", { clientX: 100, clientY: 100 });
     const menu = ctxMenuEl();
@@ -414,7 +503,7 @@ describe("MusicPlayer.vue", () => {
       deleteSong: vi.fn(async () => true),
     });
     const wrapper = mountComponent();
-    await wrapper.find(".music-playlist-btn").trigger("click");
+    await openFullLibrary(wrapper);
     await wrapper.findAll(".music-playlist__item")[0].trigger("contextmenu", { clientX: 100, clientY: 100 });
     const menu = ctxMenuEl();
     expect(menu).toBeTruthy();
@@ -436,7 +525,7 @@ describe("MusicPlayer.vue", () => {
       filteredSongs: ["a.mp3"],
     });
     const wrapper = mountComponent();
-    await wrapper.find(".music-playlist-btn").trigger("click");
+    await openFullLibrary(wrapper);
     await wrapper.find(".music-playlist__tab.playlist").trigger("click");
     const item = wrapper.find(".music-playlist__item");
     // 先选中 a.mp3 并开始拖拽（dragstart 携带选择集）
@@ -459,7 +548,7 @@ describe("MusicPlayer.vue", () => {
       trackName: "a.mp3",
     });
     const wrapper = mountComponent();
-    await wrapper.find(".music-playlist-btn").trigger("click");
+    await openFullLibrary(wrapper);
     const items = wrapper.findAll(".music-playlist__item");
     // 当前歌曲显示播放标记
     expect(items[0].find(".music-playlist__playing").exists()).toBe(true);
@@ -620,7 +709,7 @@ describe("MusicPlayer.vue", () => {
       filteredCount: 1,
     });
     const wrapper = mountComponent();
-    await wrapper.find(".music-playlist-btn").trigger("click");
+    await openFullLibrary(wrapper);
     await wrapper.find(".music-playlist__tab.filter").trigger("click");
     expect(wrapper.find(".music-playlist__search").exists()).toBe(true);
     expect(wrapper.find(".music-playlist__stats").text()).toBe("1 / 2");
@@ -636,7 +725,7 @@ describe("MusicPlayer.vue", () => {
       allTags: [{ name: "学习", count: 2 }],
     });
     const wrapper = mountComponent();
-    await wrapper.find(".music-playlist-btn").trigger("click");
+    await openFullLibrary(wrapper);
     // 目录 tab（默认）
     const dirs = wrapper.findAll(".music-playlist__dir");
     // 全部 / 未分类 / 导入 / 喜欢
@@ -657,7 +746,7 @@ describe("MusicPlayer.vue", () => {
       playSet: new Set(["a.mp3", "b.mp3"]),
     });
     const wrapper = mountComponent();
-    await wrapper.find(".music-playlist-btn").trigger("click");
+    await openFullLibrary(wrapper);
     // 切到播放列表 tab
     await wrapper.find(".music-playlist__tab.playlist").trigger("click");
     const actions = wrapper.findAll(".music-playlist__collection-actions button");
@@ -674,7 +763,7 @@ describe("MusicPlayer.vue", () => {
       filteredSongs: ["a.mp3", "b.mp3"],
     });
     const wrapper = mountComponent();
-    await wrapper.find(".music-playlist-btn").trigger("click");
+    await openFullLibrary(wrapper);
     const addBtn = wrapper
       .findAll(".music-playlist__browse-actions button")
       .find((b) => b.text().includes("全部加入播放列表"))!;
@@ -696,7 +785,7 @@ describe("MusicPlayer.vue", () => {
       playSet: new Set(["a.mp3", "b.mp3"]),
     });
     const wrapper = mountComponent();
-    await wrapper.find(".music-playlist-btn").trigger("click");
+    await openFullLibrary(wrapper);
     // 默认目录 tab，播放列表 tab 带数量徽标
     expect(wrapper.find(".music-playlist__tab.dir").classes()).toContain("active");
     expect(wrapper.find(".music-playlist__tab-badge").text()).toBe("2");
@@ -713,7 +802,7 @@ describe("MusicPlayer.vue", () => {
       playSet: new Set(["a.mp3", "b.mp3"]),
     });
     const wrapper = mountComponent();
-    await wrapper.find(".music-playlist-btn").trigger("click");
+    await openFullLibrary(wrapper);
     await wrapper.find(".music-playlist__tab.playlist").trigger("click");
     const removes = wrapper.findAll(".music-playlist__collection-remove");
     await removes[1].trigger("click");
@@ -728,7 +817,7 @@ describe("MusicPlayer.vue", () => {
       songMeta: { "x.mp3": { path: "", tags: [], source: "" } },
     });
     const wrapper = mountComponent();
-    await wrapper.find(".music-playlist-btn").trigger("click");
+    await openFullLibrary(wrapper);
     await wrapper.find(".music-playlist__add").trigger("click");
     expect(mockStore.addSongsToPlaylist).toHaveBeenCalledWith(["x.mp3"]);
     wrapper.unmount();
@@ -742,7 +831,7 @@ describe("MusicPlayer.vue", () => {
       dirTree: [{ path: "导入", name: "导入", children: [], count: 0, subtreeCount: 1 }],
     });
     const wrapper = mountComponent();
-    await wrapper.find(".music-playlist-btn").trigger("click");
+    await openFullLibrary(wrapper);
     // 三个 tab 并排
     expect(wrapper.findAll(".music-playlist__tab")).toHaveLength(3);
     // 默认目录 tab：目录树可见，筛选表单不可见
