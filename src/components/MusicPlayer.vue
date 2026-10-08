@@ -287,12 +287,22 @@ function collapseToCompact() {
 /**
  * 📋 按钮的 title：把"瞄一眼队列 / 下一首"这个高频需求做到**不用打开任何界面**。
  * 悬停即见，零成本。
+ *
+ * ⚠️ 同步听歌当听众时必须**不显示"下一首"**：那时播放由 DJ 统一控制，
+ *    本地 playSet/playlist 算出来的"下一首"与 DJ 即将播的**毫无关系**，
+ *    显示了就是骗人。这也暴露了当前架构的一个事实 ——
+ *    **队列顺序是只存在于 DJ 一侧的状态**（`music:sync_state` 只带当前 songId，
+ *    不带队列），详见 docs/modules/music-player.md §8.7。
  */
 const playlistBtnTitle = computed(() => {
   const list = compactSongs.value;
   const parts = [compactTitle.value];
   if (list.length > 0) parts.push(`${list.length} 首`);
-  if (nextSongName.value) parts.push(`下一首：${nextSongName.value}`);
+  if (controlsDisabled.value) {
+    parts.push(store.djName ? `由 ${store.djName} 控制` : "由 DJ 控制");
+  } else if (nextSongName.value) {
+    parts.push(`下一首：${nextSongName.value}`);
+  }
   return parts.join(" · ");
 });
 

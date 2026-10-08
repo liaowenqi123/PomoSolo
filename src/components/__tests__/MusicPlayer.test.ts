@@ -56,6 +56,7 @@ function makeStore(overrides: Record<string, unknown> = {}) {
         isDragging: false,
         syncEnabled: false,
         isDj: false,
+        djName: "",
         waitingForSongs: false,
         transferMode: "immediate",
         songTransfer: { state: "idle", songName: "", received: 0, total: 0 },
@@ -378,6 +379,48 @@ describe("MusicPlayer.vue", () => {
     expect(wrapper.findAll(".music-list__item")).toHaveLength(2);
     // 曲库模式用 🗑 删除文件（上一版行为）
     expect(wrapper.find(".music-list__action").text()).toBe("🗑");
+    wrapper.unmount();
+  });
+
+  it("📋 的 title：本机播放时显示「下一首」，同步听歌当听众时改显示「由 DJ 控制」", () => {
+    // 本机：显示队列/全部歌曲 + 首数 + 下一首
+    mockStore = makeStore({
+      playlist: ["a.mp3", "b.mp3", "c.mp3"],
+      trackName: "a.mp3",
+      syncEnabled: false,
+      isDj: false,
+    });
+    let wrapper = mountComponent();
+    let title = wrapper.find(".music-playlist-btn").attributes("title") ?? "";
+    expect(title).toContain("3 首");
+    expect(title).toContain("下一首：b");
+    wrapper.unmount();
+
+    // 同步听歌当听众：播放由 DJ 决定，本地算的"下一首"是错的 → 不能显示
+    mockStore = makeStore({
+      playlist: ["a.mp3", "b.mp3", "c.mp3"],
+      trackName: "a.mp3",
+      syncEnabled: true,
+      isDj: false,
+      djName: "汤圆",
+    });
+    wrapper = mountComponent();
+    title = wrapper.find(".music-playlist-btn").attributes("title") ?? "";
+    expect(title).not.toContain("下一首");
+    expect(title).toContain("由 汤圆 控制");
+    wrapper.unmount();
+
+    // 自己是 DJ：队列就是播放顺序，可以显示"下一首"
+    mockStore = makeStore({
+      playlist: ["a.mp3", "b.mp3"],
+      trackName: "a.mp3",
+      syncEnabled: true,
+      isDj: true,
+      djName: "我",
+    });
+    wrapper = mountComponent();
+    title = wrapper.find(".music-playlist-btn").attributes("title") ?? "";
+    expect(title).toContain("下一首：b");
     wrapper.unmount();
   });
 
