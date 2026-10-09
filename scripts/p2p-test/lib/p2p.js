@@ -71,12 +71,61 @@ export function parseChunk(buf) {
   return { index: b.readUInt32BE(0), data: b.subarray(4) };
 }
 
-export function buildMeta({ size, totalChunks, chunkSize, baseChunk = 0, globalChunks = 0 }) {
+export function buildMeta({ size, totalChunks, chunkSize, baseChunk = 0, globalChunks = 0, compress = false }) {
   const meta = { t: "meta", size, totalChunks, chunkSize };
   // 并行传输才带；单连接/整文件时带上也无害，但为贴近真实实现只在有意义时带
   if (baseChunk) meta.baseChunk = baseChunk;
   if (globalChunks) meta.globalChunks = globalChunks;
+  // v4.6.4 压缩传输标志：为真时数据帧改用 encodeChunkC（多 1 字节压缩标志）
+  if (compress) meta.compress = true;
   return JSON.stringify(meta);
+}
+
+// ── 压缩传输（v4.6.4）—— 与 src/p2p.ts **逐行同构** ──────────────────
+//
+// src/p2p.ts 用浏览器原生 `CompressionStream("deflate-raw")`；Node 18+ 也有同名全局，
+// 所以虚拟端用**完全相同的 API**，零依赖、行为一致（实测 Node 24 支持）。
+
+/** 环境是否支持原生压缩（Node 18+ / Chromium 均为 true） */
+export function compressionSupported() {
+  return typeof CompressionStream !== "undefined" && typeof DecompressionStream !== "undefined";
+}
+
+/** deflate-raw 压缩单片；不支持或失败时原样返回（与 src/p2p.ts 一致） */
+export async function compressChunk(data) {
+  if (!compressionSupported()) return data;
+  try {
+    const stream = new Blob([data.slice()]).stream().pipeThrough(new CompressionStream("deflate-raw"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  } catch {
+    return data;
+  }
+}
+
+/** deflate-raw 解压单片；不支持或失败时原样返回 */
+export async function decompressChunk(data) {
+  if (!compressionSupported()) return data;
+  try {
+    const stream = new Blob([data.slice()]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  } catch {
+    return data;
+  }
+}
+
+/** 压缩传输分片编码：4 字节大端 index + 1 字节压缩标志 + payload */
+export function encodeChunkC(index, data, compressed) {
+  const out = Buffer.alloc(5 + data.length);
+  out.writeUInt32BE(index, 0);
+  out[4] = compressed ? 1 : 0;
+  Buffer.from(data).copy(out, 5);
+  return out;
+}
+
+/** 解析压缩传输分片 */
+export function parseChunkC(buf) {
+  const b = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
+  return { index: b.readUInt32BE(0), compressed: b[4] === 1, data: b.subarray(5) };
 }
 
 /** 把 werift 的 onmessage 载荷规范成 Buffer 或 string */
@@ -117,6 +166,8 @@ export class P2PConnection {
     this.baseChunk = opts.baseChunk ?? 0;
     this.globalChunks = opts.globalChunks ?? 0;
     this.timeoutMs = opts.timeoutMs ?? 20000;
+    /** v4.6.4：发送方是否启用压缩传输（先 hello 协商；对端旧版则自动回退不压缩） */
+    this.compress = opts.compress ?? false;
     this.onDiagnose = opts.onDiagnose ?? (() => {});
 
     this.pc = null;
@@ -178,28 +229,53 @@ export class P2PConnection {
   /** 挂上 DataChannel 的消息处理（发送/接收共用） */
   _wireChannel(dc) {
     this.dc = dc;
-    dc.onmessage = (msg) => {
+    dc.onmessage = async (msg) => {
       const raw = normalizeMessage(msg);
       if (raw == null) return;
       if (typeof raw === "string") {
         if (this.isSender) {
           if (raw.includes('"t":"ack"')) this.acked = true;
-          else if (raw.includes('"t":"hello"')) dc.send(JSON.stringify({ t: "hello-ack", compress: 0 }));
+          // v4.6.4 压缩协商回包：对端报支持才启用压缩
+          else if (raw.includes('"t":"hello-ack"')) {
+            this.helloAck = raw.includes('"compress":true');
+            this.onDiagnose(`收到 hello-ack，对端压缩支持=${this.helloAck}`);
+            this._onHelloAck?.(this.helloAck);
+          } else if (raw.includes('"t":"hello"')) {
+            // 反向场景里发送方可能是应答方，也要能应答协商
+            dc.send(JSON.stringify({ t: "hello-ack", compress: compressionSupported() }));
+          }
         } else {
           if (raw.includes('"t":"meta"')) {
             this.meta = JSON.parse(raw);
             this.onDiagnose(`meta: size=${this.meta.size} totalChunks=${this.meta.totalChunks}`
+              + (this.meta.compress ? " compress=1" : "")
               + (this.meta.baseChunk ? ` baseChunk=${this.meta.baseChunk}` : "")
               + (this.meta.globalChunks ? ` globalChunks=${this.meta.globalChunks}` : ""));
           } else if (raw.includes('"t":"hello"')) {
-            dc.send(JSON.stringify({ t: "hello-ack", compress: 0 }));
+            // 与 src/p2p.ts 一致：本端能解压才报 compress:true
+            dc.send(JSON.stringify({ t: "hello-ack", compress: compressionSupported() }));
           }
         }
         return;
       }
       if (this.isSender) return;
-      const { index, data } = parseChunk(raw);
+      /*
+       * 数据帧格式由 meta 决定：
+       *  · meta.compress=1 → 4 字节 index + 1 字节标志 + payload（标志=1 时 payload 是 deflate-raw）
+       *  · 否则 → 旧格式 4 字节 index + payload
+       */
+      let index;
+      let data;
+      if (this.meta?.compress) {
+        const parsed = parseChunkC(raw);
+        index = parsed.index;
+        data = parsed.compressed ? Buffer.from(await decompressChunk(parsed.data)) : parsed.data;
+        if (parsed.compressed) this.compressedChunks = (this.compressedChunks ?? 0) + 1;
+      } else {
+        ({ index, data } = parseChunk(raw));
+      }
       this.recvChunks[index] = data;
+      this.recvRawBytes = (this.recvRawBytes ?? 0) + data.length;
       const total = this.meta?.totalChunks ?? 0;
       const got = this.recvChunks.filter(Boolean).length;
       if (total && got >= total && !this.done) {
@@ -209,6 +285,7 @@ export class P2PConnection {
           buf, chunks: total, bytes: buf.length, meta: this.meta,
           baseChunk: this.meta?.baseChunk ?? 0,
           globalChunks: this.meta?.globalChunks ?? 0,
+          compressedChunks: this.compressedChunks ?? 0,
         });
         setTimeout(() => this.close(), 300);   // 让 ack 先发出去
       }
@@ -257,16 +334,50 @@ export class P2PConnection {
     return this._result;
   }
 
+  /**
+   * v4.6.4：压缩协商。开启压缩时先发 hello，等对端 hello-ack（最多 1.2s）；
+   * 对端是旧版不回 → 超时后按**旧格式不压缩**发送（完全向后兼容）。
+   * 与 src/p2p.ts 的 beginSend + COMPRESS_NEGOTIATE_TIMEOUT 一致。
+   */
+  async _negotiateCompress() {
+    if (!this.compress) return false;
+    const ack = new Promise((resolve) => { this._onHelloAck = (ok) => resolve(ok); });
+    try { this.dc.send(JSON.stringify({ t: "hello", v: 2 })); } catch { return false; }
+    const ok = await Promise.race([ack, sleep(1200).then(() => false)]);
+    this._onHelloAck = null;
+    if (!ok) this.onDiagnose("hello-ack 超时（对端可能为旧版）→ 按不压缩发送");
+    return ok === true && compressionSupported();
+  }
+
   async _sendAll() {
     const start = Date.now();
+    const useCompress = this.isSender ? await this._negotiateCompress() : false;
+    this.negotiatedCompress = useCompress;
+    if (useCompress) this.onDiagnose("压缩传输：已启用（协商成功）");
     this.dc.send(buildMeta({
       size: this.size, totalChunks: this.chunks.length, chunkSize: this.chunkSize,
       baseChunk: this.baseChunk, globalChunks: this.globalChunks,
+      compress: useCompress,
     }));
+    this.compressedChunks = 0;
+    this.wireBytes = 0;
     for (let i = 0; i < this.chunks.length; i++) {
       if (this.dc.readyState !== "open") throw new Error(`通道中断（readyState=${this.dc.readyState}）`);
-      this.dc.send(encodeChunk(i, this.chunks[i]));
-      this.sentBytes += this.chunks[i].length;
+      const data = this.chunks[i];
+      let frame;
+      if (useCompress) {
+        const comp = Buffer.from(await compressChunk(data));
+        // 压缩后反而更大（MP3/FLAC 这类已压缩格式）→ 发原片，保证"不劣于不压缩"
+        const ok = comp.length < data.length;
+        if (ok) this.compressedChunks++;
+        frame = encodeChunkC(i, ok ? comp : data, ok);
+        this.wireBytes += frame.length;
+      } else {
+        frame = encodeChunk(i, data);
+        this.wireBytes += frame.length;
+      }
+      this.dc.send(frame);
+      this.sentBytes += data.length;
       // 背压：werift 是纯 JS flush，缓冲太大就等
       if (i % 8 === 0) {
         while (this.dc.bufferedAmount > 512 * 1024) await sleep(10);
@@ -279,6 +390,12 @@ export class P2PConnection {
       bytes: this.sentBytes, sendMs: this.sendMs,
       speedBps: this.sendMs > 0 ? Math.round((this.sentBytes * 8 * 1000) / this.sendMs) : 0,
       acked: this.acked,
+      // 压缩统计（用来看"压缩到底有没有省带宽"）
+      useCompress,
+      compressedChunks: this.compressedChunks,
+      totalChunks: this.chunks.length,
+      wireBytes: this.wireBytes,
+      payloadBytes: this.sentBytes,
     };
     if (!this.acked) throw new Error("P2P 发送完毕但未收到 ack（对端可能没收齐）");
     // 发送成功也要 settle，否则发送方的 waitComplete() 永远挂着（见 _settle 注释）

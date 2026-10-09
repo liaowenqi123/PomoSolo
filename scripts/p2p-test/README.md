@@ -43,12 +43,13 @@ node transfer-test.mjs --scenario waitall                       # wait_all 协�
 node transfer-test.mjs --scenario p2p-1to1                      # WebRTC 直连 + 速率对比
 node transfer-test.mjs --scenario p2p-reverse                   # 反向打洞（含并行多连接分段）
 node transfer-test.mjs --scenario late-joiner                    # 中途加入的听众（缺头分片隐患）
+node transfer-test.mjs --scenario p2p-compress                   # 压缩传输（MP3 vs 未压缩 WAV 对照）
 node transfer-test.mjs --scenario full-chain                    # 整条听众链路（sync 驱动）
 ```
 
 | 参数 | 说明 |
 |------|------|
-| `--scenario <name>` | `all` / `relay-1to1` / `relay-fanout` / `resume` / `waitall` / `p2p-1to1` / `p2p-reverse` / `late-joiner` / `full-chain` / `listener-only` |
+| `--scenario <name>` | `all` / `relay-1to1` / `relay-fanout` / `resume` / `waitall` / `p2p-1to1` / `p2p-reverse` / `late-joiner` / `p2p-compress` / `full-chain` / `listener-only` |
 | `--song <文件名>` | 默认 `Are you lost.mp3`（3.3MB，跑得快） |
 | `--song-path <路径>` | 覆盖源文件路径（默认取仓库 `music-player/music/`） |
 | `--listeners <N>` | 扇出场景的听众数，默认 3 |
@@ -66,6 +67,7 @@ node transfer-test.mjs --scenario full-chain                    # 整条听众�
 | `resume` | 服务器把 `from_chunk` 转发给持有者；只传后半段；**续传片段与源文件对应区间逐字节一致** |
 | `waitall` | `wait_all` 下仍能传完；**断言** `song_waiting`（缺歌即通知 DJ 暂停等人）/ `songs_ready`（全员就绪，从头统一起播）必然发出，且不依赖 DJ 是否周期广播 |
 | `p2p-1to1` | **WebRTC 直连**（媒体不经服务器）+ 完整性 + 与中转的速率对比；服务器是否透传 `p2p` 标志 |
+| `p2p-compress` | **压缩传输**（`deflate-raw` + `hello`/`hello-ack` 协商）：真实 MP3 与未压缩 WAV 两组对照，验证协商、压缩帧格式、解压正确性与实际节省 |
 | `late-joiner` | **中途加入的听众**：A 先请求并开始下载，5 秒后 B 才请求 —— B 必须也能拿到完整文件（否则会缺前半段却收到"已完成"） |
 | `p2p-reverse` | **反向打洞**：下载端作 offerer、持有端在收到的 channel 上发数据；含并行多连接**分段映射**（`baseChunk`/`globalChunks`） |
 | `full-chain` | **整条听众链路**：`request_state` → 缺歌检测 → 下载 → 重对齐 → 位置推进；并验证服务器**原样透传 `next_song_id`**（预取的前提） |
@@ -92,6 +94,7 @@ node transfer-test.mjs --scenario full-chain                    # 整条听众�
 | P2P vs 中转 | **快约 10.5×**（同样 3.3MB：P2P 1.33s vs 2Mbps 中转理论 13.9s） |
 | **反向打洞**（单连接） | ✅ 逐字节一致，端到端 1.9s |
 | **反向打洞**（并行 3 连接分段） | ✅ **3/3 段**，`baseChunk` 映射正确，逐字节一致 |
+| **压缩传输** | ✅ 协商成功；**未压缩 WAV 省 72.5%**（1,764,044→484,805 B）、**真实 MP3 省 0.48%**（3,482,510→3,465,810 B）；解压后逐字节一致 |
 | **中途加入听众** | ✅ **已修复（v4.11）**：B 从"只拿到 12/27 片却收到已完成"变为 **27/27 逐字节一致** |
 | full-chain | 6/6：状态对齐、缺歌检测、P2P 下载、**下载期间位置推进 +1304ms** |
 
@@ -119,7 +122,7 @@ node transfer-test.mjs --scenario full-chain                    # 整条听众�
 
 > ⚠️ 该场景只做**交叉校验**（各听众收到的内容彼此一致），因为虚拟端不知道应用本地
 > 文件的 sha256。要证明"与源文件一致"，把 `--song-path` 指向本地同一文件并对比 sha256。
-> P2P 也支持：加 `--p2p`（虚拟听众会回 `hello-ack{compress:0}`，与真实应用的不压缩路径互通）。
+> P2P 也支持：加 `--p2p`。虚拟听众按自身能力回 `hello-ack`（Node 18+ 支持 `deflate-raw`，故回 `compress:true`），与真实应用的压缩/不压缩两条路径都能互通。
 
 ## ⚠️ P2P 分片大小：这是**工具限制，不是产品缺陷**
 
@@ -146,9 +149,9 @@ node transfer-test.mjs --scenario full-chain                    # 整条听众�
 
 ## 已知限制
 
-- **P2P 压缩路径未覆盖**：`src/p2p.ts` 支持 `hello`/`hello-ack` + deflate-raw 压缩。
-  虚拟端只走**不压缩**（正是旧对端与向后兼容的路径）：作发送方不发 `hello`；
-  作接收方收到 `hello` 回 `hello-ack{compress:0}` 婉拒。压缩未验证。
+- **P2P 压缩路径已覆盖**（`p2p-compress` 场景）：`hello`/`hello-ack` 协商、压缩帧格式
+  （`4 字节 index + 1 字节标志 + payload`）、`deflate-raw` 解压都验证过。
+  未覆盖的是"**对端为旧版**（不回 hello-ack）时 1.2s 超时回退不压缩"这条分支。
 - **反向打洞的「触发时机」未覆盖**：反向路径本身已覆盖（单连接 + 并行 3 段），
   但"正常方向失败后自动切反向"是应用状态机里的**竞态**
   （`music.ts` 的 `!p2pHadConnected && !p2pReverseTried && channel !== "server"`），

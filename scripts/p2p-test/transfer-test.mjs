@@ -58,7 +58,7 @@ function parseArgs(argv) {
 function printHelp() {
   console.log(`多客户端传歌测试
 
-  --scenario <name>   all | relay-1to1 | relay-fanout | resume | waitall | p2p-1to1 | p2p-reverse | late-joiner | full-chain | listener-only
+  --scenario <name>   all | relay-1to1 | relay-fanout | resume | waitall | p2p-1to1 | p2p-reverse | late-joiner | p2p-compress | full-chain | listener-only
   --song <文件名>     默认 "Are you lost.mp3"
   --song-path <路径>  覆盖源文件路径
   --listeners <N>     扇出听众数（默认 3）
@@ -468,6 +468,92 @@ async function scenarioFullChain() {
 }
 
 /**
+ * 场景 10：**压缩传输**（v4.6.4，P2P 的 deflate-raw 路径）。
+ *
+ * 用两组对照，因为它们回答的是**两个不同的问题**：
+ *   A. 真实 MP3（曲库实际内容，本身已压缩）→ 压缩路径**能不能正确工作**？
+ *      预期：协商成功，但每片压缩后都变大 → 按 `ok = comp.length < data.length`
+ *      全部回退发原片。所以要断言的是"协商通了 + 数据没错 + 没有劣化"。
+ *   B. 合成的 16-bit PCM WAV（未压缩音频）→ 压缩**到底省不省带宽**？
+ *      预期：真的压小，wire 字节显著少于原始字节。
+ *
+ * 只测 A 会得出"压缩没用"，只测 B 会得出"压缩很有用" —— 两个都是片面的。
+ */
+async function scenarioP2PCompress() {
+  console.log(`\n══ 场景 p2p-compress：压缩传输（deflate-raw）══`);
+  const { makeWav } = await import("./lib/make-wav.mjs");
+  const wavPath = fileURLToPath(new URL("../../temp-debug/_compress-test.wav", import.meta.url));
+  const wav = makeWav(wavPath, { seconds: 20 });
+
+  // ── A 组：真实 MP3（已压缩格式）
+  {
+    const { dj, listeners, cleanup } = await setup({ listeners: 1, verbose: args.verbose });
+    try {
+      await dj.requestDj();
+      const served = dj.startServing(SONG, SONG_PATH, { p2p: true, p2pCompress: true });
+      dj.broadcastState({ songId: SONG });
+      await sleep(400);
+      const r = await listeners[0].fetchSong(SONG, {
+        p2p: true, expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 90000,
+      });
+      // 发送端统计在收到 ack 之后才写入，而 fetchSong 在接收端完成时就返回了 → 必须等一下
+      await dj.waitUntil(() => served.lastP2PStats != null, 15000);
+      const stats = served.lastP2PStats;
+      record("p2p-compress", "A 真实 MP3：确实走了 P2P 直连（否则压缩根本没被测到）",
+        r.path === "p2p" ? "PASS" : "FAIL",
+        `path=${r.path}${r.p2pError ? `（P2P 失败：${r.p2pError}）` : ""}`);
+      record("p2p-compress", "A 真实 MP3：压缩协商后数据仍逐字节一致", r.ok ? "PASS" : "FAIL",
+        r.ok ? `${r.bytes} 字节，sha256=${r.sha256?.slice(0, 12)}…` : (r.reason ?? ""));
+      record("p2p-compress", "A 真实 MP3：压缩未劣化带宽（压不小的片回退发原片）",
+        stats?.wireBytes <= stats?.payloadBytes + stats?.totalChunks * 5 ? "PASS" : "FAIL",
+        stats ? `协商=${stats.useCompress}，实际压缩片数=${stats.compressedChunks}/${stats.totalChunks}，`
+              + `wire=${stats.wireBytes} vs 原始=${stats.payloadBytes} 字节（差值仅帧头开销）`
+              : "没有发送统计");
+      record("p2p-compress", "A 真实 MP3：压缩路径对已压缩格式是否有收益", "INFO",
+        stats ? `实际压缩 ${stats.compressedChunks}/${stats.totalChunks} 片 —— `
+              + (stats.compressedChunks === 0
+                  ? "**0 片**，即压缩对 MP3 完全不生效（MP3 本身已压缩，deflate 后更大）"
+                  : `省了 ${stats.payloadBytes - stats.wireBytes} 字节`)
+              : "");
+    } finally {
+      await cleanup();
+    }
+  }
+
+  // ── B 组：合成的未压缩 WAV
+  {
+    const { dj, listeners, cleanup } = await setup({ listeners: 1, verbose: args.verbose });
+    try {
+      await dj.requestDj();
+      const wavSong = "_compress-test.wav";
+      const served = dj.startServing(wavSong, wavPath, { p2p: true, p2pCompress: true });
+      dj.broadcastState({ songId: wavSong });
+      await sleep(400);
+      const r = await listeners[0].fetchSong(wavSong, {
+        p2p: true, expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 120000,
+      });
+      await dj.waitUntil(() => served.lastP2PStats != null, 15000);
+      const stats = served.lastP2PStats;
+      record("p2p-compress", "B 未压缩 WAV：确实走了 P2P 直连",
+        r.path === "p2p" ? "PASS" : "FAIL",
+        `path=${r.path}${r.p2pError ? `（P2P 失败：${r.p2pError}）` : ""}`);
+      record("p2p-compress", "B 未压缩 WAV：压缩后数据仍逐字节一致", r.ok ? "PASS" : "FAIL",
+        r.ok ? `${r.bytes} 字节，sha256=${r.sha256?.slice(0, 12)}…` : (r.reason ?? ""));
+      record("p2p-compress", "B 未压缩 WAV：压缩真的省了带宽", 
+        stats && stats.compressedChunks > 0 && stats.wireBytes < stats.payloadBytes ? "PASS" : "FAIL",
+        stats ? `压缩 ${stats.compressedChunks}/${stats.totalChunks} 片，`
+              + `wire=${stats.wireBytes} vs 原始=${stats.payloadBytes} 字节 → `
+              + `省 ${(((stats.payloadBytes - stats.wireBytes) / stats.payloadBytes) * 100).toFixed(1)}%`
+              : "没有发送统计");
+      record("p2p-compress", "B 未压缩 WAV：接收端解压正确（sha256 已证明）", r.ok ? "PASS" : "INFO",
+        r.ok ? "解压后逐字节一致 —— 说明压缩帧格式（index+标志+payload）与 deflate-raw 都对" : "");
+    } finally {
+      await cleanup();
+    }
+  }
+}
+
+/**
  * 场景 9：**中途加入的听众**（late joiner）。
  *
  * 这是"多听众去重"设计里最危险的边界，也是真实场景：
@@ -781,6 +867,7 @@ async function main() {
     "p2p-1to1": scenarioP2P1to1,
     "p2p-reverse": scenarioP2PReverse,
     "late-joiner": scenarioLateJoiner,
+    "p2p-compress": scenarioP2PCompress,
     "full-chain": scenarioFullChain,
     "listener-only": scenarioListenerOnly,
   };
@@ -795,7 +882,7 @@ async function main() {
        * （表现为"通过数变少但退出码 0"）。这类假信心比直接报错危险得多，
        * 所以场景级也要兜住并记成 FAIL。
        */
-      for (const name of ["relay-1to1", "relay-fanout", "resume", "waitall", "p2p-1to1", "p2p-reverse", "late-joiner", "full-chain"]) {
+      for (const name of ["relay-1to1", "relay-fanout", "resume", "waitall", "p2p-1to1", "p2p-reverse", "late-joiner", "p2p-compress", "full-chain"]) {
         try {
           await run[name]();
         } catch (e) {

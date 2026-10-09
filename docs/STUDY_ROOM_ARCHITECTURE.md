@@ -572,6 +572,12 @@ node transfer-test.mjs --scenario listener-only --room <roomId>   # 真实应用
   （`music.ts:1188`）就是靠这个字段门控 P2P 的，不透传则生产上永远走中转。
 - ✅ `music:request_state` → DJ 侧**确实收到** `music:state_request`（转达链路可用）。
 
+**压缩传输实测（v4.6.4 的 `deflate-raw` 路径）**：协商与解压都正确，但收益**高度依赖格式** ——
+真实 MP3 只省 **0.48%**（3,482,510→3,465,810 字节，MP3 本身已压缩），
+而未压缩的 WAV 省 **72.5%**（1,764,044→484,805 字节）。
+所以"传歌省带宽"这个卖点对**当前曲库（全是 MP3）几乎不成立**，
+`src/p2p.ts` 的 `ok = comp.length < data.length` 兜底保证"压缩绝不劣于不压缩"。
+
 > 详细说明、已知限制、P2P 分片大小为何是 16KB（werift 限制，非产品缺陷）、
 > 与传输层工具 `peer.js` 的分工见
 > [`scripts/p2p-test/README.md`](../scripts/p2p-test/README.md)。

@@ -197,6 +197,7 @@ export class VirtualClient {
       tag,
       role: "offerer",
       sender: "offerer",
+      compress: state.p2pCompress === true,   // v4.6.4：压缩传输（先 hello 协商）
       // P2P 用更小的分片（werift 消息上限 64KB），不是中转用的 128KB
       chunks: state.p2pInfo.chunks,
       chunkSize: state.p2pInfo.chunkSize,
@@ -268,6 +269,7 @@ export class VirtualClient {
         tag: K > 1 ? `p${k}` : "",
         role: "answerer",
         sender: "answerer",         // reverse：应答方（本端）发数据
+        compress: state.p2pCompress === true,   // v4.6.4
         chunks: seg,
         chunkSize: state.p2pInfo.chunkSize,
         size: state.size,
@@ -473,8 +475,10 @@ export class VirtualClient {
      * 因此换大小不影响互通 —— 与真实应用对传也成立。
      */
     const p2pChunkSize = opts.p2pChunkSize ?? WERIFT_SAFE_CHUNK_SIZE;
+    /** v4.6.4：P2P 是否启用压缩传输（真实应用由设置 syncP2PCompress 控制） */
+    const p2pCompress = opts.p2pCompress === true;
     const p2pInfo = p2pChunkSize === info.chunkSize ? info : chunkFile(filePath, p2pChunkSize);
-    const state = { ...info, filePath, p2pInfo, servedTo: new Set(), transfers: 0, p2pTransfers: 0 };
+    const state = { ...info, filePath, p2pInfo, p2pCompress, servedTo: new Set(), transfers: 0, p2pTransfers: 0 };
     this.serving.set(songId, state);
     this.log(`开始持有「${songId}」：${info.size} 字节；中转 ${info.totalChunks} 片(128KB) / ` +
       `P2P ${p2pInfo.totalChunks} 片(${p2pChunkSize / 1024}KB)，sha256=${info.sha256.slice(0, 12)}…`);
