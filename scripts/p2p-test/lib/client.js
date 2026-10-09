@@ -13,7 +13,7 @@
 import WebSocket from "ws";
 import { ensureUser } from "../auth.js";
 import { C2S, S2C, RELAY_CHUNK_SIZE, envelope, chunkFile, assembleChunks, sha256 } from "./protocol.js";
-import { P2PSender, P2PReceiver, WERIFT_SAFE_CHUNK_SIZE } from "./p2p.js";
+import { P2PConnection, WERIFT_SAFE_CHUNK_SIZE } from "./p2p.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -41,10 +41,8 @@ export class VirtualClient {
     this.rooms = new Set();
     /** 正在服务的歌曲：song_id -> { chunks, totalChunks, chunkSize, size, sha256, servedTo:Set } */
     this.serving = new Map();
-    /** 活跃的 P2P 发送方（持有者侧）：按 peerId:tag 路由回信令 */
-    this._senders = [];
-    /** 活跃的 P2P 接收方（听众侧） */
-    this._receivers = [];
+    /** 活跃的 P2P 连接（正向/反向、发送/接收统一管理）：按 peerId+tag 路由信令 */
+    this._p2p = [];
     /** 最近一次 P2P 结果（场景断言用） */
     this.p2pStats = null;
     this.closed = false;
@@ -158,67 +156,255 @@ export class VirtualClient {
     return false;
   }
 
-  // ── P2P 信令路由与发送/接收 ─────────────────────────────────────────
+  // ── P2P：信令路由 + 直传/接收（含反向打洞）──────────────────────────
 
   /**
    * 把 peer:* 信令分发给活跃的 P2P 连接。
    * 对照 src/p2p.ts 的 handlePeerSignal：offer 建应答连接、answer/ice 路由到活跃连接。
-   * 同一对端可能有多条连接（反向打洞），这里按 tag 区分。
+   * 反向打洞会有多条并行连接（tag p0..pK-1），所以按 from + tag 精确路由。
    */
   async _routeP2PSignal(msg) {
     const from = msg.from_user_id;
     const tag = msg.tag ?? "";
     if (msg.type === "peer:offer") {
-      // 找一个正在等这条传输的接收方（不按 tag 严格匹配：虚拟端通常只等一条）
-      const rx = this._receivers.find((r) => !r.pc && (r.expectFrom == null || r.expectFrom === from));
-      if (!rx) { this.log(`收到 peer:offer（from=${from}）但没有等待中的接收方，忽略`); return; }
-      rx.expectFrom = from;
-      try { await rx.handleOffer(msg); } catch (e) { this.warn("应答 peer:offer 失败", e.message); }
+      /*
+       * 找一个在等这条 offer 的应答方。优先精确匹配 tag（并行反向打洞各段用不同 tag），
+       * 匹配不到再退化为"任意未建连的应答方"（单连接场景不带 tag）。
+       */
+      const waiting = this._p2p.filter((c) => c.role === "answerer" && !c.pc);
+      const conn = waiting.find((c) => (c.tag ?? "") === tag) ?? waiting[0];
+      if (!conn) { this.log(`收到 peer:offer（from=${from} tag=${tag}）但没有等待中的应答方，忽略`); return; }
+      try { await conn.handleOffer(msg); } catch (e) { this.warn("应答 peer:offer 失败", e.message); }
       return;
     }
-    // answer / ice / bye：发给匹配的发送方与接收方
-    for (const s of this._senders) {
-      if (s.peerId === from && (s.tag ?? "") === tag) await s.handleSignal(msg).catch(() => {});
-    }
-    for (const r of this._receivers) {
-      if (r.pc && (r.expectFrom == null || r.expectFrom === from)) await r.handleSignal(msg).catch(() => {});
+    for (const c of this._p2p) {
+      const sameTag = (c.tag ?? "") === tag;
+      // ICE 可能带空 tag 到达（旧对端）；peer:answer 必须 tag 对上，否则并行连接会串
+      if (msg.type === "peer:ice" ? (sameTag || !tag) : sameTag) {
+        if (c.peerId === from || c.peerId == null) await c.handleSignal(msg).catch(() => {});
+      }
     }
   }
 
-  /** 持有者侧：把一首歌经 P2P 直传给某个请求者 */
+  /** 注册一条连接（统一管理，便于关闭与路由） */
+  _registerP2P(conn) { this._p2p.push(conn); return conn; }
+  _unregisterP2P(conn) { this._p2p = this._p2p.filter((c) => c !== conn); }
+
+  /** 持有者侧（正常方向）：作 offerer + sender，把整首歌直传给某个请求者 */
   async _serveViaP2P(songId, state, requesterId, tag = "") {
-    const sender = new P2PSender({
+    const conn = this._registerP2P(new P2PConnection({
       peerId: requesterId,
       tag,
+      role: "offerer",
+      sender: "offerer",
       // P2P 用更小的分片（werift 消息上限 64KB），不是中转用的 128KB
       chunks: state.p2pInfo.chunks,
       chunkSize: state.p2pInfo.chunkSize,
       size: state.size,
       signal: (type, to, payload) => this.send(type, { to_user_id: to, ...payload }),
       onDiagnose: (s) => this.log(`[p2p 发送] ${s}`),
-    });
-    this._senders.push(sender);
+    }));
     try {
-      const stats = await sender.run();
+      const stats = await conn.runAsOfferer();
       state.p2pTransfers = (state.p2pTransfers ?? 0) + 1;
       state.lastP2PStats = stats;
       this.p2pStats = stats;
       this.log(`P2P 直传完成：${stats.bytes} 字节 / ${stats.sendMs}ms / ${(stats.speedBps / 1e6).toFixed(2)} Mbps`);
       return stats;
     } finally {
-      this._senders = this._senders.filter((x) => x !== sender);
+      this._unregisterP2P(conn);
     }
   }
 
-  /** 听众侧：准备接收一次 P2P 传输 */
+  /** 听众侧（正常方向）：作 answerer 接收一次 P2P 传输 */
   prepareP2PReceive(timeoutMs = 30000) {
-    const rx = new P2PReceiver({
+    const conn = this._registerP2P(new P2PConnection({
+      peerId: null,            // 由 handleOffer 填入
+      role: "answerer",
+      /*
+       * ★ `sender` 是「数据发送方在协商中的**角色**」，不是"本端角色"。
+       * 正常传歌时 DJ 是 offerer 且由 DJ 发数据 → 本端（answerer）写 sender:"offerer"，
+       * 表示"发送方是 offerer、不是我"。
+       * 写成 "answerer" 会让本端误以为自己要发数据（踩过：数据传完了却收不到 ack）。
+       */
+      sender: "offerer",
       signal: (type, to, payload) => this.send(type, { to_user_id: to, ...payload }),
       timeoutMs,
       onDiagnose: (s) => this.log(`[p2p 接收] ${s}`),
+    }));
+    // 超时保护：迟迟没有 offer → 明确失败，否则调用方会一直挂着
+    setTimeout(() => { if (!conn.pc) conn._fail(`等待 peer:offer 超时（${timeoutMs}ms）`); }, timeoutMs);
+    return conn;
+  }
+
+  // ── 反向打洞（reverse）：正常方向打不通时的兜底 ────────────────────
+
+  /**
+   * 持有者侧：挂起接收"下载端主导的"反向连接，并在**收到的** channel 上发数据。
+   *
+   * 对照 src/stores/music.ts 的持有端 reverse 分支 + src/p2p.ts 的
+   * `role:"answerer", sender:"answerer"`：DataChannel 全双工，谁持有数据谁 send。
+   *
+   * 多连接并行（v4.7.7）：下载端声明 parallel=K → 本端按**段**切分文件，
+   * 第 k 段挂在 tag `p{k}` 上，并在 meta 里声明 baseChunk / globalChunks，
+   * 让接收端能把段内局部 index 映射回全局序号（否则会合并出残缺文件）。
+   *
+   * @param {string} songId
+   * @param {object} state startServing 返回的持有状态
+   * @param {number} parallel 下载端声明的连接数（1..4）
+   */
+  async _serveReverse(songId, state, parallel) {
+    const K = Math.min(Math.max(parallel, 1), 4);
+    const total = state.p2pInfo.totalChunks;
+    const per = Math.ceil(total / K);           // 每段分片数
+    const conns = [];
+    const jobs = [];
+    for (let k = 0; k < K; k++) {
+      const base = k * per;
+      const seg = state.p2pInfo.chunks.slice(base, base + per);
+      if (seg.length === 0) continue;
+      const conn = this._registerP2P(new P2PConnection({
+        peerId: null,               // 由 handleOffer 填入
+        tag: K > 1 ? `p${k}` : "",
+        role: "answerer",
+        sender: "answerer",         // reverse：应答方（本端）发数据
+        chunks: seg,
+        chunkSize: state.p2pInfo.chunkSize,
+        size: state.size,
+        baseChunk: K > 1 ? base : 0,          // 段内局部 index → 全局偏移
+        globalChunks: K > 1 ? total : 0,      // 全局片数（防段间 meta 时序差异导致提前合并）
+        signal: (type, to, payload) => this.send(type, { to_user_id: to, ...payload }),
+        onDiagnose: (s) => this.log(`[p2p reverse 发送 p${k}] ${s}`),
+      }));
+      // 超时保护：下载端可能最终没打通 → 明确失败而不是永久挂着
+      setTimeout(() => { if (!conn.pc) conn._fail(`等待反向 peer:offer 超时（p${k}）`); }, 30000);
+      conns.push(conn);
+      jobs.push(
+        conn.waitComplete()
+          .then((stats) => ({ ok: true, k, stats }))
+          .catch((e) => ({ ok: false, k, error: e.message })),
+      );
+    }
+    this.log(`挂起反向传输：${conns.length} 条连接，每段 ${per} 片，全局 ${total} 片`);
+    const results = await Promise.all(jobs);
+    for (const c of conns) this._unregisterP2P(c);
+    const ok = results.filter((r) => r.ok);
+    state.reverseTransfers = (state.reverseTransfers ?? 0) + 1;
+    state.lastReverseSegments = results.length;
+    state.lastReverseOkSegments = ok.length;
+    // 记录本端**实际**收到的 parallel 值 —— 用于验证服务器是否透传该字段
+    state.lastReverseParallel = K;
+    this.log(`反向传输结束：${ok.length}/${results.length} 段成功`);
+    if (ok.length === 0) throw new Error(`反向打洞全部失败：${results.map((r) => r.error).join("; ")}`);
+    return { segments: results.length, okSegments: ok.length };
+  }
+
+  /**
+   * 听众侧：主动发起反向打洞并收齐（正常方向失败后的兜底）。
+   *
+   * 顺序对照 src/stores/music.ts 的 tryReverseReceive：
+   *   ① 先发 p2p:reverse_transfer_request 通知 DJ 挂起（带 parallel）
+   *   ② 本端作 **offerer**（sender:"answerer"）建 K 条并行连接（tag p0..pK-1）
+   *   ③ 按段收片 → 按 baseChunk 映射回全局 index 组装
+   */
+  async fetchSongReverse(songId, opts = {}) {
+    const K = Math.min(Math.max(opts.parallel ?? 2, 1), 4);
+    const timeoutMs = opts.timeoutMs ?? 90000;
+    if (!opts.peerId) throw new Error("fetchSongReverse 需要 opts.peerId（DJ 的 user_id）");
+    const requestAt = Date.now();
+
+    // ① 通知 DJ 挂起反向传输
+    this.send("p2p:reverse_transfer_request", {
+      to_user_id: opts.peerId,
+      song_id: songId,
+      ...(K > 1 ? { parallel: K } : {}),
     });
-    this._receivers.push(rx);
-    return rx;
+    await sleep(500);   // 给 DJ 一点时间挂上接收端，否则首条 offer 会落空
+
+    // ② 建 K 条 offerer 连接（本端只收，不 send）
+    const conns = [];
+    for (let k = 0; k < K; k++) {
+      const tag = K > 1 ? `p${k}` : "";
+      const conn = this._registerP2P(new P2PConnection({
+        peerId: opts.peerId,
+        tag,
+        role: "offerer",
+        sender: "answerer",   // ★ reverse：发起方不 send，由 answerer（DJ）发数据
+        signal: (type, to, payload) => this.send(type, { to_user_id: to, ...payload }),
+        timeoutMs: 15000,
+        onDiagnose: (s) => this.log(`[p2p reverse 接收 p${k}] ${s}`),
+      }));
+      conns.push(conn);
+    }
+
+    // ③ 并发发起 + 收齐
+    const results = await Promise.all(conns.map(async (conn, k) => {
+      try {
+        const payload = await conn.runAsOfferer();
+        return { ok: true, k, payload };
+      } catch (e) {
+        return { ok: false, k, error: e.message };
+      } finally {
+        this._unregisterP2P(conn);
+      }
+    }));
+
+    const okRes = results.filter((r) => r.ok);
+    const bytes = okRes.reduce((n, r) => n + r.payload.bytes, 0);
+    const totalMs = Date.now() - requestAt;
+
+    /*
+     * 按段组装成完整文件：
+     * 每段的全局起点 = meta.baseChunk（单连接时为 0），段内 index 是局部的。
+     * 这与 src/stores/music.ts 的 `globalIndex = baseChunk + index` 一致。
+     */
+    let buf = null;
+    let globalChunks = 0;
+    if (okRes.length > 0) {
+      for (const r of okRes) {
+        const g = r.payload.globalChunks || 0;
+        globalChunks = Math.max(globalChunks, g, (r.payload.baseChunk || 0) + r.payload.chunks);
+      }
+      const expectedSize = opts.expectedSize ?? null;
+      /*
+       * 按「片」重组：每段的 buf 是段内连续分片拼起来的，要按 chunkSize 切回片，
+       * 再用 baseChunk 放回全局位置。这与接收端 music.ts 的
+       * `globalIndex = (baseChunk ?? 0) + index` 是同一套映射。
+       */
+      const chunkSize = okRes[0].payload.meta.chunkSize;
+      const assembled = new Array(globalChunks);
+      for (const r of okRes) {
+        const base = r.payload.baseChunk || 0;
+        for (let i = 0; i < r.payload.chunks; i++) {
+          assembled[base + i] = r.payload.buf.subarray(i * chunkSize, (i + 1) * chunkSize);
+        }
+      }
+      const missing = assembled.filter((x) => !x).length;
+      if (missing === 0) {
+        buf = Buffer.concat(assembled);
+        if (expectedSize != null && buf.length !== expectedSize) {
+          return { ok: false, path: "p2p-reverse", reasons: results.filter((r) => !r.ok).map((r) => r.error), bytes,
+            reason: `反向后总长度不符：${buf.length} ≠ ${expectedSize}` };
+        }
+      } else {
+        return { ok: false, path: "p2p-reverse", bytes, reason: `反向后仍缺 ${missing} 片（共 ${globalChunks}）`,
+          okSegments: okRes.length, totalSegments: K, reasons: results.filter((r) => !r.ok).map((r) => r.error) };
+      }
+    }
+
+    if (!buf) {
+      return { ok: false, path: "p2p-reverse", bytes, reason: "反向打洞未收到任何段",
+        okSegments: 0, totalSegments: K, reasons: results.filter((r) => !r.ok).map((r) => r.error) };
+    }
+    const gotSha = sha256(buf);
+    const ok = opts.expectedSha256 ? gotSha === opts.expectedSha256 : true;
+    return {
+      ok, path: "p2p-reverse", viaP2P: true, reverse: true,
+      chunks: globalChunks, expectedTotal: globalChunks, bytes: buf.length, sha256: gotSha,
+      okSegments: okRes.length, totalSegments: K,
+      timing: { totalMs, firstChunkMs: null },
+      reason: ok ? null : `sha256 不符：${gotSha.slice(0, 12)}… ≠ ${opts.expectedSha256?.slice(0, 12)}…`,
+    };
   }
 
   // ── 房间与 DJ ──────────────────────────────────────────────────────
@@ -344,6 +530,31 @@ export class VirtualClient {
         activeTransfers.delete(transferKey);
       }
     });
+
+    /*
+     * 反向打洞（reverse）：持有端挂起，等下载端主导打洞。
+     *
+     * 对照 src/stores/music.ts 的持有端 reverse 分支 + EXTERNAL-INTERFACES.md §6：
+     * 正常方向（持有端作 offerer）建连失败时，下载端发
+     * `p2p:reverse_transfer_request { to_user_id, song_id?, parallel? }`，
+     * 服务器定向转发给持有端 → 持有端挂起 answerer+sender，
+     * 在**收到的** channel 上发数据（DataChannel 全双工）。
+     *
+     * 默认开启（真实持有端总是支持），可用 `opts.reverse === false` 关掉。
+     */
+    if (opts.reverse !== false) {
+      this.on("p2p:reverse_transfer_request", async (msg) => {
+        if (msg.song_id && msg.song_id !== songId) return;
+        const parallel = Number(msg.parallel ?? 1);
+        state.reverseRequests = (state.reverseRequests ?? 0) + 1;
+        this.log(`收到反向打洞请求（from=${msg.from_user_id} parallel=${parallel}）→ 挂起 answerer+sender`);
+        try {
+          await this._serveReverse(songId, state, parallel);
+        } catch (e) {
+          this.warn(`反向传输失败：${e.message}`);
+        }
+      });
+    }
     return state;
   }
 
@@ -449,7 +660,7 @@ export class VirtualClient {
     if (rx) {
       const p2pStart = Date.now();
       const outcome = await Promise.race([
-        rx.wait().then((b) => ({ src: "p2p", buf: b })).catch((e) => ({ src: "p2p-failed", error: e.message })),
+        rx.waitComplete().then((b) => ({ src: "p2p", buf: b })).catch((e) => ({ src: "p2p-failed", error: e.message })),
         relayPromise.then((d) => ({ src: "relay", done: d })),
       ]);
       if (outcome.src === "p2p") {
@@ -524,8 +735,7 @@ export class VirtualClient {
   }
 
   close() {
-    for (const s of this._senders) s.close();
-    for (const r of this._receivers) r.close();
+    for (const c of this._p2p) c.close();
     try { this.ws?.close(); } catch { /* ignore */ }
   }
 }

@@ -41,12 +41,13 @@ node transfer-test.mjs --scenario relay-fanout --listeners 4    # 1 个 DJ → 4
 node transfer-test.mjs --scenario resume                        # 断点续传（from_chunk）
 node transfer-test.mjs --scenario waitall                       # wait_all 协调观察
 node transfer-test.mjs --scenario p2p-1to1                      # WebRTC 直连 + 速率对比
+node transfer-test.mjs --scenario p2p-reverse                   # 反向打洞（含并行多连接分段）
 node transfer-test.mjs --scenario full-chain                    # 整条听众链路（sync 驱动）
 ```
 
 | 参数 | 说明 |
 |------|------|
-| `--scenario <name>` | `all` / `relay-1to1` / `relay-fanout` / `resume` / `waitall` / `p2p-1to1` / `full-chain` / `listener-only` |
+| `--scenario <name>` | `all` / `relay-1to1` / `relay-fanout` / `resume` / `waitall` / `p2p-1to1` / `p2p-reverse` / `full-chain` / `listener-only` |
 | `--song <文件名>` | 默认 `Are you lost.mp3`（3.3MB，跑得快） |
 | `--song-path <路径>` | 覆盖源文件路径（默认取仓库 `music-player/music/`） |
 | `--listeners <N>` | 扇出场景的听众数，默认 3 |
@@ -64,6 +65,7 @@ node transfer-test.mjs --scenario full-chain                    # 整条听众�
 | `resume` | 服务器把 `from_chunk` 转发给持有者；只传后半段；**续传片段与源文件对应区间逐字节一致** |
 | `waitall` | `wait_all` 下仍能传完；**观察** `song_waiting` / `songs_ready` |
 | `p2p-1to1` | **WebRTC 直连**（媒体不经服务器）+ 完整性 + 与中转的速率对比；服务器是否透传 `p2p` 标志 |
+| `p2p-reverse` | **反向打洞**：下载端作 offerer、持有端在收到的 channel 上发数据；含并行多连接**分段映射**（`baseChunk`/`globalChunks`） |
 | `full-chain` | **整条听众链路**：`request_state` → 缺歌检测 → 下载 → 重对齐 → 位置推进 |
 | `listener-only` | **真实应用当 DJ** + 虚拟听众拉歌（见下节） |
 
@@ -85,6 +87,8 @@ node transfer-test.mjs --scenario full-chain                    # 整条听众�
 | `wait_all` 协调 | ⚠️ **未观察到** `song_waiting` / `songs_ready`（各 0 条） |
 | **P2P 直连** | ✅ 建连成功（`typ srflx` NAT 打洞），**20.95 Mbps**，逐字节一致 |
 | P2P vs 中转 | **快约 10.5×**（同样 3.3MB：P2P 1.33s vs 2Mbps 中转理论 13.9s） |
+| **反向打洞**（单连接） | ✅ 逐字节一致，端到端 1.9s |
+| **反向打洞**（并行 3 连接分段） | ✅ **3/3 段**，`baseChunk` 映射正确，逐字节一致 |
 | full-chain | 6/6：状态对齐、缺歌检测、P2P 下载、**下载期间位置推进 +1304ms** |
 
 > **关于 0.28 MB/s 的正确解读**：这不是"中转实现慢"。
@@ -141,9 +145,11 @@ node transfer-test.mjs --scenario full-chain                    # 整条听众�
 - **P2P 压缩路径未覆盖**：`src/p2p.ts` 支持 `hello`/`hello-ack` + deflate-raw 压缩。
   虚拟端只走**不压缩**（正是旧对端与向后兼容的路径）：作发送方不发 `hello`；
   作接收方收到 `hello` 回 `hello-ack{compress:0}` 婉拒。压缩未验证。
-- **P2P 反向打洞（reverse）未覆盖**：正常方向（持有者为 offerer）已覆盖；
-  下载端作 offerer 的 `p2p:reverse_transfer_request` 未实现。
-- **P2P 多连接并行传输未覆盖**：`baseChunk` / `globalChunks` 的多连接分片协议未实现。
+- **反向打洞的「触发时机」未覆盖**：反向路径本身已覆盖（单连接 + 并行 3 段），
+  但"正常方向失败后自动切反向"是应用状态机里的**竞态**
+  （`music.ts` 的 `!p2pHadConnected && !p2pReverseTried && channel !== "server"`），
+  与服务器中转谁先完成有关，无法在虚拟客户端里确定性复现。
+  本工具直接验证反向路径本身，不验证那次切换决策。
 - **依赖前端状态机的行为未覆盖**：DJ 切歌打断传输、`wait_all` 的 UI 提示与起播时刻、
   下载完成后的自动起播（本工具只验证到"能对齐到正确进度"）。
 - **测试账号 `p2ptest_a`…`p2ptest_z`** 会在服务器上累积（共用固定密码）。

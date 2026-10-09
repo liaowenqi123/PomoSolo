@@ -58,7 +58,7 @@ function parseArgs(argv) {
 function printHelp() {
   console.log(`多客户端传歌测试
 
-  --scenario <name>   all | relay-1to1 | relay-fanout | resume | waitall | p2p-1to1 | full-chain | listener-only
+  --scenario <name>   all | relay-1to1 | relay-fanout | resume | waitall | p2p-1to1 | p2p-reverse | full-chain | listener-only
   --song <文件名>     默认 "Are you lost.mp3"
   --song-path <路径>  覆盖源文件路径
   --listeners <N>     扇出听众数（默认 3）
@@ -417,6 +417,76 @@ async function scenarioFullChain() {
   }
 }
 
+/**
+ * 场景 8：**反向打洞**（reverse，v4.7.5）。
+ *
+ * 正常方向是持有端作 offerer；对称 NAT 下可能打不通 → 下载端主动打洞、
+ * 持有端在**收到的** channel 上发数据。这是完全不同的 role/sender 组合
+ * （offerer 收数据、answerer 发数据），且支持 parallel 多连接分段
+ * （每段带 baseChunk/globalChunks），是传歌里最容易出错、也最没被覆盖的一条路径。
+ */
+async function scenarioP2PReverse() {
+  console.log(`\n══ 场景 p2p-reverse：反向打洞（下载端作 offerer，持有端在收到的 channel 上发数据）══`);
+  const { dj, listeners, cleanup } = await setup({ listeners: 1, verbose: args.verbose });
+  const listener = listeners[0];
+  try {
+    await dj.requestDj();
+    const served = dj.startServing(SONG, SONG_PATH, { p2p: true });
+    dj.broadcastState({ songId: SONG });
+    await sleep(400);
+
+    // ── 单连接反向
+    const r1 = await listener.fetchSongReverse(SONG, {
+      peerId: dj.id, parallel: 1,
+      expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 90000,
+    });
+    record("p2p-reverse", "① 单连接反向打洞传完且逐字节一致", r1.ok ? "PASS" : "FAIL",
+      r1.ok ? `${r1.bytes} 字节，sha256=${r1.sha256.slice(0, 12)}…，端到端 ${r1.timing.totalMs}ms`
+            : `${r1.reason ?? "未知"}${r1.reasons?.length ? `（段错误：${r1.reasons.join("; ")}）` : ""}`);
+    record("p2p-reverse", "② 持有端收到反向打洞请求", (served.reverseRequests ?? 0) >= 1 ? "PASS" : "FAIL",
+      `收到 ${served.reverseRequests ?? 0} 次 p2p:reverse_transfer_request`);
+
+    // ── 并行多连接反向（每段带 baseChunk/globalChunks，段内 index 是局部序号）
+    const rK = await listener.fetchSongReverse(SONG, {
+      peerId: dj.id, parallel: 3,
+      expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 120000,
+    });
+    record("p2p-reverse", "③ 并行 3 连接反向打洞传完且逐字节一致", rK.ok ? "PASS" : "FAIL",
+      rK.ok ? `${rK.okSegments}/${rK.totalSegments} 段，${rK.bytes} 字节，sha256=${rK.sha256.slice(0, 12)}…，端到端 ${rK.timing.totalMs}ms`
+            : `${rK.reason ?? "未知"}${rK.reasons?.length ? `（段错误：${rK.reasons.join("; ")}）` : ""}`);
+
+    /*
+     * ④ 分段映射正确性 —— 并行反向最危险的地方：
+     * 每段 meta 只带**段内**片数，若接收端不做 baseChunk 映射就会把各段都从 0 开始拼，
+     * 拼出错误文件（或提前判定收齐 → 残缺文件）。
+     * ③ 的 sha256 一致已证明映射正确，这里把结论显式说出来便于排查。
+     */
+    if (rK.ok) {
+      record("p2p-reverse", "④ 三段映射回全局序号后仍逐字节一致", "PASS",
+        `${rK.okSegments} 段拼接后 ${rK.bytes} 字节，与源文件 sha256 相同（baseChunk 映射正确）`);
+    }
+    /*
+     * ⑤ 服务器是否把 `parallel` 透传给持有者。
+     *
+     * 这条必须断言而不是观察：若服务器吞掉 `parallel`，持有端只会建 **1** 条
+     * answerer 连接，但下载端仍会发起 3 条 offer —— 其中一条被应答并拿到**整份文件**，
+     * 于是**测试照样通过、sha256 也一致**，可多连接并行其实根本没生效。
+     * 这正是"看起来通过、实际没测到目标路径"的典型陷阱。
+     */
+    const holderSaw = await (async () => {
+      const ok = await dj.waitUntil(() => (served.lastReverseParallel ?? 0) === 3
+        && (served.lastReverseOkSegments ?? 0) === 3, 15000);
+      return ok;
+    })();
+    record("p2p-reverse", "⑤ 服务器把 parallel=3 透传给持有端（否则并行没真正生效）",
+      holderSaw ? "PASS" : "FAIL",
+      `持有端实际收到 parallel=${served.lastReverseParallel ?? "(未记录)"}，`
+      + `建了 ${served.lastReverseSegments ?? "-"} 条、成功 ${served.lastReverseOkSegments ?? "-"} 条`
+      + (holderSaw ? "" : "；若持有端只建 1 条，则下载端的 3 条 offer 里只有一条被应答（拿到整份文件），测试会假通过"));
+  } finally {
+    await cleanup();
+  }
+}
 /** 场景 4：wait_all 协调（观察服务器是否发 song_waiting / songs_ready） */
 async function scenarioWaitAll() {
   console.log(`\n══ 场景 waitall：wait_all 模式的 song_waiting / songs_ready 协调 ══`);
@@ -518,13 +588,29 @@ async function main() {
     resume: scenarioResume,
     waitall: scenarioWaitAll,
     "p2p-1to1": scenarioP2P1to1,
+    "p2p-reverse": scenarioP2PReverse,
     "full-chain": scenarioFullChain,
     "listener-only": scenarioListenerOnly,
   };
 
+  let crashed = null;
   try {
     if (args.scenario === "all") {
-      for (const name of ["relay-1to1", "relay-fanout", "resume", "waitall", "p2p-1to1", "full-chain"]) await run[name]();
+      /*
+       * 逐个场景跑，并在**这里**捕获异常。
+       * ⚠️ 踩过的坑：原来只有 try/finally，场景抛异常时会被 finally 里的
+       * process.exit(0) 吞掉 —— 崩溃看起来像通过，且后面的场景静默不跑
+       * （表现为"通过数变少但退出码 0"）。这类假信心比直接报错危险得多，
+       * 所以场景级也要兜住并记成 FAIL。
+       */
+      for (const name of ["relay-1to1", "relay-fanout", "resume", "waitall", "p2p-1to1", "p2p-reverse", "full-chain"]) {
+        try {
+          await run[name]();
+        } catch (e) {
+          record(name, "场景执行未抛异常", "FAIL", `${e.message}（后续场景继续跑）`);
+          console.error(`  ⚠️ 场景 ${name} 抛异常：`, e);
+        }
+      }
     } else if (run[args.scenario]) {
       await run[args.scenario]();
     } else {
@@ -532,6 +618,10 @@ async function main() {
       printHelp();
       process.exit(2);
     }
+  } catch (e) {
+    crashed = e;
+    record(args.scenario, "场景执行未抛异常", "FAIL", e.message);
+    console.error(`\n❌ 场景 ${args.scenario} 抛异常：`, e);
   } finally {
     // ── 汇总（问题直接打在终端，不埋在文件里）──
     const pass = results.filter((r) => r.state === "PASS").length;
