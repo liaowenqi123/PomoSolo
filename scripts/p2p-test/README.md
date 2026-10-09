@@ -44,12 +44,13 @@ node transfer-test.mjs --scenario p2p-1to1                      # WebRTC 直连 
 node transfer-test.mjs --scenario p2p-reverse                   # 反向打洞（含并行多连接分段）
 node transfer-test.mjs --scenario late-joiner                    # 中途加入的听众（缺头分片隐患）
 node transfer-test.mjs --scenario p2p-compress                   # 压缩传输（MP3 vs 未压缩 WAV 对照）
+node transfer-test.mjs --scenario compat-v4712                    # 新旧客户端兼容矩阵（老基准 v4.7.12）
 node transfer-test.mjs --scenario full-chain                    # 整条听众链路（sync 驱动）
 ```
 
 | 参数 | 说明 |
 |------|------|
-| `--scenario <name>` | `all` / `relay-1to1` / `relay-fanout` / `resume` / `waitall` / `p2p-1to1` / `p2p-reverse` / `late-joiner` / `p2p-compress` / `full-chain` / `listener-only` |
+| `--scenario <name>` | `all` / `relay-1to1` / `relay-fanout` / `resume` / `waitall` / `p2p-1to1` / `p2p-reverse` / `late-joiner` / `p2p-compress` / `compat-v4712` / `full-chain` / `listener-only` |
 | `--song <文件名>` | 默认 `Are you lost.mp3`（3.3MB，跑得快） |
 | `--song-path <路径>` | 覆盖源文件路径（默认取仓库 `music-player/music/`） |
 | `--listeners <N>` | 扇出场景的听众数，默认 3 |
@@ -67,6 +68,7 @@ node transfer-test.mjs --scenario full-chain                    # 整条听众�
 | `resume` | 服务器把 `from_chunk` 转发给持有者；只传后半段；**续传片段与源文件对应区间逐字节一致** |
 | `waitall` | `wait_all` 下仍能传完；**断言** `song_waiting`（缺歌即通知 DJ 暂停等人）/ `songs_ready`（全员就绪，从头统一起播）必然发出，且不依赖 DJ 是否周期广播 |
 | `p2p-1to1` | **WebRTC 直连**（媒体不经服务器）+ 完整性 + 与中转的速率对比；服务器是否透传 `p2p` 标志 |
+| `compat-v4712` | **新旧客户端兼容矩阵**（老基准 = 已发布的 v4.7.12）：老持有端 + 服务器合并轮 / 中途加入提升轮 / 老 DJ 无 `next_song_id` / 新 DJ 多余字段 / wait_all 老方言 |
 | `p2p-compress` | **压缩传输**（`deflate-raw` + `hello`/`hello-ack` 协商）三组：A 真实 MP3 / B 未压缩 WAV（对照实际节省）/ C **对端为旧版**（不回 hello-ack → 验证 1.2s 超时回退，向后兼容命门） |
 | `late-joiner` | **中途加入的听众**：A 先请求并开始下载，5 秒后 B 才请求 —— B 必须也能拿到完整文件（否则会缺前半段却收到"已完成"） |
 | `p2p-reverse` | **反向打洞**：下载端作 offerer、持有端在收到的 channel 上发数据；含并行多连接**分段映射**（`baseChunk`/`globalChunks`） |

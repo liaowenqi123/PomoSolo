@@ -58,7 +58,7 @@ function parseArgs(argv) {
 function printHelp() {
   console.log(`多客户端传歌测试
 
-  --scenario <name>   all | relay-1to1 | relay-fanout | resume | waitall | p2p-1to1 | p2p-reverse | late-joiner | p2p-compress | full-chain | listener-only
+  --scenario <name>   all | relay-1to1 | relay-fanout | resume | waitall | p2p-1to1 | p2p-reverse | late-joiner | p2p-compress | compat-v4712 | full-chain | listener-only
   --song <文件名>     默认 "Are you lost.mp3"
   --song-path <路径>  覆盖源文件路径
   --listeners <N>     扇出听众数（默认 3）
@@ -99,11 +99,12 @@ async function deleteRoom(roomId, token) {
  * 建一个房间，放入 1 个 DJ + N 个听众。
  * @returns {{ roomId: string, dj: VirtualClient, listeners: VirtualClient[], cleanup: ()=>Promise<void> }}
  */
-async function setup({ listeners: listenerCount, verbose }) {
+async function setup({ listeners: listenerCount, verbose, legacyV4712 = false }) {
   const users = testUsers(listenerCount + 1);
   const mk = async (i, label) => {
     const u = await ensureUser(users[i].username, users[i].password);
-    const c = new VirtualClient({ label, wsBase: args.ws, verbose });
+    // legacyV4712：全部客户端按 v4.7.12 老方言说话（DJ 不发 next_song_id、持有端按 songId 去重）
+    const c = new VirtualClient({ label, wsBase: args.ws, verbose, legacyV4712 });
     c.id = u.id; c.username = u.username; c.token = u.token;
     await c.connect();
     return c;
@@ -464,6 +465,179 @@ async function scenarioFullChain() {
       `DJ 共广播 ${dj.count("music:sync_state")} 次 sync_state（初始 + 每次 state_request + 传歌期间每 5s）`);
   } finally {
     await cleanup();
+  }
+}
+
+/**
+ * 场景 11：**新旧客户端兼容矩阵**（老客户端基准 = 已发布的 v4.7.12）。
+ *
+ * 为什么需要它：v4.12 的预取、服务器 wait_all 修复与多听众去重都改到了**共享协议**，
+ * 而用户机器上跑的是 v4.7.12。任何一处不兼容都会表现为"老用户传歌坏了"。
+ *
+ * 虚拟客户端的 `legacyV4712` 模式按老方言说话：
+ *   · DJ **不发** `next_song_id`（v4.12 才有的预取提示）
+ *   · 持有端按 **`songId`** 去重（music.ts:1084 老语义），而非新版 `songId|requester`
+ *
+ * ⚠️ 边界说明（必须诚实）：本场景验证的是**服务器**与老方言的兼容，
+ * 以及**新客户端**对老方言输入的容忍。它**不能**替代"v4.7.12 应用本体容忍新消息"的验证 ——
+ * 那部分靠**读 v4.7.12 源码**（结论见 docs/STUDY_ROOM_ARCHITECTURE.md 兼容矩阵）。
+ */
+async function scenarioCompatV4712() {
+  console.log(`\n══ 场景 compat-v4712：新旧客户端兼容矩阵（老基准 v4.7.12）══`);
+
+  // ── ① 老持有端（按 songId 去重）+ 新服务器合并轮 → 多听众都要拿到
+  {
+    const { dj, listeners, cleanup } = await setup({ listeners: 3, verbose: args.verbose, legacyV4712: true });
+    try {
+      await dj.requestDj();
+      const served = dj.startServing(SONG, SONG_PATH, { legacyV4712: true, p2p: false });
+      dj.broadcastState({ songId: SONG });
+      await sleep(400);
+
+      /*
+       * 三个听众**都不带 p2p** → 服务器把它们合并成**一轮**（一次上行扇出给全体）。
+       * 这正是老持有端最怕的场景：老代码 `if (activeTransfers.has(songId)) return;`
+       * 会让"第二个请求"被直接忽略。合并轮只发一次 song_requested，所以应当都能拿到。
+       */
+      const results = await Promise.all(listeners.map((l) => l.fetchSong(SONG, {
+        expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 120000,
+      })));
+      const okCount = results.filter((r) => r.ok).length;
+      record("compat-v4712", "① 老持有端 + 服务器合并轮：3 个听众全部拿到且逐字节一致",
+        okCount === 3 ? "PASS" : "FAIL",
+        `${okCount}/3 成功；持有端实际服务 ${served.transfers} 次`
+        + `（合并轮应为 1 次上行扇出给 3 人）`);
+      record("compat-v4712", "① 服务器确实把 3 个非 p2p 请求合并成了一轮",
+        served.transfers === 1 ? "PASS" : "INFO",
+        `持有端被请求 ${served.transfers} 次 → ${served.transfers === 1
+          ? "合并成功，老持有端的 songId 去重不会漏人"
+          : "未合并（老持有端的 songId 去重会漏掉其余听众，需关注）"}`);
+    } finally {
+      await cleanup();
+    }
+  }
+
+  // ── ①b 老持有端 + **中途加入**的听众（走 pending → 提升为新一轮）
+  {
+    const { dj, listeners, cleanup } = await setup({ listeners: 3, verbose: args.verbose, legacyV4712: true });
+    try {
+      await dj.requestDj();
+      const served = dj.startServing(SONG, SONG_PATH, { legacyV4712: true, p2p: false });
+      dj.broadcastState({ songId: SONG });
+      await sleep(400);
+
+      /*
+       * 关键序列：第一个听众先起一轮（中转约 12s），等分片已经开跑（req.chunks > 0）后
+       * 另外两人再请求 → 服务器只能把它们放进 `pending`，等本轮结束再**提升为新的一轮**
+       * 并**重新发一次 song_requested**。
+       *
+       * 这是老持有端最危险的地方：老代码的守卫是 `activeTransfers.has(songId)`。
+       * 如果它没被释放（或新请求来得太早），老持有端会**静默忽略**第二次请求，
+       * 那两个听众就永远拿不到歌 —— 而"全员就绪"却可能照样广播。
+       */
+      const first = listeners[0].fetchSong(SONG, {
+        expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 120000,
+      });
+      await sleep(2500);   // 让第一轮真的开始（分片已流动）
+      const rest = await Promise.all(listeners.slice(1).map((l) => l.fetchSong(SONG, {
+        expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 120000,
+      })));
+      const r1 = await first;
+      const all = [r1, ...rest];
+      const okCount = all.filter((r) => r.ok).length;
+      record("compat-v4712", "①b 老持有端 + 中途加入听众：3 人全部拿到且逐字节一致",
+        okCount === 3 ? "PASS" : "FAIL",
+        `${okCount}/3 成功；持有端共服务 ${served.transfers} 次`
+        + `（首发 1 轮 + 提升 1 轮 = 2 次为正常）`);
+      record("compat-v4712", "①b 服务器把中途加入者提升成了新的一轮（老持有端的 songId 键已释放）",
+        served.transfers >= 2 ? "PASS" : "FAIL",
+        served.transfers >= 2
+          ? `持有端被请求 ${served.transfers} 次 → 老守卫已释放，第二次请求没被吞掉`
+          : `持有端只被请求 ${served.transfers} 次 → 第二次请求可能被老守卫吞掉了`);
+    } finally {
+      await cleanup();
+    }
+  }
+
+  // ── ② 老 DJ（不发 next_song_id）→ 新听众不该瞎预取
+  {
+    const { dj, listeners, cleanup } = await setup({ listeners: 1, verbose: args.verbose, legacyV4712: true });
+    try {
+      await dj.requestDj();
+      const served = dj.startServing(SONG, SONG_PATH, { p2p: true });
+      dj.broadcastState({ songId: SONG, nextSongId: "假装有下一首.mp3" });   // 老方言会丢弃它
+      await sleep(600);
+
+      const states = listeners[0].find(S2C.SYNC_STATE);
+      const hasNext = states.some((m) => typeof m.next_song_id === "string" && m.next_song_id);
+      record("compat-v4712", "② 老 DJ 的 sync_state 不含 next_song_id（新听众拿不到提示 → 不会瞎预取）",
+        !hasNext ? "PASS" : "FAIL",
+        `收到 ${states.length} 条 sync_state，含 next_song_id 的 ${hasNext ? "有" : "没有"}`);
+
+      const r = await listeners[0].fetchSong(SONG, {
+        p2p: true, expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 90000,
+      });
+      record("compat-v4712", "② 老 DJ → 新听众：传歌不受影响", r.ok ? "PASS" : "FAIL",
+        r.ok ? `经 ${r.path}，${r.bytes} 字节` : (r.reason ?? ""));
+    } finally {
+      await cleanup();
+    }
+  }
+
+  // ── ③ 新 DJ（带 next_song_id）→ 老听众：多出来的字段必须无害
+  {
+    const { dj, listeners, cleanup } = await setup({ listeners: 1, verbose: args.verbose, legacyV4712: true });
+    try {
+      await dj.requestDj();
+      const served = dj.startServing(SONG, SONG_PATH, { p2p: true });
+      // 用**新方言**广播（legacyV4712 只作用于该 client；这里临时关掉它发一次）
+      dj.legacyV4712 = false;
+      dj.broadcastState({ songId: SONG, nextSongId: "下一首示例.mp3" });
+      await sleep(600);
+
+      const states = listeners[0].find(S2C.SYNC_STATE);
+      const gotNext = states.some((m) => m.next_song_id === "下一首示例.mp3");
+      record("compat-v4712", "③ 新 DJ 的 next_song_id 确实透传给了老听众（多一个未知字段）",
+        gotNext ? "PASS" : "FAIL",
+        gotNext ? "老听众收到该字段 —— 其代码只按名字取字段，未知字段被静默忽略（见源码审计）"
+                : "没收到");
+
+      const r = await listeners[0].fetchSong(SONG, {
+        p2p: true, expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 90000,
+      });
+      record("compat-v4712", "③ 新 DJ → 老听众：传歌与完整性不受多余字段影响",
+        r.ok ? "PASS" : "FAIL", r.ok ? `经 ${r.path}，${r.bytes} 字节` : (r.reason ?? ""));
+    } finally {
+      await cleanup();
+    }
+  }
+
+  // ── ④ wait_all：服务器修复后，老方言客户端也要能正常走完协调
+  {
+    const { dj, listeners, cleanup } = await setup({ listeners: 1, verbose: args.verbose, legacyV4712: true });
+    try {
+      await dj.requestDj();
+      const served = dj.startServing(SONG, SONG_PATH, { djBroadcast: true, p2p: false, legacyV4712: true });
+      dj.setTransferMode("wait_all");
+      dj.startDjPlayback(SONG, { positionMs: 0, transferMode: "wait_all" });
+      await sleep(800);
+
+      const r = await listeners[0].fetchSong(SONG, {
+        expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 90000,
+      });
+      await sleep(4000);
+
+      const waiting = dj.find(S2C.SONG_WAITING).length + listeners[0].find(S2C.SONG_WAITING).length;
+      const ready = dj.find(S2C.SONGS_READY).length + listeners[0].find(S2C.SONGS_READY).length;
+      record("compat-v4712", "④ wait_all + 老方言：服务器仍发出 song_waiting / songs_ready",
+        waiting >= 1 && ready >= 1 ? "PASS" : "FAIL",
+        `song_waiting=${waiting}，songs_ready=${ready}`
+        + `（这两个消息 v4.7.12 已有处理器，见源码审计）`);
+      record("compat-v4712", "④ wait_all + 老方言：歌曲仍完整送达", r.ok ? "PASS" : "FAIL",
+        r.ok ? `${r.bytes} 字节，sha256=${r.sha256?.slice(0, 12)}…` : (r.reason ?? ""));
+    } finally {
+      await cleanup();
+    }
   }
 }
 
@@ -905,6 +1079,7 @@ async function main() {
     "p2p-reverse": scenarioP2PReverse,
     "late-joiner": scenarioLateJoiner,
     "p2p-compress": scenarioP2PCompress,
+    "compat-v4712": scenarioCompatV4712,
     "full-chain": scenarioFullChain,
     "listener-only": scenarioListenerOnly,
   };
@@ -919,7 +1094,7 @@ async function main() {
        * （表现为"通过数变少但退出码 0"）。这类假信心比直接报错危险得多，
        * 所以场景级也要兜住并记成 FAIL。
        */
-      for (const name of ["relay-1to1", "relay-fanout", "resume", "waitall", "p2p-1to1", "p2p-reverse", "late-joiner", "p2p-compress", "full-chain"]) {
+      for (const name of ["relay-1to1", "relay-fanout", "resume", "waitall", "p2p-1to1", "p2p-reverse", "late-joiner", "p2p-compress", "compat-v4712", "full-chain"]) {
         try {
           await run[name]();
         } catch (e) {

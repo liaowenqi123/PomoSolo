@@ -29,10 +29,17 @@ export class VirtualClient {
   /**
    * @param {{ label: string, wsBase?: string, verbose?: boolean }} opts
    */
-  constructor({ label, wsBase = "wss://api.pomogrow.top", verbose = false }) {
+  constructor({ label, wsBase = "wss://api.pomogrow.top", verbose = false, legacyV4712 = false }) {
     this.label = label;
     this.wsBase = wsBase;
     this.verbose = verbose;
+    /**
+     * v4.7.12 老方言模式（兼容测试用）：
+     *  · DJ 侧**永不发** `next_song_id`（那是 v4.12 才有的预取提示）
+     *  · 持有端按 `songId` 去重（老语义），而非新版 `songId|requester`
+     * 用来验证"老客户端 ↔ 新服务器/新客户端"的双向兼容。
+     */
+    this.legacyV4712 = legacyV4712;
     this.ws = null;
     this.inbox = [];
     this.handlers = new Map();  // type -> Set<cb>
@@ -450,9 +457,15 @@ export class VirtualClient {
    * 但"理论上"不算数：用真实服务器实测（见 full-chain ⑦）。
    */
   broadcastState({ songId, playing = true, positionMs = 0, volume = 80, transferMode = "immediate", nextSongId = null }) {
+    /*
+     * v4.7.12 老版 DJ **不知道 `next_song_id`**（那是 v4.12 新增的预取提示）。
+     * `this.legacyV4712` 打开后一律不发该字段 —— 用来验证"老 DJ → 新听众"时
+     * 新听众不会瞎预取（拿不到提示就不猜）。
+     */
+    const withNext = this.legacyV4712 ? null : nextSongId;
     this.send(C2S.SYNC_STATE, {
       song_id: songId, playing, position_ms: positionMs, volume, transfer_mode: transferMode,
-      ...(nextSongId ? { next_song_id: nextSongId } : {}),
+      ...(withNext ? { next_song_id: withNext } : {}),
     });
   }
 
@@ -495,7 +508,14 @@ export class VirtualClient {
         return;
       }
       const requester = msg.requester_user_id;
-      const transferKey = `${songId}|${requester}`;
+      /*
+       * 去重键 —— 新老客户端**语义不同**，这是兼容测试的关键点：
+       *  · 新版（v4.12+）：`songId|requester`，同一请求者去重、不同请求者可并发服务
+       *  · **v4.7.12 老版**：只用 `songId`（music.ts:1084 `if (activeTransfers.has(songId)) return;`）
+       *    —— 服务器"一传多"时重复收到请求会直接忽略
+       * 用 legacyV4712 打开老语义，才能验证"新服务器 + 老持有端"是否仍能把歌送到位。
+       */
+      const transferKey = opts.legacyV4712 ? songId : `${songId}|${requester}`;
       if (activeTransfers.has(transferKey)) return;   // 同一请求者重复请求只开一个循环
       activeTransfers.add(transferKey);
 
