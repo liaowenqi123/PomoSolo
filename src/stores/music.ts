@@ -767,6 +767,16 @@ export const useMusicStore = defineStore("music", () => {
 
   /** 中断当前 P2P 传输并复位全部传输状态（DJ 切歌/主动取消时调用） */
   function abortCurrentTransfer(): void {
+    /*
+     * v4.12：若中断的正是"预取"，必须清掉预取标记。
+     * 否则该标记会永久留着（只在预取完成 / startSongTransfer 抛错时才会清），
+     * 后果是 **这首歌在本次会话里再也不会被预取**（maybePrefetchNext 里
+     * `if (prefetchingSongId.value === next) return;` 会一直挡掉）。
+     * 典型触发：预取下一首的途中 DJ 切了歌 → startSongTransfer(新歌) 中断旧传输。
+     */
+    if (prefetchingSongId.value && prefetchingSongId.value === songTransfer.value.songName) {
+      prefetchingSongId.value = null;
+    }
     activeP2PReceive?.close();
     activeP2PReceive = null;
     resetSongTransfer();
@@ -1992,6 +2002,8 @@ export const useMusicStore = defineStore("music", () => {
       djName.value = "";
       djUserId.value = null;
       waitingForSongs.value = false;
+      // v4.12：同步已关 → 预取失去意义，标记也一并清掉（否则重开同步后那首歌不会再被预取）
+      prefetchingSongId.value = null;
       resetSongTransfer();
       lastChunkAt = 0;
       stopTransferWatch();

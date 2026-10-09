@@ -1881,6 +1881,56 @@ describe("useMusicStore", () => {
       expect(musicSyncApi.musicSyncRequestSong).not.toHaveBeenCalled();
     });
 
+    it("★ 预取被中断（DJ 切歌）后必须清掉预取标记 —— 否则那首歌再也不会被预取", async () => {
+      const s = useMusicStore();
+      listenerPlayingCurrent(s, "cur.mp3", ["cur.mp3"]);
+      musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+
+      // 发起对 next.mp3 的预取
+      s.handleSyncWsEvent({
+        type: "music:sync_state", song_id: "cur.mp3", playing: true,
+        position_ms: 0, next_song_id: "next.mp3",
+      });
+      await vi.waitFor(() => {
+        expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("next.mp3", 0, true);
+      });
+
+      // DJ 切到别的歌 → applySyncState 走缺歌分支 → startSongTransfer(新歌) 中断旧传输
+      musicSyncApi.musicSyncRequestSong.mockClear();
+      musicApi.musicFinalizeSong.mockResolvedValue({ success: true });
+      s.handleSyncWsEvent({
+        type: "music:sync_state", song_id: "other.mp3", playing: true,
+        position_ms: 0, next_song_id: "next.mp3",
+      });
+      await vi.waitFor(() => {
+        expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("other.mp3", 0, true);
+      });
+
+      /*
+       * 先让 other.mp3 落地 —— 因为 maybePrefetchNext 要求"没有别的传输在跑"
+       * （带宽让给当前歌）。当前歌还在下载时不去预取下一首，这本身也是对的。
+       */
+      musicApi.musicGetPlaylist.mockResolvedValue({
+        songs: [songObj("cur.mp3", "", [], ""), songObj("other.mp3", "", [], "")],
+      });
+      s.handleSyncWsEvent({ type: "music:transfer_done", song_id: "other.mp3", total_chunks: 10 });
+      await vi.waitFor(() => {
+        expect(musicApi.musicFinalizeSong).toHaveBeenCalledWith("other.mp3", 10);
+      });
+
+      // 关键：next.mp3 现在必须能**再次**被预取（标记已清），而不是被永久挡掉
+      musicSyncApi.musicSyncRequestSong.mockClear();
+      s.trackName = "other.mp3";
+      s.playing = true;
+      s.handleSyncWsEvent({
+        type: "music:sync_state", song_id: "other.mp3", playing: true,
+        position_ms: 0, next_song_id: "next.mp3",
+      });
+      await vi.waitFor(() => {
+        expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("next.mp3", 0, true);
+      });
+    });
+
     it("★ 预取完成不播放：finalize 后不得切歌（它只是备好，不是当前要放的歌）", async () => {
       const s = useMusicStore();
       listenerPlayingCurrent(s, "cur.mp3", ["cur.mp3"]);
