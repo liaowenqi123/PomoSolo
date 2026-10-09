@@ -81,6 +81,12 @@ export function musicSyncState(params: {
   transferMode: string;
   /** v4.6.6：DJ 对齐服务器时钟后发出的服务器时间（毫秒），听众端据此补偿完整传输延迟 */
   djServerTime?: number;
+  /**
+   * v4.12：下一首的歌名，供听众**提前预取**（切歌瞬间可播、不再"获取歌曲中 x%"）。
+   * 由纯函数 `music_peek_next` 提供（不推进播放历史）；空/未提供 = 无法预知，听众不要猜。
+   * 服务器对 `music:sync_state` 是原样透传（`dict(msg)`），无需改动。
+   */
+  nextSongId?: string;
 }): Promise<void> {
   return invoke<void>("music_sync_state", {
     songId: params.songId,
@@ -89,6 +95,7 @@ export function musicSyncState(params: {
     volume: params.volume,
     transferMode: params.transferMode,
     djServerTime: params.djServerTime,
+    nextSongId: params.nextSongId,
   });
 }
 

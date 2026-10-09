@@ -438,10 +438,17 @@ export class VirtualClient {
     return msg;
   }
 
-  /** 广播同步状态（DJ 权威） */
-  broadcastState({ songId, playing = true, positionMs = 0, volume = 80, transferMode = "immediate" }) {
+  /**
+   * 广播同步状态（DJ 权威）。
+   *
+   * `nextSongId`（v4.12）用于验证服务器是否原样透传 —— 它是听众预取的前提。
+   * 服务器 `handle_music_sync_state` 是 `data = dict(msg)` 原样广播，理论上自动支持，
+   * 但"理论上"不算数：用真实服务器实测（见 full-chain ⑦）。
+   */
+  broadcastState({ songId, playing = true, positionMs = 0, volume = 80, transferMode = "immediate", nextSongId = null }) {
     this.send(C2S.SYNC_STATE, {
       song_id: songId, playing, position_ms: positionMs, volume, transfer_mode: transferMode,
+      ...(nextSongId ? { next_song_id: nextSongId } : {}),
     });
   }
 
@@ -619,6 +626,7 @@ export class VirtualClient {
       positionMs: this._currentPositionMs(), volume: p.volume,
       // ★ 别丢：不传会走 JS 默认值 "immediate"，把服务端房间的 wait_all 覆盖掉
       transferMode: p.transferMode ?? "immediate",
+      nextSongId: p.nextSongId ?? null,   // v4.12：供听众预取（验证服务器透传）
     });
   }
 

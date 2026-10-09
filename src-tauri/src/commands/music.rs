@@ -264,6 +264,26 @@ pub async fn music_next(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// 纯查询：下一首会是谁（v4.12，供同步听歌的 DJ 广播 `next_song_id`）。
+///
+/// **不播放、不改动任何播放状态** —— 这是关键：绝不能用 `music_next` 或
+/// `player.get_next_song()` 来"偷看"，那个会 `play_history.push(...)` 并改写
+/// `history_index`/`current_song_index`，后果是"上一首"会重播当前歌。
+///
+/// Shuffle 模式下结果来自**预摇**（当前歌一开始播就摇好），因此与实际播放必然一致；
+/// 顺序/单曲循环模式可直接精确推导。返回 None 表示"无法预知"（调用方不要猜）。
+#[tauri::command]
+pub async fn music_peek_next(app: AppHandle) -> Result<Option<String>, String> {
+    ensure_init(&app).await?;
+    let music_state = app.state::<MusicState>();
+    let mut player = music_state.player.lock().await;
+    // 先刷新歌单保证结果新鲜（refresh 只改歌单，不碰播放历史）
+    player.refresh_playlist();
+    // 预摇结果可能因歌单/播放集合变化而缺失 → 补一次，保证能给出确定的答案
+    player.ensure_pre_roll();
+    Ok(player.peek_next_song())
+}
+
 #[tauri::command]
 pub async fn music_prev(app: AppHandle) -> Result<(), String> {
     ensure_init(&app).await?;

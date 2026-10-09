@@ -110,6 +110,16 @@ pub struct AudioPlayer {
     play_history: Vec<(String, bool)>, // (song_name, is_manual)
     history_index: i32,
     current_song_index: i32,
+    /// 预摇的下一首（v4.12，仅 Shuffle 模式用）。
+    ///
+    /// 为什么需要它：Shuffle 模式下"下一首"原本是**切换那一刻**才随机摇出来的，
+    /// 因此谁都无法提前知道（同步听歌的听众也就无法提前预取）。
+    /// 现在改成"当前歌一开始播就先摇好下一首"——对用户完全不可感知，
+    /// 但 `peek_next_song()` 与实际播放**必然一致**，预取才能命中。
+    ///
+    /// 附带修好一个既有毛病：以前任何"偷看下一首"都只能调 `get_next_song`，
+    /// 而它会 `play_history.push(...)` + 改 `history_index` → "上一首"会重播当前歌。
+    pre_rolled_next: Option<String>,
 
     // 当前设备索引
     current_device_id: Option<usize>,
@@ -142,6 +152,7 @@ impl AudioPlayer {
             play_history: Vec::new(),
             history_index: -1,
             current_song_index: -1,
+            pre_rolled_next: None,
             current_device_id: None,
             initialized: false,
             position_offset: 0,
@@ -369,6 +380,11 @@ impl AudioPlayer {
         self.playing = true;
         self.paused = false;
 
+        // v4.12：当前歌开始播 → 立刻预摇下一首。
+        // Shuffle 模式下这一步让"下一首"从"切换那一刻才知道"变成"现在就确定"，
+        // 于是同步听歌的听众可以提前预取（peek_next_song 与实际播放必然一致）。
+        self.ensure_pre_roll();
+
         Ok(())
     }
 
@@ -446,6 +462,8 @@ impl AudioPlayer {
             self.play_history.clear();
             self.history_index = -1;
         }
+        // v4.12：播放范围/模式变了 → 重摇下一首（切到 Shuffle 必须摇；切走则清掉）
+        self.ensure_pre_roll();
     }
 
     /// 获取下一首歌
@@ -495,13 +513,26 @@ impl AudioPlayer {
         // 生成下一首
         let next = if self.play_mode == PlayMode::Shuffle {
             if working.len() > 1 {
-                let mut rng = rand::thread_rng();
-                // 历史为空时以当前播放曲为"不重复对象"，避免随机到同一首重复播放
                 let current_str = current.unwrap_or_else(|| self.track_name.clone());
-                loop {
-                    let s = working.choose(&mut rng).unwrap().clone();
-                    if s != current_str {
-                        break s;
+                /*
+                 * v4.12：优先用**预摇**结果，保证 peek_next_song() 与实际播放一致
+                 * （预取才能命中）。预摇结果失效时（歌单变了/摇到了当前歌）才现摇。
+                 */
+                let pre = self
+                    .pre_rolled_next
+                    .take()
+                    .filter(|s| working.iter().any(|w| w == s) && s != &current_str);
+                match pre {
+                    Some(s) => s,
+                    None => {
+                        let mut rng = rand::thread_rng();
+                        // 历史为空时以当前播放曲为"不重复对象"，避免随机到同一首重复播放
+                        loop {
+                            let s = working.choose(&mut rng).unwrap().clone();
+                            if s != current_str {
+                                break s;
+                            }
+                        }
                     }
                 }
             } else {
@@ -527,7 +558,87 @@ impl AudioPlayer {
             .map(|i| i as i32)
             .unwrap_or(-1);
 
+        // v4.12：本轮的"下一首"已被消费 → 立刻为新的下一首预摇，
+        // 保证任何时刻 peek_next_song() 都指向真正会播的那首。
+        self.ensure_pre_roll();
+
         Some(next)
+    }
+
+    /// 计算播放范围（与 get_next_song 内的 working 语义一致）
+    fn next_working_list(&self) -> Vec<String> {
+        match &self.active_list {
+            Some(l) if !l.is_empty() => l.clone(),
+            _ => self.playlist.clone(),
+        }
+    }
+
+    /// **纯函数**：算出"下一首会是谁"，**不改动任何状态**。
+    ///
+    /// ⚠️ 绝不能用 `get_next_song` 代替它来"偷看" —— 那个函数会
+    /// `play_history.push(...)` 并改写 `history_index`/`current_song_index`，
+    /// 结果"上一首"会重播当前歌（历史被污染）。这正是本函数存在的原因。
+    ///
+    /// 各模式的可预测性：
+    /// - `Loop`（单曲循环）：下一首就是当前歌 → 精确
+    /// - `Order`（顺序/列表循环）：在播放范围内取模前进 → 精确
+    /// - `Shuffle`：用**预摇**结果 → 精确（v4.12 起；以前根本不可预测）
+    pub fn peek_next_song(&self) -> Option<String> {
+        let working = self.next_working_list();
+        if working.is_empty() {
+            return None;
+        }
+        if self.play_mode == PlayMode::Loop {
+            let idx = (self.current_song_index.max(0) as usize).min(working.len() - 1);
+            return Some(working[idx].clone());
+        }
+        if self.play_mode == PlayMode::Shuffle {
+            // 预摇结果可能因歌单变化而失效 → 失效就返回 None（调用方当作"不知道"），
+            // 而不是瞎猜一个：预取错歌会白费带宽。
+            return self
+                .pre_rolled_next
+                .clone()
+                .filter(|s| working.iter().any(|w| w == s) && s != &self.track_name);
+        }
+        let pos = working
+            .iter()
+            .position(|s| s == &self.track_name)
+            .map(|i| i as i32)
+            .unwrap_or(0);
+        let idx = ((pos + 1) % working.len() as i32) as usize;
+        Some(working[idx].clone())
+    }
+
+    /// 预摇下一首（v4.12）：让 `peek_next_song()` 与实际播放一致。
+    ///
+    /// - Shuffle：现在就摇好并存起来（用户不可感知；切换时直接用这个结果）
+    /// - Order/Loop：可精确推导，无需预摇（清掉以免误导）
+    ///
+    /// 调用时机：当前歌开始播放时（`play_song`）、以及每消费掉一个"下一首"之后
+    /// （`get_next_song` 末尾）。
+    pub fn ensure_pre_roll(&mut self) {
+        if self.play_mode != PlayMode::Shuffle {
+            self.pre_rolled_next = None;
+            return;
+        }
+        let working = self.next_working_list();
+        if working.is_empty() {
+            self.pre_rolled_next = None;
+            return;
+        }
+        if working.len() == 1 {
+            self.pre_rolled_next = Some(working[0].clone());
+            return;
+        }
+        let current = self.track_name.clone();
+        let mut rng = rand::thread_rng();
+        loop {
+            let s = working.choose(&mut rng).unwrap().clone();
+            if s != current {
+                self.pre_rolled_next = Some(s);
+                break;
+            }
+        }
     }
 
     /// 获取上一首歌
@@ -1093,11 +1204,14 @@ impl AudioPlayer {
                 .map(|i| i as i32)
                 .unwrap_or(0);
         }
+        // v4.12：播放范围变了 → 旧预摇结果可能已不在范围内，重摇
+        self.ensure_pre_roll();
     }
 
     /// 清空播放集合：Some(空) 标记已清空 → 自然结束后停止自动切歌（手动切歌回落全库）
     pub fn clear_play_list(&mut self) {
         self.active_list = Some(Vec::new());
+        self.ensure_pre_roll(); // v4.12：范围变空 → 预摇结果作废
     }
 
     /// 集合是否已清空（停止自动切歌）
@@ -1324,6 +1438,109 @@ mod tests {
         assert_eq!(t, Vec::<String>::new());
     }
 
+    // ===== v4.12 预摇下一首 + 纯 peek =====
+    //
+    // 注意：`get_next_song` 会先 `refresh_playlist()`，而它在目录为空时会**清空歌单**，
+    // 所以这些测试必须放**真实文件**（用合成歌单会被 refresh 抹掉）。
+    // 断言刻意写成**与文件扫描顺序无关** —— "peek === 实际切歌"这个不变量本身不依赖顺序。
+
+    /// 造一个带真实音频文件的临时播放器（文件内容是占位字节，本组测试不解码音频）
+    fn player_with_files(files: &[&str], mode: PlayMode) -> (tempfile::TempDir, AudioPlayer) {
+        let dir = tempfile::TempDir::new().expect("创建临时目录失败");
+        for f in files {
+            std::fs::write(dir.path().join(f), b"x").expect("写入失败");
+        }
+        let mut p = AudioPlayer::new();
+        p.set_music_dir(dir.path().to_path_buf());
+        p.play_mode = mode;
+        p.refresh_playlist();
+        assert_eq!(p.playlist.len(), files.len(), "临时目录里的歌应被扫描到");
+        (dir, p)
+    }
+
+    /// ★ 核心不变量：`peek_next_song` 必须是**纯函数** —— 不推进播放历史。
+    ///
+    /// 历史背景：`get_next_song` 会 `play_history.push(...)` + 改 `history_index`，
+    /// 所以拿它"偷看下一首"会让"上一首"重播当前歌（历史被污染）。预取靠 peek，必须保证这点。
+    #[test]
+    fn test_peek_next_song_is_pure_and_does_not_touch_history() {
+        let (_dir, mut p) = player_with_files(&["a.mp3", "b.mp3", "c.mp3"], PlayMode::Order);
+        p.track_name = p.playlist[0].clone();
+        let history_before = p.play_history.clone();
+        let index_before = p.history_index;
+        let cur_idx_before = p.current_song_index;
+
+        let peeked = p.peek_next_song();
+        assert!(peeked.is_some(), "顺序模式应能预知下一首");
+
+        assert_eq!(p.play_history, history_before, "peek 不得改动 play_history");
+        assert_eq!(p.history_index, index_before, "peek 不得改动 history_index");
+        assert_eq!(p.current_song_index, cur_idx_before, "peek 不得改动 current_song_index");
+        // 再 peek 一次结果必须稳定（纯函数、无副作用）
+        assert_eq!(p.peek_next_song(), peeked, "重复 peek 结果应一致");
+    }
+
+    /// 顺序模式：peek 与实际 get_next_song 必须一致（预取才可能命中）
+    #[test]
+    fn test_peek_matches_actual_next_in_order_mode() {
+        let (_dir, mut p) = player_with_files(&["a.mp3", "b.mp3", "c.mp3"], PlayMode::Order);
+        p.track_name = p.playlist[0].clone();
+        let peeked = p.peek_next_song();
+        let actual = p.get_next_song(false);
+        assert_eq!(peeked, actual, "顺序模式下 peek 应与实际切歌一致");
+    }
+
+    /// Shuffle：预摇之后 peek 与实际切歌**必然一致**（这正是预摇存在的意义）
+    #[test]
+    fn test_shuffle_pre_roll_makes_peek_exact() {
+        let (_dir, mut p) = player_with_files(&["a.mp3", "b.mp3", "c.mp3", "d.mp3"], PlayMode::Shuffle);
+        p.track_name = p.playlist[0].clone();
+        p.ensure_pre_roll();
+        let peeked = p.peek_next_song();
+        assert!(peeked.is_some(), "预摇后应能给出下一首");
+        assert_ne!(peeked.as_deref(), Some(p.track_name.as_str()), "不应预摇到当前歌");
+        let actual = p.get_next_song(false);
+        assert_eq!(peeked, actual, "预摇结果必须与实际切歌一致（否则预取会白费）");
+    }
+
+    /// 单曲循环：下一首就是当前歌（可精确预知；调用方会跳过预取）
+    #[test]
+    fn test_peek_loop_returns_current_song() {
+        let (_dir, mut p) = player_with_files(&["a.mp3", "b.mp3"], PlayMode::Loop);
+        p.track_name = p.playlist[1].clone();
+        p.current_song_index = 1;
+        assert_eq!(p.peek_next_song().as_deref(), Some(p.track_name.as_str()));
+    }
+
+    /// 预摇结果不在播放范围内 → peek 返回 None（宁可"不知道"也不要瞎猜浪费带宽）
+    #[test]
+    fn test_peek_returns_none_when_pre_roll_stale() {
+        let (_dir, mut p) = player_with_files(&["a.mp3", "b.mp3"], PlayMode::Shuffle);
+        p.track_name = p.playlist[0].clone();
+        p.ensure_pre_roll();
+        assert!(p.peek_next_song().is_some());
+        // 直接塞一个不在歌单里的预摇结果（模拟歌单已变）
+        p.pre_rolled_next = Some("已删除的歌.mp3".to_string());
+        assert_eq!(p.peek_next_song(), None, "预摇结果不在范围内时应返回 None");
+    }
+
+    /// 切到顺序模式应清掉预摇（顺序模式靠推导，不靠预摇）
+    #[test]
+    fn test_ensure_pre_roll_cleared_outside_shuffle() {
+        let (_dir, mut p) = player_with_files(&["a.mp3", "b.mp3"], PlayMode::Shuffle);
+        p.track_name = p.playlist[0].clone();
+        p.ensure_pre_roll();
+        assert!(p.pre_rolled_next.is_some());
+        p.set_play_mode(PlayMode::Order);
+        assert!(p.pre_rolled_next.is_none(), "非 Shuffle 模式不应保留预摇结果");
+    }
+
+    /// 空歌单不应 panic，且返回 None
+    #[test]
+    fn test_peek_empty_playlist() {
+        let mut p = AudioPlayer::new();
+        assert_eq!(p.peek_next_song(), None);
+    }
     // ===== PlayMode 转换 =====
 
     #[test]

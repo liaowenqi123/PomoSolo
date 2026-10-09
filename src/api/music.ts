@@ -109,6 +109,17 @@ export function musicNext(): Promise<void> {
   return invoke<void>("music_next");
 }
 
+/**
+ * 纯查询「下一首会是谁」（v4.12，同步听歌预取用）。
+ *
+ * **不播放、不改动任何播放状态** —— 后端刻意用纯函数 `peek_next_song` 实现，
+ * 因为 `music_next` / `get_next_song` 会推进播放历史，拿它"偷看"会让"上一首"重播当前歌。
+ * Shuffle 模式靠后端**预摇**保证与实际播放一致；返回 `null` 表示无法预知（不要猜）。
+ */
+export function musicPeekNext(): Promise<string | null> {
+  return invoke<string | null>("music_peek_next");
+}
+
 /** 上一首 */
 export function musicPrev(): Promise<void> {
   return invoke<void>("music_prev");

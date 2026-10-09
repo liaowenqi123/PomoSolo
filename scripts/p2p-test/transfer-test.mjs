@@ -444,7 +444,23 @@ async function scenarioFullChain() {
       `DJ 收到 ${dj.stateRequestCount ?? 0} 次 state_request（期望 ≥2，对应两次 request_state）`);
 
     // ⑦ 传歌期间 DJ 是否持续广播（下载耗时长时防位置过期）
-    record("full-chain", "⑦ 传歌期间 DJ 持续广播状态", "INFO",
+    /*
+     * ⑦ v4.12：服务器是否原样透传 `next_song_id`（预取的前提）。
+     * 服务器 handle_music_sync_state 是 `data = dict(msg)` 原样广播，理论上自动支持 ——
+     * 但"理论上"不算数，实测一次：DJ 带上它，听众必须能收到。
+     */
+    const n2 = listener.count(S2C.SYNC_STATE);
+    dj.startDjPlayback(SONG, { positionMs: 0, transferMode: "immediate" });
+    if (dj._playback) dj._playback.nextSongId = "下一首示例.mp3";
+    dj._broadcastCurrentState();
+    await sleep(800);
+    const withNext = listener.find(S2C.SYNC_STATE).slice(n2).find((m) => m.next_song_id === "下一首示例.mp3");
+    record("full-chain", "⑦ 服务器原样透传 next_song_id（听众预取的前提）",
+      withNext ? "PASS" : "FAIL",
+      withNext ? "听众收到 next_song_id=下一首示例.mp3"
+               : "听众没收到 next_song_id —— 预取将无法工作（服务器需原样广播该字段）");
+
+    record("full-chain", "⑧ 传歌期间 DJ 持续广播状态", "INFO",
       `DJ 共广播 ${dj.count("music:sync_state")} 次 sync_state（初始 + 每次 state_request + 传歌期间每 5s）`);
   } finally {
     await cleanup();

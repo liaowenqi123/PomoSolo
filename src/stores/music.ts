@@ -13,6 +13,7 @@ import { ref, computed } from "vue";
 import {
   musicTogglePlay,
   musicNext,
+  musicPeekNext,
   musicPrev,
   musicSeek,
   musicSetVolume,
@@ -187,9 +188,17 @@ export const useMusicStore = defineStore("music", () => {
     retryCount: 0,
     channel: null,
   });
+  /**
+   * v4.12：正在**预取**的歌（听众侧）。
+   *
+   * 预取 = 提前把"下一首"拿到本地，使 DJ 切歌瞬间即可播放（不再"获取歌曲中 x%"）。
+   * 非 null 时 `finalizeTransfer` **不触发播放** —— 这只是备好，不是当前要放的歌；
+   * 但若期间 DJ 真的切到了它（`missingSongName`/`trackName`/`pendingSyncRaw` 指向它），
+   * 就必须正常播放（见 finalizeTransfer 里的 someoneWaiting 判定）。
+   */
+  const prefetchingSongId = ref<string | null>(null);
   /** 传歌状态重置为 idle（各中断/完成路径统一复位，含 channel 清空） */
-  function resetSongTransfer(): void {
-    songTransfer.value = {
+  function resetSongTransfer(): void {    songTransfer.value = {
       state: "idle",
       songName: "",
       received: 0,
@@ -506,15 +515,59 @@ export const useMusicStore = defineStore("music", () => {
   }
 
   /**
+   * v4.12：下一首的提示（供听众预取）。
+   *
+   * ★ 为什么用缓存而不是每次广播都查：
+   * `musicPeekNext` 是 Tauri IPC，Rust 侧要**抢播放器锁**；而 `broadcastSyncState`
+   * 在每次播放/暂停/seek/切歌都会跑（传歌期间还有 5s 心跳）。让广播去等一次取锁，
+   * 会拖慢同步本身 —— 一个"可选的预取提示"不该有这个代价。
+   *
+   * 所以：异步刷新、广播同步读取；且**只认 `forTrack` 与当前歌一致**的提示 ——
+   * 刚切歌还没刷新完就不带（听众这一轮不预取），**绝不用过期的值去猜**（预取错歌是白费带宽）。
+   */
+  const nextSongHint = ref<{ forTrack: string; songId: string | null }>({ forTrack: "", songId: null });
+  let nextHintRefreshing = false;
+  /** 刷新"下一首"提示（异步、去重；失败就置空，不影响任何同步逻辑） */
+  async function refreshNextSongHint(): Promise<void> {
+    if (nextHintRefreshing) return;
+    nextHintRefreshing = true;
+    const forTrack = trackName.value;
+    try {
+      nextSongHint.value = { forTrack, songId: (await musicPeekNext()) ?? null };
+    } catch {
+      nextSongHint.value = { forTrack, songId: null };
+    } finally {
+      nextHintRefreshing = false;
+    }
+  }
+
+  /**
    * DJ 模式：广播全量状态快照（music:sync_state）
    *
    * 取代旧的动作消息，携带完整状态：song_id + playing + position_ms + volume + transfer_mode。
    * 听众端据此应用完整状态（切歌/暂停/进度校准/传歌方案），新听众加入也能立即对齐。
    * 服务器需将 music:sync_state 广播给房间全体（见 server-planning/API-implementation.md）。
+   *
+   * v4.12：额外附 `nextSongId`（下一首），让听众能**提前预取** —— 切歌瞬间可播，
+   * 不再出现"获取歌曲中 x%"。值来自纯函数 `musicPeekNext()`（**不推进播放历史**；
+   * 绝不能用 `musicNext`/`get_next_song` 偷看，那会让"上一首"重播当前歌）。
    */
   async function broadcastSyncState() {
     if (!syncEnabled.value || !isDj.value) return;
     const settingsStore = useSettingsStore();
+    /*
+     * 提示：缓存与当前歌不一致（= 刚切歌，还没刷新完）→ **等一次**刷新；
+     * 一致则直接同步读取，不给广播增加任何 IPC / 取锁开销。
+     * 于是"每首歌只多一次 peek"，而每次播放/暂停/seek 的广播都不受影响。
+     */
+    if (nextSongHint.value.forTrack !== trackName.value) {
+      await refreshNextSongHint();
+    }
+    const hint = nextSongHint.value;
+    const nextSongId =
+      hint.forTrack === trackName.value && hint.songId && hint.songId !== trackName.value
+        ? hint.songId
+        : undefined;
     try {
       await musicSyncState({
         songId: trackName.value || "",
@@ -524,6 +577,8 @@ export const useMusicStore = defineStore("music", () => {
         transferMode: settingsStore.settings.syncTransferMode,
         // v4.6.6：时钟对齐就绪后才附 DJ 服务器时间戳（否则退回服务器时间戳校准）
         djServerTime: clockOffsetReady ? serverNow() : undefined,
+        // v4.12：下一首（供听众预取）；拿不到/已过期就不带
+        nextSongId,
       });
     } catch (e) {
       console.warn("[MusicStore] DJ 全量状态广播失败:", e);
@@ -1128,6 +1183,18 @@ export const useMusicStore = defineStore("music", () => {
    * @param totalChunks 分片总数（服务器 transfer_done 携带，缺失时用已记录值）
    */
   async function finalizeTransfer(songId: string, totalChunks: number): Promise<void> {
+    /*
+     * v4.12：先判断这是不是一次**纯预取**。
+     * 必须在本函数开头的 resetSongTransfer() 之前读，且必须排除"DJ 真的切到了它"的情况：
+     * 预取期间 DJ 切到这首 → 它就变成当前要放的歌，绝不能因为"标记为预取"而不播。
+     */
+    const wasPrefetchTarget = prefetchingSongId.value === songId;
+    const someoneWaiting =
+      missingSongName.value === songId ||
+      trackName.value === songId ||
+      (pendingSyncRaw != null && pendingSyncRaw.songId === songId);
+    if (wasPrefetchTarget) prefetchingSongId.value = null;
+
     resetSongTransfer();
     lastChunkAt = 0;
     transferRetry = 0;
@@ -1144,6 +1211,14 @@ export const useMusicStore = defineStore("music", () => {
           void markP2pSong(songId, djName.value);
         }
         await requestPlaylist();
+        /*
+         * 纯预取：数据已备好，但这不是当前要放的歌 → 到此为止，**不播放**。
+         * 这一步的价值在于"切歌瞬间可播"：等 DJ 真切过来时文件已在本地，
+         * 走的是"本地已有"的快速路径，不需要再传一遍。
+         */
+        if (wasPrefetchTarget && !someoneWaiting) {
+          return;
+        }
         if (transferMode.value === "wait_all") {
           // wait_all：不立即播放，等待全员就绪（服务器广播 songs_ready → DJ 从头播放 → sync_state 驱动）
           waitingForSongs.value = true;
@@ -2101,6 +2176,41 @@ export const useMusicStore = defineStore("music", () => {
         if (!djPlaying && playing.value) await togglePlay();
       });
     }
+
+    // v4.12：状态应用完毕后，考虑预取下一首（放在最后，让当前歌的处理优先）
+    maybePrefetchNext(evt);
+  }
+
+  /**
+   * v4.12：预取下一首（听众侧）。
+   *
+   * 时序设计（用户拍板）：**只在"当前歌已就绪并在播"之后才启动预取**。
+   * 那一刻带宽本来就闲着，所以预取**不可能与当前歌竞争带宽** ——
+   * 这是用**时序**而不是**调度**消除竞争，因此不需要优先级/限速那一套机制。
+   *
+   * 触发条件全部满足才预取（任一不满足就安静跳过，不猜）：
+   *   ① 是同步听众（DJ 自己不需要预取，歌就在本地）
+   *   ② DJ 广播里带了 `next_song_id`（拿不到说明 DJ 也无法预知 → 不要瞎猜浪费带宽）
+   *   ③ 当前歌已在本地且在播（"当前歌传输完毕并开始播放"这个前提）
+   *   ④ 没有别的传输在跑（带宽让给当前歌）
+   *   ⑤ 下一首本地还没有
+   */
+  function maybePrefetchNext(evt: Record<string, unknown>): void {
+    if (!syncEnabled.value || isDj.value) return;
+    const next = typeof evt.next_song_id === "string" ? evt.next_song_id : "";
+    if (!next) return;
+    const cur = trackName.value;
+    if (!cur || next === cur) return;                       // 单曲循环：下一首就是当前歌
+    const curLocal = playlist.value.includes(cur) || localHasSongs.has(cur);
+    if (!curLocal || !playing.value) return;                // ③ 当前歌还没就绪/没在播
+    if (songTransfer.value.state !== "idle") return;        // ④ 有传输在跑
+    if (playlist.value.includes(next) || localHasSongs.has(next)) return;  // ⑤ 已有
+    if (prefetchingSongId.value === next) return;           // 已在预取它
+    prefetchingSongId.value = next;
+    console.info("[MusicStore] 预取下一首:", next);
+    // 复用正常传歌通道（P2P 优先、失败回退中转）；完成时由 finalizeTransfer
+    // 识别为"纯预取"而不播放
+    void startSongTransfer(next).catch(() => { prefetchingSongId.value = null; });
   }
 
   /** 处理 WS 推送的 music:* 事件（由 MusicPlayer.vue 监听 ws-event 转发） */

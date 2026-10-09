@@ -122,6 +122,9 @@ pub async fn music_sync_request_dj(
 /// 服务器需像 music:state 一样广播给房间全体（附加 timestamp_server）。
 /// v4.6.6：附 `dj_server_time`（DJ 对齐服务器时钟后发出的服务器时间戳），
 /// 听众端用它补偿"DJ 发出 → 收到"的完整传输延迟，对齐更准。
+/// v4.12：附 `next_song_id`（可选）—— 听众据此**提前预取下一首**，
+/// 切歌瞬间可播、不再出现"获取歌曲中 x%"。DJ 端由纯函数 `music_peek_next` 提供，
+/// 不推进播放历史；服务器只是原样透传（`dict(msg)`），无需改动。
 #[tauri::command]
 pub async fn music_sync_state(
     app: AppHandle,
@@ -132,6 +135,7 @@ pub async fn music_sync_state(
     volume: f64,
     transfer_mode: String,
     dj_server_time: Option<i64>,
+    next_song_id: Option<String>,
 ) -> Result<(), String> {
     let token = require_token(&state).await?;
     let mut params = serde_json::json!({
@@ -143,6 +147,10 @@ pub async fn music_sync_state(
     });
     if let Some(t) = dj_server_time {
         params["dj_server_time"] = serde_json::json!(t);
+    }
+    // 空串等同于"不知道下一首"，不要发出去（避免听众去预取一个空名字）
+    if let Some(n) = next_song_id.filter(|s| !s.is_empty()) {
+        params["next_song_id"] = serde_json::json!(n);
     }
     ws::send(&app, &state.ws, &token, "music:sync_state", params).await
 }

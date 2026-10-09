@@ -68,7 +68,7 @@ node transfer-test.mjs --scenario full-chain                    # 整条听众�
 | `p2p-1to1` | **WebRTC 直连**（媒体不经服务器）+ 完整性 + 与中转的速率对比；服务器是否透传 `p2p` 标志 |
 | `late-joiner` | **中途加入的听众**：A 先请求并开始下载，5 秒后 B 才请求 —— B 必须也能拿到完整文件（否则会缺前半段却收到"已完成"） |
 | `p2p-reverse` | **反向打洞**：下载端作 offerer、持有端在收到的 channel 上发数据；含并行多连接**分段映射**（`baseChunk`/`globalChunks`） |
-| `full-chain` | **整条听众链路**：`request_state` → 缺歌检测 → 下载 → 重对齐 → 位置推进 |
+| `full-chain` | **整条听众链路**：`request_state` → 缺歌检测 → 下载 → 重对齐 → 位置推进；并验证服务器**原样透传 `next_song_id`**（预取的前提） |
 | `listener-only` | **真实应用当 DJ** + 虚拟听众拉歌（见下节） |
 
 `waitall` 的三个对照组（传歌期间：不广播 / 循环内广播 / 独立广播）用于证明

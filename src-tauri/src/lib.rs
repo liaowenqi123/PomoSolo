@@ -178,6 +178,7 @@ pub fn run() {
             commands::music::music_toggle_play,
             commands::music::music_next,
             commands::music::music_prev,
+            commands::music::music_peek_next,
             commands::music::music_seek,
             commands::music::music_set_volume,
             commands::music::music_set_auto_next,

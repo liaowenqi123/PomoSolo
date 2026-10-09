@@ -5,6 +5,7 @@ import { setActivePinia, createPinia } from "pinia";
 const musicApi = vi.hoisted(() => ({
   musicTogglePlay: vi.fn(),
   musicNext: vi.fn(),
+  musicPeekNext: vi.fn(),
   musicPrev: vi.fn(),
   musicSeek: vi.fn(),
   musicSetVolume: vi.fn(),
@@ -540,7 +541,7 @@ describe("useMusicStore", () => {
       s.volume = 0.6;
       musicApi.musicTogglePlay.mockResolvedValue(undefined);
       await s.togglePlay();
-      vi.advanceTimersByTime(200);
+      await vi.advanceTimersByTimeAsync(200);
       expect(musicSyncApi.musicSyncState).toHaveBeenCalledWith({
         songId: "a.mp3",
         playing: false,
@@ -577,11 +578,11 @@ describe("useMusicStore", () => {
       s.trackName = "a.mp3";
       musicApi.musicNext.mockResolvedValue(undefined);
       await s.next();
-      vi.advanceTimersByTime(300);
+      await vi.advanceTimersByTimeAsync(300);
       expect(musicSyncApi.musicSyncState).toHaveBeenCalledTimes(1);
 
       await s.seek(120);
-      vi.advanceTimersByTime(300);
+      await vi.advanceTimersByTimeAsync(300);
       expect(musicSyncApi.musicSyncState).toHaveBeenCalledTimes(2);
 
       await s.setVolume(0.5);
@@ -591,7 +592,7 @@ describe("useMusicStore", () => {
       s.trackName = "old.mp3";
       musicApi.musicPlaySong.mockResolvedValue(undefined);
       await s.playSong("new.mp3");
-      vi.advanceTimersByTime(300);
+      await vi.advanceTimersByTimeAsync(300);
       expect(musicSyncApi.musicSyncState).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
@@ -1767,5 +1768,144 @@ describe("useMusicStore", () => {
     musicApi.musicMoveSongIfDefault.mockResolvedValue({ success: true, set: true });
     await s.markP2pSong("a.mp3", "CC");
     expect(musicApi.musicMoveSongIfDefault).toHaveBeenCalledWith("a.mp3", "CC传输");
+  });
+
+  // ===== v4.12 预取下一首 =====
+
+  describe("v4.12 预取下一首（DJ 广播 next_song_id + 听众提前取回）", () => {
+    it("DJ 广播带上 next_song_id（来自纯查询 musicPeekNext，不推进播放历史）", async () => {
+      const s = useMusicStore();
+      s.setSyncEnabled(true);
+      s.isDj = true;
+      s.trackName = "a.mp3";
+      musicApi.musicPeekNext.mockResolvedValue("b.mp3");
+      await s.broadcastSyncState();
+      expect(musicSyncApi.musicSyncState).toHaveBeenCalledWith(
+        expect.objectContaining({ songId: "a.mp3", nextSongId: "b.mp3" }),
+      );
+    });
+
+    it("peek 失败时仍照常广播状态，只是不带 next_song_id（不能让预取拖垮同步本身）", async () => {
+      const s = useMusicStore();
+      s.setSyncEnabled(true);
+      s.isDj = true;
+      s.trackName = "a.mp3";
+      musicApi.musicPeekNext.mockRejectedValue(new Error("peek boom"));
+      await s.broadcastSyncState();
+      expect(musicSyncApi.musicSyncState).toHaveBeenCalledTimes(1);
+      const arg = musicSyncApi.musicSyncState.mock.calls[0][0] as { nextSongId?: string };
+      expect(arg.nextSongId).toBeUndefined();
+    });
+
+    /** 造一个"当前歌已在本地并在播"的听众状态 */
+    function listenerPlayingCurrent(s: ReturnType<typeof useMusicStore>, cur: string, list: string[]) {
+      s.setSyncEnabled(true);
+      s.isDj = false;
+      s.djUserId = "dj-1";
+      s.handlePlaylist({ songs: list.map((n) => songObj(n, "", [], "")) });
+      s.trackName = cur;
+      s.playing = true;
+    }
+
+    it("听众收到带 next_song_id 的状态且当前歌已就绪在播 → 预取下一首", async () => {
+      const s = useMusicStore();
+      listenerPlayingCurrent(s, "cur.mp3", ["cur.mp3"]);
+      musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+      s.handleSyncWsEvent({
+        type: "music:sync_state", song_id: "cur.mp3", playing: true,
+        position_ms: 0, next_song_id: "next.mp3",
+      });
+      await vi.waitFor(() => {
+        expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("next.mp3", 0, true);
+      });
+    });
+
+    it("当前歌还没在播（带宽要让给当前歌）→ 不预取", () => {
+      const s = useMusicStore();
+      listenerPlayingCurrent(s, "cur.mp3", ["cur.mp3"]);
+      s.playing = false;
+      s.handleSyncWsEvent({
+        type: "music:sync_state", song_id: "cur.mp3", playing: false,
+        position_ms: 0, next_song_id: "next.mp3",
+      });
+      expect(musicSyncApi.musicSyncRequestSong).not.toHaveBeenCalled();
+    });
+
+    it("当前歌本地还没有（当前歌正需要带宽）→ 不预取", () => {
+      const s = useMusicStore();
+      listenerPlayingCurrent(s, "cur.mp3", []);   // 本地库为空 → 当前歌也缺
+      s.handleSyncWsEvent({
+        type: "music:sync_state", song_id: "cur.mp3", playing: true,
+        position_ms: 0, next_song_id: "next.mp3",
+      });
+      expect(musicSyncApi.musicSyncRequestSong).not.toHaveBeenCalled();
+    });
+
+    it("下一首本地已有 → 不重复预取（不浪费带宽）", () => {
+      const s = useMusicStore();
+      listenerPlayingCurrent(s, "cur.mp3", ["cur.mp3", "next.mp3"]);
+      s.handleSyncWsEvent({
+        type: "music:sync_state", song_id: "cur.mp3", playing: true,
+        position_ms: 0, next_song_id: "next.mp3",
+      });
+      expect(musicSyncApi.musicSyncRequestSong).not.toHaveBeenCalled();
+    });
+
+    it("单曲循环（下一首就是当前歌）→ 不预取", () => {
+      const s = useMusicStore();
+      listenerPlayingCurrent(s, "cur.mp3", ["cur.mp3"]);
+      s.handleSyncWsEvent({
+        type: "music:sync_state", song_id: "cur.mp3", playing: true,
+        position_ms: 0, next_song_id: "cur.mp3",
+      });
+      expect(musicSyncApi.musicSyncRequestSong).not.toHaveBeenCalled();
+    });
+
+    it("DJ 没给 next_song_id → 不猜（宁可不动也不要瞎预取）", () => {
+      const s = useMusicStore();
+      listenerPlayingCurrent(s, "cur.mp3", ["cur.mp3"]);
+      s.handleSyncWsEvent({
+        type: "music:sync_state", song_id: "cur.mp3", playing: true, position_ms: 0,
+      });
+      expect(musicSyncApi.musicSyncRequestSong).not.toHaveBeenCalled();
+    });
+
+    it("DJ 自己不需要预取（歌就在本地）", () => {
+      const s = useMusicStore();
+      listenerPlayingCurrent(s, "cur.mp3", ["cur.mp3"]);
+      s.isDj = true;
+      s.handleSyncWsEvent({
+        type: "music:sync_state", song_id: "cur.mp3", playing: true,
+        position_ms: 0, next_song_id: "next.mp3",
+      });
+      expect(musicSyncApi.musicSyncRequestSong).not.toHaveBeenCalled();
+    });
+
+    it("★ 预取完成不播放：finalize 后不得切歌（它只是备好，不是当前要放的歌）", async () => {
+      const s = useMusicStore();
+      listenerPlayingCurrent(s, "cur.mp3", ["cur.mp3"]);
+      musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+      musicApi.musicFinalizeSong.mockResolvedValue({ success: true });
+      musicApi.musicGetPlaylist.mockResolvedValue({ songs: [songObj("cur.mp3", "", [], "")] });
+
+      // 发起预取
+      s.handleSyncWsEvent({
+        type: "music:sync_state", song_id: "cur.mp3", playing: true,
+        position_ms: 0, next_song_id: "next.mp3",
+      });
+      await vi.waitFor(() => {
+        expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("next.mp3", 0, true);
+      });
+
+      // 预取传输完成（走真实 WS 事件路径：music:transfer_done → handleTransferDone → finalizeTransfer）
+      s.handleSyncWsEvent({ type: "music:transfer_done", song_id: "next.mp3", total_chunks: 10 });
+      await vi.waitFor(() => {
+        expect(musicApi.musicFinalizeSong).toHaveBeenCalledWith("next.mp3", 10);
+      });
+
+      expect(musicApi.musicPlaySong).not.toHaveBeenCalled();
+      expect(musicApi.musicPlaySongAt).not.toHaveBeenCalled();
+      // 但文件确实被合并落盘了（预取的目的就是"备好"）
+    });
   });
 });

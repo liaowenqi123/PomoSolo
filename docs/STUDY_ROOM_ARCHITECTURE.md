@@ -438,7 +438,7 @@ DJ 本机；`get_next_song` 按 `active_list` 取模/随机决定下一首，**�
 > 听众端收到它只做 `requestPlaylist()` —— 重新读**自己本地**的歌单，
 > 语义是"你的本地库变了，重读一下"，不是"DJ 的歌单是这样"。
 
-### 6. 待设计：同步队列 + 预取（"分支预测"）
+### 6. 预取下一首（v4.12 已实现）—— 曾为"待设计"
 
 **设计决定（已拍板，未实施）**：
 
@@ -459,6 +459,37 @@ DJ 本机；`get_next_song` 按 `active_list` 取模/随机决定下一首，**�
 所以预取不仅是"来得及"，在 P2P 可用时几乎瞬间完成；
 只有 P2P 打不通（对称 NAT 等）时才回退中转。
 这也意味着**预取不该占用服务器那 2 Mbps** —— 那是当前歌下载的救命带宽。
+
+**实现（v4.12，已上线客户端）**：
+
+| 层 | 改动 |
+|---|---|
+| **Rust** | ① 新增**纯函数** `peek_next_song()`（不改动 `play_history`/`history_index`/`current_song_index`）；② 新增 `pre_rolled_next` + `ensure_pre_roll()`：**当前歌一开始播就把下一首摇好**；③ `get_next_song` 优先用预摇结果；④ 新命令 `music_peek_next` |
+| **TS** | DJ 广播 `sync_state` 时附 `next_song_id`；听众在 `applySyncState` 末尾调用 `maybePrefetchNext()` |
+| **服务器** | **无需改动** —— `handle_music_sync_state` 是 `data = dict(msg)` 原样广播，实测确认透传 |
+| **测试工具** | 虚拟客户端支持 `next_song_id`；`full-chain` ⑦ 断言服务器透传 |
+
+**★ 为什么必须新增纯函数，不能复用 `get_next_song` 偷看**：
+`get_next_song` 即使 `auto_play=false` 也会 `play_history.push(...)` + 改写
+`history_index`/`current_song_index` → **"上一首"会重播当前歌**（历史被污染）。
+这条已用 Rust 单测钉死（`test_peek_next_song_is_pure_and_does_not_touch_history`）。
+
+**★ 为什么 Shuffle 要改成"预摇"**：原来"下一首"是**切换那一刻**才随机摇出来的，
+谁都提前不知道 → 预取根本无从下手。预摇把随机决策提前到"当前歌开始播"，
+对用户**完全不可感知**，但 peek 与实际播放**必然一致**（`test_shuffle_pre_roll_makes_peek_exact`）。
+
+**听众侧的触发条件**（全满足才预取，任一不满足就安静跳过，**不猜**）：
+是同步听众 → DJ 带了 `next_song_id` → 当前歌已在本地**且在播** →
+没有别的传输在跑 → 下一首本地还没有。
+
+**★ 一个容易搞错的地方**：预取完成的歌**不能被当作"要播的歌"**（它只是备好），
+但若期间 DJ 真的切到了它，就必须正常播放 —— 判据是
+`missingSongName`/`trackName`/`pendingSyncRaw` 是否指向它（见 `finalizeTransfer` 的 `someoneWaiting`）。
+
+**★ 一个性能取舍**：`music_peek_next` 是 IPC、Rust 侧要**抢播放器锁**，而
+`broadcastSyncState` 每次播放/暂停/seek 都会跑。所以"下一首"用**缓存**：
+只在缓存与当前歌不一致时（= 刚切歌）等一次刷新，其余广播同步读取 ——
+**每首歌只多一次 peek**，不给常规广播增加取锁开销。
 
 **先分清两个容易混的概念**：
 
