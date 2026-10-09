@@ -206,6 +206,21 @@ ssh ubuntu-tencent            # 别名在 ~/.ssh/config；等价 ubuntu@115.159.
 >
 > 服务器细节（部署目录、容器名、数据库连法、域名）见 **`.local/SERVER.md`**。
 
+**测服务器侧行为（不用开客户端）**：传歌链路横跨「DJ 读分片 → 服务器转发 →
+听众重组」，手工验证要开两个客户端 + 建房间 + 请求 DJ，成本极高且不可重复。
+现有一套虚拟客户端工具，说**真协议**（字段逐条对照
+`src-tauri/src/commands/music_sync.rs`）打**真服务器**：
+
+```bash
+cd scripts/p2p-test && npm install
+node transfer-test.mjs --scenario all                        # 中转/扇出/续传/wait_all + SHA-256 校验
+node transfer-test.mjs --scenario listener-only --room <id>  # 真实应用当 DJ，虚拟听众拉歌
+```
+
+实测基线（中转 ≈0.28 MB/s、瓶颈在中转而非客户端、多听众未去重等）与已知限制见
+[`scripts/p2p-test/README.md`](./scripts/p2p-test/README.md) 与
+[`docs/STUDY_ROOM_ARCHITECTURE.md`](./docs/STUDY_ROOM_ARCHITECTURE.md) §7。
+
 ### 3.4 🤖 安卓端（**独立仓库**）
 
 **代码不在本仓库**：`https://github.com/liaowenqi123/PomoSolo-Android`
@@ -421,6 +436,7 @@ git push origin main && git push self main
 | **验证点击真的能用** | `npm run ui:drive -- --recipe desktop-quick`（真实窗口 + UIA 点击 + 校验） |
 | 查真实点击热区 | `npm run ui:drive -- --recipe desktop-plain`（看终端的热区审计） |
 | 查手机端 | `npm run ui:android`（先开模拟器） |
+| **测多客户端传歌**（不开客户端） | `cd scripts/p2p-test && npm install && node transfer-test.mjs --scenario all` |
 | 改样式 | 改 `src/styles/global.css` token 或组件 scoped 样式 → 截图核对 |
 | 加一个 Tauri 命令 | 见 §3.1 四步（**别忘了 `lib.rs` 注册**） |
 | 改服务器接口 | 改 `server-planning/EXTERNAL-INTERFACES.md` + 留言区，然后通知服务器部门 |

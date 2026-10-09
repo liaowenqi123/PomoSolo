@@ -3,10 +3,12 @@
   "private": true,
   "type": "module",
   "version": "0.1.0",
-  "description": "PomoSolo Phase0 P2P（WebRTC DataChannel）双端打洞实测：经真实服务器 WS 信令牵线，NAT 打洞后直连传文件并测速率",
+  "description": "PomoSolo P2P 实测工具集：① 传输层（WebRTC 打洞 + DataChannel 直连 + 速率）② 应用层多客户端传歌（真协议、真服务器、免启动多个客户端）",
   "scripts": {
     "auth": "node auth.js",
     "peer": "node peer.js",
+    "transfer": "node transfer-test.mjs --scenario all",
+    "transfer:fanout": "node transfer-test.mjs --scenario relay-fanout",
     "run:local": "node run.js --mode local",
     "run:docker": "node run.js --mode docker"
   },
