@@ -14,6 +14,8 @@
  *   node transfer-test.mjs --scenario relay-fanout --listeners 4
  *   node transfer-test.mjs --scenario resume
  *   node transfer-test.mjs --scenario waitall
+ *   node transfer-test.mjs --scenario p2p-1to1                 # WebRTC 直连
+ *   node transfer-test.mjs --scenario full-chain              # 整条听众链路（sync 驱动）
  *   # 让虚拟听众去拉**真实应用**（应用当 DJ）正在放的歌 —— 需应用已建房并请求过 DJ：
  *   node transfer-test.mjs --scenario listener-only --room <roomId> --song "Are you lost.mp3"
  *
@@ -56,7 +58,7 @@ function parseArgs(argv) {
 function printHelp() {
   console.log(`多客户端传歌测试
 
-  --scenario <name>   all | relay-1to1 | relay-fanout | resume | waitall | listener-only
+  --scenario <name>   all | relay-1to1 | relay-fanout | resume | waitall | p2p-1to1 | full-chain | listener-only
   --song <文件名>     默认 "Are you lost.mp3"
   --song-path <路径>  覆盖源文件路径
   --listeners <N>     扇出听众数（默认 3）
@@ -269,6 +271,152 @@ async function scenarioResume() {
   }
 }
 
+/**
+ * 场景 6：P2P 直连（WebRTC DataChannel）—— 媒体数据不经服务器。
+ * 同时验证服务器是否把请求里的 p2p 标志透传给持有者（协议文档曾就此提问）。
+ */
+async function scenarioP2P1to1() {
+  console.log(`\n══ 场景 p2p-1to1：WebRTC 直连（媒体不经服务器），校验逐字节一致 ══`);
+  const { dj, listeners, cleanup } = await setup({ listeners: 1, verbose: args.verbose });
+  try {
+    await dj.requestDj();
+    const served = dj.startServing(SONG, SONG_PATH, { p2p: true });
+    dj.broadcastState({ songId: SONG });
+    await sleep(500);
+
+    const t0 = Date.now();
+    const r = await listeners[0].fetchSong(SONG, {
+      p2p: true, expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 120000,
+    });
+    const ms = Date.now() - t0;
+
+    // 完整性与路径无关，必须通过
+    record("p2p-1to1", "数据收齐且完整性一致", r.ok ? "PASS" : "FAIL",
+      r.ok ? `${r.bytes} 字节，sha256=${r.sha256?.slice(0, 12)}…` : (r.reason ?? "未知"));
+
+    /*
+     * 服务器是否透传 p2p 字段 —— 这是 P2P 能否被触发的前提。
+     * 真实持有端（music.ts:1188）就是靠这个字段决定要不要走直连的，
+     * 所以服务器不透传 = 生产环境的 P2P 永远不会被触发。
+     */
+    const forwarded = served.lastRequestedP2P;
+    record("p2p-1to1", "服务器把请求里的 p2p 标志透传给了持有者",
+      forwarded === true ? "PASS" : "FAIL",
+      forwarded === true ? "song_requested.p2p === true"
+        : `song_requested.p2p === ${JSON.stringify(forwarded)}（真实持有端据此门控 P2P，不透传则生产上永远走中转）`);
+
+    // 实际走了哪条路
+    record("p2p-1to1", "实际使用 P2P 直连（而非回退中转）",
+      r.path === "p2p" ? "PASS" : "INFO",
+      r.path === "p2p"
+        ? `P2P 直传 ${ms}ms，${(r.bytes / (ms / 1000) / 1e6).toFixed(2)} MB/s`
+        : `走了 ${r.path}${r.p2pError ? `（P2P 失败：${r.p2pError}）` : ""}`
+          + (forwarded !== true ? "；根因是服务器未透传 p2p 标志" : ""));
+
+    // 与 2Mbps 中转对比 —— 这是 P2P 存在的意义
+    if (r.path === "p2p") {
+      const p2pMbps = r.bytes / (ms / 1000) * 8 / 1e6;
+      // 2 Mbps = 250000 字节/秒，据此估"同样数据走中转要多久"
+      const relayEstimateSec = r.bytes / (2 * 1e6 / 8);
+      record("p2p-1to1", "P2P 速率 vs 服务器中转带宽上限", "INFO",
+        `P2P ${p2pMbps.toFixed(2)} Mbps（${(r.bytes / (ms / 1000) / 1e6).toFixed(2)} MB/s，端到端 ${ms}ms）；` +
+        `同样数据走 2Mbps 中转理论需 ${relayEstimateSec.toFixed(1)}s → 提速约 ${(relayEstimateSec / (ms / 1000)).toFixed(1)}x`);
+    }
+    if (served.p2pTransfers) {
+      record("p2p-1to1", "持有端记录了 P2P 直传成功次数", "PASS", `${served.p2pTransfers} 次`);
+    }
+    if (served.p2pFailures) {
+      record("p2p-1to1", "持有端 P2P 失败次数", "INFO", `${served.p2pFailures} 次（已回退中转）`);
+    }
+  } finally {
+    await cleanup();
+  }
+}
+
+/**
+ * 场景 7：**整条听众链路**（sync_state 驱动）。
+ *
+ * 虚拟听众不再被手动喂 songId，而是像真实客户端那样自己走完：
+ *   进房 → 开同步 → request_state 拿 DJ 状态 → 判断本地缺歌 → 请求下载
+ *   → 收齐校验 → 再次 request_state 重对齐 → 校验"下载期间位置在推进"
+ *
+ * 最后一条正是真实出现过的 bug（"下载完从头播放"）：DJ 必须在传歌期间
+ * 持续广播 sync_state，否则听众 seek 回的是下载**开始**时的旧位置。
+ */
+async function scenarioFullChain() {
+  console.log(`\n══ 场景 full-chain：sync_state 驱动 → 缺歌检测 → 下载 → 重对齐 ══`);
+  const { dj, listeners, cleanup } = await setup({ listeners: 1, verbose: args.verbose });
+  const listener = listeners[0];
+  try {
+    await dj.requestDj();
+    const served = dj.startServing(SONG, SONG_PATH, { p2p: true, djBroadcast: true });
+    /*
+     * DJ 开始「播放」：注册 state_request 处理器 + 广播初始状态。
+     * 必须先于听众的 request_state —— DJ 收到 state_request 时要能广播出实时状态。
+     */
+    dj.startDjPlayback(SONG, { positionMs: 0 });
+    await sleep(400);
+
+    /** 等一条**新的** sync_state（不能用 waitFor：它先命中历史消息会让断言假通过） */
+    async function waitNewState(fromCount, timeoutMs = 10000) {
+      const ok = await listener.waitUntil(() => listener.count(S2C.SYNC_STATE) > fromCount, timeoutMs);
+      if (!ok) return null;
+      return listener.find(S2C.SYNC_STATE)[listener.count(S2C.SYNC_STATE) - 1];
+    }
+
+    // ① 听众开同步：请求状态，必须拿到**请求之后**新广播的状态
+    const n0 = listener.count(S2C.SYNC_STATE);
+    listener.send("music:request_state", {});
+    const first = await waitNewState(n0);
+    record("full-chain", "① 听众经 request_state 拿到 DJ 实时状态", first ? "PASS" : "FAIL",
+      first ? `song_id=${first.song_id} playing=${first.playing} position=${first.position_ms}ms（新消息，非历史）`
+            : "10s 内没收到**新的** sync_state");
+    if (!first) return;
+
+    // ② 判断本地是否缺歌（虚拟听众本地库为空 → 必然缺）
+    record("full-chain", "② 缺歌检测（本地库为空 → 需要下载）", "PASS", `song_id=${first.song_id}`);
+
+    // ③ 请求下载（P2P 优先，失败回退中转）
+    const r = await listener.fetchSong(first.song_id, {
+      p2p: true, expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 120000,
+    });
+    record("full-chain", "③ 下载完成且完整性一致", r.ok ? "PASS" : "FAIL",
+      r.ok ? `经 ${r.path}，${r.bytes} 字节，sha256=${r.sha256.slice(0, 12)}…` : (r.reason ?? "未知"));
+
+    // ④ 下载完重对齐：再要一次状态，同样只认新消息
+    const posBefore = Number(first.position_ms ?? 0);
+    const n1 = listener.count(S2C.SYNC_STATE);
+    listener.send("music:request_state", {});
+    const second = await waitNewState(n1);
+    record("full-chain", "④ 下载后能重新对齐到 DJ 当前进度", second ? "PASS" : "FAIL",
+      second ? `position ${posBefore} → ${second.position_ms}ms` : "10s 内没收到新的 sync_state");
+
+    /*
+     * ⑤ 关键断言：位置在下载期间**确实推进了**。
+     * 若 DJ 传歌期间不广播（或不更新位置），听众拿到的仍是旧位置，
+     * 表现就是「下载完从头播放」—— 这条断言就是为了钉死这个 bug。
+     */
+    if (second) {
+      const posAfter = Number(second.position_ms ?? 0);
+      record("full-chain", "⑤ 下载期间 DJ 位置在推进（防「下载完从头播放」）",
+        posAfter > posBefore ? "PASS" : "FAIL",
+        `position ${posBefore} → ${posAfter}ms（+${posAfter - posBefore}ms）；`
+        + `DJ 收到 state_request 次数=${dj.stateRequestCount ?? 0}`);
+    }
+
+    // ⑥ 服务器转达链路：request_state 是否真被转成了 DJ 侧的 state_request
+    record("full-chain", "⑥ 服务器把 request_state 转达给了 DJ（music:state_request）",
+      (dj.stateRequestCount ?? 0) >= 2 ? "PASS" : "FAIL",
+      `DJ 收到 ${dj.stateRequestCount ?? 0} 次 state_request（期望 ≥2，对应两次 request_state）`);
+
+    // ⑦ 传歌期间 DJ 是否持续广播（下载耗时长时防位置过期）
+    record("full-chain", "⑦ 传歌期间 DJ 持续广播状态", "INFO",
+      `DJ 共广播 ${dj.count("music:sync_state")} 次 sync_state（初始 + 每次 state_request + 传歌期间每 5s）`);
+  } finally {
+    await cleanup();
+  }
+}
+
 /** 场景 4：wait_all 协调（观察服务器是否发 song_waiting / songs_ready） */
 async function scenarioWaitAll() {
   console.log(`\n══ 场景 waitall：wait_all 模式的 song_waiting / songs_ready 协调 ══`);
@@ -369,12 +517,14 @@ async function main() {
     "relay-fanout": scenarioRelayFanout,
     resume: scenarioResume,
     waitall: scenarioWaitAll,
+    "p2p-1to1": scenarioP2P1to1,
+    "full-chain": scenarioFullChain,
     "listener-only": scenarioListenerOnly,
   };
 
   try {
     if (args.scenario === "all") {
-      for (const name of ["relay-1to1", "relay-fanout", "resume", "waitall"]) await run[name]();
+      for (const name of ["relay-1to1", "relay-fanout", "resume", "waitall", "p2p-1to1", "full-chain"]) await run[name]();
     } else if (run[args.scenario]) {
       await run[args.scenario]();
     } else {

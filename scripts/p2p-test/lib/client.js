@@ -13,6 +13,7 @@
 import WebSocket from "ws";
 import { ensureUser } from "../auth.js";
 import { C2S, S2C, RELAY_CHUNK_SIZE, envelope, chunkFile, assembleChunks, sha256 } from "./protocol.js";
+import { P2PSender, P2PReceiver, WERIFT_SAFE_CHUNK_SIZE } from "./p2p.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -40,6 +41,12 @@ export class VirtualClient {
     this.rooms = new Set();
     /** 正在服务的歌曲：song_id -> { chunks, totalChunks, chunkSize, size, sha256, servedTo:Set } */
     this.serving = new Map();
+    /** 活跃的 P2P 发送方（持有者侧）：按 peerId:tag 路由回信令 */
+    this._senders = [];
+    /** 活跃的 P2P 接收方（听众侧） */
+    this._receivers = [];
+    /** 最近一次 P2P 结果（场景断言用） */
+    this.p2pStats = null;
     this.closed = false;
   }
 
@@ -74,6 +81,10 @@ export class VirtualClient {
         if (msg.id && this.pending.has(msg.id)) {
           this.pending.get(msg.id)(msg);
           this.pending.delete(msg.id);
+        }
+        // P2P 信令：路由给活跃的发送方/接收方（对照 src/p2p.ts 的 handlePeerSignal）
+        if (typeof msg.type === "string" && msg.type.startsWith("peer:")) {
+          void this._routeP2PSignal(msg);
         }
         this.emit(msg.type, msg);
       });
@@ -147,6 +158,69 @@ export class VirtualClient {
     return false;
   }
 
+  // ── P2P 信令路由与发送/接收 ─────────────────────────────────────────
+
+  /**
+   * 把 peer:* 信令分发给活跃的 P2P 连接。
+   * 对照 src/p2p.ts 的 handlePeerSignal：offer 建应答连接、answer/ice 路由到活跃连接。
+   * 同一对端可能有多条连接（反向打洞），这里按 tag 区分。
+   */
+  async _routeP2PSignal(msg) {
+    const from = msg.from_user_id;
+    const tag = msg.tag ?? "";
+    if (msg.type === "peer:offer") {
+      // 找一个正在等这条传输的接收方（不按 tag 严格匹配：虚拟端通常只等一条）
+      const rx = this._receivers.find((r) => !r.pc && (r.expectFrom == null || r.expectFrom === from));
+      if (!rx) { this.log(`收到 peer:offer（from=${from}）但没有等待中的接收方，忽略`); return; }
+      rx.expectFrom = from;
+      try { await rx.handleOffer(msg); } catch (e) { this.warn("应答 peer:offer 失败", e.message); }
+      return;
+    }
+    // answer / ice / bye：发给匹配的发送方与接收方
+    for (const s of this._senders) {
+      if (s.peerId === from && (s.tag ?? "") === tag) await s.handleSignal(msg).catch(() => {});
+    }
+    for (const r of this._receivers) {
+      if (r.pc && (r.expectFrom == null || r.expectFrom === from)) await r.handleSignal(msg).catch(() => {});
+    }
+  }
+
+  /** 持有者侧：把一首歌经 P2P 直传给某个请求者 */
+  async _serveViaP2P(songId, state, requesterId, tag = "") {
+    const sender = new P2PSender({
+      peerId: requesterId,
+      tag,
+      // P2P 用更小的分片（werift 消息上限 64KB），不是中转用的 128KB
+      chunks: state.p2pInfo.chunks,
+      chunkSize: state.p2pInfo.chunkSize,
+      size: state.size,
+      signal: (type, to, payload) => this.send(type, { to_user_id: to, ...payload }),
+      onDiagnose: (s) => this.log(`[p2p 发送] ${s}`),
+    });
+    this._senders.push(sender);
+    try {
+      const stats = await sender.run();
+      state.p2pTransfers = (state.p2pTransfers ?? 0) + 1;
+      state.lastP2PStats = stats;
+      this.p2pStats = stats;
+      this.log(`P2P 直传完成：${stats.bytes} 字节 / ${stats.sendMs}ms / ${(stats.speedBps / 1e6).toFixed(2)} Mbps`);
+      return stats;
+    } finally {
+      this._senders = this._senders.filter((x) => x !== sender);
+    }
+  }
+
+  /** 听众侧：准备接收一次 P2P 传输 */
+  prepareP2PReceive(timeoutMs = 30000) {
+    const rx = new P2PReceiver({
+      signal: (type, to, payload) => this.send(type, { to_user_id: to, ...payload }),
+      timeoutMs,
+      onDiagnose: (s) => this.log(`[p2p 接收] ${s}`),
+    });
+    this._receivers.push(rx);
+    return rx;
+  }
+
   // ── 房间与 DJ ──────────────────────────────────────────────────────
 
   /** 建房 → 返回 roomId（拿不到就抛，避免后续用 undefined 静默失败） */
@@ -195,13 +269,24 @@ export class VirtualClient {
    *
    * @param {string} songId  歌曲文件名（= playlist 里的名字）
    * @param {string} filePath 本地文件路径
-   * @param {{ throttleMs?: number, failOnRequest?: (msg)=>boolean }} opts
+   * @param {{ throttleMs?: number, failOnRequest?: (msg)=>boolean,
+   *           p2p?: boolean, p2pChunkSize?: number, djBroadcast?: boolean }} opts
    */
   startServing(songId, filePath, opts = {}) {
     const info = chunkFile(filePath, opts.chunkSize ?? RELAY_CHUNK_SIZE);
-    const state = { ...info, filePath, servedTo: new Set(), transfers: 0 };
+    /*
+     * P2P 单独用一套更小的分片：werift 单条 DataChannel 消息上限 64KB 且不会自动分片
+     * （浏览器会自动分片，所以生产端 128KB 没问题）。分片大小经 meta 告知对端，
+     * 因此换大小不影响互通 —— 与真实应用对传也成立。
+     */
+    const p2pChunkSize = opts.p2pChunkSize ?? WERIFT_SAFE_CHUNK_SIZE;
+    const p2pInfo = p2pChunkSize === info.chunkSize ? info : chunkFile(filePath, p2pChunkSize);
+    const state = { ...info, filePath, p2pInfo, servedTo: new Set(), transfers: 0, p2pTransfers: 0 };
     this.serving.set(songId, state);
-    this.log(`开始持有「${songId}」：${info.size} 字节 / ${info.totalChunks} 片，sha256=${info.sha256.slice(0, 12)}…`);
+    this.log(`开始持有「${songId}」：${info.size} 字节；中转 ${info.totalChunks} 片(128KB) / ` +
+      `P2P ${p2pInfo.totalChunks} 片(${p2pChunkSize / 1024}KB)，sha256=${info.sha256.slice(0, 12)}…`);
+    /** 并发守卫：与真实持有端一致（music.ts 的 activeTransfers），按「歌+请求者」去重 */
+    const activeTransfers = new Set();
 
     this.on(S2C.SONG_REQUESTED, async (msg) => {
       if (msg.song_id !== songId) return;
@@ -210,12 +295,89 @@ export class VirtualClient {
         this.send(C2S.TRANSFER_FAILED, { song_id: songId });
         return;
       }
-      state.servedTo.add(msg.requester_user_id);
-      state.transfers++;
-      this.log(`收到请求（第 ${state.transfers} 次），开始回传 → ${msg.requester_user_id}`);
-      await this._streamChunks(songId, state, msg.from_chunk ?? 0, opts.throttleMs ?? 0);
+      const requester = msg.requester_user_id;
+      const transferKey = `${songId}|${requester}`;
+      if (activeTransfers.has(transferKey)) return;   // 同一请求者重复请求只开一个循环
+      activeTransfers.add(transferKey);
+
+      /*
+       * 传歌期间每 5s 广播一次 sync_state —— 与真实持有端一致（music.ts:1182）。
+       * 不做这件事会引发真实出现过的 bug：听众下载可能耗时很久，期间位置不再更新，
+       * 下载完 seek 回的是**下载开始时**的旧位置，表现为"下载完从头播放"。
+       * 只有 opts.djBroadcast 打开时才做（场景自己决定是否模拟 DJ 播放）。
+       */
+      const progressSync = opts.djBroadcast
+        ? setInterval(() => void this._broadcastCurrentState(), 5000)
+        : null;
+
+      try {
+        state.servedTo.add(requester);
+        state.transfers++;
+
+        /*
+         * 路径选择 —— 逐条对齐 music.ts:1185-1192：
+         *   `if (evt.p2p && requesterId && fromChunk === 0)` → 先试 P2P 直传（媒体不经服务器）；
+         *   失败（建连超时/读片失败）自动回退服务器中转。
+         * 注意门控用的是**服务器透传过来的** p2p 字段，不是请求者本地意愿。
+         */
+        const fromChunk = Number(msg.from_chunk ?? 0);
+        const wantsP2P = msg.p2p === true && opts.p2p !== false && fromChunk === 0;
+        state.lastRequestedP2P = msg.p2p;
+        if (wantsP2P) {
+          this.log(`收到请求（第 ${state.transfers} 次，带 p2p 标志），尝试 P2P 直传 → ${requester}`);
+          try {
+            await this._serveViaP2P(songId, state, requester, msg.tag ?? "");
+            return;
+          } catch (e) {
+            this.warn(`P2P 失败（${e.message}），回退服务器中转`);
+            state.p2pFailures = (state.p2pFailures ?? 0) + 1;
+          }
+        } else {
+          const why = msg.p2p !== true
+            ? (msg.p2p === undefined ? "，服务器未透传 p2p 字段" : "，请求方未请求 P2P")
+            : "，续传（from_chunk>0）不走 P2P";
+          this.log(`收到请求（第 ${state.transfers} 次${why}），走服务器中转`);
+        }
+        await this._streamChunks(songId, state, fromChunk, opts.throttleMs ?? 0);
+      } finally {
+        if (progressSync) clearInterval(progressSync);
+        activeTransfers.delete(transferKey);
+      }
     });
     return state;
+  }
+
+  // ── DJ 侧：模拟播放时钟（供 full-chain 场景验证"下载完重对齐"）────────
+
+  /** 开始"播放"：记录虚拟播放时钟，并广播一次状态 */
+  startDjPlayback(songId, { positionMs = 0, playing = true, volume = 80 } = {}) {
+    this._playback = { songId, startedAt: Date.now(), basePositionMs: positionMs, playing, volume };
+    this.broadcastState({ songId, playing, positionMs: this._currentPositionMs(), volume });
+    /*
+     * 服务器收到听众的 music:request_state 时会向 DJ 单发 music:state_request，
+     * DJ 收到后应**立即广播一次实时 sync_state**（protocol 文档 §395-396）。
+     * 挂上这个处理既模拟真实 DJ，又顺带验证了服务器这条转达链路是否真的通。
+     */
+    this.on(S2C.STATE_REQUEST, () => {
+      this.log("收到 music:state_request（服务器转达听众要状态）→ 立即广播实时 state");
+      this.stateRequestCount = (this.stateRequestCount ?? 0) + 1;
+      void this._broadcastCurrentState();
+    });
+  }
+
+  _currentPositionMs() {
+    const p = this._playback;
+    if (!p) return 0;
+    return p.playing ? p.basePositionMs + (Date.now() - p.startedAt) : p.basePositionMs;
+  }
+
+  _broadcastCurrentState() {
+    const p = this._playback;
+    if (!p) return;
+    this.broadcastState({
+      songId: p.songId, playing: p.playing,
+      positionMs: this._currentPositionMs(), volume: p.volume,
+    });
   }
 
   async _streamChunks(songId, state, fromChunk = 0, throttleMs = 0) {
@@ -258,14 +420,67 @@ export class VirtualClient {
 
     this._firstChunkMs = null;
     const requestAt = Date.now();
+
+    /*
+     * P2P 优先 + 自动回退中转 —— 与真实客户端一致的行为。
+     *
+     * 真实链路（src/stores/music.ts）：请求带 p2p=true → 服务器挑持有者 →
+     * 持有者优先 P2P 直传，失败自动回退服务器中转（music:offer_song 分片）。
+     * 所以这里同时挂上"接收 P2P"和"等中转 transfer_done"两条路，谁先成就用谁；
+     * 只测 P2P 而不测回退，就漏掉了最关键的降级路径。
+     */
+    let rx = null;
+    if (opts.p2p && fromChunk === 0) rx = this.prepareP2PReceive(timeoutMs);
+
     this.send(C2S.REQUEST_SONG, {
       song_id: songId,
       ...(fromChunk > 0 ? { from_chunk: fromChunk } : {}),
       ...(opts.p2p ? { p2p: true } : {}),
     });
 
-    // 等 transfer_done 或超时
-    const done = await this.waitFor(S2C.TRANSFER_DONE, (m) => m.song_id === songId, timeoutMs);
+    const relayPromise = this.waitFor(S2C.TRANSFER_DONE, (m) => m.song_id === songId, timeoutMs);
+
+    let usedPath = "relay";
+    let p2pBuf = null;
+    let p2pError = null;
+    let p2pMs = null;
+    let done = null;
+
+    if (rx) {
+      const p2pStart = Date.now();
+      const outcome = await Promise.race([
+        rx.wait().then((b) => ({ src: "p2p", buf: b })).catch((e) => ({ src: "p2p-failed", error: e.message })),
+        relayPromise.then((d) => ({ src: "relay", done: d })),
+      ]);
+      if (outcome.src === "p2p") {
+        usedPath = "p2p";
+        p2pBuf = outcome.buf;
+        p2pMs = Date.now() - p2pStart;
+      } else if (outcome.src === "p2p-failed") {
+        // P2P 失败 → 持有者会回退中转，继续等中转完成
+        p2pError = outcome.error;
+        usedPath = "relay-fallback";
+        done = await relayPromise;
+      } else {
+        usedPath = "relay";
+        done = outcome.done;
+      }
+    } else {
+      done = await relayPromise;
+    }
+
+    // P2P 成功：直接用它重组（不经过服务器中转）
+    if (usedPath === "p2p" && p2pBuf) {
+      const gotSha = sha256(p2pBuf.buf);
+      const ok = opts.expectedSha256 ? gotSha === opts.expectedSha256 : true;
+      return {
+        ok, path: "p2p", viaP2P: true,
+        chunks: p2pBuf.chunks, expectedTotal: p2pBuf.chunks, bytes: p2pBuf.buf.length, sha256: gotSha,
+        timing: { totalMs: p2pMs, firstChunkMs: null },
+        reason: ok ? null : `sha256 不符：${gotSha.slice(0, 12)}… ≠ ${opts.expectedSha256?.slice(0, 12)}…`,
+      };
+    }
+
     const doneAt = Date.now();
     const all = this.find(S2C.SONG_CHUNK, (m) => m.song_id === songId);
     const chunks = all.slice(base);
@@ -283,6 +498,7 @@ export class VirtualClient {
     if (fromChunk > 0) {
       return {
         ok: !!done && chunks.length === expectedTotal - fromChunk,
+        path: usedPath, viaP2P: false, p2pError,
         chunks: chunks.length, expectedTotal, fromChunk,
         gotDone: !!done, timing,
         sha256: null, bytes: chunks.reduce((n, c) => n + Buffer.from(c.data_base64, "base64").length, 0),
@@ -290,19 +506,26 @@ export class VirtualClient {
     }
 
     if (!expectedTotal || chunks.length !== expectedTotal) {
-      return { ok: false, reason: `分片不全：${chunks.length}/${expectedTotal || "?"}`, chunks: chunks.length, expectedTotal, gotDone: !!done, timing };
+      return {
+        ok: false, path: usedPath, viaP2P: false, p2pError,
+        reason: `分片不全：${chunks.length}/${expectedTotal || "?"}${p2pError ? `（P2P 也曾失败：${p2pError}）` : ""}`,
+        chunks: chunks.length, expectedTotal, gotDone: !!done, timing,
+      };
     }
     const buf = assembleChunks(chunks, expectedTotal, opts.expectedSize ?? null);
     const gotSha = sha256(buf);
     const ok = opts.expectedSha256 ? gotSha === opts.expectedSha256 : true;
     return {
       ok: ok && !!done,
+      path: usedPath, viaP2P: false, p2pError,
       chunks: chunks.length, expectedTotal, bytes: buf.length, sha256: gotSha, gotDone: !!done, timing,
       reason: ok ? null : `sha256 不符：${gotSha.slice(0, 12)}… ≠ ${opts.expectedSha256?.slice(0, 12)}…`,
     };
   }
 
   close() {
+    for (const s of this._senders) s.close();
+    for (const r of this._receivers) r.close();
     try { this.ws?.close(); } catch { /* ignore */ }
   }
 }
