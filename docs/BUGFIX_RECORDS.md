@@ -4,6 +4,46 @@
 
 ---
 
+## 2026-10-09
+
+### 26. 传歌永远走服务器中转、P2P 直连从不启用（PWA部门；根因在共用 store，桌面端同样受益）
+
+**现象**：PWA v0.4.1/0.4.2 实测同步听歌传歌成功，但**所有传歌都走服务器中转**，P2P 直连从未启用
+（P2P 打洞测试本身通过）；PWA 埋点观测到 `[PWA] request_song: {p2p:false}`。
+
+**排查结论（服务器无缺口，根因在客户端事件时序）**：
+- 服务器侧已双向确认 `p2p` 标志透传无误（服务器部门代码核实 + 主部门虚拟客户端实测
+  `song_requested.p2p === true`、直连 20.95 Mbps）。**服务器不是问题所在。**
+- 真正原因分两层：
+  1. **触发窗口**：服务器 `handle_room_join` 给新成员补发快照的顺序是
+     `music:state`（DJ 正在播的歌）→ `music:sync_state`（全量快照）→ `music:dj_changed`（DJ 身份）
+     —— **DJ 身份是最后一跳**（线上 `ws_server.py` 与仓库参考实现逐行核实一致）。
+     听众在加入房间时（尤其 WS 断线自动重连后 `autoReconnect()` 重新 join，此时
+     `syncEnabled` 仍为 true）会先收到"DJ 正在播这首歌"，此刻 `djUserId` 还是 null。
+  2. **决定被永久锁死**：`startSongTransfer` 只在首次请求时算一次
+     `canP2P = fromChunk === 0 && !!djUserId.value`。以 `p2p=false` 发出后无法补救——
+     续传重试 `from_chunk>0` 按设计一律不走 P2P；同歌重复触发被"同一首歌已在传输"守卫挡掉；
+     持有端 `handleSongRequested` 又按 `songId|requesterId` 去重，补发的 `song_requested` 直接被忽略。
+     → 于是整条传输（含全部重试）只能走服务器中转。
+
+**修复**（`src/stores/music.ts`，桌面端与 PWA 共用的 store，故两端同时修好）：
+- 新增 `waitForDjIdentity()`：首次传歌（`from_chunk === 0`）且 `djUserId` 未就绪、
+  且处于同步听众身份时，**先补发一次 `music:request_state`**（服务器对该请求会**定向补发
+  `music:dj_changed`**，故通常一个 RTT 内即被唤醒），等待身份就绪，上限
+  `DJ_IDENTITY_WAIT_MS = 1500ms`（必须 < 看门狗的 `TRANSFER_TIMEOUT_MS = 3s`，否则等待期间会被
+  当成"卡住"重发请求）；超时才以 `p2p=false` 有界降级为服务器中转。
+- `music:dj_changed` 到达时唤醒挂起者；等待期间歌被切走 / 传输被中断则本次请求作废（不发过期请求）。
+- 等待结束后重置 `songTransfer.startedAt`：看门狗语义是"请求发出后卡住多久"，等待时间不计入。
+
+**验证**：`src/stores/__tests__/music.test.ts` 新增 4 例锁住该时序（**修复前 2 例为红**，
+实测 `musicSyncRequestSong("song-x", 0, false)`），修复后全绿；`npm test` 61 文件 1227 例通过、
+`npx vue-tsc --noEmit` 与 `npm run pwa:build` 均通过。
+
+**影响范围**：`src/stores/music.ts`（`waitForDjIdentity` / `startSongTransfer` / `music:dj_changed` 分支）、
+`src/stores/__tests__/music.test.ts`。
+
+---
+
 ## 2026-08-16
 
 ### 25. 音乐库面板交互修正：筛选可折叠 + 浏览与播放列表彻底分离（KTV 式）（主部门，用户验收后重构）

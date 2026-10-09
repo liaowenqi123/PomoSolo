@@ -966,6 +966,9 @@ describe("useMusicStore", () => {
     const s = useMusicStore();
     s.setSyncEnabled(true);
     s.isDj = false;
+    // 听众已知 DJ 身份（正常同步会话中 dj_changed 早已到达；身份未就绪时
+    // startSongTransfer 会先等身份再发请求，见"加入房间快照"时序用例）
+    s.djUserId = "dj-1";
     s.trackName = "old.mp3";
     s.playing = false;
     // 歌单已加载且不含 a.mp3
@@ -1433,6 +1436,128 @@ describe("useMusicStore", () => {
       expect(musicSyncApi.musicSyncOfferSong).toHaveBeenCalled();
     });
     expect(p2pApi.p2pSend).not.toHaveBeenCalled();
+  });
+
+  // ===== 传歌时序：服务器「加入房间快照」顺序（music:state → music:sync_state → music:dj_changed） =====
+  //
+  // 背景（2026-10 排查，server-planning/MESSAGE-BOARD-ARCHIVE.md「PWA 传歌全走服务器中转排查」）：
+  // 服务器 handle_room_join 先补发 music:state（DJ 正在播的歌）/ music:sync_state（快照），
+  // **最后**才补发 music:dj_changed（线上 ws_server.py 逐行核实）。听众若在拿到 DJ 身份之前
+  // 就以 p2p=false 发出 music:request_song，持有端永远不尝试直连，且该决定会被锁死：
+  // 续传重试 from_chunk>0 一律不走 P2P、同歌重复触发又被 startSongTransfer 的
+  // "同一首歌已在传输" 守卫挡掉 → 整条传输只能走服务器中转。
+
+  it("加入房间快照：music:state 先于 dj_changed 到达 → 仍等 DJ 身份就绪并带 p2p 请求（不锁死中转）", async () => {
+    const s = useMusicStore();
+    // 歌单已加载且不含目标歌（加入房间快照到达时听众的真实状态）
+    s.handlePlaylist({ songs: ["local.mp3"] });
+    // 听众已开启同步（WS 断线自动重连 → autoReconnect 重新 join 房间的常见场景）
+    s.setSyncEnabled(true);
+    expect(s.syncEnabled).toBe(true);
+    musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+
+    // 服务器 handle_room_join 的真实顺序第 1 跳：补发"DJ 正在播这首歌"
+    s.handleSyncWsEvent({
+      type: "music:state",
+      action: "play",
+      song_id: "song-x",
+      position_ms: 1000,
+      timestamp_server: Date.now(),
+    });
+    // 同一批快照的最后一跳（dj_changed）还没到
+    expect(s.djUserId).toBeNull();
+    // 关键断言：不能立刻发出 p2p=false 的请求（那会把整条传输锁死为服务器中转）
+    expect(musicSyncApi.musicSyncRequestSong).not.toHaveBeenCalled();
+
+    // 快照最后一跳：DJ 身份到达
+    s.handleSyncWsEvent({ type: "music:dj_changed", dj_user_id: "dj-1", dj_username: "dj" });
+    await vi.waitFor(() => {
+      expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("song-x", 0, true);
+    });
+    // 挂起 P2P 接收，目标就是 DJ
+    expect(p2pApi.p2pReceive).toHaveBeenCalledTimes(1);
+    expect((p2pApi.p2pReceive.mock.calls[0][0] as P2PReceiveOpts).peerId).toBe("dj-1");
+    // 只发一次请求：等待期间不得重复请求（否则 P2P 与中转双通道并行）
+    expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledTimes(1);
+  });
+
+  it("加入房间快照：music:sync_state 先于 dj_changed 到达 → 同样等身份后带 p2p 请求", async () => {
+    const s = useMusicStore();
+    s.handlePlaylist({ songs: ["local.mp3"] });
+    s.setSyncEnabled(true);
+    musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+
+    // 第 2 跳：全量状态快照（同样早于 dj_changed）
+    s.handleSyncWsEvent({
+      type: "music:sync_state",
+      song_id: "song-y",
+      playing: true,
+      position_ms: 0,
+      timestamp_server: Date.now(),
+    });
+    expect(s.djUserId).toBeNull();
+    expect(musicSyncApi.musicSyncRequestSong).not.toHaveBeenCalled();
+
+    s.handleSyncWsEvent({ type: "music:dj_changed", dj_user_id: "dj-2", dj_username: "dj2" });
+    await vi.waitFor(() => {
+      expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("song-y", 0, true);
+    });
+    expect((p2pApi.p2pReceive.mock.calls[0][0] as P2PReceiveOpts).peerId).toBe("dj-2");
+  });
+
+  it("DJ 身份始终不来（房间无 DJ）→ 上限内降级为服务器中转，不永久挂起", async () => {
+    vi.useFakeTimers();
+    try {
+      const s = useMusicStore();
+      s.handlePlaylist({ songs: ["local.mp3"] });
+      s.setSyncEnabled(true);
+      musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+      s.handleSyncWsEvent({
+        type: "music:state",
+        action: "play",
+        song_id: "song-z",
+        position_ms: 0,
+        timestamp_server: Date.now(),
+      });
+      expect(musicSyncApi.musicSyncRequestSong).not.toHaveBeenCalled();
+      // 等满上限：仍无 DJ 身份 → 以 p2p=false 走服务器中转（有界降级，不卡死）
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("song-z", 0, false);
+      expect(p2pApi.p2pReceive).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("等待 DJ 身份期间 DJ 已切歌（传输被中断）→ 不发过期请求", async () => {
+    vi.useFakeTimers();
+    try {
+      const s = useMusicStore();
+      s.handlePlaylist({ songs: ["local.mp3"] });
+      s.setSyncEnabled(true);
+      musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+      s.handleSyncWsEvent({
+        type: "music:state",
+        action: "play",
+        song_id: "song-a",
+        position_ms: 0,
+        timestamp_server: Date.now(),
+      });
+      expect(musicSyncApi.musicSyncRequestSong).not.toHaveBeenCalled();
+      // 等待期间歌被换掉：startSongTransfer 被新歌接管（旧请求必须作废）
+      s.handleSyncWsEvent({
+        type: "music:state",
+        action: "play",
+        song_id: "song-b",
+        position_ms: 0,
+        timestamp_server: Date.now() + 1,
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      const called = musicSyncApi.musicSyncRequestSong.mock.calls.map((c) => c[0]);
+      expect(called).not.toContain("song-a");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // ===== 音乐库管理（目录树 / 标签筛选 / 播放集合 Set） =====

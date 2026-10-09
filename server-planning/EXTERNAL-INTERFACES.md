@@ -165,6 +165,16 @@ WebSocket:       wss://api.pomogrow.top/ws?token=<access_token>
 ```
 
 - 收齐后客户端合并写入 `app_data_dir/music`，刷新歌单并播放。
+- ⚠️ **发 `music:request_song` 的前置条件（客户端时序，2026-10 定，各端通用）**：
+  必须先拿到 `music:dj_changed` 里的 `dj_user_id`，才能带 `p2p:true`。服务器 `room:join`
+  的补发顺序是 `music:state`（DJ 正在播的歌）→ `music:sync_state`（全量快照）→
+  `music:dj_changed`（**DJ 身份在最后一跳**）；若在收到前两者时就发请求，客户端还不知道持有者是谁，
+  只能不带 `p2p` → 持有端永远不尝试直连。
+  **该决定一旦发出即被锁死**：续传 `from_chunk>0` 不走 P2P、客户端同歌重复触发会被"已在传输"守卫挡掉、
+  持有端按 `songId|requesterId` 去重会忽略补发的 `song_requested`。
+  正确做法：身份未就绪时先发 `music:request_state`（服务器会**定向补发 `music:dj_changed`**）并等身份
+  （上限约 1.5s，且需小于客户端 3s 传输看门狗），超时才以 `p2p=false` 降级中转。
+  参考实现：`src/stores/music.ts` 的 `waitForDjIdentity()`（桌面端 / PWA 共用）。
 - **传歌方案**（DJ 切换，设置持久化）：
   - `immediate`（默认，边下边播）：下载完成立即播放并 seek 到 DJ 进度
   - `wait_all`（全员就绪统一播）：缺歌者存在 → 广播 `music:song_waiting` → DJ 暂停 → 全员就绪广播 `music:songs_ready` → DJ 从头播

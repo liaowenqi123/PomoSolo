@@ -112,6 +112,14 @@ PWA 自己的引擎/WS 客户端经 `eventBus.ts` 喂给 `listen()`，MusicPlaye
 ### 同步听歌 / P2P
 - 复用 StudyRoom.vue：WS 事件 + 心跳 + 自动重连；
 - P2P 分片：收到分片存 IndexedDB，合并成 Blob → object URL 播放；发送端从缓存/IDB/远程读字节。
+- **传歌发请求前必须先拿到 DJ 身份（v0.6 起，`src/stores/music.ts` 共用修复）**：
+  服务器 `room:join` 的补发顺序是 `music:state` → `music:sync_state` → `music:dj_changed`
+  （**DJ 身份在最后一跳**）。听众（尤其 WS 重连后重新 join，此时 `syncEnabled` 仍为 true）会先收到
+  "DJ 正在播这首歌"，此刻 `djUserId` 还是 null —— 若就地发出 `music:request_song` 则不带 `p2p` 标志，
+  持有端不会尝试直连；且该决定**永久锁死**（续传 `from_chunk>0` 不走 P2P、同歌重复触发被守卫挡掉、
+  持有端按 `songId|requesterId` 去重忽略补发）→ 表现就是"传歌永远走服务器中转"。
+  修复：首次传歌且身份未就绪时，先补发 `music:request_state`（服务器会定向补发 `music:dj_changed`）
+  并等身份，上限 1.5s，超时才降级中转。详见 `docs/BUGFIX_RECORDS.md` 2026-10-09 条目。
 
 ## 响应式适配（复用 ≠ UI 完全一致）
 
@@ -149,7 +157,10 @@ PWA 外壳是**流式全窗口布局**（不做整壳缩放），按断点分级
 
 ## 测试
 
-- PWA 复用层的逻辑由桌面端 vitest 套件覆盖（`npm test`，1180 用例全绿）；
+- PWA 复用层的逻辑由桌面端 vitest 套件覆盖（`npm test`，61 文件 1227 用例全绿）；
+- 传歌 P2P 的**事件时序**有专门用例锁定（`src/stores/__tests__/music.test.ts`
+  「加入房间快照」组：`music:state`/`music:sync_state` 先于 `music:dj_changed` 到达时必须仍带
+  `p2p` 标志请求，且只发一次；身份始终不来时上限内降级中转；等待期间切歌则不发过期请求）；
 - PWA 专属薄层（ws/http/engine）依赖浏览器 API，暂未纳入 vitest（浏览器冒烟待部署后人工验证）。
 
 ## 对接文档

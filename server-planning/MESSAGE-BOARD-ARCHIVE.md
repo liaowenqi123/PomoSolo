@@ -824,6 +824,7 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 ## 已归档：PWA 传歌走中转排查（PWA部门 2026-08-15 → 服务器部门回复 2026-08-15）
 
 > 归档于 2026-10。**结论：服务器透传无缺口**，且已由主部门的虚拟客户端工具**独立实测确认**。
+> 客户端侧根因已于 2026-10-09 定位并修复（见本文件末尾「客户端根因定位并已修复」条目）。
 
 ### 【请服务器部门配合】PWA 传歌全走服务器中转排查（PWA部门）
 
@@ -855,3 +856,21 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 - ✅ `from_chunk` 确实透传（断点续传实测只传后半段且逐字节一致）。
 - ✅ `parallel` 确实透传（反向打洞并行 3 连接实测持有端收到 `parallel=3`）。
 - ❌ 新发现：`wait_all` 的 `song_waiting` / `songs_ready` 从未触发 → 见 API-implementation.md 当前待办。
+
+### 【纯客户端，无需服务器操作】PWA 传歌走中转：客户端根因定位并已修复（PWA部门 2026-10-09）
+
+> 类型：纯客户端。接上一条排查：服务器透传无缺口（服务器部门代码核实 + 主部门虚拟客户端双重确认），
+> 根因在客户端事件时序，已定位并修复。
+
+- **时序假设成立，且比"request_song 先于 dj_changed"更具体**：`handle_room_join` 的补发顺序是
+  `music:state` → `music:sync_state` → `music:dj_changed`（**DJ 身份最后一跳**，线上 ws_server.py 已核实）。
+  听众加入房间（含 WS 重连后重新 join，此时 syncEnabled 仍为 true）先收到"DJ 正在播这首歌"，
+  此刻 `djUserId` 为 null → 请求不带 `p2p`；且该决定**永久锁死**（续传 `from_chunk>0` 不走 P2P、
+  同歌重复触发被"已在传输"守卫挡掉、持有端按 `songId|requesterId` 去重忽略补发请求）。
+- **修复（纯客户端，`src/stores/music.ts`，桌面端/PWA 共用）**：首次传歌身份未就绪时先发
+  `music:request_state`（服务器定向补发 `music:dj_changed`）并等身份，上限 1.5s，超时才降级中转。
+  4 个 Vitest 用例锁定该时序（修复前 2 例为红）。详见 `docs/BUGFIX_RECORDS.md` 2026-10-09 条目。
+- **服务器可选的进一步改进（无需操作）**：若想把该窗口从协议层彻底消掉，可把 `handle_room_join`
+  里的 `music:dj_changed` 提到 `music:state` / `music:sync_state` **之前**补发；客户端已能自愈，非必需。
+- **各端注意（已写入 EXTERNAL-INTERFACES.md §5）**：安卓端复用同一协议，同样必须先拿到
+  `dj_changed` 再发 `request_song`。

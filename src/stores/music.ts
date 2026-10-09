@@ -238,6 +238,15 @@ export const useMusicStore = defineStore("music", () => {
   /** 传输最大续传次数：次数放宽（每次从已保存分片续传，成本低），耗尽后才降级"无这首歌" */
   const TRANSFER_MAX_RETRY = 10;
   /**
+   * 等待 DJ 身份就绪的上限（ms）。见 waitForDjIdentity 的说明：
+   * 服务器「加入房间快照」顺序是 music:state → music:sync_state → music:dj_changed，
+   * 首个"缺歌"广播到达时 djUserId 往往还是 null；必须等 dj_changed 才能带 p2p 标志。
+   * 取值需 < TRANSFER_TIMEOUT_MS（3s），避免等待期间被看门狗当成"卡住"重发请求。
+   */
+  const DJ_IDENTITY_WAIT_MS = 1_500;
+  /** 正在等待 DJ 身份就绪的挂起者（dj_changed 到达时唤醒） */
+  let djIdentityWaiters: Array<() => void> = [];
+  /**
    * 同步进度校准容忍度（秒）：|本地进度 - DJ 进度| 在该范围内不 seek。
    * 避免 DJ 广播 sync_state 较频繁时（切歌/传歌期间 5s 一次）反复 seek 导致
    * 播放"回跳"（听到 AABCD 重复开头）；超过 2s 才校准对齐。
@@ -983,6 +992,48 @@ export const useMusicStore = defineStore("music", () => {
     }
   }
 
+  /**
+   * 等待 DJ 身份（`djUserId`）就绪，最多 `DJ_IDENTITY_WAIT_MS`。
+   *
+   * ⚠️ 为什么需要它（PWA 部门 2026-10 定位的"传歌永远走服务器中转"根因）：
+   * 服务器 `handle_room_join` 给新成员的补发顺序是
+   *   `music:state`（DJ 正在播的歌）→ `music:sync_state`（全量快照）→ `music:dj_changed`（DJ 身份）
+   * —— **DJ 身份是最后一跳**（线上 `ws_server.py` 逐行核实）。
+   * 因此听众在加入房间（含 WS 断线后自动重连重新 join）时，会先收到"DJ 正在播这首歌"，
+   * 此刻 `djUserId` 仍是 null。若就地以 `p2p:false` 发出 `music:request_song`，
+   * 持有端不会尝试直连，而且这个决定会被**永久锁死**：
+   *   · 续传重试 `from_chunk>0` 一律不走 P2P（设计使然）；
+   *   · 同一首歌的重复触发被 `startSongTransfer` 的"同一首歌已在传输"守卫挡掉；
+   *   · 持有端 `handleSongRequested` 按 `songId|requesterId` 去重，补发的请求会被忽略。
+   * 所以必须在**首次发请求之前**等身份就绪（或超时降级），而不是事后补救。
+   *
+   * 等待期间会主动补一次 `music:request_state`：服务器对该请求会**定向补发
+   * `music:dj_changed`**，因此正常情况下一个 RTT 内即被唤醒，无需干等超时。
+   *
+   * @returns 是否拿到了 DJ 身份（false = 超时降级为服务器中转）
+   */
+  function waitForDjIdentity(timeoutMs = DJ_IDENTITY_WAIT_MS): Promise<boolean> {
+    if (djUserId.value) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const wake = () => {
+        if (settled) return;
+        settled = true;
+        if (timer !== null) clearTimeout(timer);
+        djIdentityWaiters = djIdentityWaiters.filter((w) => w !== wake);
+        resolve(true);
+      };
+      djIdentityWaiters.push(wake);
+      timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        djIdentityWaiters = djIdentityWaiters.filter((w) => w !== wake);
+        resolve(false);
+      }, timeoutMs);
+    });
+  }
+
   async function startSongTransfer(songId: string, fromChunk = 0) {
     // 再次传输 = 视为本地暂时缺失（若之前合并过，先移除本地已有标记）
     localHasSongs.delete(songId);
@@ -1008,7 +1059,19 @@ export const useMusicStore = defineStore("music", () => {
     };
     // Phase 1：首次传输（非续传）且知道 DJ 身份 → 挂起 WebRTC 直连接收。
     // DJ 侧收到 p2p 标志后优先尝试直传；失败自动回退服务器中转（music:song_chunk 路径照常）。
-    const canP2P = fromChunk === 0 && !!djUserId.value;
+    let canP2P = fromChunk === 0 && !!djUserId.value;
+    if (fromChunk === 0 && !canP2P && syncEnabled.value && !isDj.value) {
+      // 身份未就绪（加入房间快照里 dj_changed 排在最后）→ 先等身份，避免把整条传输
+      // 锁死为服务器中转（详见 waitForDjIdentity 注释）。
+      // 主动补一次 request_state：服务器会定向补发 music:dj_changed，一个 RTT 内唤醒。
+      void musicSyncRequestState().catch(() => {});
+      canP2P = await waitForDjIdentity();
+      // 等待期间歌已切换 / 传输被中断（abortCurrentTransfer / resetSongTransfer）→ 本次请求作废
+      const cur = songTransfer.value;
+      if (cur.state === "idle" || cur.songName !== songId) return;
+      // 看门狗以 startedAt 判定"请求发出后卡住多久"：等待消耗的时间不应计入
+      cur.startedAt = Date.now();
+    }
     if (canP2P) {
       setupP2PReceive(songId);
     }
@@ -2216,6 +2279,14 @@ export const useMusicStore = defineStore("music", () => {
         const uid = typeof evt.dj_user_id === "string" ? evt.dj_user_id : null;
         djUserId.value = uid;
         djName.value = typeof evt.dj_username === "string" ? evt.dj_username : "";
+        // 身份就绪 → 唤醒正在等身份再发 request_song 的挂起者
+        // （服务器加入房间快照把 dj_changed 排在 music:state / music:sync_state 之后，
+        //   听众首次缺歌时身份往往还没到；详见 waitForDjIdentity 注释）
+        if (uid && djIdentityWaiters.length > 0) {
+          const waiters = djIdentityWaiters;
+          djIdentityWaiters = [];
+          waiters.forEach((w) => w());
+        }
         const me = useAuthStore().session?.id ?? null;
         const wasDj = isDj.value;
         isDj.value = !!uid && !!me && uid === me;
