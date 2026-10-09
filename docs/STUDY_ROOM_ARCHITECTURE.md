@@ -551,47 +551,67 @@ node transfer-test.mjs --scenario listener-only --room <roomId>   # 真实应用
 - 服务器每 30s 补发一次 `room:members` 作为成员状态校准
 - **多听众传歌去重**：见 §7 —— 目前 N 个听众会让 DJ 上传 N 倍数据
 
-#### ★ `wait_all` 协调消息实际从未触发（2026-10 实测）
+#### ✅ `wait_all` 协调消息曾从未触发 —— 已定位并修复（2026-10，主部门）
 
-**现象**：`music:song_waiting` / `music:songs_ready` **一条都收不到**。
+**现象**：`wait_all` 模式下 `music:song_waiting` / `music:songs_ready` **一条都收不到**。
 
-**实测（`transfer-test.mjs --scenario waitall`，A/B 对照，两组各自独立房间）**：
-
-| 组 | 传歌期间 DJ 是否周期广播状态 | `song_waiting` | `songs_ready` |
-|---|---|---|---|
-| A | 否 | **0** | **0** |
-| B | 是（每 5s，同真实应用 `music.ts:1182`） | **0** | **0** |
-
-**已排除的可能**：服务器**确实处理了模式切换** —— 实测收到 2 条回广播的
-`music:sync_config`，即 `transfer_mode` 已置为 `wait_all`。
-所以不是"没收到配置"，而是协调广播本身没发生。
-
-**根因（读 `server-planning/ws_server.py` 得出，与实测一致）**：
-`_maybe_wait_all()` 只有两个调用点，**都不可能发出 `song_waiting`**：
-
-| 调用点 | 为什么发不出 |
-|---|---|
-| `_forward_transfer_result`（传输结束，line 669） | 它**先 `pop` 掉** `song_requests[song_id]`（line 664）再调用 → `missing = bool(req and req["uids"])` **恒为 False** |
-| `handle_music_sync_state`（DJ 广播状态，line 554） | 逻辑上能发（此刻请求者集合非空）→ 但实测 B 组（每 5s 广播）**仍是 0 条**，说明**部署的服务器与本仓库的参考实现不一致**，该调用点在线上不存在或未生效 |
-
-而 `handle_music_request_song`（听众请求缺歌，line 604）**根本没调用它** ——
-这才是本该触发的地方。
-
-**修法（一行）**：在 `handle_music_request_song` 记录请求者之后补
-`_maybe_wait_all(room_id, song_id)`。这样"有人缺歌"的瞬间就会广播 `song_waiting`，
-传输结束时（`songs_ready` 分支因 `st["waiting"]` 已为 True 而成立）能正常广播 `songs_ready`。
-
-**用户可见影响（按 `src/stores/music.ts` 的设计意图推演）**：
-
-| 消息 | 客户端预期行为（代码意图） |
-|---|---|
-| `song_waiting` | DJ **暂停播放**等全员（`handleSongWaiting` → `togglePlay()`）；听众显示等待提示 |
-| `songs_ready` | DJ **从头播放**（`togglePlay()` + `seek(0)`）；听众清除提示并开始播 |
-
+**用户可见影响**（按 `src/stores/music.ts` 的设计意图）：
+`song_waiting` 的意图是让 DJ **暂停等人**（`handleSongWaiting` → `togglePlay()`）、
+`songs_ready` 是让 DJ **从头统一起播**（`handleSongsReady` → `togglePlay()` + `seek(0)`）。
 两者都不来 → **`wait_all` 静默退化成 `immediate`**：DJ 不等任何人、不从头统一起播。
 
-> ⚠️ 还有一处**待真机验证**的风险：`music.ts:1084` 的 `finalizeTransfer` 在
-> `wait_all` 下下载完**直接 return、不播放**，专门等 `songs_ready`。
-> 该消息永不到达时，听众只能靠后续 `sync_state`（`music.ts:2010/2027`）被动恢复播放 ——
-> 若 DJ 此后不再广播，听众可能**卡在"等待其他用户下载歌曲"且不播**。
-> 这条需要真实应用参与才能确认，虚拟客户端覆盖不到该状态机。
+##### 定位过程与一个必须记住的教训
+
+一开始我以为是"服务器没实现"，**并据此在留言区给服务器部门报了 bug —— 那是错的**。
+真正的定位分了三步，每步都推翻了上一步的猜测：
+
+| 步骤 | 结论 |
+|---|---|
+| 1. A/B 对照（DJ 传歌期间是否周期广播） | 两组都 0 条 → 一度以为是"偶然触发" |
+| 2. 修掉**我自己工具**的两个 bug | ① DJ 替身漏传 `transfer_mode`，每次广播把服务端房间的 `wait_all` **覆盖回 `immediate`**（真实应用 `music.ts:515` 是带的）；② 周期广播放在"发送分片"循环里，而那个循环**只花 ~20ms**，5s 间隔根本没机会触发 |
+| 3. **服务器侧插桩**（`docker logs` 时间戳） | 拿到铁证 ↓ |
+
+**铁证（线上插桩日志）**：
+
+```
+12:54:49.506  [DIAG_REQ]  uids=['5e75cc…']      ← 请求已落库，房间 mode=wait_all
+                 ⋯ 11.6 秒空窗，handle_music_sync_state 一次都没被调用 ⋯
+12:55:01.126  [DIAG_END]  popped=['5e75cc…']    ← 传输结束，请求被 pop
+12:55:01.126  [WAITALL_DIAG] uids=None          ← 直到 pop 之后才被调用
+```
+
+同时把线上那个函数**单独 import 出来做单元测试**，证明它自身逻辑完全正常
+（有缺歌者 → 广播 `song_waiting`；请求清空 → 广播 `songs_ready`）。
+
+→ **函数是对的，问题是它从没在条件满足时被调用。**
+
+##### 根因
+
+`_maybe_wait_all()` 只有两个调用点，现实中**都不会命中**：
+
+| 调用点 | 为什么不命中 |
+|---|---|
+| `handle_music_sync_state`（DJ 广播状态） | 唯一能发出 `song_waiting` 的路径，但请求挂起的那 11.6 秒里它**一次都没被调用**：持有者发送循环 ~20ms 就结束，而服务器以 2Mbps 中转要 11.6s，所以"传歌期间每 5s 广播"不存在 |
+| `_forward_transfer_result`（传输结束） | 它**先 `pop` 掉** `song_requests[song_id]` 再调用 → `missing` 恒为 `False` |
+
+而本该触发它的 `handle_music_request_song`（听众请求缺歌）**没有调用它**。
+
+##### 修复与验证
+
+在 `handle_music_request_song` 记录请求者之后、**`with _lock:` 之外**
+（`_maybe_wait_all` 内部自己要拿 `_lock`，放进去会死锁）补一行：
+
+```python
+_maybe_wait_all(room_id, song_id)
+```
+
+- 线上已应用（备份 `ws_server.py.bak_waitall_diag`，`ast.parse` 校验通过，
+  `docker restart frontend-web`）；
+- 仓库参考实现 `server-planning/ws_server.py` 已同步（两者除注释外逻辑一致）；
+- **实测三组（A 不广播 / B 循环内广播 / C 独立广播）全部 2/2 条**
+  （请求时 1 条 `song_waiting` + 结束时 1 条 `songs_ready`），
+  且**触发不再依赖 DJ 是否周期广播状态** → 是设计使然，不是巧合。
+
+> ⚠️ 一处**仍未真机验证**的相邻风险：`music.ts:1084` 的 `finalizeTransfer` 在
+> `wait_all` 下下载完**直接 return、不播放**，专等 `songs_ready`。现在该消息会到达了，
+> 但"DJ 切换传歌方案/中途改模式"等边界仍未用真实应用验证过。

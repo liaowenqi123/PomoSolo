@@ -63,14 +63,15 @@ node transfer-test.mjs --scenario full-chain                    # 整条听众�
 | `relay-1to1` | 中转链路端到端 + **逐字节一致** + 分段计时（定位瓶颈在发送端/中转/接收端） |
 | `relay-fanout` | **1 个 DJ → N 个听众**全部逐字节一致；服务器是否对多听众去重 |
 | `resume` | 服务器把 `from_chunk` 转发给持有者；只传后半段；**续传片段与源文件对应区间逐字节一致** |
-| `waitall` | `wait_all` 下仍能传完；**观察** `song_waiting` / `songs_ready` |
+| `waitall` | `wait_all` 下仍能传完；**断言** `song_waiting`（缺歌即通知 DJ 暂停等人）/ `songs_ready`（全员就绪，从头统一起播）必然发出，且不依赖 DJ 是否周期广播 |
 | `p2p-1to1` | **WebRTC 直连**（媒体不经服务器）+ 完整性 + 与中转的速率对比；服务器是否透传 `p2p` 标志 |
 | `p2p-reverse` | **反向打洞**：下载端作 offerer、持有端在收到的 channel 上发数据；含并行多连接**分段映射**（`baseChunk`/`globalChunks`） |
 | `full-chain` | **整条听众链路**：`request_state` → 缺歌检测 → 下载 → 重对齐 → 位置推进 |
 | `listener-only` | **真实应用当 DJ** + 虚拟听众拉歌（见下节） |
 
-`waitall` 的 `song_waiting` / `songs_ready` 记为 **INFO 而非断言**：
-触发条件可能依赖真实客户端才会上报的信息。工具如实报告观察结果，不武断判失败。
+`waitall` 的三个对照组（传歌期间：不广播 / 循环内广播 / 独立广播）用于证明
+**协调消息的触发是设计使然、而非"DJ 恰好在此期间广播"的巧合** ——
+这个区别决定了传输快于 5s 广播间隔时（P2P 实测 ~1.3s）会不会漏触发。
 
 ## 实测基线（2026-10，经真实服务器 `api.pomogrow.top`）
 
@@ -84,7 +85,7 @@ node transfer-test.mjs --scenario full-chain                    # 整条听众�
 | relay 扇出 1→3 | 3/3 全部逐字节一致；聚合 **0.24 MB/s ≈ 1.9 Mbps** |
 | **多听众去重** | ❌ **未实现**：DJ 服务 3 次（= 听众数），上行放大 3× |
 | 断点续传 | 服务器确实转发 `from_chunk`；只传后半段且逐字节一致 |
-| `wait_all` 协调 | ⚠️ **未观察到** `song_waiting` / `songs_ready`（各 0 条） |
+| `wait_all` 协调 | ✅ **已修复**（原为 0 条）：三组对照全部 2/2 条；详见 `docs/STUDY_ROOM_ARCHITECTURE.md` §8 |
 | **P2P 直连** | ✅ 建连成功（`typ srflx` NAT 打洞），**20.95 Mbps**，逐字节一致 |
 | P2P vs 中转 | **快约 10.5×**（同样 3.3MB：P2P 1.33s vs 2Mbps 中转理论 13.9s） |
 | **反向打洞**（单连接） | ✅ 逐字节一致，端到端 1.9s |

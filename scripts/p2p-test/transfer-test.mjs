@@ -495,15 +495,16 @@ async function scenarioP2PReverse() {
  * A 组的历史 `transfer_done` 直接返回（"0/27"）—— 与 full-chain 那次
  * "断言命中历史消息"是同一类陷阱。所以每组必须隔离环境。
  */
-async function runWaitAllGroup(withBroadcast) {
+async function runWaitAllGroup(withBroadcast, alsoIdleBroadcast = false) {
   const { dj, listeners, cleanup } = await setup({ listeners: 1, verbose: args.verbose });
   const listener = listeners[0];
   try {
     await dj.requestDj();
     const served = dj.startServing(SONG, SONG_PATH, { djBroadcast: withBroadcast, p2p: false });
     dj.setTransferMode("wait_all");
-    // 让 DJ「在放这首歌」：sync_state 带 song_id 才会触发服务器的 _maybe_wait_all
-    dj.startDjPlayback(SONG, { positionMs: 0 });
+    // 让 DJ「在放这首歌」：sync_state 带 song_id 才会触发服务器的 _maybe_wait_all。
+    // ★ transferMode 必须传进去，否则周期广播会把服务端房间的 wait_all 覆盖回 immediate。
+    dj.startDjPlayback(SONG, { positionMs: 0, transferMode: "wait_all", broadcastEveryMs: alsoIdleBroadcast ? 5000 : 0 });
     await sleep(800);
 
     const t0 = Date.now();
@@ -527,6 +528,11 @@ async function runWaitAllGroup(withBroadcast) {
        */
       syncConfigEcho: dj.count(S2C.SYNC_CONFIG) + listener.count(S2C.SYNC_CONFIG),
       syncStateEcho: dj.count(S2C.SYNC_STATE) + listener.count(S2C.SYNC_STATE),
+      // 服务器回广播的 sync_state 里 transfer_mode 到底是什么？
+      // 若为 immediate → 说明房间模式没保持住（服务端会被 sync_state 覆盖）
+      modes: listener.find(S2C.SYNC_STATE).map((m) => m.transfer_mode),
+      listenerStates: listener.count(S2C.SYNC_STATE),
+      djSentStates: dj.count(S2C.SYNC_STATE),
     };
   } finally {
     await cleanup();
@@ -542,7 +548,21 @@ async function scenarioWaitAll() {
   record("waitall", "A 组：song_waiting / songs_ready", "INFO", `收到 ${a.w} / ${a.rd} 条`);
 
   const b = await runWaitAllGroup(true);
-  console.log(`  ── B 组（传歌期间每 5s 广播状态，同真实应用）──`);
+  console.log(`  ── B 组（持有者发送循环内每 5s 广播，同真实应用写法）──`);
+  console.log(`  诊断：听众收到 sync_state ${b.listenerStates} 条，其 transfer_mode = ${JSON.stringify(b.modes)}`);
+
+  /*
+   * C 组：**独立于发送循环**持续广播。
+   * 判别"服务器逻辑坏了" vs "没人按约定触发它"：
+   * 若 C 组能收到 song_waiting，则服务器的 _maybe_wait_all 是好的，
+   * 问题纯粹是"唯一能触发它的路径在现实中几乎不会发生"。
+   */
+  const c = await runWaitAllGroup(true, true);
+  console.log(`  ── C 组（独立于发送循环持续广播，每 5s）──`);
+  console.log(`  诊断：听众收到 sync_state ${c.listenerStates} 条，其 transfer_mode = ${JSON.stringify(c.modes)}`);
+  record("waitall", "C 组：传输本身完成", c.ok ? "PASS" : "FAIL",
+    c.ok ? `${c.chunks} 片 / ${(c.ms / 1000).toFixed(1)}s` : (c.reason ?? ""));
+  record("waitall", "C 组：song_waiting / songs_ready", "INFO", `收到 ${c.w} / ${c.rd} 条`);
   record("waitall", "B 组：传输本身完成", b.ok ? "PASS" : "FAIL",
     b.ok ? `${b.chunks} 片 / ${(b.ms / 1000).toFixed(1)}s` : (b.reason ?? ""));
   record("waitall", "B 组：song_waiting / songs_ready", "INFO", `收到 ${b.w} / ${b.rd} 条`);
@@ -559,39 +579,29 @@ async function scenarioWaitAll() {
      服务器若处理会带上 timestamp_server`);
 
   /*
-   * 结论：若 A 组无消息而 B 组有消息 → wait_all 的触发依赖
-   * 「DJ 恰好在请求挂起期间广播状态」这个巧合，而不是设计使然。
-   * 那意味着传输快于 5s 广播间隔时（P2P 实测 ~1.3s）会漏触发，
-   * wait_all 静默退化成 immediate —— DJ 不会等任何人。
+   * ★ 核心断言：协调消息必须**无条件**发出，不依赖 DJ 是否周期广播状态。
+   *
+   * 修复前这里三组都是 0/0。服务器侧插桩（docker logs）拿到的时间线证明：
+   * 请求挂起的 11.6 秒里 `handle_music_sync_state` **一次都没被调用** ——
+   * 持有者发送循环只花 ~20ms（分片交给 socket 缓冲即返回），真正耗时的是
+   * 服务器中转（11.6s），所以"传歌期间每 5s 广播"根本不会发生；传输结束时
+   * 请求又已被 pop。于是 `_maybe_wait_all` 从没在条件满足时被调用。
+   * 修法：`handle_music_request_song` 记录请求者后立即触发（此刻条件必然满足）。
+   *
+   * 现在三组都应：请求到达时收到 1 条 song_waiting、传输结束时 1 条 songs_ready。
    */
-  const consistent = a.w === b.w && a.rd === b.rd;
-  if (consistent) {
-    record("waitall", "触发是否设计使然（与 DJ 是否周期广播无关）",
-      a.w > 0 ? "PASS" : "BUG",
-      a.w > 0 ? "两组都触发，触发不依赖周期广播"
-              : "两组都没触发：协调消息根本没被发出");
-  } else {
-    record("waitall", "触发是否设计使然（与 DJ 是否周期广播无关）", "BUG",
-      `A 组 ${a.w}/${a.rd} 条，B 组 ${b.w}/${b.rd} 条 → **触发依赖"DJ 恰好在请求挂起期间`
-      + `广播状态"这个巧合**；传输快于 5s 广播间隔时（P2P 实测 ~1.3s）会漏掉，`
-      + `wait_all 静默退化成 immediate（DJ 不会等任何人）`);
+  for (const [name, g] of [["A", a], ["B", b], ["C", c]]) {
+    record("waitall", `${name} 组：收到 song_waiting（缺歌即通知 DJ 暂停等人）`,
+      g.w >= 1 ? "PASS" : "FAIL", `收到 ${g.w} 条`);
+    record("waitall", `${name} 组：收到 songs_ready（全员就绪，DJ 从头统一起播）`,
+      g.rd >= 1 ? "PASS" : "FAIL", `收到 ${g.rd} 条`);
   }
-
-  /*
-   * 根因（读 server-planning/ws_server.py 得出）：_maybe_wait_all() 只有两个调用点 ——
-   *   ① handle_music_sync_state（DJ 广播状态）← 唯一可能发出 song_waiting 的路径
-   *   ② _forward_transfer_result（传输结束）← 调用前已 pop 掉请求者集合，
-   *      因此 missing 恒为 false，永远发不出 song_waiting
-   * 而 handle_music_request_song（听众请求缺歌）**没有调用它**。
-   * 修法：handle_music_request_song 记录请求者后补一次 _maybe_wait_all(room_id, song_id)。
-   */
-  record("waitall", "根因定位", "BUG",
-    "server-planning/ws_server.py：handle_music_request_song 记录请求者后未调用 "
-    + "_maybe_wait_all()；_forward_transfer_result 调用前已 pop 掉请求者集合。"
-    + "→ song_waiting 只能靠「DJ 恰好在请求挂起期间广播状态」偶然触发；"
-    + "songs_ready 也只在 song_waiting 曾触发过时才可能出现。"
-    + "修法：handle_music_request_song 末尾补 _maybe_wait_all(room_id, song_id)（一行）。");
+  record("waitall", "触发与「DJ 是否周期广播状态」无关（设计使然，而非巧合）",
+    a.w === b.w && b.w === c.w && a.w >= 1 ? "PASS" : "FAIL",
+    `A/B/C 三组各收到 ${a.w}/${b.w}/${c.w} 条 song_waiting —— 修复前靠的是`
+    + `"DJ 恰好在请求挂起期间广播状态"这个几乎不会发生的巧合`);
 }
+
 /**
  * 场景 5：**真实应用当 DJ** + 虚拟听众。
  * 应用需要已经在某个房间里、已请求成为 DJ、并正在放这首歌。

@@ -616,6 +616,18 @@ def handle_music_request_song(user_id, msg):
         req["uids"].add(user_id)
         req["started"] = time.time()  # 重复请求重置超时计时
         holder = _pick_song_holder(room, song_id, exclude=user_id)
+    # v4.10：请求落库即触发 wait_all 协调（此处条件必然满足）。
+    #
+    # 原先只在 handle_music_sync_state / _forward_transfer_result 两处触发，现实中
+    # 两处都不会命中：持有者的发送循环只花 ~20ms（分片交给 socket 缓冲即返回），
+    # 真正耗时的是服务器中转（实测 11.6s / 2Mbps），所以"传歌期间每 5s 广播状态"
+    # 根本不会发生；传输结束时请求又已被 pop 掉（missing 恒为 False）。
+    # 结果 music:song_waiting 从未发出，wait_all 静默退化成 immediate
+    # （DJ 不暂停等人、不从头统一起播）。
+    #
+    # 必须在 `with _lock:` **之外**调用 —— _maybe_wait_all 内部自己要拿 _lock，
+    # 放进去会死锁。
+    _maybe_wait_all(room_id, song_id)
     if holder:
         data = {"type": "music:song_requested", "song_id": song_id, "requester_user_id": user_id}
         if msg.get("from_chunk") is not None:

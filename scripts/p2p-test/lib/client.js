@@ -560,10 +560,39 @@ export class VirtualClient {
 
   // ── DJ 侧：模拟播放时钟（供 full-chain 场景验证"下载完重对齐"）────────
 
-  /** 开始"播放"：记录虚拟播放时钟，并广播一次状态 */
-  startDjPlayback(songId, { positionMs = 0, playing = true, volume = 80 } = {}) {
-    this._playback = { songId, startedAt: Date.now(), basePositionMs: positionMs, playing, volume };
-    this.broadcastState({ songId, playing, positionMs: this._currentPositionMs(), volume });
+  /**
+   * 开始「播放」：记录虚拟播放时钟，并广播一次状态。
+   *
+   * ★ `transferMode` 必须**记录下来并在每次广播中都带上**。
+   * 踩过的坑：`broadcastState` 的 JS 默认参数是 `transferMode = "immediate"`，
+   * 而广播原本没传它 → 每次广播都把**服务端房间的 `transfer_mode` 覆盖回 immediate**
+   * （服务端 `handle_music_sync_state` 里有
+   * `room["transfer_mode"] = msg.get("transfer_mode", ...)`）→
+   * `_maybe_wait_all` 第一行就 return，表现为"wait_all 协调消息从不触发"。
+   *
+   * ⚠️ 我据此**错怪过服务器部门**并写进了留言区 —— 实际是替身没忠实模拟真实应用
+   * （`src/stores/music.ts:515` 的 `broadcastSyncState` 明确带了 `transferMode`）。
+   * 教训：替身漏一个字段，就会得出"服务器有 bug"的错误结论。
+   */
+  startDjPlayback(songId, { positionMs = 0, playing = true, volume = 80, transferMode = "immediate", broadcastEveryMs = 0 } = {}) {
+    this._playback = { songId, startedAt: Date.now(), basePositionMs: positionMs, playing, volume, transferMode };
+    this.broadcastState({
+      songId, playing, positionMs: this._currentPositionMs(), volume,
+      transferMode: this._playback.transferMode,
+    });
+    /*
+     * `broadcastEveryMs > 0` → **独立于传歌循环**的周期广播。
+     *
+     * 为什么要独立：真实应用（与我的 `startServing`）都把周期广播放在
+     * "持有者发送分片"的循环里，而那个循环**只花 ~20ms**（把分片丢给 socket
+     * 缓冲就返回了），真正慢的是服务器以 2Mbps 中转（16s）。
+     * 于是 5s 的间隔**一次都不会触发** —— 这正是 `wait_all` 协调消息发出的
+     * 唯一依赖路径，所以它实际上永远不触发。
+     * 用它做对照，就能区分"服务器逻辑坏了"和"没人按约定触发它"。
+     */
+    if (broadcastEveryMs > 0) {
+      this._playbackTimer = setInterval(() => void this._broadcastCurrentState(), broadcastEveryMs);
+    }
     /*
      * 服务器收到听众的 music:request_state 时会向 DJ 单发 music:state_request，
      * DJ 收到后应**立即广播一次实时 sync_state**（protocol 文档 §395-396）。
@@ -588,6 +617,8 @@ export class VirtualClient {
     this.broadcastState({
       songId: p.songId, playing: p.playing,
       positionMs: this._currentPositionMs(), volume: p.volume,
+      // ★ 别丢：不传会走 JS 默认值 "immediate"，把服务端房间的 wait_all 覆盖掉
+      transferMode: p.transferMode ?? "immediate",
     });
   }
 
@@ -735,6 +766,7 @@ export class VirtualClient {
   }
 
   close() {
+    if (this._playbackTimer) clearInterval(this._playbackTimer);
     for (const c of this._p2p) c.close();
     try { this.ws?.close(); } catch { /* ignore */ }
   }
