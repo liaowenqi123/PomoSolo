@@ -607,11 +607,13 @@ export class VirtualClient {
    * （`src/stores/music.ts:515` 的 `broadcastSyncState` 明确带了 `transferMode`）。
    * 教训：替身漏一个字段，就会得出"服务器有 bug"的错误结论。
    */
-  startDjPlayback(songId, { positionMs = 0, playing = true, volume = 80, transferMode = "immediate", broadcastEveryMs = 0 } = {}) {
-    this._playback = { songId, startedAt: Date.now(), basePositionMs: positionMs, playing, volume, transferMode };
+  startDjPlayback(songId, { positionMs = 0, playing = true, volume = 80, transferMode = "immediate", broadcastEveryMs = 0, nextSongId = null } = {}) {
+    // nextSongId：v4.12 预取提示（老客户端不认识 → 用它测"老客户端容忍多余字段"）
+    this._playback = { songId, startedAt: Date.now(), basePositionMs: positionMs, playing, volume, transferMode, nextSongId };
     this.broadcastState({
       songId, playing, positionMs: this._currentPositionMs(), volume,
       transferMode: this._playback.transferMode,
+      nextSongId: this._playback.nextSongId,
     });
     /*
      * `broadcastEveryMs > 0` → **独立于传歌循环**的周期广播。

@@ -45,6 +45,7 @@ node transfer-test.mjs --scenario p2p-reverse                   # 反向打洞�
 node transfer-test.mjs --scenario late-joiner                    # 中途加入的听众（缺头分片隐患）
 node transfer-test.mjs --scenario p2p-compress                   # 压缩传输（MP3 vs 未压缩 WAV 对照）
 node transfer-test.mjs --scenario compat-v4712                    # 新旧客户端兼容矩阵（老基准 v4.7.12）
+node real-client-compat.mjs --seconds 420                        # ★ 真实 v4.7.12 应用在环（虚拟 DJ → 老客户端拉歌）
 node transfer-test.mjs --scenario full-chain                    # 整条听众链路（sync 驱动）
 ```
 
@@ -68,6 +69,7 @@ node transfer-test.mjs --scenario full-chain                    # 整条听众�
 | `resume` | 服务器把 `from_chunk` 转发给持有者；只传后半段；**续传片段与源文件对应区间逐字节一致** |
 | `waitall` | `wait_all` 下仍能传完；**断言** `song_waiting`（缺歌即通知 DJ 暂停等人）/ `songs_ready`（全员就绪，从头统一起播）必然发出，且不依赖 DJ 是否周期广播 |
 | `p2p-1to1` | **WebRTC 直连**（媒体不经服务器）+ 完整性 + 与中转的速率对比；服务器是否透传 `p2p` 标志 |
+| `real-client-compat.mjs` | **真实老客户端在环**（不是场景，是独立脚本）：虚拟 DJ（带 v4.12 的 `next_song_id`）→ 你手动把**真实 v4.7.12 应用**加进房间 → 验证老应用本体容忍新字段并能正常拉歌。用 `--song` 指定**应用绝对没有**的曲名，靠"文件是否新落盘"判定 |
 | `compat-v4712` | **新旧客户端兼容矩阵**（老基准 = 已发布的 v4.7.12）：老持有端 + 服务器合并轮 / 中途加入提升轮 / 老 DJ 无 `next_song_id` / 新 DJ 多余字段 / wait_all 老方言 |
 | `p2p-compress` | **压缩传输**（`deflate-raw` + `hello`/`hello-ack` 协商）三组：A 真实 MP3 / B 未压缩 WAV（对照实际节省）/ C **对端为旧版**（不回 hello-ack → 验证 1.2s 超时回退，向后兼容命门） |
 | `late-joiner` | **中途加入的听众**：A 先请求并开始下载，5 秒后 B 才请求 —— B 必须也能拿到完整文件（否则会缺前半段却收到"已完成"） |
