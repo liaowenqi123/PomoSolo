@@ -168,6 +168,8 @@ export class P2PConnection {
     this.timeoutMs = opts.timeoutMs ?? 20000;
     /** v4.6.4：发送方是否启用压缩传输（先 hello 协商；对端旧版则自动回退不压缩） */
     this.compress = opts.compress ?? false;
+    /** 模拟**旧版对端**：收到 hello 不回 hello-ack（用于验证 1.2s 超时回退不压缩） */
+    this.simulateLegacyPeer = opts.simulateLegacyPeer ?? false;
     this.onDiagnose = opts.onDiagnose ?? (() => {});
 
     this.pc = null;
@@ -252,8 +254,17 @@ export class P2PConnection {
               + (this.meta.baseChunk ? ` baseChunk=${this.meta.baseChunk}` : "")
               + (this.meta.globalChunks ? ` globalChunks=${this.meta.globalChunks}` : ""));
           } else if (raw.includes('"t":"hello"')) {
-            // 与 src/p2p.ts 一致：本端能解压才报 compress:true
-            dc.send(JSON.stringify({ t: "hello-ack", compress: compressionSupported() }));
+            /*
+             * 与 src/p2p.ts 一致：本端能解压才报 compress:true。
+             * `simulateLegacyPeer` 模拟**旧版对端**（不认识 hello）→ 完全不回包，
+             * 发送端应在 COMPRESS_NEGOTIATE_TIMEOUT（1.2s）后回退为不压缩发送。
+             * 这是向后兼容的命门：该回退若坏了，老客户端会一直收不到数据。
+             */
+            if (!this.simulateLegacyPeer) {
+              dc.send(JSON.stringify({ t: "hello-ack", compress: compressionSupported() }));
+            } else {
+              this.onDiagnose("（模拟旧版对端）收到 hello 但不回 hello-ack");
+            }
           }
         }
         return;

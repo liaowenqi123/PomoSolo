@@ -218,10 +218,12 @@ export class VirtualClient {
   }
 
   /** 听众侧（正常方向）：作 answerer 接收一次 P2P 传输 */
-  prepareP2PReceive(timeoutMs = 30000) {
+  prepareP2PReceive(timeoutMs = 30000, opts = {}) {
     const conn = this._registerP2P(new P2PConnection({
       peerId: null,            // 由 handleOffer 填入
       role: "answerer",
+      // 模拟旧版对端（不回 hello-ack）→ 验证发送端的 1.2s 超时回退不压缩
+      simulateLegacyPeer: opts.simulateLegacyPeer === true,
       /*
        * ★ `sender` 是「数据发送方在协商中的**角色**」，不是"本端角色"。
        * 正常传歌时 DJ 是 offerer 且由 DJ 发数据 → 本端（answerer）写 sender:"offerer"，
@@ -684,7 +686,11 @@ export class VirtualClient {
      * 只测 P2P 而不测回退，就漏掉了最关键的降级路径。
      */
     let rx = null;
-    if (opts.p2p && fromChunk === 0) rx = this.prepareP2PReceive(timeoutMs);
+    // simulateLegacyPeer：让本端装作**旧版对端**（不回 hello-ack），
+    // 用于验证发送端的 1.2s 超时回退不压缩 —— 向后兼容的命门
+    if (opts.p2p && fromChunk === 0) {
+      rx = this.prepareP2PReceive(timeoutMs, { simulateLegacyPeer: opts.simulateLegacyPeer === true });
+    }
 
     this.send(C2S.REQUEST_SONG, {
       song_id: songId,

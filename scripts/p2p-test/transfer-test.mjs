@@ -551,6 +551,43 @@ async function scenarioP2PCompress() {
       await cleanup();
     }
   }
+
+  // ── C 组：对端是**旧版**（不认识 hello，不回 hello-ack）
+  {
+    const { dj, listeners, cleanup } = await setup({ listeners: 1, verbose: args.verbose });
+    try {
+      await dj.requestDj();
+      const served = dj.startServing(SONG, SONG_PATH, { p2p: true, p2pCompress: true });
+      // （模拟旧版对端通过 fetchSong 的正式选项传入，不再用 monkey-patch）
+      dj.broadcastState({ songId: SONG });
+      await sleep(400);
+      const t0 = Date.now();
+      const r = await listeners[0].fetchSong(SONG, {
+        p2p: true, simulateLegacyPeer: true,
+        expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 90000,
+      });
+      const ms = Date.now() - t0;
+      await dj.waitUntil(() => served.lastP2PStats != null, 15000);
+      const stats = served.lastP2PStats;
+
+      /*
+       * ★ 向后兼容的命门：发送端发了 hello 但旧版对端不回 → 必须在
+       * COMPRESS_NEGOTIATE_TIMEOUT（1.2s）后**回退为不压缩**继续传完。
+       * 这条若坏了，所有老客户端都会卡在"收不到数据"。
+       */
+      record("p2p-compress", "C 旧版对端：仍能传完且逐字节一致", r.ok ? "PASS" : "FAIL",
+        r.ok ? `${r.bytes} 字节，sha256=${r.sha256?.slice(0, 12)}…，端到端 ${ms}ms` : (r.reason ?? ""));
+      record("p2p-compress", "C 旧版对端：正确回退为不压缩（而不是死等或报错）",
+        stats && stats.useCompress === false ? "PASS" : "FAIL",
+        stats ? `协商结果 useCompress=${stats.useCompress}（应为 false），`
+              + `实际压缩片数=${stats.compressedChunks}/${stats.totalChunks}（应为 0）`
+              : "没有发送统计");
+      record("p2p-compress", "C 旧版对端：1.2s 超时确实发生了（端到端耗时含等待）", "INFO",
+        `端到端 ${ms}ms —— 其中包含 1200ms 的 hello-ack 等待（协议规定的超时）`);
+    } finally {
+      await cleanup();
+    }
+  }
 }
 
 /**
