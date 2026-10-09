@@ -1931,6 +1931,43 @@ describe("useMusicStore", () => {
       });
     });
 
+    it("★ 对照面：预取途中 DJ 真的切到了那首歌 → 必须正常播放（否则下载了却不播）", async () => {
+      const s = useMusicStore();
+      listenerPlayingCurrent(s, "cur.mp3", ["cur.mp3"]);
+      musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+      musicApi.musicFinalizeSong.mockResolvedValue({ success: true });
+      musicApi.musicPlaySongAt.mockResolvedValue(undefined);
+      musicApi.musicPlaySong.mockResolvedValue(undefined);
+      musicApi.musicGetPlaylist.mockResolvedValue({
+        songs: [songObj("cur.mp3", "", [], ""), songObj("next.mp3", "", [], "")],
+      });
+
+      // 先发起对 next.mp3 的预取
+      s.handleSyncWsEvent({
+        type: "music:sync_state", song_id: "cur.mp3", playing: true,
+        position_ms: 0, next_song_id: "next.mp3",
+      });
+      await vi.waitFor(() => {
+        expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("next.mp3", 0, true);
+      });
+
+      // DJ 切到 next.mp3（正是预取中的那首）→ 它从"备好"变成"当前要放的歌"
+      s.handleSyncWsEvent({
+        type: "music:sync_state", song_id: "next.mp3", playing: true,
+        position_ms: 0, next_song_id: "other.mp3",
+      });
+
+      // 预取传输完成 → 这一次**必须播放**（而不是被"纯预取"判定跳过）
+      s.handleSyncWsEvent({ type: "music:transfer_done", song_id: "next.mp3", total_chunks: 10 });
+      await vi.waitFor(() => {
+        expect(musicApi.musicFinalizeSong).toHaveBeenCalledWith("next.mp3", 10);
+      });
+      await vi.waitFor(() => {
+        const played = musicApi.musicPlaySongAt.mock.calls.length + musicApi.musicPlaySong.mock.calls.length;
+        expect(played).toBeGreaterThan(0);
+      });
+    });
+
     it("★ 预取完成不播放：finalize 后不得切歌（它只是备好，不是当前要放的歌）", async () => {
       const s = useMusicStore();
       listenerPlayingCurrent(s, "cur.mp3", ["cur.mp3"]);
