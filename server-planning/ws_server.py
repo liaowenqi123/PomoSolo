@@ -101,6 +101,18 @@ def ws_send_json(sock, data):
     ws_send_frame(sock, json.dumps(data, ensure_ascii=False).encode())
 
 
+def ws_send_close(sock, code=1000, reason=""):
+    """发送 WebSocket 关闭帧（含状态码），随后由调用方关闭 TCP。
+
+    - 4001：同一账号异地登录被踢（PWA 约定：仅此码停止自动重连）
+    - 1008：鉴权失败（token 无效/过期），客户端据此区分"被踢"与"token 过期"
+    否则浏览器只报 1006（异常关闭），客户端无法区分原因。"""
+    payload = struct.pack(">H", code)
+    if reason:
+        payload += reason.encode("utf-8")[:120]  # 控制帧负载上限 125 字节
+    ws_send_frame(sock, payload, opcode=0x8)
+
+
 # ── 工具函数 ──
 
 def _sock_lock(conn):
@@ -488,6 +500,85 @@ def handle_music_add_song(user_id, msg):
 
 # ── v4.5.4 全量状态同步 + P2P 传歌 ──
 
+# ── v4.11 多听众传歌去重（"持有者只上行一份，服务器扇出给多人"）──
+#
+# EXTERNAL-INTERFACES.md §5 规定服务器"可同时转发给房间内所有缺歌者，减少重复传输，
+# 由服务器实现取舍"。转发端本来就有（handle_music_offer_song 把每个分片扇出给本轮全体），
+# 缺的是**不要重复要求持有者再传一遍** —— 实测 1 DJ → 3 听众时持有者被要求服务 3 次，
+# 而上行正是家庭宽带最紧的一段。本版把同一首歌的传输组织成"轮次（round）"：
+#
+#   · 一轮 = 一次 music:song_requested + 持有者随后回传的一串分片；
+#     该轮分片扇出给本轮 uids 里的所有听众 → 持有者只上行一份。
+#   · 只有"本轮尚未回传任何分片"且"路径（p2p）与起点（from_chunk）一致"时才允许
+#     新听众并入本轮（真去重）。已开始回传才加入的听众会缺前面那些分片：不能塞进
+#     uids（会拿到缺头文件），也不能让它从当前进度续传（from_chunk 的语义是
+#     "我已保存 N 片"，新听众是 0 片，从中间开始只会写出缺头文件）。
+#   · 带 p2p 标志的请求必须独立成轮：P2P 是持有者与单个请求者之间的 DataChannel，
+#     点对点、无法扇出；把它并进别人的轮会让它一直收不到数据（直到超时）。
+#     所以只有"中转轮"参与合并 —— 生产端默认 p2p=true，其行为与本版之前一致。
+#   · 同一时刻只允许一轮在飞：同一首歌并发多轮会互相串流（同一位听众收到别人那一轮
+#     的重复分片），而且任一轮的 transfer_done 会把整个请求状态 pop 掉 → 另一轮的
+#     分片被丢弃、听众收到过早的 transfer_done（合并出残缺文件）。
+#     故不能并入者先排队（pending），本轮结束后再为它们单独开一轮。
+REREQUEST_STALL_SEC = 8.0  # 同一听众重复请求：距上次进展不足该秒数即忽略（客户端 12s×3 重试）
+
+
+def _song_requested_msg(song_id, requester, p2p, from_chunk):
+    """构造 music:song_requested（字段名与 v4.5.9 / Phase 1 完全一致，仅按需携带）"""
+    data = {"type": "music:song_requested", "song_id": song_id, "requester_user_id": requester}
+    if from_chunk:  # v4.5.9 断点续传：仅续传时携带（0 与不携带对持有者等价）
+        data["from_chunk"] = from_chunk
+    if p2p:  # Phase 1：请求方支持 WebRTC 直连，持有者优先尝试 P2P 直传
+        data["p2p"] = True
+    return data
+
+
+def _new_song_round(uid, p2p, from_chunk, now):
+    """新开一轮传歌：uids = 本轮要服务的听众（分片会扇出给他们全部）"""
+    return {
+        "uids": {uid},             # 本轮听众（分片扇出给全体）
+        "requester": uid,          # 本轮 music:song_requested 的 requester_user_id
+        "p2p": bool(p2p),          # 本轮是否带 p2p 标志（带则持有者可能走 P2P，不能合并）
+        "from_chunk": from_chunk,  # 本轮起始分片（起点不同的听众不能并入同一轮）
+        "chunks": 0,               # 本轮已被转发的分片数（0 = 尚未开始，可安全合并）
+        "last_chunk_at": 0.0,      # 最近一次收到本组分片的时刻（停滞判定）
+        "asked_at": now,           # 本轮 song_requested 发出时刻（停滞判定）
+        "started": now,            # 活动时钟（_check_transfer_timeouts 的 30s 超时用）
+        "pending": [],             # 本轮开始后才请求的听众 [{uid, p2p, from_chunk}]，排队另起一轮
+    }
+
+
+def _promote_pending_round(req, now):
+    """本轮结束/超时：把排队中的听众提升为下一轮（就地改写 req）。
+
+    中转轮可以继续吸收"路径与起点一致"的排队者（它们同样需要从起点开始的整份数据，
+    合成一轮仍只是一次上行）；带 p2p 的轮不行 —— P2P 是点对点连接，一轮只能服务一个请求者。
+    返回 True 表示还有下一轮（调用方需为新一轮发 music:song_requested）；
+    False 表示无人等待（调用方应删除该歌的请求状态）。"""
+    pending = req["pending"]
+    if not pending:
+        return False
+    head = pending.pop(0)
+    uids = {head["uid"]}
+    if not head["p2p"]:
+        rest = []
+        for p in pending:
+            if not p["p2p"] and p["from_chunk"] == head["from_chunk"]:
+                uids.add(p["uid"])
+            else:
+                rest.append(p)
+        req["pending"] = rest
+    req["uids"] = uids
+    req["requester"] = head["uid"]
+    req["p2p"] = head["p2p"]
+    req["from_chunk"] = head["from_chunk"]
+    req["chunks"] = 0
+    req["last_chunk_at"] = 0.0
+    req["asked_at"] = now
+    req["started"] = now
+    return True
+
+
 def _maybe_wait_all(room_id, song_id):
     """wait_all 协调：有缺歌成员 → 广播 music:song_waiting；全员就绪 → music:songs_ready"""
     with _lock:
@@ -496,7 +587,9 @@ def _maybe_wait_all(room_id, song_id):
             return
         st = room["song_waiting"].get(song_id, {"waiting": False, "ready": False, "started": 0})
         req = room["song_requests"].get(song_id)
-        missing = bool(req and req["uids"])
+        # v4.11：pending（本轮结束后才另起一轮的排队听众）同样算"缺歌"，
+        # 否则还有人在等待时会误广播 songs_ready（"全员就绪"）
+        missing = bool(req and (req["uids"] or req["pending"]))
         broadcast = None
         if missing:
             if not st["waiting"]:
@@ -511,18 +604,27 @@ def _maybe_wait_all(room_id, song_id):
 
 
 def _check_transfer_timeouts():
-    """传输状态清理：持有者超过 30s 未回传分片 → 广播 transfer_failed 给请求者并清理，
+    """传输状态清理：持有者超过 30s 未回传分片 → 广播 transfer_failed 给本轮听众；
+    若还有排队中的听众，改为把本轮作废并为它们开下一轮（避免它们一直干等）。
     避免同一首歌传输状态永久卡死（覆盖客户端 12s×3 重试窗口，重试后能拿到结果而非干等）。
     同时检查 wait_all 超时（60s）强制广播 music:songs_ready。"""
     with _lock:
         overdue = []
+        restarted = []
         ready = []
         now = time.time()
         for rid, room in rooms.items():
             for sid, req in list(room["song_requests"].items()):
                 if now - req["started"] > 30:
                     overdue.append((rid, sid, set(req["uids"])))
-                    del room["song_requests"][sid]
+                    if _promote_pending_round(req, now):
+                        # 本轮作废，但排队的听众还没被服务过 → 立刻为它们开下一轮
+                        holder = _pick_song_holder(room, sid)
+                        if holder:
+                            restarted.append((holder, _song_requested_msg(
+                                sid, req["requester"], req["p2p"], req["from_chunk"])))
+                    else:
+                        del room["song_requests"][sid]
             for sid, st in room["song_waiting"].items():
                 if st["waiting"] and not st["ready"] and now - st["started"] > 60:
                     st.update(waiting=False, ready=True)
@@ -530,6 +632,8 @@ def _check_transfer_timeouts():
     for rid, sid, uids in overdue:
         for uid in uids:
             send_to_user(uid, {"type": "music:transfer_failed", "song_id": sid})
+    for holder, data in restarted:
+        send_to_user(holder, data)
     for rid, sid in ready:
         broadcast_room(rid, {"type": "music:songs_ready", "song_id": sid})
 
@@ -602,39 +706,65 @@ def _pick_song_holder(room, song_id, exclude=None):
 
 
 def handle_music_request_song(user_id, msg):
-    """听众请求缺失歌曲：记录请求者（重置传输超时），选持有者并发 music:song_requested。
-    - 重复请求（客户端 12s×3 重试 / v4.5.9 断点续传）会重新选持有者并重新触发传输
-    - 请求携带 `from_chunk`（已保存分片数）时，透传给持有者（续传，非从头重传）
-    - 已有传输状态会被接管/重置（重发 song_requested + 重置超时），不会被旧状态挡掉"""
+    """听众请求缺失歌曲：选持有者并发 music:song_requested（v4.11 起按"轮次"去重）。
+
+    - 本轮尚未回传任何分片、且路径（p2p）与起点（from_chunk）一致 → 新听众只并入本轮 uids，
+      不重复要求持有者再传一遍（服务器转发端本来就会把分片扇出给本轮全体）
+    - 本轮已开始回传 / 带 p2p / 起点不同 → 排队（pending），本轮结束后单独开一轮，保证数据完整
+    - 同一听众重复请求（客户端 12s×3 重试）：传输有进展即忽略，停滞 REREQUEST_STALL_SEC 才重新触发
+    - 请求携带 `from_chunk`（已保存分片数）时，透传给持有者（续传，非从头重传）"""
     room_id = (connections.get(user_id) or {}).get("room_id")
     song_id = msg.get("song_id")
     if not room_id or room_id not in rooms or not song_id:
         return
+    try:
+        from_chunk = int(msg.get("from_chunk") or 0)
+    except (TypeError, ValueError):
+        from_chunk = 0
+    p2p = bool(msg.get("p2p"))
+    now = time.time()
+    trigger = None  # 非 None 表示本轮需要（重新）向持有者发 music:song_requested
     with _lock:
         room = rooms[room_id]
-        req = room["song_requests"].setdefault(song_id, {"uids": set(), "started": 0})
-        req["uids"].add(user_id)
-        req["started"] = time.time()  # 重复请求重置超时计时
-        holder = _pick_song_holder(room, song_id, exclude=user_id)
+        req = room["song_requests"].get(song_id)
+        if req is None:
+            # 本轮第一位请求者：记录本轮并向持有者发起传输
+            req = _new_song_round(user_id, p2p, from_chunk, now)
+            room["song_requests"][song_id] = req
+            trigger = req
+        elif user_id in req["uids"]:
+            # 同一听众的重复请求（客户端 12s×3 重试）：有进展就忽略（否则持有者上行被放大），
+            # 停滞超过 REREQUEST_STALL_SEC 才重新触发 —— 保留"重试能自愈"的能力。
+            # 若本轮只有它一个人且它报的 from_chunk 更靠后，按它的续传点重开本轮（等价旧行为）。
+            if now - max(req["last_chunk_at"], req["asked_at"]) > REREQUEST_STALL_SEC:
+                if req["uids"] == {user_id} and from_chunk != req["from_chunk"]:
+                    req["from_chunk"] = from_chunk
+                req["asked_at"] = now
+                req["started"] = now
+                trigger = req
+        elif any(p["uid"] == user_id for p in req["pending"]):
+            req["started"] = now  # 已在本轮之后的队列里：等本轮结束，不重复排队
+        elif (req["chunks"] == 0 and not req["p2p"] and not p2p
+              and req["from_chunk"] == from_chunk):
+            # ★ 去重：本轮尚未回传任何分片、且路径与起点一致 → 只并入 uids。
+            # 持有者不再被要求重传一遍，本轮分片会扇出给全体（含新加入者）。
+            req["uids"].add(user_id)
+            req["started"] = now
+        else:
+            # 本轮已开始回传（新加入者会缺前面那些分片）／路径或起点不同 → 排队另起一轮
+            req["pending"].append({"uid": user_id, "p2p": p2p, "from_chunk": from_chunk})
+            req["started"] = now
+        holder = _pick_song_holder(room, song_id, exclude=user_id) if trigger else None
     # v4.10：请求落库即触发 wait_all 协调（此处条件必然满足）。
-    #
-    # 原先只在 handle_music_sync_state / _forward_transfer_result 两处触发，现实中
-    # 两处都不会命中：持有者的发送循环只花 ~20ms（分片交给 socket 缓冲即返回），
-    # 真正耗时的是服务器中转（实测 11.6s / 2Mbps），所以"传歌期间每 5s 广播状态"
-    # 根本不会发生；传输结束时请求又已被 pop 掉（missing 恒为 False）。
-    # 结果 music:song_waiting 从未发出，wait_all 静默退化成 immediate
-    # （DJ 不暂停等人、不从头统一起播）。
-    #
-    # 必须在 `with _lock:` **之外**调用 —— _maybe_wait_all 内部自己要拿 _lock，
-    # 放进去会死锁。
+    # 原先只在 handle_music_sync_state / _forward_transfer_result 里触发，而这两处
+    # 在现实中都不会命中：持有者发送循环只花 ~20ms（分片交给 socket 缓冲即返回），
+    # 真正耗时的是服务器中转（实测 11.6s），所以「传歌期间每 5s 广播」根本不会发生；
+    # 传输结束时请求又已被 pop。结果 song_waiting 从未发出，wait_all 静默退化成 immediate。
     _maybe_wait_all(room_id, song_id)
     if holder:
-        data = {"type": "music:song_requested", "song_id": song_id, "requester_user_id": user_id}
-        if msg.get("from_chunk") is not None:
-            data["from_chunk"] = msg["from_chunk"]  # v4.5.9 断点续传
-        if msg.get("p2p"):
-            data["p2p"] = True  # Phase 1：请求方支持 WebRTC 直连，持有者优先尝试 P2P 直传
-        send_to_user(holder, data)
+        # 与 _forward_transfer_result / _check_transfer_timeouts 用同一个构造函数，
+        # 避免三处各写一遍字段导致漂移（from_chunk=0 与不携带对持有者等价）
+        send_to_user(holder, _song_requested_msg(song_id, user_id, p2p, from_chunk))
 
 
 def handle_music_offer_song(user_id, msg):
@@ -650,7 +780,14 @@ def handle_music_offer_song(user_id, msg):
         requesters = set(req["uids"]) if req else set()
         requesters.discard(user_id)
         if req:
-            req["started"] = time.time()  # 传输活跃中，重置超时
+            now = time.time()
+            req["started"] = now  # 传输活跃中，重置超时
+            # ★ 去重的关键判据：本轮一旦开始回传分片，后续请求者就**不可再并入**
+            # （它拿不到已转发过的前半段，只会拼出残缺文件）。handle_music_request_song
+            # 靠 `req["chunks"] == 0` 判断"本轮尚未开始" —— 不在这里递增，该判据恒为真，
+            # 任何中途加入者都会被并进来并收到残缺数据（实测：只拿到 12/27 片）。
+            req["chunks"] += 1
+            req["last_chunk_at"] = now  # 停滞判定（REREQUEST_STALL_SEC）用
     if not requesters:
         return
     data = {
@@ -666,18 +803,40 @@ def handle_music_offer_song(user_id, msg):
 
 
 def _forward_transfer_result(user_id, msg, done):
-    """传输结束（完成/失败）：转发给请求者，清空等待集合并检查 wait_all"""
+    """传输结束（完成/失败）：通知本轮听众；若还有排队者则为它们开下一轮；再检查 wait_all。
+
+    v4.11：**不再无条件 pop 掉整首歌的请求状态**。本轮结束后若还有排队听众
+    （传输已开始才请求的人 —— 他们缺前面那些分片，不能并入本轮），就地提升为下一轮
+    并向持有者重新发起；否则他们会被永久卡住：既拿不到分片，也没有下一轮，
+    而本轮结束的 transfer_done 还会告诉他们"已完成"（客户端只能靠分片校验发现残缺再续传）。
+    """
     room_id = (connections.get(user_id) or {}).get("room_id")
     song_id = msg.get("song_id")
     if not room_id or room_id not in rooms or not song_id:
         return
+    now = time.time()
+    restarted = None
     with _lock:
         room = rooms[room_id]
-        req = room["song_requests"].pop(song_id, None)
+        req = room["song_requests"].get(song_id)
+        # 先取本轮听众（_promote_pending_round 会就地覆盖 req["uids"]，必须先拷贝）
         requesters = set(req["uids"]) if req else set()
         requesters.discard(user_id)
+        if req is not None:
+            if _promote_pending_round(req, now):
+                holder = _pick_song_holder(room, song_id, exclude=req["requester"])
+                if holder:
+                    restarted = (holder, _song_requested_msg(
+                        song_id, req["requester"], req["p2p"], req["from_chunk"]))
+                else:
+                    # 没有可用持有者：不留无人服务的空轮，直接清掉（否则会卡到 30s 超时）
+                    del room["song_requests"][song_id]
+            else:
+                del room["song_requests"][song_id]
     for uid in requesters:
         send_to_user(uid, {"type": "music:transfer_done" if done else "music:transfer_failed", "song_id": song_id})
+    if restarted:
+        send_to_user(restarted[0], restarted[1])
     _maybe_wait_all(room_id, song_id)
 
 
@@ -950,7 +1109,9 @@ def handle_ws_connection(sock, rfile, headers, query):
     token = params.get("token", [None])[0]
     payload = verify_jwt(token) if token else None
     if not payload:
-        ws_send_json(sock, {"type": "error", "error": "认证失败"})
+        # 鉴权失败：发关闭帧 1008（token 无效/过期），区别于"被踢 4001"
+        print("[ws] 鉴权失败，关闭连接 (code=1008)", file=sys.stderr)
+        ws_send_close(sock, 1008, "token invalid or expired")
         time.sleep(0.2)
         sock.close()
         return
@@ -975,6 +1136,10 @@ def handle_ws_connection(sock, rfile, headers, query):
                     del rooms[old_room]
                     _delete_room_db(old_room)
             try:
+                # 踢人关闭码 4001（PWA 约定：被踢即停止自动重连，避免双端互踢死循环）
+                print("[ws] 同账号新连接，踢旧连接 (code=4001)", file=sys.stderr)
+                ws_send_close(old["sock"], 4001, "logged in elsewhere")
+                time.sleep(0.2)  # 确保关闭帧先送达旧连接
                 old["sock"].close()
             except Exception:
                 pass
@@ -982,6 +1147,11 @@ def handle_ws_connection(sock, rfile, headers, query):
     with _lock:
         connections[user_id] = {"sock": sock, "wfile": rfile, "username": username,
                                 "room_id": None, "status": "idle", "lock": threading.Lock()}
+    try:
+        peer = sock.getpeername()[0]
+    except Exception:
+        peer = "?"
+    print(f"[ws] 连接建立: user={user_id} ip={peer}", file=sys.stderr)
 
     try:
         while True:

@@ -58,7 +58,7 @@ function parseArgs(argv) {
 function printHelp() {
   console.log(`多客户端传歌测试
 
-  --scenario <name>   all | relay-1to1 | relay-fanout | resume | waitall | p2p-1to1 | p2p-reverse | full-chain | listener-only
+  --scenario <name>   all | relay-1to1 | relay-fanout | resume | waitall | p2p-1to1 | p2p-reverse | late-joiner | full-chain | listener-only
   --song <文件名>     默认 "Are you lost.mp3"
   --song-path <路径>  覆盖源文件路径
   --listeners <N>     扇出听众数（默认 3）
@@ -191,13 +191,47 @@ async function scenarioRelayFanout() {
     );
     const ms = Date.now() - t0;
 
+    /*
+     * ★ 重复分片检测（此前是盲点）。
+     *
+     * `fetchSong` 收到**第一个** transfer_done 就返回，之后到达的分片被忽略 ——
+     * 于是"服务器给每个听众重复扇出 N 份"这种浪费看不见。
+     * 而 handle_music_offer_song 会把每个分片转发给 uids 里**除发送者外的所有人**，
+     * 每个新请求者又各自触发一次 song_requested → DJ 开 N 条流 → 每个听众收 N 份。
+     * 这既浪费持有者上行，也浪费服务器那条 2Mbps 出口（比上行更稀缺）。
+     */
+    await sleep(4000);   // 给迟到/重复的分片留到达时间
+    const dupInfo = listeners.map((l, i) => {
+      const all = l.find(S2C.SONG_CHUNK, (m) => m.song_id === SONG);
+      const byIndex = new Map();
+      for (const c of all) byIndex.set(c.chunk_index, (byIndex.get(c.chunk_index) ?? 0) + 1);
+      const dup = [...byIndex.values()].filter((n) => n > 1).length;
+      return { i: i + 1, total: all.length, unique: byIndex.size, dupIndexes: dup };
+    });
+    const maxTotal = Math.max(...dupInfo.map((d) => d.total));
+    const expectedChunks = rs[0]?.expectedTotal ?? 0;
+    record("relay-fanout", "服务器是否给每个听众重复扇出分片（带宽浪费）",
+      maxTotal > expectedChunks ? "BUG" : "PASS",
+      maxTotal > expectedChunks
+        ? `听众最多收到 ${maxTotal} 片，而文件只有 ${expectedChunks} 片 → **重复 ${maxTotal - expectedChunks} 片**；`
+          + `明细 ${dupInfo.map((d) => `听众${d.i}:${d.total}片/${d.unique}唯一`).join("，")}`
+          + `（原因：每个新请求者都触发一次 song_requested → DJ 开 N 条流，服务器把每片扇出给全体）`
+        : `各听众收到的分片数均未超过文件片数（${expectedChunks}）`);
+
     const okCount = rs.filter((r) => r.ok).length;
     const totalBytes = rs.reduce((a, r) => a + (r.bytes || 0), 0);
     const mbps = ms > 0 ? totalBytes / (ms / 1000) / 1e6 : 0;
     record("relay-fanout", `${n} 个听众全部收齐且完整性一致`, okCount === n ? "PASS" : "FAIL",
       `${okCount}/${n} 成功；${(totalBytes / 1e6).toFixed(2)} MB / ${ms}ms = **${mbps.toFixed(2)} MB/s 聚合**（每听众 ${(mbps / n).toFixed(2)} MB/s）`);
-    record("relay-fanout", "DJ 侧服务的请求者数 == 听众数", served.servedTo.size === n ? "PASS" : "FAIL",
-      `DJ 服务了 ${served.servedTo.size} 个不同请求者`);
+    /*
+     * ★ 去重断言（v4.11 起）：N 个听众**同时**缺同一首歌时，DJ 只应被要求上传一次，
+     * 由服务器把这一份分片扇出给全体。修复前 DJ 会被要求服务 N 次（上行放大 N×）。
+     * 注意这与"数据完整性"是两件事，两条断言都要过：去重不能以牺牲正确性为代价。
+     */
+    record("relay-fanout", "去重生效：DJ 只服务 1 次（上行不随听众数放大）",
+      served.transfers === 1 ? "PASS" : "FAIL",
+      `DJ 被要求服务 ${served.transfers} 次（${served.servedTo.size} 个不同请求者）`
+      + (served.transfers === 1 ? "" : "；应只 1 次 —— 每个新请求者都触发一次 song_requested 就是没去重"));
 
     /*
      * 观察项（协议文档留了优化空间，不是断言）：
@@ -412,6 +446,61 @@ async function scenarioFullChain() {
     // ⑦ 传歌期间 DJ 是否持续广播（下载耗时长时防位置过期）
     record("full-chain", "⑦ 传歌期间 DJ 持续广播状态", "INFO",
       `DJ 共广播 ${dj.count("music:sync_state")} 次 sync_state（初始 + 每次 state_request + 传歌期间每 5s）`);
+  } finally {
+    await cleanup();
+  }
+}
+
+/**
+ * 场景 9：**中途加入的听众**（late joiner）。
+ *
+ * 这是"多听众去重"设计里最危险的边界，也是真实场景：
+ * DJ 切歌后听众 A 先请求并开始下载；几秒后听众 B 才进房间 / 才反应过来也请求。
+ *
+ * 服务器当前行为（v4.10 及以前）：B 被加进 `song_requests[song].uids`，但**前半段分片
+ * 已经转发过了**，B 拿不到；而 A 那轮结束时的 `transfer_done` 会 pop 掉整个请求状态
+ * 并通知全体 → **B 收到"已完成"，却只拿到后半段** → 拼出残缺文件。
+ *
+ * 真实客户端靠 `music_finalize_song` 的分片校验发现残缺并走 `from_chunk` 续传自愈，
+ * 代价是多一次往返与一次失败。本场景测的是**服务器原始行为**（虚拟听众不做自动续传），
+ * 失败 = 服务器有隐患，而不是客户端问题。
+ */
+async function scenarioLateJoiner() {
+  console.log(`\n══ 场景 late-joiner：中途加入的听众能否拿到完整文件 ══`);
+  const { dj, listeners, cleanup } = await setup({ listeners: 2, verbose: args.verbose });
+  const [a, b] = listeners;
+  try {
+    await dj.requestDj();
+    const served = dj.startServing(SONG, SONG_PATH, { p2p: false });
+    dj.broadcastState({ songId: SONG });
+    await sleep(400);
+
+    // A 先请求；等 5 秒（传输已过半）后 B 再请求
+    const aPromise = a.fetchSong(SONG, { expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 90000 });
+    await sleep(5000);
+    const bPromise = b.fetchSong(SONG, { expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 90000 });
+    const [ra, rb] = await Promise.all([aPromise, bPromise]);
+
+    record("late-joiner", "先请求的听众 A 拿到完整文件", ra.ok ? "PASS" : "FAIL",
+      ra.ok ? `${ra.chunks}/${ra.expectedTotal} 片` : (ra.reason ?? `收到 ${ra.chunks}/${ra.expectedTotal}`));
+
+    /*
+     * 关键断言：B 中途才请求，也必须拿到完整文件。
+     * 失败即说明服务器把"前半段已转发、B 却收到 transfer_done"这个残缺状态暴露给了客户端。
+     */
+    record("late-joiner", "中途加入的听众 B 拿到完整文件（逐字节一致）",
+      rb.ok ? "PASS" : "BUG",
+      rb.ok ? `${rb.chunks}/${rb.expectedTotal} 片，sha256=${rb.sha256?.slice(0, 12)}…`
+            : `${rb.reason ?? `只收到 ${rb.chunks}/${rb.expectedTotal} 片`}`
+              + `；DJ 服务次数=${served.transfers}（若 B 被并入 A 那一轮，就会缺前半段）`);
+
+    // 诊断：B 实际收到哪些分片序号（缺头还是缺尾）
+    const bIdx = b.find(S2C.SONG_CHUNK, (m) => m.song_id === SONG).map((c) => c.chunk_index).sort((x, y) => x - y);
+    if (!rb.ok && bIdx.length) {
+      record("late-joiner", "B 缺失的分片范围", "INFO",
+        `收到 ${bIdx.length} 片，序号 ${bIdx[0]}..${bIdx[bIdx.length - 1]}（共 ${rb.expectedTotal} 片）`
+        + ` → 缺 ${bIdx[0] > 0 ? `头部 0..${bIdx[0] - 1}` : "尾部"}，属"中途并入已开始的轮次"的典型症状`);
+    }
   } finally {
     await cleanup();
   }
@@ -675,6 +764,7 @@ async function main() {
     waitall: scenarioWaitAll,
     "p2p-1to1": scenarioP2P1to1,
     "p2p-reverse": scenarioP2PReverse,
+    "late-joiner": scenarioLateJoiner,
     "full-chain": scenarioFullChain,
     "listener-only": scenarioListenerOnly,
   };
@@ -689,7 +779,7 @@ async function main() {
        * （表现为"通过数变少但退出码 0"）。这类假信心比直接报错危险得多，
        * 所以场景级也要兜住并记成 FAIL。
        */
-      for (const name of ["relay-1to1", "relay-fanout", "resume", "waitall", "p2p-1to1", "p2p-reverse", "full-chain"]) {
+      for (const name of ["relay-1to1", "relay-fanout", "resume", "waitall", "p2p-1to1", "p2p-reverse", "late-joiner", "full-chain"]) {
         try {
           await run[name]();
         } catch (e) {

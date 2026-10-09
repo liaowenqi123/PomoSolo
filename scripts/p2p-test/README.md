@@ -42,12 +42,13 @@ node transfer-test.mjs --scenario resume                        # 断点续传�
 node transfer-test.mjs --scenario waitall                       # wait_all 协调观察
 node transfer-test.mjs --scenario p2p-1to1                      # WebRTC 直连 + 速率对比
 node transfer-test.mjs --scenario p2p-reverse                   # 反向打洞（含并行多连接分段）
+node transfer-test.mjs --scenario late-joiner                    # 中途加入的听众（缺头分片隐患）
 node transfer-test.mjs --scenario full-chain                    # 整条听众链路（sync 驱动）
 ```
 
 | 参数 | 说明 |
 |------|------|
-| `--scenario <name>` | `all` / `relay-1to1` / `relay-fanout` / `resume` / `waitall` / `p2p-1to1` / `p2p-reverse` / `full-chain` / `listener-only` |
+| `--scenario <name>` | `all` / `relay-1to1` / `relay-fanout` / `resume` / `waitall` / `p2p-1to1` / `p2p-reverse` / `late-joiner` / `full-chain` / `listener-only` |
 | `--song <文件名>` | 默认 `Are you lost.mp3`（3.3MB，跑得快） |
 | `--song-path <路径>` | 覆盖源文件路径（默认取仓库 `music-player/music/`） |
 | `--listeners <N>` | 扇出场景的听众数，默认 3 |
@@ -65,6 +66,7 @@ node transfer-test.mjs --scenario full-chain                    # 整条听众�
 | `resume` | 服务器把 `from_chunk` 转发给持有者；只传后半段；**续传片段与源文件对应区间逐字节一致** |
 | `waitall` | `wait_all` 下仍能传完；**断言** `song_waiting`（缺歌即通知 DJ 暂停等人）/ `songs_ready`（全员就绪，从头统一起播）必然发出，且不依赖 DJ 是否周期广播 |
 | `p2p-1to1` | **WebRTC 直连**（媒体不经服务器）+ 完整性 + 与中转的速率对比；服务器是否透传 `p2p` 标志 |
+| `late-joiner` | **中途加入的听众**：A 先请求并开始下载，5 秒后 B 才请求 —— B 必须也能拿到完整文件（否则会缺前半段却收到"已完成"） |
 | `p2p-reverse` | **反向打洞**：下载端作 offerer、持有端在收到的 channel 上发数据；含并行多连接**分段映射**（`baseChunk`/`globalChunks`） |
 | `full-chain` | **整条听众链路**：`request_state` → 缺歌检测 → 下载 → 重对齐 → 位置推进 |
 | `listener-only` | **真实应用当 DJ** + 虚拟听众拉歌（见下节） |
@@ -83,13 +85,14 @@ node transfer-test.mjs --scenario full-chain                    # 整条听众�
 | relay 吞吐 | **≈0.28 MB/s ≈ 2.2 Mbps** |
 | **瓶颈归因** | DJ 发完 27 片仅 **15ms**，听众收完 **12,591ms** → 慢在**服务器带宽**，不是客户端读盘/base64 |
 | relay 扇出 1→3 | 3/3 全部逐字节一致；聚合 **0.24 MB/s ≈ 1.9 Mbps** |
-| **多听众去重** | ❌ **未实现**：DJ 服务 3 次（= 听众数），上行放大 3× |
+| **多听众去重** | ✅ **已实现（v4.11）**：3 个听众同时缺歌时 DJ **只服务 1 次**，服务器扇出；修复前为 3 次（上行放大 3×） |
 | 断点续传 | 服务器确实转发 `from_chunk`；只传后半段且逐字节一致 |
 | `wait_all` 协调 | ✅ **已修复**（原为 0 条）：三组对照全部 2/2 条；详见 `docs/STUDY_ROOM_ARCHITECTURE.md` §8 |
 | **P2P 直连** | ✅ 建连成功（`typ srflx` NAT 打洞），**20.95 Mbps**，逐字节一致 |
 | P2P vs 中转 | **快约 10.5×**（同样 3.3MB：P2P 1.33s vs 2Mbps 中转理论 13.9s） |
 | **反向打洞**（单连接） | ✅ 逐字节一致，端到端 1.9s |
 | **反向打洞**（并行 3 连接分段） | ✅ **3/3 段**，`baseChunk` 映射正确，逐字节一致 |
+| **中途加入听众** | ✅ **已修复（v4.11）**：B 从"只拿到 12/27 片却收到已完成"变为 **27/27 逐字节一致** |
 | full-chain | 6/6：状态对齐、缺歌检测、P2P 下载、**下载期间位置推进 +1304ms** |
 
 > **关于 0.28 MB/s 的正确解读**：这不是"中转实现慢"。
