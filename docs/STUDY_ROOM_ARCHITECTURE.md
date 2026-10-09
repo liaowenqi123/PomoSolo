@@ -549,6 +549,49 @@ node transfer-test.mjs --scenario listener-only --room <roomId>   # 真实应用
 
 - 僵尸房间：公开列表会永久保留 DB 中的空房间，需服务器定时清理（11 分钟超时下线机制）
 - 服务器每 30s 补发一次 `room:members` 作为成员状态校准
-- **多听众传歌去重**：见 §8 —— 目前 N 个听众会让 DJ 上传 N 倍数据
-- **`wait_all` 协调消息**：确认 `music:song_waiting` / `music:songs_ready` 的触发条件，
-  并明确"服务器如何知道某听众缺歌"
+- **多听众传歌去重**：见 §7 —— 目前 N 个听众会让 DJ 上传 N 倍数据
+
+#### ★ `wait_all` 协调消息实际从未触发（2026-10 实测）
+
+**现象**：`music:song_waiting` / `music:songs_ready` **一条都收不到**。
+
+**实测（`transfer-test.mjs --scenario waitall`，A/B 对照，两组各自独立房间）**：
+
+| 组 | 传歌期间 DJ 是否周期广播状态 | `song_waiting` | `songs_ready` |
+|---|---|---|---|
+| A | 否 | **0** | **0** |
+| B | 是（每 5s，同真实应用 `music.ts:1182`） | **0** | **0** |
+
+**已排除的可能**：服务器**确实处理了模式切换** —— 实测收到 2 条回广播的
+`music:sync_config`，即 `transfer_mode` 已置为 `wait_all`。
+所以不是"没收到配置"，而是协调广播本身没发生。
+
+**根因（读 `server-planning/ws_server.py` 得出，与实测一致）**：
+`_maybe_wait_all()` 只有两个调用点，**都不可能发出 `song_waiting`**：
+
+| 调用点 | 为什么发不出 |
+|---|---|
+| `_forward_transfer_result`（传输结束，line 669） | 它**先 `pop` 掉** `song_requests[song_id]`（line 664）再调用 → `missing = bool(req and req["uids"])` **恒为 False** |
+| `handle_music_sync_state`（DJ 广播状态，line 554） | 逻辑上能发（此刻请求者集合非空）→ 但实测 B 组（每 5s 广播）**仍是 0 条**，说明**部署的服务器与本仓库的参考实现不一致**，该调用点在线上不存在或未生效 |
+
+而 `handle_music_request_song`（听众请求缺歌，line 604）**根本没调用它** ——
+这才是本该触发的地方。
+
+**修法（一行）**：在 `handle_music_request_song` 记录请求者之后补
+`_maybe_wait_all(room_id, song_id)`。这样"有人缺歌"的瞬间就会广播 `song_waiting`，
+传输结束时（`songs_ready` 分支因 `st["waiting"]` 已为 True 而成立）能正常广播 `songs_ready`。
+
+**用户可见影响（按 `src/stores/music.ts` 的设计意图推演）**：
+
+| 消息 | 客户端预期行为（代码意图） |
+|---|---|
+| `song_waiting` | DJ **暂停播放**等全员（`handleSongWaiting` → `togglePlay()`）；听众显示等待提示 |
+| `songs_ready` | DJ **从头播放**（`togglePlay()` + `seek(0)`）；听众清除提示并开始播 |
+
+两者都不来 → **`wait_all` 静默退化成 `immediate`**：DJ 不等任何人、不从头统一起播。
+
+> ⚠️ 还有一处**待真机验证**的风险：`music.ts:1084` 的 `finalizeTransfer` 在
+> `wait_all` 下下载完**直接 return、不播放**，专门等 `songs_ready`。
+> 该消息永不到达时，听众只能靠后续 `sync_state`（`music.ts:2010/2027`）被动恢复播放 ——
+> 若 DJ 此后不再广播，听众可能**卡在"等待其他用户下载歌曲"且不播**。
+> 这条需要真实应用参与才能确认，虚拟客户端覆盖不到该状态机。

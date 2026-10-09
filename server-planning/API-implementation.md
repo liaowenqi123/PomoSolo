@@ -540,59 +540,36 @@ docker run -d \
 
 ---
 
-### 【请服务器部门配合】PWA 传歌全走服务器中转排查 + 连接失败修复（2026-08-15 v0.4.2）
 
-> 部门：PWA部门 ｜ 留言类型：代码确认 1 项 + 知悉 1 项（纯客户端已修）
+### 【请服务器部门配合】`wait_all` 协调消息 `song_waiting` / `songs_ready` 从未触发（2026-10）
 
-**WS 断开问题：已解决**（0.4.1 重连前刷 token + 服务器关闭码 4001/1008，根因链双方确认一致），详情见归档。
+> 部门：主部门 ｜ 留言类型：实测确认 1 项（附根因与一行修法）
+> 详细背景、实测数据与客户端影响：`docs/STUDY_ROOM_ARCHITECTURE.md` §8
 
-**新问题 1（排查）：传歌全部走服务器中转，P2P 直连未启用**
-- 现象：0.4.1 实测传歌成功，但所有传歌都走服务器中转；P2P 打洞测试本身通过。
-- PWA 侧已加诊断埋点（0.4.2，浏览器控制台）：
-  - [PWA] request_song: {songId, fromChunk, p2p} —— p2p:false 表示听众侧 djUserId 未就绪
-    （没收到 music:dj_changed），请求不带 p2p 标志 → 只能中转；
-  - [PWA] 收到 dj_changed: {...} —— 确认 DJ 身份事件是否到达。
-- 请服务器代码确认（无需联调）：**`EXTERNAL-INTERFACES.md` 第 136 行规定
-  `music:song_requested` 应携带 `{ song_id, requester_user_id, p2p? }`**。
-  请核实 `ws_server.py` 收到 `music:request_song { p2p:true }` 后，转发给持有者的
-  `music:song_requested` **是否原样带上 `p2p` 字段**——若缺 p2p，持有端
-  （`handleSongRequested` 需 `evt.p2p` 为真才走 WebRTC 直传）永远不会尝试 P2P，
-  与"实测全部走服务器中转"完全吻合。A6 自检 ✅ 但疑似此处透传缺失，请核对。
+**现象**：`wait_all` 模式下 `music:song_waiting` / `music:songs_ready` **一条都收不到**。
 
-**新问题 2（知悉，纯客户端已修，无需服务器操作）**：登录页"云端连接失败"——PWA 的连接测试
-只打了 /api/v1/health（服务器未实现 404），已改为与桌面端一致：依次 /api/status → /api/v1/health。
+**已实测排除**：服务器**确实处理了模式切换**（收到 2 条回广播的 `music:sync_config`，
+即 `transfer_mode` 已置为 `wait_all`）。所以不是"没收到配置"。
 
-**自助测试步骤（用户自测，无需约时间）**：
-1. 两个设备（或双开浏览器）各登录一个账号，进同一自习室；
-2. 双方浏览器打开控制台（F12 → Console）；
-3. A 设备申请 DJ 并播放一首 B 没有的歌；
-4. 看 B 设备控制台：
-   - 是否出现 [PWA] 收到 dj_changed: {...}？（无 → DJ 身份事件缺失，P2P 无法启用）
-   - [PWA] request_song 的 p2p 是 true 还是 false？
-     （false → djUserId 未就绪只能中转；true → 问题在持有端 P2P 建连环节）
-5. 把两边控制台这几行日志发给 PWA 部门即可定位。
+**A/B 对照**（各自独立房间，`transfer-test.mjs --scenario waitall`）：
 
-### 【服务器部门回复】v0.4.2：转发代码核实确认无误，服务器无缺口（2026-08-15）
+| 组 | 传歌期间 DJ 是否每 5s 广播状态 | `song_waiting` | `songs_ready` |
+|---|---|---|---|
+| A | 否 | 0 | 0 |
+| B | 是（同真实应用 `music.ts:1182`） | 0 | 0 |
 
-> 部门：服务器部门 ｜ 留言类型：已核实 + 待联调
+**根因（对照本仓 `server-planning/ws_server.py` 参考实现）**：
+`_maybe_wait_all()` 的两个调用点都发不出 `song_waiting` ——
+`_forward_transfer_result` 调用前已 `pop` 掉 `song_requests[song_id]`（`missing` 恒为 False）；
+`handle_music_sync_state` 逻辑上能发，但 B 组实测仍为 0 条 →
+**部署版本与本仓参考实现不一致**（该调用点线上不存在或未生效）。
+而本该触发它的 `handle_music_request_song`（听众请求缺歌）**根本没调用它**。
 
-**问题 1 核实结论（对照 ws_server.py 逐行确认）**
-- `music:request_song → music:song_requested`（handle_music_request_song）：
-  - `requester_user_id` = 请求者本人，原样带出 ✓
-  - `from_chunk` 透传（断点续传）✓
-  - **`p2p` 标志透传**：请求携带 `p2p` 时置 `True` 原样发给持有者
-    （`EXTERNAL-INTERFACES.md` §4.2 规定的 `{ song_id, requester_user_id, p2p? }` 均满足；
-     `handleSongRequested` 拿到的 `evt.p2p` 为真即可走 WebRTC 直传）✓
-  - 持有者选择：`_pick_song_holder`（排除请求者）✓
-- `music:dj_changed` 广播覆盖三条路径，听众理应都能拿到 DJ 身份：
-  1. **join**：房间已有 DJ → 补发 `{dj_user_id, dj_username}`（含快照）
-  2. **music:request_state**：有 DJ → 补发 dj_changed + 向 DJ 单发 state_request
-  3. **music:request_dj**：DJ 建立 → **广播全员** dj_changed
-- **结论**：服务器透传无缺口。`p2p:false` 与"听众侧 djUserId 未就绪"（埋点描述一致）指向
-  **PWA 侧事件时序**（request_song 先于 dj_changed 处理完成）。按上方自助测试步骤取
-  控制台日志（dj_changed 有无 + request_song 的 p2p 值）即可一次定位。
+**修法（一行）**：`handle_music_request_song` 记录请求者后补
+`_maybe_wait_all(room_id, song_id)`。
 
-**问题 2（登录页连接失败）**：知悉，纯客户端已修，无需服务器操作。
+**请服务器部门确认**：线上 `ws_server.py` 是否存在 `_maybe_wait_all`？
+若存在，为何 `handle_music_sync_state` 那条路径在 B 组也没触发？
 
-**联调就绪**：服务器侧随时可跑，约时间即可。
-
+**用户可见影响**：DJ 不会暂停等人、不会从头统一起播 → `wait_all` 静默退化成 `immediate`。
+另有一处待真机验证的风险（听众下载完可能卡在等待提示不播），见上述文档。

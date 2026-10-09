@@ -76,7 +76,7 @@ const SONG_PATH = args.songPath;
 const results = [];   // { scenario, check, state: 'PASS'|'FAIL'|'INFO', detail }
 function record(scenario, check, state, detail = "") {
   results.push({ scenario, check, state, detail });
-  const icon = state === "PASS" ? "✅" : state === "FAIL" ? "❌" : "ℹ️ ";
+  const icon = state === "PASS" ? "✅" : state === "FAIL" ? "❌" : state === "BUG" ? "🐞" : "ℹ️ ";
   console.log(`  ${icon} ${check}${detail ? ` — ${detail}` : ""}`);
 }
 
@@ -488,34 +488,110 @@ async function scenarioP2PReverse() {
   }
 }
 /** 场景 4：wait_all 协调（观察服务器是否发 song_waiting / songs_ready） */
-async function scenarioWaitAll() {
-  console.log(`\n══ 场景 waitall：wait_all 模式的 song_waiting / songs_ready 协调 ══`);
+/**
+ * wait_all 对照组：**每组用独立房间 + 独立客户端**。
+ *
+ * ⚠️ 第一版把两组塞进同一批客户端，结果 B 组 `fetchSong` 的 waitFor 命中了
+ * A 组的历史 `transfer_done` 直接返回（"0/27"）—— 与 full-chain 那次
+ * "断言命中历史消息"是同一类陷阱。所以每组必须隔离环境。
+ */
+async function runWaitAllGroup(withBroadcast) {
   const { dj, listeners, cleanup } = await setup({ listeners: 1, verbose: args.verbose });
+  const listener = listeners[0];
   try {
     await dj.requestDj();
-    const served = dj.startServing(SONG, SONG_PATH);
+    const served = dj.startServing(SONG, SONG_PATH, { djBroadcast: withBroadcast, p2p: false });
     dj.setTransferMode("wait_all");
-    dj.broadcastState({ songId: SONG, transferMode: "wait_all" });
-    await sleep(600);
+    // 让 DJ「在放这首歌」：sync_state 带 song_id 才会触发服务器的 _maybe_wait_all
+    dj.startDjPlayback(SONG, { positionMs: 0 });
+    await sleep(800);
 
-    const listener = listeners[0];
-    const r = await listener.fetchSong(SONG, { expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 90000 });
+    const t0 = Date.now();
+    // p2p:false → 走中转（~12s），确保落在 5s 广播窗口内
+    const r = await listener.fetchSong(SONG, {
+      expectedSha256: served.sha256, expectedSize: served.size, timeoutMs: 90000,
+    });
+    await sleep(4000);   // 给 songs_ready 一点时间
 
-    record("waitall", "wait_all 下仍能完成传输", r.ok ? "PASS" : "FAIL", r.reason ?? `${r.chunks}/${r.expectedTotal} 片`);
-
-    // 这两个是**观察项**：服务器是否广播协调消息。
-    // 触发条件可能依赖真实客户端才会上报的信息，虚拟客户端不一定满足，
-    // 所以用 INFO 呈现事实、不武断判失败。
-    const waiting = dj.find(S2C.SONG_WAITING).length + listener.find(S2C.SONG_WAITING).length;
-    const ready = dj.find(S2C.SONGS_READY).length + listener.find(S2C.SONGS_READY).length;
-    record("waitall", "是否收到 music:song_waiting", "INFO", `共 ${waiting} 条`);
-    record("waitall", "是否收到 music:songs_ready", "INFO", `共 ${ready} 条`);
-    if (ready > 0) record("waitall", "全员就绪广播链路可用", "PASS", "已观察到 songs_ready");
+    return {
+      ok: r.ok, reason: r.reason, chunks: r.chunks, ms: Date.now() - t0,
+      w: listener.find(S2C.SONG_WAITING).length + dj.find(S2C.SONG_WAITING).length,
+      rd: listener.find(S2C.SONGS_READY).length + dj.find(S2C.SONGS_READY).length,
+      /*
+       * 诊断证据 —— 用于区分"服务器没这个功能"和"有但触发条件不同"：
+       *  · syncConfigEcho：服务器处理 music:sync_config 后会广播回 music:sync_config。
+       *    没回 → 说明该消息在服务器侧没被处理，transfer_mode 仍是 immediate，
+       *    于是 _maybe_wait_all 第一行就 return（"发不出协调消息"是必然结果）。
+       *  · syncStateEcho：服务器收到 music:sync_state 会补 timestamp_server 后广播回。
+       *    没回 → 状态广播链路本身不通，那 wait_all 之外的功能也会受影响。
+       */
+      syncConfigEcho: dj.count(S2C.SYNC_CONFIG) + listener.count(S2C.SYNC_CONFIG),
+      syncStateEcho: dj.count(S2C.SYNC_STATE) + listener.count(S2C.SYNC_STATE),
+    };
   } finally {
     await cleanup();
   }
 }
 
+async function scenarioWaitAll() {
+  console.log(`\n══ 场景 waitall：wait_all 协调消息是否真的会触发（A/B 对照）══`);
+  const a = await runWaitAllGroup(false);
+  console.log(`  ── A 组（传歌期间不广播状态）──`);
+  record("waitall", "A 组：传输本身完成", a.ok ? "PASS" : "FAIL",
+    a.ok ? `${a.chunks} 片 / ${(a.ms / 1000).toFixed(1)}s` : (a.reason ?? ""));
+  record("waitall", "A 组：song_waiting / songs_ready", "INFO", `收到 ${a.w} / ${a.rd} 条`);
+
+  const b = await runWaitAllGroup(true);
+  console.log(`  ── B 组（传歌期间每 5s 广播状态，同真实应用）──`);
+  record("waitall", "B 组：传输本身完成", b.ok ? "PASS" : "FAIL",
+    b.ok ? `${b.chunks} 片 / ${(b.ms / 1000).toFixed(1)}s` : (b.reason ?? ""));
+  record("waitall", "B 组：song_waiting / songs_ready", "INFO", `收到 ${b.w} / ${b.rd} 条`);
+
+  // 诊断：服务器是否真的处理了模式切换与状态广播
+  record("waitall", "诊断：服务器是否回广播 music:sync_config（证明它处理了模式切换）",
+    b.syncConfigEcho > 0 ? "PASS" : "BUG",
+    b.syncConfigEcho > 0
+      ? `收到 ${b.syncConfigEcho} 条 sync_config`
+      : `**一条都没收到** → 服务器未处理 music:sync_config，transfer_mode 仍是 immediate，`
+        + `_maybe_wait_all 会直接 return —— 这足以解释协调消息为何完全发不出`);
+  record("waitall", "诊断：服务器是否回广播 music:sync_state（状态链路）", "INFO",
+    `收到 ${b.syncStateEcho} 条 sync_state（DJ 自己发的 + 服务器补 timestamp_server 后广播）；
+     服务器若处理会带上 timestamp_server`);
+
+  /*
+   * 结论：若 A 组无消息而 B 组有消息 → wait_all 的触发依赖
+   * 「DJ 恰好在请求挂起期间广播状态」这个巧合，而不是设计使然。
+   * 那意味着传输快于 5s 广播间隔时（P2P 实测 ~1.3s）会漏触发，
+   * wait_all 静默退化成 immediate —— DJ 不会等任何人。
+   */
+  const consistent = a.w === b.w && a.rd === b.rd;
+  if (consistent) {
+    record("waitall", "触发是否设计使然（与 DJ 是否周期广播无关）",
+      a.w > 0 ? "PASS" : "BUG",
+      a.w > 0 ? "两组都触发，触发不依赖周期广播"
+              : "两组都没触发：协调消息根本没被发出");
+  } else {
+    record("waitall", "触发是否设计使然（与 DJ 是否周期广播无关）", "BUG",
+      `A 组 ${a.w}/${a.rd} 条，B 组 ${b.w}/${b.rd} 条 → **触发依赖"DJ 恰好在请求挂起期间`
+      + `广播状态"这个巧合**；传输快于 5s 广播间隔时（P2P 实测 ~1.3s）会漏掉，`
+      + `wait_all 静默退化成 immediate（DJ 不会等任何人）`);
+  }
+
+  /*
+   * 根因（读 server-planning/ws_server.py 得出）：_maybe_wait_all() 只有两个调用点 ——
+   *   ① handle_music_sync_state（DJ 广播状态）← 唯一可能发出 song_waiting 的路径
+   *   ② _forward_transfer_result（传输结束）← 调用前已 pop 掉请求者集合，
+   *      因此 missing 恒为 false，永远发不出 song_waiting
+   * 而 handle_music_request_song（听众请求缺歌）**没有调用它**。
+   * 修法：handle_music_request_song 记录请求者后补一次 _maybe_wait_all(room_id, song_id)。
+   */
+  record("waitall", "根因定位", "BUG",
+    "server-planning/ws_server.py：handle_music_request_song 记录请求者后未调用 "
+    + "_maybe_wait_all()；_forward_transfer_result 调用前已 pop 掉请求者集合。"
+    + "→ song_waiting 只能靠「DJ 恰好在请求挂起期间广播状态」偶然触发；"
+    + "songs_ready 也只在 song_waiting 曾触发过时才可能出现。"
+    + "修法：handle_music_request_song 末尾补 _maybe_wait_all(room_id, song_id)（一行）。");
+}
 /**
  * 场景 5：**真实应用当 DJ** + 虚拟听众。
  * 应用需要已经在某个房间里、已请求成为 DJ、并正在放这首歌。
@@ -627,8 +703,19 @@ async function main() {
     const pass = results.filter((r) => r.state === "PASS").length;
     const fail = results.filter((r) => r.state === "FAIL");
     const info = results.filter((r) => r.state === "INFO").length;
+    const bugs = results.filter((r) => r.state === "BUG");
     console.log(`\n${"═".repeat(64)}`);
-    console.log(`  汇总：${pass} 通过 / ${fail.length} 失败 / ${info} 观察   （耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s）`);
+    console.log(`  汇总：${pass} 通过 / ${fail.length} 失败 / ${info} 观察 / ${bugs.length} 疑似缺陷`
+      + `   （耗时 ${((Date.now() - t0) / 1000).toFixed(1)}s）`);
+    /*
+     * BUG 单列：这些是**服务器侧**（或跨部门）的疑似缺陷，本仓库改不了。
+     * 刻意不并入 FAIL —— 否则套件长期飘红，大家会开始无视红色，
+     * 那比不报还糟。但也不降级成 INFO：它是缺陷，不是"仅供参考的信息"。
+     */
+    if (bugs.length) {
+      console.log(`\n  🐞 疑似缺陷（服务器侧，本仓无法修复，需同步服务器部门）：`);
+      for (const b of bugs) console.log(`    🐞 [${b.scenario}] ${b.check} — ${b.detail}`);
+    }
     if (fail.length) {
       console.log(`\n  失败项：`);
       for (const f of fail) console.log(`    ❌ [${f.scenario}] ${f.check}${f.detail ? ` — ${f.detail}` : ""}`);

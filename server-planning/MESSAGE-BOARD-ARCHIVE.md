@@ -818,3 +818,40 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 
 
 
+
+---
+
+## 已归档：PWA 传歌走中转排查（PWA部门 2026-08-15 → 服务器部门回复 2026-08-15）
+
+> 归档于 2026-10。**结论：服务器透传无缺口**，且已由主部门的虚拟客户端工具**独立实测确认**。
+
+### 【请服务器部门配合】PWA 传歌全走服务器中转排查（PWA部门）
+
+**WS 断开问题：已解决**（0.4.1 重连前刷 token + 服务器关闭码 4001/1008，根因链双方确认一致）。
+
+**新问题 1（排查）：传歌全部走服务器中转，P2P 直连未启用**
+- 现象：0.4.1 实测传歌成功，但所有传歌都走服务器中转；P2P 打洞测试本身通过。
+- 请求核对：`music:request_song { p2p:true }` 转发给持有者的 `music:song_requested`
+  是否原样带上 `p2p` 字段（缺 p2p 则持有端永远不会尝试 P2P）。
+
+**新问题 2（纯客户端已修）**：登录页"云端连接失败"——PWA 只打 `/api/v1/health`
+（服务器未实现 404），已改为与桌面端一致：`/api/status` → `/api/v1/health`。
+
+### 【服务器部门回复】v0.4.2：转发代码核实确认无误，服务器无缺口
+
+- `music:request_song → music:song_requested`（`handle_music_request_song`）：
+  `requester_user_id` 原样带出 ✓、`from_chunk` 透传 ✓、**`p2p` 标志透传 ✓**、
+  持有者选择 `_pick_song_holder`（排除请求者）✓
+- `music:dj_changed` 广播覆盖三条路径（join 补发 / request_state 补发 / request_dj 广播）✓
+- 结论：服务器透传无缺口，`p2p:false` 指向 **PWA 侧事件时序**
+  （request_song 先于 dj_changed）。
+
+### 主部门独立实测补充（2026-10，`scripts/p2p-test/transfer-test.mjs`）
+
+用虚拟客户端（真协议打真服务器）独立验证了上述结论：
+- ✅ **`p2p` 标志确实透传**：`song_requested.p2p === true`，且 P2P 直连成功建连
+  （ICE `typ srflx` NAT 打洞），**20.95 Mbps，比 2 Mbps 中转快约 10.5×**，逐字节一致。
+- ✅ `music:request_state` → DJ 侧确实收到 `music:state_request`。
+- ✅ `from_chunk` 确实透传（断点续传实测只传后半段且逐字节一致）。
+- ✅ `parallel` 确实透传（反向打洞并行 3 连接实测持有端收到 `parallel=3`）。
+- ❌ 新发现：`wait_all` 的 `song_waiting` / `songs_ready` 从未触发 → 见 API-implementation.md 当前待办。
