@@ -337,6 +337,34 @@ CLI:       scripts/board/board.mjs（零依赖，npm run board -- <cmd>）
 若 `app_settings.board_write_token` 有值，则需 `Authorization: Bearer <token>` 或 `?token=`。
 **限流**：60 次写 / IP / 分钟。
 
+**响应信封（所有 JSON 接口统一）**：
+
+```jsonc
+// 成功：字段是**平铺**的，不要去找 data/comment 之类的嵌套
+{ "ok": true, /* ...该接口自己的字段 */ }
+// 失败：HTTP 4xx/5xx + 人类可读的中文 error
+{ "ok": false, "error": "帖子 9999 不存在" }
+```
+
+**各接口真实响应字段**（照实现逐条核对，不是推测）：
+
+| 接口 | 状态码 | 响应字段（除 `ok` 外） |
+|------|--------|----------------------|
+| `GET /api/statuses` | 200 | `statuses[]`（`key`/`label`/`color`）、`comment_kinds`、`priorities` |
+| `GET /api/summary` | 200 | `service`、`url`、`server_time`、`total_posts`、`by_status{}`、`statuses[]`、`projects[]`、`attention[]` |
+| `GET /api/digest?format=md` | 200 | **纯文本**（不是 JSON），可直接打印 |
+| `GET /api/projects` | 200 | `projects[]`（`id`/`slug`/`name`/`description`/`sort`/`created_at`/`post_count`/`last_activity`/`counts{}`/`open_count`/`pending_count`）、`total` |
+| `GET /api/posts` | 200 | `posts[]`（**不含 `body`**，列表用）、`total`、`limit`、`offset` |
+| `GET /api/posts/<id>` | 200 | `post{}`（含 `body` 与 `comments[]`） |
+| `POST /api/projects` | **201** | `id`、`slug`、`name` |
+| `POST /api/posts` | **201** | `id`、`project`、`project_name`、`title`、`status`、`created_at`、`url` |
+| `POST /api/posts/<id>/comments` | **201** | `id`、`post_id`、`kind`、`author`、`created_at` |
+| `POST /api/posts/<id>/status` | 200 | `id`、`from`、`status`、`status_label`、`url`；状态没变时返回 `id`、`status`、`unchanged: true` |
+| `GET /health` | 200 | `status`、`service` |
+
+> ⚠️ `POST /api/posts/<id>/comments` 的响应**没有** `comment` 嵌套对象，
+> 评论 id 直接在顶层 `id`。CLI（`scripts/board/board.mjs`）按此解析。
+
 **帖子状态**（6 种）：
 
 | key | 中文 |
