@@ -34,6 +34,15 @@ const args = (() => {
     // ⚠️ 踩过：一开始用 `Are you lost.mp3`，结果应用曲库里**本来就有**它，
     // 于是"文件存在"看起来像成功，实际什么都没传（靠时间戳才发现）。
     songPath: get("--song-path", null),
+    /*
+     * `--next-song`：让 DJ 在广播里预告"下一首"，并**也把这首歌挂上服务**。
+     *
+     * 这是**预取功能的真机判据**：DJ 全程只放 `--song`、**永不切歌**，
+     * 所以"下一首"的文件出现在应用曲库里**只可能来自预取**。
+     * 用 4.8.0 客户端跑，就能证明新版本的预取真的在工作。
+     */
+    nextSong: get("--next-song", null),
+    nextSongPath: get("--next-song-path", null),
     verbose: a.includes("--verbose"),
   };
 })();
@@ -41,6 +50,11 @@ const args = (() => {
 const SONG_PATH = args.songPath
   ? fileURLToPath(new URL(args.songPath, import.meta.url))
   : fileURLToPath(new URL(`../../music-player/music/${args.song}`, import.meta.url));
+const NEXT_SONG_PATH = args.nextSong
+  ? (args.nextSongPath
+      ? fileURLToPath(new URL(args.nextSongPath, import.meta.url))
+      : fileURLToPath(new URL(`../../music-player/music/${args.nextSong}`, import.meta.url)))
+  : null;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const djUser = testUser(1);
@@ -53,18 +67,22 @@ const roomId = await dj.createRoom(`real-client-compat-${Date.now()}`);
 await dj.requestDj();
 
 const served = dj.startServing(args.song, SONG_PATH, { p2p: true, djBroadcast: true });
-// ★ 关键：广播里带上 v4.12 新增的 next_song_id（老客户端不认识这个字段）
+// 下一首也要挂上服务 —— 否则应用来预取时会找不到持有者
+const servedNext = args.nextSong ? dj.startServing(args.nextSong, NEXT_SONG_PATH, { p2p: true }) : null;
+// ★ 关键：广播里带上 next_song_id。老客户端（v4.7.12）不认识该字段、会忽略；
+//   新客户端（v4.8.0）应当据此**在当前歌还在播时就预取它**。
 dj.startDjPlayback(args.song, {
   positionMs: 0, transferMode: "immediate", broadcastEveryMs: 5000,
-  nextSongId: "【v4.12 新字段】这是老客户端不该认识的下一首.mp3",
+  nextSongId: args.nextSong ?? "【v4.12 新字段】这是老客户端不该认识的下一首.mp3",
 });
 
 console.log("\n" + "═".repeat(72));
-console.log("  虚拟 DJ 已就绪（新方言，广播里带 v4.12 的 next_song_id）");
-console.log(`  歌曲：${args.song}（${served.size} 字节，应用曲库里没有这首）`);
+console.log("  虚拟 DJ 已就绪（广播里带 v4.12 新增的 next_song_id）");
+console.log(`  正在放：${args.song}（${served.size} 字节）`);
+if (args.nextSong) console.log(`  预告下一首：${args.nextSong}（${servedNext.size} 字节）—— **全程不会切歌**`);
 console.log(`  房间 ID：${roomId}`);
 console.log("═".repeat(72));
-console.log("\n  ★ 请在真实 v4.7.12 应用里：自习室 → 🚪 加入自习室 → 输入上面的房间 ID\n");
+console.log("\n  ★ 请在真实应用里：自习室 → 🚪 加入自习室 → 选这个房间 → 开启同步\n");
 
 // 记录应用侧的活动 —— 这些是"老客户端真的来要歌了"的证据
 let requestCount = 0;
@@ -100,7 +118,7 @@ if (requestCount === 0) {
 } else {
   console.log("  ✅ 老客户端（v4.7.12）能正常向新 DJ 请求传歌，未被 next_song_id 等新字段影响");
 }
-console.log("  另请在应用曲库目录确认是否出现：" + args.song);
+console.log("  另请在应用曲库目录确认是否出现（真身 %APPDATA%\com.pomosolo.app\music\）：" + args.song);
 console.log("    %LOCALAPPDATA%\\PomoSolo\\music\\\n");
 
 try { dj.leaveRoom(roomId); } catch { /* ignore */ }
