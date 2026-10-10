@@ -91,8 +91,18 @@ WebSocket:       wss://api.pomogrow.top/ws?token=<access_token>
 | `music:volume` | 同步听歌 | 音量 | volume: 0-1 |
 | `music:add_song` | 同步听歌 | 加歌 | song_name, song_url |
 | `music:request_dj` | 同步听歌 | 申请当 DJ | - |
-| `music:sync_state` | 同步听歌 | **DJ 全量状态快照（现行主协议）** | song_id, playing, position_ms, volume, transfer_mode |
+| `music:sync_state` | 同步听歌 | **DJ 全量状态快照（现行主协议）** | song_id, playing, position_ms, volume, transfer_mode, **next_song_id**（v4.8.0 可选） |
 | `music:sync_config` | 同步听歌 | 切传歌方案 | transfer_mode: immediate / wait_all |
+
+> **`music:sync_state` 的 `next_song_id`（v4.8.0 新增，可选）**
+>
+> DJ 广播时附带"下一首"的歌名，供听众**提前预取**（切歌瞬间可播，不再"获取歌曲中 x%"）。
+> - **服务器无需任何改动**：`handle_music_sync_state` 是 `data = dict(msg)` 原样广播，
+>   该字段自动透传（已用虚拟客户端打真服务器实测确认）；
+> - **老客户端（v4.7.12 及更早）安全**：其 `applySyncState` 只按名字取字段、不做整体校验，
+>   未知字段被静默忽略（已用**真实 v4.7.12 客户端**在环实测确认）；
+> - **新客户端遇到老 DJ**（不带该字段）：不预取、不猜，功能自动降级为原行为；
+> - 值由客户端纯函数 `music_peek_next` 提供（**不推进播放历史**；随机模式靠"预摇"保证与实际一致）。
 | `music:request_state` | 同步听歌 | 请求补发状态快照 | - |
 | `music:request_song` | P2P 传歌 | 听众请求拉缺失歌曲 | song_id, from_chunk, p2p:true |
 | `music:offer_song` | P2P 传歌 | 持有者回传分片（服务器中转） | song_id, chunk_index, total_chunks, chunk_size, data_base64 |

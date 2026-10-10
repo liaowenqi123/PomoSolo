@@ -2,7 +2,7 @@
 
 **一款功能丰富的番茄钟专注应用 —— Tauri v2 + Vue 3 + 纯 Rust 后端。**
 
-[![Release](https://img.shields.io/badge/Release-v4.7.12-ff6b6b)](https://github.com/liaowenqi123/PomoSolo/releases)
+[![Release](https://img.shields.io/badge/Release-v4.8.0-ff6b6b)](https://github.com/liaowenqi123/PomoSolo/releases)
 [![Tauri](https://img.shields.io/badge/Tauri-v2-blue)](https://tauri.app)
 [![Vue](https://img.shields.io/badge/Vue-3.5-42b883)](https://vuejs.org)
 [![Rust](https://img.shields.io/badge/Rust-2021-orange)](https://www.rust-lang.org)
@@ -62,7 +62,7 @@ PomoSolo 是一款 Windows 桌面番茄钟应用，从原 Electron + Python 版�
 | 🔍 **专注模式 / 前台检测** | AI 判断前台窗口是否为娱乐应用，黑白名单 + 历史记录多源判定，违规触发作物枯萎惩罚 |
 | 🎵 **音乐播放器** | 纯 Rust 音频播放（rodio）、播放列表、标签管理、**音乐库目录树 + 标签筛选 + 播放集合（列表循环/随机）**、输出设备切换、播放模式、进度拖拽 |
 | 📥 **音乐下载** | 纯 Rust B 站音频下载（reqwest + symphonia DASH 解析），DeepSeek AI 选曲 |
-| 👥 **自习室** | 公开/私密房间、实时排名、专注时长同步 |
+| 👥 **自习室** | 公开/私密房间、实时排名、专注时长同步、**同步听歌（P2P 直连优先，失败自动回退中转）+ 预取下一首**（切歌瞬间可播，不再"获取歌曲中 x%"） |
 | 📊 **统计** | 日/周/月专注时长图表、热力图、趋势分析 |
 | 🤖 **AI 规划助手** | 一句话生成番茄钟计划，调用 DeepSeek（云端 / 本地双模式） |
 | 🔐 **云端账号** | 自建服务器后端（JWT 认证 + refresh token 自动续期）、本地凭据 AES-256-GCM 加密、自动登录 |
