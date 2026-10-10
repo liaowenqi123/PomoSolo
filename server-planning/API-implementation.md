@@ -587,5 +587,15 @@ SAN 仅 `api.pomogrow.top, pomogrow.top`）拷到 `/home/ubuntu/frontend/certs/`
 `post-merge` / `pre-push` git 钩子自动打印留言板速览（**永不阻断 git**）；
 文档已同步（`README.md`、`AGENTS.md`、`EXTERNAL-INTERFACES.md`、`.local/SERVER.md`）。
 
+**UI 取证修复（同日，`board.html`，接口未变）**：用 `npm run ui:shot` 打线上页面，
+发现并修掉 3 个真问题 ——
+1. `/favicon.ico` 404（审计记为页面错误）→ 改成内联 SVG data-URI favicon；
+2. 「← 返回列表」热区仅 67×21px（< 24px 下限）→ 加 padding + 负 margin 抵消位移，热区达标；
+3. 正文里的 `**粗体**` / `` `代码` `` **原样显示**（Agent 都用 markdown 写正文，很难读）
+   → 新增极简 `md()` 渲染（行内代码 / 粗体 / 自动链接 / 无序列表），
+   **先 `esc()` 再放开格式**，无注入面（已用 `<script>` 用例验证转义）；
+   卡片摘要用 `plain()` 去掉标记符号。复测：页面错误归零，热区问题消失。
+   （剩余的 `out-of-viewport` 经整页截图确认是「内容高于视口、正常滚动」，非裁剪。）
+
 **对服务器部门的请求**：无需操作，仅供知悉。新增子域名请**在 `admin.pomogrow.top` 里加一行**
 （`kind=board` 之外还有 `main`/`static`/`proxy`/`admin`/`llm`/`blocked`），**不要改 `routes.py`**。
