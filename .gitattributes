@@ -1,0 +1,27 @@
+# Git 行尾与二进制规则
+#
+# ⚠️ 本机 core.autocrlf=true（Windows 默认习惯），但 **shell 脚本必须保持 LF**：
+#    `#!/bin/sh\r` 在 Git Bash / sh 下会直接报 "bad interpreter"，
+#    也就是 git 钩子会在新克隆的机器上**静默失效**（提交不会被拦、留言板不提示）。
+#
+# 仓库里的 `.sh` / 钩子 / Node 脚本一律锁 LF。
+
+# ── git 钩子（最重要：CRLF 会让钩子整个失效）──
+scripts/git-hooks/*   text eol=lf
+
+# ── 脚本类：shell / Node CLI 都锁 LF ──
+*.sh                  text eol=lf
+scripts/board/*       text eol=lf
+
+# ── 图片 / 二进制：不要做任何行尾转换 ──
+*.png                 binary
+*.jpg                 binary
+*.jpeg                binary
+*.gif                 binary
+*.ico                 binary
+*.webp                binary
+*.exe                 binary
+*.sig                 binary
+*.ttf                 binary
+*.woff                binary
+*.woff2               binary

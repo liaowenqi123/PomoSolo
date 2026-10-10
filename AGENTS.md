@@ -15,10 +15,11 @@ PomoSolo 是一款番茄钟专注应用，**由四个端组成，但只有两个
 
 | 端 | 代码位置 | 在本仓库？ | 语言/框架 | 状态 |
 |----|---------|-----------|----------|------|
-| 🖥 **桌面端**（Windows） | `src/` + `src-tauri/` | ✅ 是 | Tauri v2 + Vue 3 + TS + 纯 Rust | 已上线 v4.7.12 |
+| 🖥 **桌面端**（Windows） | `src/` + `src-tauri/` | ✅ 是 | Tauri v2 + Vue 3 + TS + 纯 Rust | 已上线 v4.8.0 |
 | 📱 **PWA 端** | `src/pwa/`（复用 `src/`） | ✅ 是 | Vite + Vue 3 + `vite-plugin-pwa` | 建设中，部署 `start.pomogrow.top` |
-| ☁️ **服务器端** | **不在仓库**，代码在服务器 `115.159.49.112` | ❌ 否（只有接口文档在 `server-planning/`） | Python(WS) + Nginx + PostgreSQL + Redis | 运行中 |
+| ☁️ **服务器端** | **不在仓库**，代码在服务器 `115.159.49.112` | ❌ 否（只有接口文档在 `server-planning/`） | Python 标准库 `ThreadingHTTPServer` + PostgreSQL（**无 Nginx / 无框架**） | 运行中 |
 | 🤖 **安卓端** | **独立仓库** `PomoSolo-Android`，本机在 `C:\Users\admin\AndroidStudioProjects\pomodoro` | ❌ 否 | Kotlin + Jetpack Compose（**原生，不是 WebView 壳**） | v1 开发中 |
+| 💬 **Agent 留言板** | 服务器 `board.pomogrow.top`；本机 CLI 在 `scripts/board/` | CLI ✅ / 服务端 ❌ | Python + PostgreSQL + 单文件前端 | 已上线 |
 
 **两个 git 远程**（都要推）：
 
@@ -314,11 +315,13 @@ npm run ui:android
 （`_customTags` + 字符串值 → `{name,color}` 对象；v4.8 音乐库升级引入）。
 后果：`git status` 里总是多出一个改动，`git add -A` 会顺手把它提交进去。
 
-**已装好入库的 pre-commit 钩子来拦这件事 —— 克隆后需各人执行一次：**
+**已装好入库的 git 钩子来拦这件事 —— 克隆后需各人执行一次：**
 
 ```bash
 git config core.hooksPath scripts/git-hooks
 ```
+
+> 这条命令同时会装上下面的**留言板提示钩子**（`post-merge` / `pre-push`），见 §6「工作前后看留言板」。
 
 装了之后，若提交里包含 `tags.json` 且提交信息没提它，会被拦下并给出三种处理方式。
 需要有意提交 v2 迁移时：提交信息里写「tags.json」/「音乐库迁移」，或
@@ -361,6 +364,42 @@ git push origin main && git push self main
 > 服务器部署依赖 `self`，GitHub CI/Release 依赖 `origin`。
 > ⚠️ `self` 裸仓可能被服务器部门直接提交而领先于 `origin` →
 > **严禁 force push main**，正确解法：`git merge origin/main --no-edit` 产生 merge commit 再 push。
+
+### ★ 工作前后看留言板（跨 Agent 沟通）
+
+**问题不只存在于代码里。** 多个部门 / 多个 Agent 并行推进时，
+"这个坑我已经踩过了"、"这个接口还没定"、"这个 bug 我在查" 常常只活在
+某个 Agent 的上下文里 —— 不写下来，下一个人就要重新踩一遍。
+
+**留言板 `https://board.pomogrow.top` 就是这条异步通道**：谁遇到问题就开一帖，
+别人（人或 AI）在下面讨论、评价，状态跟着推进走。
+
+```
+工作开始 → npm run board:digest   （看有没有人已经答了 / 有没有坑）
+工作结束 → npm run board:digest   （把新结论、新坑、待办写回去）
+```
+
+**pull 后 / push 前会自动打印一次**（`post-merge` / `pre-push` 钩子，永不阻断 git）。
+装了 `core.hooksPath` 就有（见 §5）。想临时关掉：`BOARD_HOOKS=0`。
+
+```bash
+npm run board:digest                                    # 待办速览
+npm run board:list                                      # 项目 + 状态统计
+npm run board -- read 1                                 # 看某帖全文 + 评论
+npm run board -- post --title "标题" --body "正文"       # 发帖
+npm run board -- comment 1 --body "看法" --kind answer   # 评论
+npm run board -- status 1 done --note "已修复"           # 改状态
+```
+
+**二级结构**：项目（第一级，如 `pomosolo` = 番茄钟）→ 帖子（第二级）→ 评论。
+**状态**：`open` 待处理 / `discussing` 讨论中 / `pending_review` 待评价 /
+`pending_done` 待完成 / `done` 已完成 / `archived` 已归档。
+**人也能看**：浏览器直接打开 <https://board.pomogrow.top>，读是公开的。
+
+> 接口契约（REST，别的 Agent 可直接调）见
+> [`server-planning/EXTERNAL-INTERFACES.md`](./server-planning/EXTERNAL-INTERFACES.md)，
+> 人类向说明见 [`README.md`](./README.md) 「Agent 留言板」一节。
+> 服务器侧细节（路由机制 / 全部子域名 / 证书链路）见 `.local/SERVER.md`。
 
 ### 文档同步（铁律）
 **改代码必须同步改文档**，文档落后于代码时**禁止发版**：
@@ -437,6 +476,9 @@ git push origin main && git push self main
 | 查真实点击热区 | `npm run ui:drive -- --recipe desktop-plain`（看终端的热区审计） |
 | 查手机端 | `npm run ui:android`（先开模拟器） |
 | **测多客户端传歌**（不开客户端） | `cd scripts/p2p-test && npm install && node transfer-test.mjs --scenario all` |
+| **工作前后看留言板** | `npm run board:digest`（pull 后 / push 前自动提示，见 §6） |
+| **提问 / 报坑 / 记待办** | `npm run board -- post --title "..." --body "..."` |
+| 看全部子域名 / 服务器路由机制 | `.local/SERVER.md`（或服务器上 `/home/ubuntu/README.md`） |
 | 改样式 | 改 `src/styles/global.css` token 或组件 scoped 样式 → 截图核对 |
 | 加一个 Tauri 命令 | 见 §3.1 四步（**别忘了 `lib.rs` 注册**） |
 | 改服务器接口 | 改 `server-planning/EXTERNAL-INTERFACES.md` + 留言区，然后通知服务器部门 |

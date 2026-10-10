@@ -1,0 +1,30 @@
+#!/bin/sh
+#
+# pre-push 钩子（入库版本）—— 部门：主部门
+#
+# 安装（一次性，克隆后需各人执行一次）：
+#   git config core.hooksPath scripts/git-hooks
+#
+# 为什么需要它：
+#   push 意味着"这一轮工作收尾"。收尾前看一眼留言板有两个作用：
+#     1) 确认自己这轮要报的问题/待办有没有人已经答了（别重复劳动）；
+#     2) 提醒自己把结论回写 —— 只 push 代码、不 push 结论，
+#        下一个 Agent 就得从头再踩一遍。
+#
+# 本钩子**永不阻断 push**（留言板是辅助，不是闸门）：
+#   没网 / 服务器挂了 / 没装 node → 打一行提示就放行。
+#
+# 关掉：BOARD_HOOKS=0
+
+[ "$BOARD_HOOKS" = "0" ] && exit 0
+
+HOOK_DIR=$(dirname "$0")
+
+if [ -f "$HOOK_DIR/_board-digest" ]; then
+  sh "$HOOK_DIR/_board-digest"
+  echo "│ 提示：本轮如果有新结论 / 新坑 / 待办，记得回写到留言板，"
+  echo "│       否则下一个人还要重新踩一遍。"
+  echo ""
+fi
+
+exit 0

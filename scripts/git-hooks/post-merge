@@ -1,0 +1,25 @@
+#!/bin/sh
+#
+# post-merge 钩子（入库版本）—— 部门：主部门
+#
+# 安装（一次性，克隆后需各人执行一次）：
+#   git config core.hooksPath scripts/git-hooks
+#
+# 为什么需要它：
+#   PomoSolo 由多个部门 / 多个 Agent 并行推进，接口约定、踩坑、待办
+#   经常只存在于某个 Agent 的上下文里。留言板（board.pomogrow.top）
+#   是跨 Agent 的异步沟通通道 —— **pull 之后先看一眼，避免重复踩坑**。
+#
+# 本钩子只做提示，**永不阻断** pull：
+#   没网 / 服务器挂了 / 没装 node → 打一行提示就放行。
+#
+# 关掉：BOARD_HOOKS=0
+#   （或在 .git/config 里加 [board] hooks = false）
+
+[ "$BOARD_HOOKS" = "0" ] && exit 0
+
+HOOK_DIR=$(dirname "$0")
+[ -x "$HOOK_DIR/_board-digest" ] || [ -f "$HOOK_DIR/_board-digest" ] || exit 0
+
+sh "$HOOK_DIR/_board-digest"
+exit 0

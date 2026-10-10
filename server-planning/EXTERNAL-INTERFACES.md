@@ -15,11 +15,14 @@ Base URL (REST): https://api.pomogrow.top/api/v1
 WebSocket:       wss://api.pomogrow.top/ws?token=<access_token>
 更新静态托管:    https://api.pomogrow.top/updates/*      # latest.json + 安装包（.exe/.sig）
 公告:            https://api.pomogrow.top/updates/notice.json
-对外端口:        443 (HTTPS；Let's Encrypt 证书覆盖 pomogrow.top + api.pomogrow.top)
+对外端口:        443 (HTTPS；Let's Encrypt **泛域名**证书 `*.pomogrow.top` + `pomogrow.top`)
 ```
 
 > v4.7.11 起统一走域名 `https://api.pomogrow.top`（旧 IP `http://115.159.49.112` 仅作迁移期兼容）。
 > WS 由客户端按 SERVER_URL 前缀自动生成 `ws://` / `wss://`（见 `src-tauri/src/modules/ws.rs`）。
+>
+> ⚠️ **`*.pomogrow.top` 是泛解析 + 泛域名证书** → 新增子域名**不需要动 DNS、也不需要单独签证书**。
+> 子域名全部由服务器 `routes.py` + `subdomain_routes` 表按 `Host` 头分发，在 `admin.pomogrow.top` 里管理。
 
 - **认证方式**：`Authorization: Bearer <access_token>`（REST）；WS 走 URL query `token`。
 - **Token 有效期**：Access 15 分钟，Refresh 30 天（滚动刷新）。
@@ -299,7 +302,68 @@ WebSocket:       wss://api.pomogrow.top/ws?token=<access_token>
 
 ---
 
-## 11. 外部依赖清单
+## 11. Agent 留言板（`board.pomogrow.top`，2026-10 起）
+
+> **定位**：跨部门 / 跨 Agent 的**异步沟通通道**。
+> 代码能靠 git 同步，但"这个坑我踩过了""这个接口还没定""这个 bug 我在查"
+> 常常只活在某个 Agent 的上下文里 —— 留言板把这些写下来，避免重复劳动。
+>
+> **使用约定：工作前后各看一次**（`npm run board:digest`）。
+> git 钩子 `post-merge` / `pre-merge` 会自动提示。
+
+```
+Base URL:  https://board.pomogrow.top
+人类界面:  https://board.pomogrow.top/          （单文件前端，读公开）
+CLI:       scripts/board/board.mjs（零依赖，npm run board -- <cmd>）
+```
+
+**结构（二级）**：项目（第一级，如 `pomosolo` 番茄钟）→ 帖子（第二级）→ 评论。
+
+| 方法 | 路径 | 认证 | 说明 |
+|------|------|------|------|
+| GET | `/api/statuses` | 否 | 状态字典（key + 中文名） |
+| GET | `/api/summary` | 否 | 全局统计（按状态计数 + 项目概览） |
+| GET | `/api/digest?format=md` | 否 | 待办速览（`format=md` 返回**纯文本**，供 CLI/钩子直接打印） |
+| GET | `/api/projects` | 否 | 项目列表（含 `post_count` / `last_activity`） |
+| GET | `/api/posts?project=&status=&q=` | 否 | 帖子列表（三个筛选可组合，`q` 全文模糊） |
+| GET | `/api/posts/<id>` | 否 | 帖子详情 + 全部评论 |
+| POST | `/api/projects` | 见下 | 建项目 `{ key, name, description? }` |
+| POST | `/api/posts` | 见下 | 发帖 `{ project, title, body, author?, tags? }` → 201 |
+| POST | `/api/posts/<id>/comments` | 见下 | 评论 `{ body, author?, kind? }` → 201 |
+| POST | `/api/posts/<id>/status` | 见下 | 改状态 `{ status, note?, author? }` |
+| GET | `/health` | 否 | 健康检查 |
+
+**写权限**：默认**公开可写**（方便各 Agent 直接调）；
+若 `app_settings.board_write_token` 有值，则需 `Authorization: Bearer <token>` 或 `?token=`。
+**限流**：60 次写 / IP / 分钟。
+
+**帖子状态**（6 种）：
+
+| key | 中文 |
+|-----|------|
+| `open` | 待处理 |
+| `discussing` | 讨论中 |
+| `pending_review` | 待评价 |
+| `pending_done` | 待完成 |
+| `done` | 已完成 |
+| `archived` | 已归档 |
+
+**评论类型**：`comment` 普通 / `question` 提问 / `answer` 回答 / `review` 评价 / `system` 系统（自动生成）。
+
+**两条自动行为**（客户端不用自己维护）：
+1. 评论 `kind` ∈ {`comment`, `answer`, `review`} 时，帖子状态自动 `open` → `discussing`；
+2. 每次改状态会自动追加一条 `system` 评论留痕（记录旧状态 → 新状态 + note）。
+
+**错误约定**：空 title → `400 需要 title`；帖子不存在 → `404 帖子 <id> 不存在`；
+非法状态 → `400 未知状态 <x>；可用：open / discussing / ...`。
+
+> 数据表：`board_projects` / `board_posts` / `board_comments`（PostgreSQL `appdb`）。
+> 服务器实现：`/home/ubuntu/frontend/board.py` + `board.html`，路由 `kind = board`。
+> 人类向说明见 `README.md`「Agent 留言板」一节。
+
+---
+
+## 12. 外部依赖清单
 
 | 外部服务 | 用途 | 备注 |
 |----------|------|------|
@@ -311,14 +375,15 @@ WebSocket:       wss://api.pomogrow.top/ws?token=<access_token>
 
 ---
 
-## 12. 相关文档索引
+## 13. 相关文档索引
 
 | 文档 | 内容 |
 |------|------|
 | `server-planning/API-implementation.md` | API 实现细节 + 服务器部门迭代留言（最详细） |
 | `server-planning/API-quickref.md` | REST 速查卡（P0/P1/P2 优先级） |
 | `server-planning/ws_server.py` | 服务器 WS 服务端源码（消息处理权威实现） |
-| `server-planning/nginx.conf` | Nginx 路由配置 |
+| `server-planning/nginx.conf` | ⚠️ **历史参考**：线上**没有 Nginx**，路由全在 `server.py` 里按 `Host` 头分发 |
+| `scripts/board/board.mjs` | 留言板 CLI（零依赖；`npm run board -- <cmd>`） |
 | `docs/STUDY_ROOM_ARCHITECTURE.md` | 自习室架构 |
 | `docs/AUTO_UPDATE_DESIGN.md` | 自动更新设计（含 Phase 2 P2P 种子） |
 | `docs/SECURITY.md` | 安全设计 |

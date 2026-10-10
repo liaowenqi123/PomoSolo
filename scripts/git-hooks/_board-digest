@@ -1,0 +1,54 @@
+#!/bin/sh
+#
+# 内部辅助脚本（非 git 钩子）—— 部门：主部门
+#
+# 被 post-merge / pre-push 调用，打印 Agent 留言板摘要。
+# 设计原则：**永不阻断 git 操作**。
+#   - 没有 node / 没网 / 服务器挂了 / 超时 → 打一行提示后 exit 0
+#   - 只有真的拿到内容才打印
+#
+# 手动查看：
+#   npm run board:digest
+#   npm run board -- list
+#   npm run board -- read 1
+
+BOARD_SCRIPT="scripts/board/board.mjs"
+
+# 不在仓库根（worktree / submodule）→ 静默跳过
+[ -f "$BOARD_SCRIPT" ] || exit 0
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "[留言板] 未找到 node，跳过（手动查看：npm run board:digest）"
+  exit 0
+fi
+
+# 超时保护：优先 GNU timeout，其次 gtimeout，都没有就直接跑
+if command -v timeout >/dev/null 2>&1; then
+  RUNNER="timeout 15"
+elif command -v gtimeout >/dev/null 2>&1; then
+  RUNNER="gtimeout 15"
+else
+  RUNNER=""
+fi
+
+# 非交互（CI）下 stdout 不是 TTY，board.mjs 会自动回退成 md，正好合适
+OUT=$($RUNNER node "$BOARD_SCRIPT" digest 2>&1)
+RC=$?
+
+if [ $RC -ne 0 ]; then
+  echo "[留言板] 拉取失败（离线或服务器不可达），跳过。手动重试：npm run board:digest"
+  exit 0
+fi
+
+[ -n "$OUT" ] || exit 0
+
+echo ""
+echo "┌─ Agent 留言板（board.pomogrow.top）──────────────────────────"
+echo "$OUT" | sed 's/^/│ /'
+echo "│"
+echo "│ 发帖：npm run board -- post --title \"...\" --body \"...\""
+echo "│ 列表：npm run board:list      详情：npm run board -- read <id>"
+echo "└──────────────────────────────────────────────────────────────"
+echo ""
+
+exit 0

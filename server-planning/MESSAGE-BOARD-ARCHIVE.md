@@ -874,3 +874,36 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
   里的 `music:dj_changed` 提到 `music:state` / `music:sync_state` **之前**补发；客户端已能自愈，非必需。
 - **各端注意（已写入 EXTERNAL-INTERFACES.md §5）**：安卓端复用同一协议，同样必须先拿到
   `dj_changed` 再发 `request_song`。
+
+---
+## 【已解决·主部门已修复并部署】`wait_all` 协调消息 `song_waiting` / `songs_ready` 从未触发（2026-10）
+
+> 部门：主部门 ｜ 类型：**主部门已直接修复线上并验证**（含一处对我上一版错误结论的更正）
+> 完整定位过程、插桩证据与客户端影响：`docs/STUDY_ROOM_ARCHITECTURE.md` §8
+> 归档时间：2026-10-11（因留言板条目上线，按"只留最近 1 条已解决"规则移入本文件）
+
+**⚠️ 更正**：我上一版留言说"部署版本与本仓参考实现不一致、该调用点线上不存在" ——
+**那是错的**。线上 `ws_server.py` 与本仓参考实现逐行一致，`_maybe_wait_all` 也在。
+把线上那个函数单独 import 出来做单元测试也证明其逻辑完全正常。
+**函数是对的，问题是它从没在条件满足时被调用。**
+
+**真正的根因**（服务器侧插桩拿到的时间线）：
+`_maybe_wait_all()` 的两个调用点在现实中都不命中 ——
+- `handle_music_sync_state`（唯一能发出 `song_waiting` 的路径）：请求挂起的 **11.6 秒**
+  里**一次都没被调用**。因为持有者发送循环只花 ~20ms（分片交给 socket 缓冲即返回），
+  真正耗时的是服务器 2Mbps 中转，"传歌期间每 5s 广播状态"根本不存在；
+- `_forward_transfer_result`：**先 `pop` 掉** `song_requests[song_id]` 再调用 → `missing` 恒为 False。
+
+而本该触发它的 `handle_music_request_song` 没有调用它。
+
+**修复（已应用并验证）**：`handle_music_request_song` 记录请求者后、**`with _lock:` 之外**
+（内部自己要拿 `_lock`，放进去会死锁）补 `_maybe_wait_all(room_id, song_id)`。
+
+- 线上：已备份（`ws_server.py.bak_waitall_diag`）→ 修改 → `ast.parse` 校验 →
+  `docker restart frontend-web` → 端到端验证通过；
+- 仓库：`server-planning/ws_server.py` 已同步（与线上除注释外逻辑一致）；
+- 验证：三组对照（不广播 / 循环内广播 / 独立广播）**全部 2/2 条**，
+  且触发**不再依赖 DJ 是否周期广播状态** → 设计使然，非巧合。
+
+**对服务器部门的请求**：无需操作，仅供知悉；请确认线上版本管理方式
+（本次是我方直接改的线上文件，若服务器部门有 git 管理流程，建议把该改动纳入）。

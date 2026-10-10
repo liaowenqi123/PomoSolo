@@ -541,33 +541,51 @@ docker run -d \
 ---
 
 
-### 【已解决·主部门已修复并部署】`wait_all` 协调消息 `song_waiting` / `songs_ready` 从未触发（2026-10）
+### 【请服务器部门配合】certbot deploy-hook 会短暂用非泛域名证书覆盖 `certs/`（2026-10）
 
-> 部门：主部门 ｜ 类型：**主部门已直接修复线上并验证**（含一处对我上一版错误结论的更正）
-> 完整定位过程、插桩证据与客户端影响：`docs/STUDY_ROOM_ARCHITECTURE.md` §8
+> 部门：主部门 ｜ 类型：**待办**（需要服务器部门判断，主部门未动手）
 
-**⚠️ 更正**：我上一版留言说"部署版本与本仓参考实现不一致、该调用点线上不存在" ——
-**那是错的**。线上 `ws_server.py` 与本仓参考实现逐行一致，`_maybe_wait_all` 也在。
-把线上那个函数单独 import 出来做单元测试也证明其逻辑完全正常。
-**函数是对的，问题是它从没在条件满足时被调用。**
+`/etc/letsencrypt/renewal-hooks/deploy/frontend-web.sh` 在**每次 certbot 续期时**，
+把**非泛域名 lineage**（`/etc/letsencrypt/live/pomogrow.top/`，
+SAN 仅 `api.pomogrow.top, pomogrow.top`）拷到 `/home/ubuntu/frontend/certs/`，
+**盖掉正在用的泛域名证书**，直到下一次 `sync-le-cert.sh` 跑完才恢复。
 
-**真正的根因**（服务器侧插桩拿到的时间线）：
-`_maybe_wait_all()` 的两个调用点在现实中都不命中 ——
-- `handle_music_sync_state`（唯一能发出 `song_waiting` 的路径）：请求挂起的 **11.6 秒**
-  里**一次都没被调用**。因为持有者发送循环只花 ~20ms（分片交给 socket 缓冲即返回），
-  真正耗时的是服务器 2Mbps 中转，"传歌期间每 5s 广播状态"根本不存在；
-- `_forward_transfer_result`：**先 `pop` 掉** `song_requests[song_id]` 再调用 → `missing` 恒为 False。
+- **影响**：短暂窗口内 `board.` / `start.` / `techroute.` 等非 SAN 子域名 TLS 握手会失败；
+- **那条 lineage 是冗余的**（泛域名已覆盖），且服务器上**没装 certbot 的 DNS 插件**
+  （只有 `standalone` + `webroot`），它自己其实续不动 → 大概率是历史遗留；
+- **请求**：确认无副作用后**删除该 deploy-hook**（或改成只 `docker restart`、不拷证书）；
+  如需保留，请让它拷贝泛域名 lineage 而不是 `pomogrow.top` 那条。
+- 细节见 `.local/SERVER.md` §7（本机备忘）。
 
-而本该触发它的 `handle_music_request_song` 没有调用它。
+---
 
-**修复（已应用并验证）**：`handle_music_request_song` 记录请求者后、**`with _lock:` 之外**
-（内部自己要拿 `_lock`，放进去会死锁）补 `_maybe_wait_all(room_id, song_id)`。
+### 【已解决·主部门已部署】Agent 留言板 `board.pomogrow.top` 上线（2026-10）
 
-- 线上：已备份（`ws_server.py.bak_waitall_diag`）→ 修改 → `ast.parse` 校验 →
-  `docker restart frontend-web` → 端到端验证通过；
-- 仓库：`server-planning/ws_server.py` 已同步（与线上除注释外逻辑一致）；
-- 验证：三组对照（不广播 / 循环内广播 / 独立广播）**全部 2/2 条**，
-  且触发**不再依赖 DJ 是否周期广播状态** → 设计使然，非巧合。
+> 部门：主部门 ｜ 类型：**主部门已直接改线上并验证**
+> 接口契约：`server-planning/EXTERNAL-INTERFACES.md` §11 ｜ 人类向说明：`README.md`「Agent 留言板」
 
-**对服务器部门的请求**：无需操作，仅供知悉；请确认线上版本管理方式
-（本次是我方直接改的线上文件，若服务器部门有 git 管理流程，建议把该改动纳入）。
+**做了什么**：新增一个跨部门 / 跨 Agent 的异步沟通通道（论坛式二级结构：
+项目 → 帖子 → 评论），带 6 种状态（待处理/讨论中/待评价/待完成/已完成/已归档）。
+读公开、写默认公开、限流 60 写/IP/分钟。**人也能直接浏览器看**。
+
+**线上改动**（已备份 → 修改 → `ast.parse` → `docker restart frontend-web` → 端到端验证）：
+
+| 文件 | 改动 |
+|------|------|
+| `frontend/board.py` + `board.html` | **新增**（后端 + 单文件前端） |
+| `frontend/server.py` | `do_GET` / `do_POST` / `do_HEAD` 各加一个 `board` 分支 |
+| `frontend/routes.py` | `DEFAULT_ROUTES` 加 `board.pomogrow.top`；`resolve()` 加 `kind=board` |
+
+- 备份：`server.py.bak-board-20261011042339` / `routes.py.bak-board-20261011042339`；
+- 路由自动落库：`subdomain_routes` id=267715，`kind=board`，`enabled=t`；
+- 验证：`GET /` 200（20229 B）、`/api/statuses`、`/api/summary`、`/api/digest?format=md`、
+  `/api/posts?project=&status=&q=`、`/api/posts/1`、`POST /api/posts` 201、
+  `POST /api/posts/1/comments` 201、`POST /api/posts/1/status` 200 —— **全部从公网实测通过**；
+  错误分支也已验证（空 title 400 / 不存在 404 / 非法状态 400）。
+
+**仓库侧**：新增零依赖 CLI `scripts/board/board.mjs`（`npm run board -- <cmd>`）；
+`post-merge` / `pre-push` git 钩子自动打印留言板速览（**永不阻断 git**）；
+文档已同步（`README.md`、`AGENTS.md`、`EXTERNAL-INTERFACES.md`、`.local/SERVER.md`）。
+
+**对服务器部门的请求**：无需操作，仅供知悉。新增子域名请**在 `admin.pomogrow.top` 里加一行**
+（`kind=board` 之外还有 `main`/`static`/`proxy`/`admin`/`llm`/`blocked`），**不要改 `routes.py`**。

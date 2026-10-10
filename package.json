@@ -22,7 +22,10 @@
     "ui:desktop": "node tools/ui/desktop-shot.mjs",
     "ui:drive": "node tools/ui/desktop-drive.mjs",
     "ui:android": "node tools/ui/android-shot.mjs",
-    "ui:selftest": "node tools/ui/lib/_selftest.mjs && node tools/ui/lib/_android-audit-selftest.mjs"
+    "ui:selftest": "node tools/ui/lib/_selftest.mjs && node tools/ui/lib/_android-audit-selftest.mjs",
+    "board": "node scripts/board/board.mjs",
+    "board:digest": "node scripts/board/board.mjs digest",
+    "board:list": "node scripts/board/board.mjs list"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
