@@ -391,13 +391,29 @@ export const useMusicStore = defineStore("music", () => {
           console.warn("[MusicStore] 续传请求失败:", e);
         });
       } else {
-        // 重试耗尽 → 降级为"无这首歌"（不再卡住曲名）
-        console.warn("[MusicStore] 传歌多次重试失败，降级为无这首歌:", t.songName);
+        /*
+         * 重试耗尽 → 降级为"无这首歌"（不再卡住曲名）。
+         *
+         * ★ 但**不能无条件设**：这个看门狗只看 `songTransfer`，不区分"这是当前歌还是后台预取"。
+         * 有了预取之后，**预取失败会把正在播放的歌的曲名位置占成"无这首歌"** ——
+         * 实测现象：歌在正常播放、进度条在走，曲名却显示 `⚠️ 无这首歌：《<预取目标>》`。
+         *
+         * 所以只在这首歌**确实是我们正在等的**（当前歌 / 已被标记缺歌 / DJ 状态指向它）时才提示；
+         * 后台预取失败必须静默（它本来就不是用户此刻要听的那首）。
+         */
         const songId = t.songName;
+        const stillWanted =
+          songId === trackName.value ||
+          missingSongName.value === songId ||
+          pendingSyncRaw?.songId === songId;
+        console.warn("[MusicStore] 传歌多次重试失败，降级为无这首歌:", t.songName,
+          stillWanted ? "" : "（后台预取，静默）");
+        // 预取失败也要清标记，否则那首歌在本次会话里再也不会被预取
+        if (prefetchingSongId.value === songId) prefetchingSongId.value = null;
         resetSongTransfer();
         lastChunkAt = 0;
         transferRetry = 0;
-        if (songId) missingSongName.value = songId;
+        if (songId && stillWanted) missingSongName.value = songId;
       }
     }, 1_000);
   }

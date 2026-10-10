@@ -1968,6 +1968,37 @@ describe("useMusicStore", () => {
       });
     });
 
+    it("★ 后台预取失败**不得**把正在播放的歌显示成「无这首歌」（看门狗无条件设值的坑）", async () => {
+      vi.useFakeTimers();
+      try {
+        const s = useMusicStore();
+        listenerPlayingCurrent(s, "cur.mp3", ["cur.mp3"]);
+        musicSyncApi.musicSyncRequestSong.mockResolvedValue(undefined);
+
+        // 发起对 next.mp3 的预取（此时 next.mp3 是"后台传输目标"，不是当前歌）
+        s.handleSyncWsEvent({
+          type: "music:sync_state", song_id: "cur.mp3", playing: true,
+          position_ms: 0, next_song_id: "next.mp3",
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(musicSyncApi.musicSyncRequestSong).toHaveBeenCalledWith("next.mp3", 0, true);
+
+        /*
+         * 让看门狗判定预取"卡住"并耗尽重试：requesting 状态超过 TRANSFER_TIMEOUT_MS(3s)。
+         * 修复前：看门狗会无条件 `missingSongName = t.songName` → 正在播放的 cur.mp3
+         * 曲名位置被换成 `⚠️ 无这首歌：《next.mp3》`（实测就是这样）。
+         */
+        for (let i = 0; i < 5; i++) await vi.advanceTimersByTimeAsync(4_000);
+
+        // 关键断言：当前歌没被误标缺歌
+        expect(s.missingSongName).not.toBe("next.mp3");
+        // 当前歌本身也不该被标（它在本地且不是预取目标）
+        expect(s.missingSongName).not.toBe("cur.mp3");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("★ 预取完成不播放：finalize 后不得切歌（它只是备好，不是当前要放的歌）", async () => {
       const s = useMusicStore();
       listenerPlayingCurrent(s, "cur.mp3", ["cur.mp3"]);
