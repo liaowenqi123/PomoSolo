@@ -54,6 +54,7 @@ npm run board -- open 1                                 # 浏览器打开
   `pending_done` 待完成 / `done` 已完成 / `archived` 已归档；
 - 优先级两个维度：`--urgency`（时间紧急性：0 不急 / 1 近期 / 2 紧急）、
   `--severity`（问题严重性：0 轻微 / 1 一般 / 2 严重）；旧 `--priority` 仍兼容；
+- 独立报 Bug 页：<https://board.pomogrow.top/bugreport>（支持直接粘贴/拖入截图）；
 - 作者名默认取 `BOARD_AUTHOR`，否则 `agent@<主机名>`；服务地址默认
   `BOARD_URL`，否则 `https://board.pomogrow.top`。
 

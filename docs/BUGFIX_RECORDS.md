@@ -69,6 +69,28 @@
 - #3 旧 priority=2 已回填为 `urgency=2 / severity=2`，`board:digest` 显示 ❗ + 维度文字；
 - 网页源码已含 `nurgency` / `nseverity` 两个下拉。
 
+### 31. 独立报 Bug 页面 + 粘贴图片（留言板 #3 剩余项；服务器部门）
+
+**来源**：留言板 #3 —— “留言板有空的时候可以单独做一个 bugreport 的网页，而不只有应用内可以反馈 bug，另外可以复制粘贴图片”。
+
+**实现**：
+- 新增 `https://board.pomogrow.top/bugreport`（单文件 `bugreport.html`），留言板 header 增加「🐞 报 Bug」入口；
+- 页面提交走 `POST /api/posts`（`project=pomosolo`、`tags=bugreport`），带 `urgency` / `severity` 两维度；
+- 正文 `Ctrl+V` / 拖拽图片 → `POST /api/uploads` → 自动插入 `![截图](/uploads/xxx.png)`；
+- 上传只收 PNG / JPEG / GIF / WebP，≤5MB，按文件头识别，文件名 = 内容 sha256 前 16 位；
+- 容器 `/app` 是只读挂载，图片改存 PostgreSQL `board_uploads`（`bytea`），`GET /uploads/<name>` 回读；
+- 留言板 Markdown 只放开 `/uploads/...` 图片，避免外链/`javascript:` 注入。
+
+**影响文件**：
+- 线上：`/home/ubuntu/frontend/bugreport.html`（新增）、`board.py`、`board.html`
+  （备份 `.bak_20261020_bugreport`，`ast.parse` + `docker restart frontend-web`）；
+- 仓库：`server-planning/EXTERNAL-INTERFACES.md`、`docs/BUGFIX_RECORDS.md`。
+
+**验证**：
+- `GET /bugreport` 200，截图无布局问题；
+- `POST /api/uploads` 返回 `{ok,url,bytes}`，`GET /uploads/...` 返回 `image/png`；
+- 临时发帖（#5/#6）验证图片在详情页实际渲染，验证后已删除帖子与图片（`board_uploads` 计数 0）。
+
 ---
 
 ## 2026-10-09

@@ -327,15 +327,27 @@ CLI:       scripts/board/board.mjs（零依赖，npm run board -- <cmd>）
 | GET | `/api/projects` | 否 | 项目列表（含 `post_count` / `last_activity`） |
 | GET | `/api/posts?project=&status=&q=` | 否 | 帖子列表（三个筛选可组合，`q` 全文模糊） |
 | GET | `/api/posts/<id>` | 否 | 帖子详情 + 全部评论 |
+| GET | `/bugreport` | 否 | **独立报 Bug 页面**（HTML，支持粘贴截图） |
+| GET | `/uploads/<name>` | 否 | 读取报 Bug 页上传的图片（DB bytea） |
 | POST | `/api/projects` | 见下 | 建项目 `{ key, name, description? }` |
-| POST | `/api/posts` | 见下 | 发帖 `{ project, title, body, author?, tags? }` → 201 |
+| POST | `/api/posts` | 见下 | 发帖 `{ project, title, body, author?, tags?, urgency?, severity? }` → 201 |
 | POST | `/api/posts/<id>/comments` | 见下 | 评论 `{ body, author?, kind? }` → 201 |
 | POST | `/api/posts/<id>/status` | 见下 | 改状态 `{ status, note?, author? }` |
+| POST | `/api/uploads` | 见下 | 报 Bug 截图上传 `{ data: "data:image/png;base64,..." }` → 201 `{ url }` |
 | GET | `/health` | 否 | 健康检查 |
 
 **写权限**：默认**公开可写**（方便各 Agent 直接调）；
 若 `app_settings.board_write_token` 有值，则需 `Authorization: Bearer <token>` 或 `?token=`。
 **限流**：60 次写 / IP / 分钟。
+
+**独立报 Bug 页（`/bugreport`）**：
+- 单文件 `bugreport.html`，提交时写 `POST /api/posts`（`project=pomosolo`、`tags=bugreport`）；
+- 支持 `Ctrl+V` 粘贴 / 拖拽图片；前端先 `POST /api/uploads`，再把返回的
+  `![截图](/uploads/xxx.png)` 插入正文；
+- 只收 PNG / JPEG / GIF / WebP，单张 ≤5MB，按文件头识别（不信任 Content-Type）；
+- 图片存 PostgreSQL `board_uploads`（`name` 内容 hash 前 16 位 + `mime` + `bytes` + `data`），
+  文件名只允许 `[a-f0-9]{16}.(png|jpg|gif|webp)`，天然防路径遍历/去重；
+- 正文 Markdown 只放开 `/uploads/...` 的图片渲染，外链/`javascript:` 不渲染。
 
 **响应信封（所有 JSON 接口统一）**：
 
@@ -360,6 +372,8 @@ CLI:       scripts/board/board.mjs（零依赖，npm run board -- <cmd>）
 | `POST /api/posts` | **201** | `id`、`project`、`project_name`、`title`、`status`、`created_at`、`url` |
 | `POST /api/posts/<id>/comments` | **201** | `id`、`post_id`、`kind`、`author`、`created_at` |
 | `POST /api/posts/<id>/status` | 200 | `id`、`from`、`status`、`status_label`、`url`；状态没变时返回 `id`、`status`、`unchanged: true` |
+| `POST /api/uploads` | **201** | `url`、`name`、`bytes` |
+| `GET /uploads/<name>` | 200 | 二进制图片（`image/png` / `image/jpeg` / `image/gif` / `image/webp`） |
 | `GET /health` | 200 | `status`、`service` |
 
 > ⚠️ `POST /api/posts/<id>/comments` 的响应**没有** `comment` 嵌套对象，
