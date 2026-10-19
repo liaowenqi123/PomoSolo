@@ -219,24 +219,6 @@ onMounted(async () => {
   overflow-y: auto;
 }
 
-.preset-list::-webkit-scrollbar {
-  width: 5px;
-}
-
-.preset-list::-webkit-scrollbar-track {
-  background: transparent;
-  border-radius: 3px;
-}
-
-.preset-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.25);
-  border-radius: 3px;
-}
-
-.preset-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
-}
-
 .preset-item {
   display: flex;
   align-items: center;

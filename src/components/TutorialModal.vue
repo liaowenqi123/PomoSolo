@@ -24,7 +24,7 @@ function onBackdropClick(e: MouseEvent): void {
           <h2 class="tutorial-title">📖 使用教程</h2>
           <button class="tutorial-close" @click="emit('close')">×</button>
         </div>
-        <div class="tutorial-body">
+        <div class="tutorial-body app-scroll">
           <section class="tutorial-section">
             <h3 class="tutorial-section__title">🍅 番茄钟</h3>
             <p>点击「开始」启动专注计时，完成后自动进入休息模式。</p>
@@ -175,21 +175,6 @@ kbd {
 
 .tutorial-btn:hover {
   opacity: 0.9;
-}
-
-/* Scrollbar */
-.tutorial-body::-webkit-scrollbar {
-  width: 6px;
-}
-.tutorial-body::-webkit-scrollbar-track {
-  background: transparent;
-}
-.tutorial-body::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-}
-.tutorial-body::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
 }
 
 /* Transition：遮罩层 opacity 0→1，内容 scale 0.92→1 */

@@ -1041,7 +1041,7 @@ if (typeof document !== "undefined") {
           <!-- 设备 -->
           <div class="music-device">
             <button class="music-btn" title="输出设备" @click="toggleDeviceList">🎧</button>
-            <div v-show="isDeviceOpen" class="music-device__list">
+            <div v-show="isDeviceOpen" class="music-device__list app-scroll">
               <div class="music-device__warning">⚠️ 除非你真的知道你在做什么，请不要更改此设置</div>
               <div
                 v-for="device in store.devices"
@@ -1165,7 +1165,7 @@ if (typeof document !== "undefined") {
             >✕</button>
           </div>
 
-          <div class="music-list__items">
+          <div class="music-list__items app-scroll app-scroll--compact">
             <div v-if="compactSongs.length === 0" class="music-list__empty">暂无音乐</div>
             <div
               v-for="song in compactSongs"
@@ -1292,7 +1292,7 @@ if (typeof document !== "undefined") {
             :class="{ 'music-playlist__body--split': panelTab === 'dir' }"
           >
           <!-- 左栏：目录树（字段投影，实时派生）。独立滚动，不再抢歌单的纵向空间 -->
-          <aside v-show="panelTab === 'dir'" class="music-playlist__dirs">
+          <aside v-show="panelTab === 'dir'" class="music-playlist__dirs app-scroll">
             <div class="music-playlist__dir-row">
               <span class="music-playlist__dir-caret music-playlist__dir-caret--leaf">·</span>
               <button
@@ -1376,7 +1376,7 @@ if (typeof document !== "undefined") {
           </div>
 
           <!-- 浏览列表（目录/筛选共用）：单击=选中、Shift/Ctrl 多选、再次单击取消、双击=加入、右键=菜单、可拖入播放列表 -->
-          <div v-show="panelTab !== 'playlist'" class="music-playlist__items">
+          <div v-show="panelTab !== 'playlist'" class="music-playlist__items app-scroll">
             <div v-if="store.playlist.length === 0" class="music-playlist__empty">暂无音乐</div>
             <div v-else-if="store.filteredSongs.length === 0" class="music-playlist__empty">没有符合筛选的歌曲</div>
             <div
@@ -1444,7 +1444,7 @@ if (typeof document !== "undefined") {
             </div>
             <div
               v-if="store.playSet.size === 0"
-              class="music-playlist__collection-items music-playlist__collection-items--empty"
+              class="music-playlist__collection-items music-playlist__collection-items--empty app-scroll"
               :class="{ 'music-playlist__collection-items--dragover': collectionDragOver }"
               @dragover="onCollectionDragOver"
               @dragleave="onCollectionDragLeave"
@@ -1456,7 +1456,7 @@ if (typeof document !== "undefined") {
             </div>
             <div
               v-else
-              class="music-playlist__collection-items"
+              class="music-playlist__collection-items app-scroll"
               :class="{ 'music-playlist__collection-items--dragover': collectionDragOver }"
               @dragover="onCollectionDragOver"
               @dragleave="onCollectionDragLeave"
@@ -1521,7 +1521,7 @@ if (typeof document !== "undefined") {
         <button @click="ctxPlay(ctxMenu.song)">▶ 播放</button>
         <button @click="ctxAdd()">🎵 添加到播放列表</button>
         <button @click="ctxMenuMoveOpen = !ctxMenuMoveOpen">📁 移动到目录…</button>
-        <div v-if="ctxMenuMoveOpen" class="music-playlist__ctxmenu-sub">
+        <div v-if="ctxMenuMoveOpen" class="music-playlist__ctxmenu-sub app-scroll app-scroll--compact">
           <button @click="ctxMove('')">🗂 未分类</button>
           <button v-for="row in flatDirs" :key="row.path" @click="ctxMove(row.path)">
             📁 {{ row.path }}
@@ -1529,7 +1529,7 @@ if (typeof document !== "undefined") {
         </div>
         <button @click="ctxEditTag()">🏷 编辑标签（含新建）…</button>
         <button @click="ctxMenuTagOpen = !ctxMenuTagOpen">☑ 批量套用已有标签…</button>
-        <div v-if="ctxMenuTagOpen" class="music-playlist__ctxmenu-sub">
+        <div v-if="ctxMenuTagOpen" class="music-playlist__ctxmenu-sub app-scroll app-scroll--compact">
           <button
             v-for="t in store.allTags"
             :key="t.name"
@@ -2062,24 +2062,6 @@ if (typeof document !== "undefined") {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
 
-/* 设备列表滚动条 */
-.music-device__list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.music-device__list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.music-device__list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-}
-
-.music-device__list::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
-}
-
 .music-device__warning {
   font-size: 10px;
   color: rgba(255, 200, 100, 0.8);
@@ -2209,23 +2191,6 @@ if (typeof document !== "undefined") {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-}
-
-.music-list__items::-webkit-scrollbar {
-  width: 4px;
-}
-
-.music-list__items::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.music-list__items::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 2px;
-}
-
-.music-list__items::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
 }
 
 .music-list__empty {
@@ -2553,24 +2518,6 @@ if (typeof document !== "undefined") {
   min-height: 0;
 }
 
-/* 播放列表滚动条 */
-.music-playlist__items::-webkit-scrollbar {
-  width: 4px;
-}
-
-.music-playlist__items::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.music-playlist__items::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 2px;
-}
-
-.music-playlist__items::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
-}
-
 .music-playlist__empty {
   /* 在整片列表区里**垂直居中**（原来只是顶部一块小 padding，
      在全窗 sheet 的大片空白里会显得像"内容丢了"） */
@@ -2741,20 +2688,6 @@ if (typeof document !== "undefined") {
   padding: 8px 6px;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
   box-sizing: border-box;
-}
-
-/* 目录树的滚动条（与歌单一致） */
-.music-playlist__dirs::-webkit-scrollbar {
-  width: 4px;
-}
-
-.music-playlist__dirs::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.music-playlist__dirs::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 2px;
 }
 
 .music-playlist__dir-row {
@@ -3114,26 +3047,6 @@ if (typeof document !== "undefined") {
   overflow-y: auto;
   flex: 1;
   min-height: 0;
-  /* 滚动条：与目录树/歌单一致，避免只有播放列表没有滚动条样式 */
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
-}
-
-.music-playlist__collection-items::-webkit-scrollbar {
-  width: 4px;
-}
-
-.music-playlist__collection-items::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.music-playlist__collection-items::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 2px;
-}
-
-.music-playlist__collection-items::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
 }
 
 .music-playlist__collection-item {
@@ -3384,26 +3297,6 @@ if (typeof document !== "undefined") {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   margin-top: 2px;
   padding-top: 2px;
-  /* 右键子菜单（设置标签/移动到目录）的滚动条样式 */
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
-}
-
-.music-playlist__ctxmenu-sub::-webkit-scrollbar {
-  width: 4px;
-}
-
-.music-playlist__ctxmenu-sub::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.music-playlist__ctxmenu-sub::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.28);
-  border-radius: 2px;
-}
-
-.music-playlist__ctxmenu-sub::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.45);
 }
 
 /* ============ Toast 提示 ============ */

@@ -62,6 +62,9 @@ jobs:
       - name: Docs consistency
         run: npm run docs:check
 
+      - name: UI conventions (scrollbar / z-index / modal)
+        run: npm run ui:check
+
       - name: Prepare Tauri resources
         run: node scripts/copy-resources.mjs
 
@@ -71,6 +74,11 @@ jobs:
 
       - name: Run frontend tests with coverage
         run: npx vitest run --coverage
+
+      # 发布前的 UI 冒烟：滚动条兜底 / z-index 契约 / 右键菜单 / 关闭按钮
+      # 零新增依赖，复用自建 runner 的 Edge + tools/ui CDP
+      - name: UI regression (Edge headless)
+        run: npm run ui:test
 
       - name: Upload coverage report
         if: always()

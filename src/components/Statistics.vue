@@ -142,7 +142,7 @@ function onContentClick(e: MouseEvent): void {
           </button>
         </div>
 
-        <div class="stats-panel__body">
+        <div class="stats-panel__body app-scroll">
           <!-- 概览卡片 -->
           <div class="stats-cards">
             <div class="stats-card">
@@ -259,21 +259,6 @@ function onContentClick(e: MouseEvent): void {
   background: rgba(255, 255, 255, 0.02);
   border-radius: 12px;
   padding: 12px;
-}
-
-/* Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
 }
 
 /* Transition：遮罩层 opacity 0→1，内容 scale 0.92→1 */

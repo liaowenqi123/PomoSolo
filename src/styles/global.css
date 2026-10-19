@@ -37,6 +37,8 @@
     3000  modal          全局 Modal 遮罩（.app-modal-overlay）
     3100  modal-upper    次级 Modal（Charts 免责声明、DownloadDialog）
     3200  modal-top      顶层 Modal（MusicTagModal，最高级弹窗）
+    4000  fx             全屏视觉特效（彩蛋粒子层）
+    4100  space          太空彩蛋全屏（必须盖住所有 UI）
      使用规则：
      - 新增 z-index 时必须在此处声明变量并在注释中说明用途
      - 不同层级的元素不得使用相同数值
@@ -57,6 +59,8 @@
   --z-modal: 3000;
   --z-modal-upper: 3100;
   --z-modal-top: 3200;
+  --z-fx: 4000;
+  --z-space: 4100;
 
   /* ============ PWA 外壳共享 token（改色只改这里，桌面端/PWA 两端生效） ============
      桌面端 App.vue 与组件使用本文件上方的既有变量（渐变/边框/z-index）；
@@ -139,32 +143,6 @@ button {
   background: none;
   color: inherit;
   font-family: inherit;
-}
-
-/* ============ 公共滚动条样式 ============ */
-.scrollable {
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
-  scrollbar-gutter: stable;
-}
-
-.scrollable::-webkit-scrollbar {
-  width: 5px;
-}
-
-.scrollable::-webkit-scrollbar-track {
-  background: transparent;
-  border-radius: 3px;
-}
-
-.scrollable::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.25);
-  border-radius: 3px;
-}
-
-.scrollable::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
 }
 
 /* ============ 通用弹窗遮罩模板 ============ */

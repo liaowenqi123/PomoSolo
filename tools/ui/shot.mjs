@@ -46,7 +46,7 @@ function parseArgs(argv) {
     timeout: 30000, listTargets: false, listBrowsers: false, listViews: false,
     includeErrors: false, tinyTarget: 24, noServer: false,
     mock: false, scenario: null, listScenarios: false, mockQuiet: false,
-    recipe: null, listRecipes: false,
+    recipe: null, listRecipes: false, showScrollbars: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -73,6 +73,7 @@ function parseArgs(argv) {
       case "--tiny-target": a.tinyTarget = Number(next()); break;
       case "--full": a.full = true; break;
       case "--no-audit": a.audit = false; break;
+      case "--show-scrollbars": a.showScrollbars = true; break;
       case "--no-image": a.image = false; break;
       case "--no-server": a.noServer = true; break;
       case "--mock": a.mock = true; break;
@@ -124,6 +125,7 @@ UI 取证 · 网页截图（零依赖 CDP，不下载浏览器、不新增依赖
 
 诊断：
   --no-audit             跳过布局审计（默认会审计，见下）
+  --show-scrollbars      截图显示滚动条（默认隐藏，截图更干净）
   --tiny-target <px>     点击热区告警阈值，默认 24
   --errors-only          只输出有问题的截图条目（索引里仍列全部）
 
@@ -369,7 +371,10 @@ async function main() {
   }
 
   /* 3) 浏览器 */
-  const browser = await Browser.launch({ prefer: args.browser ?? undefined });
+  const browser = await Browser.launch({
+    prefer: args.browser ?? undefined,
+    hideScrollbars: !args.showScrollbars,
+  });
   console.log(`▸ 浏览器：${browser.info.label} — ${browser.info.version}`);
   console.log(`▸ 输出：${run.rel}`);
   if (recipe) console.log(`▸ 配方：${args.recipe}（${jobs.length} 个 shot）`);

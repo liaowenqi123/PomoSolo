@@ -762,7 +762,7 @@ function statusLabel(status: number): string {
           </button>
         </div>
 
-        <div class="settings-panel__body">
+        <div class="settings-panel__body app-scroll">
           <!-- 外观 -->
           <section class="settings-section">
             <h3 class="settings-section__title">外观</h3>
@@ -1229,7 +1229,7 @@ function statusLabel(status: number): string {
                 </button>
               </div>
 
-              <div class="feedback-modal__body">
+              <div class="feedback-modal__body app-scroll">
                 <!-- 未登录 -->
                 <div v-if="!feedbackLoggedIn" class="feedback-login-prompt">
                   <p>请先登录后再提交反馈</p>
@@ -1271,7 +1271,7 @@ function statusLabel(status: number): string {
                         刷新
                       </button>
                     </div>
-                    <div class="feedback-list-container">
+                    <div class="feedback-list-container app-scroll app-scroll--compact">
                       <div v-if="feedbackLoading" class="feedback-empty">
                         加载中...
                       </div>
@@ -1333,7 +1333,7 @@ function statusLabel(status: number): string {
                   ×
                 </button>
               </div>
-              <div class="feedback-modal__body">
+              <div class="feedback-modal__body app-scroll">
                 <P2PTestPanel @login="handleP2PTestLogin" />
               </div>
             </div>
@@ -1769,7 +1769,7 @@ function statusLabel(status: number): string {
   left: 0;
   width: 100%;
   height: 100%;
-  z-index: 99998;
+  z-index: var(--z-fx);
   pointer-events: none;
 }
 
@@ -1792,21 +1792,6 @@ function statusLabel(status: number): string {
     opacity: 0;
     transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.3);
   }
-}
-
-/* Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
 }
 
 /* Range slider */

@@ -315,7 +315,7 @@ onUnmounted(() => {
       </div>
 
       <!-- 在线列表 -->
-      <div v-else-if="users.length" class="p2p-test__users">
+      <div v-else-if="users.length" class="p2p-test__users app-scroll app-scroll--compact">
         <div v-for="u in users" :key="u.userId" class="p2p-test__user">
           <div class="p2p-test__user-info">
             <span class="p2p-test__user-name">{{ u.username || "匿名用户" }}</span>
@@ -386,7 +386,7 @@ onUnmounted(() => {
       </div>
 
       <!-- ICE 诊断日志（排障 P2P 打洞失败：候选类型/状态变化） -->
-      <div v-if="diagnostics.length" class="p2p-test__diag">
+      <div v-if="diagnostics.length" class="p2p-test__diag app-scroll app-scroll--compact">
         <div class="p2p-test__diag-head">
           <span class="p2p-test__diag-title">ICE 诊断（候选/状态）</span>
           <button class="p2p-test__diag-copy" @click="copyDiagnostics">复制诊断</button>
@@ -586,24 +586,6 @@ onUnmounted(() => {
   /* 诊断信息允许鼠标选中复制（全局 user-select:none，需显式放开） */
   user-select: text;
   -webkit-user-select: text;
-}
-/* 深色底自定义滚动条（默认滚动条在 WebView2 深色容器里不可见/突兀） */
-.p2p-test__diag::-webkit-scrollbar,
-.p2p-test__users::-webkit-scrollbar {
-  width: 8px;
-}
-.p2p-test__diag::-webkit-scrollbar-track,
-.p2p-test__users::-webkit-scrollbar-track {
-  background: transparent;
-}
-.p2p-test__diag::-webkit-scrollbar-thumb,
-.p2p-test__users::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.22);
-  border-radius: 4px;
-}
-.p2p-test__diag::-webkit-scrollbar-thumb:hover,
-.p2p-test__users::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.38);
 }
 .p2p-test__diag-head {
   display: flex;

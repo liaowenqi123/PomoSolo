@@ -110,7 +110,7 @@ function handleKeydown(e: KeyboardEvent) {
         </button>
       </div>
 
-      <div class="ai-result-area">
+      <div class="ai-result-area app-scroll">
         <!-- 加载中 -->
         <div v-if="isProcessing" class="ai-loading">🤖 AI正在为您规划...</div>
 
@@ -376,21 +376,6 @@ function handleKeydown(e: KeyboardEvent) {
 
 .ai-apply-btn:hover {
   opacity: 0.9;
-}
-
-/* Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
 }
 
 /* Transition：遮罩层 opacity 0→1，内容 scale 0.92→1 */

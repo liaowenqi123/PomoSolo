@@ -93,7 +93,7 @@ function handleBackdropClick(e: MouseEvent) {
       </div>
 
       <!-- 购买面板 -->
-      <div v-show="activeTab === 'buy'" class="shop-panel">
+      <div v-show="activeTab === 'buy'" class="shop-panel app-scroll">
         <div class="shop-grid">
           <div v-for="crop in cropList" :key="crop.key" class="shop-item">
             <div class="shop-item__icon">{{ crop.icon }}</div>
@@ -112,7 +112,7 @@ function handleBackdropClick(e: MouseEvent) {
       </div>
 
       <!-- 出售面板 -->
-      <div v-show="activeTab === 'sell'" class="shop-panel">
+      <div v-show="activeTab === 'sell'" class="shop-panel app-scroll">
         <div v-if="!hasCropsToSell" class="shop-empty">暂无可出售的作物</div>
         <div v-else>
           <div class="shop-sellall-bar">
@@ -323,21 +323,4 @@ function handleBackdropClick(e: MouseEvent) {
   color: #ffd54f;
 }
 
-/* ============ 统一滚动条样式 ============ */
-.shop-panel::-webkit-scrollbar {
-  width: 6px;
-}
-
-.shop-panel::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.shop-panel::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-}
-
-.shop-panel::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
-}
 </style>

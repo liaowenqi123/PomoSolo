@@ -257,7 +257,7 @@ watch(
         </span>
       </div>
 
-      <div class="charts-table-container">
+      <div class="charts-table-container app-scroll">
         <div v-if="isLoading" class="charts-loading">加载中...</div>
         <div v-else-if="errorMsg" class="charts-error">{{ errorMsg }}</div>
         <table v-else class="charts-table">
@@ -694,21 +694,6 @@ watch(
 
 .charts-disclaimer__btn--confirm:hover {
   background: #d63851;
-}
-
-/* Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
 }
 
 /* Transition：遮罩层 opacity 0→1，内容 scale 0.92→1 */

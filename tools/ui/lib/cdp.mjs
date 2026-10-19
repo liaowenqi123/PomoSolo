@@ -490,7 +490,9 @@ export class Browser {
 
   /**
    * 启动浏览器。
-   * @param {{ headless?: boolean, browser?: object, executablePath?: string, args?: string[], keepProfile?: boolean }} [opts]
+   * @param {{ headless?: boolean, browser?: object, executablePath?: string, args?: string[], keepProfile?: boolean, hideScrollbars?: boolean }} [opts]
+   *   hideScrollbars 默认 true（截图好看）；做滚动条回归测试时传 false，
+   *   否则 Chromium 的 --hide-scrollbars 会让 offsetWidth-clientWidth 恒为 0。
    */
   static async launch(opts = {}) {
     const headless = opts.headless !== false;
@@ -511,7 +513,7 @@ export class Browser {
       "--disable-renderer-backgrounding",
       "--disable-ipc-flooding-protection",
       "--disable-gpu",
-      "--hide-scrollbars",
+      ...(opts.hideScrollbars === false ? [] : ["--hide-scrollbars"]),
       "--mute-audio",
       "--force-color-profile=srgb",
       "--font-render-hinting=none",

@@ -19,6 +19,8 @@
     "pwa:build": "npm run pwa:manifest && vue-tsc --noEmit -p src/pwa/tsconfig.json && vite build --config src/pwa/vite.config.ts",
     "pwa:preview": "vite preview --config src/pwa/vite.config.ts",
     "ui:shot": "node tools/ui/shot.mjs",
+    "ui:test": "node tools/ui/regression.mjs",
+    "ui:check": "node scripts/check-ui-conventions.mjs",
     "ui:desktop": "node tools/ui/desktop-shot.mjs",
     "ui:drive": "node tools/ui/desktop-drive.mjs",
     "ui:android": "node tools/ui/android-shot.mjs",

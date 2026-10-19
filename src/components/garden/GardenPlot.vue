@@ -114,7 +114,7 @@ function canUnlock(index: number): boolean {
 </script>
 
 <template>
-  <div class="garden-grid">
+  <div class="garden-grid app-scroll">
     <div
       v-for="(plot, index) in plots"
       :key="plot.id"
@@ -208,26 +208,6 @@ function canUnlock(index: number): boolean {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
-}
-
-.garden-grid::-webkit-scrollbar {
-  width: 5px;
-}
-
-.garden-grid::-webkit-scrollbar-track {
-  background: transparent;
-  border-radius: 3px;
-}
-
-.garden-grid::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.25);
-  border-radius: 3px;
-}
-
-.garden-grid::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
 }
 
 .garden-plot {

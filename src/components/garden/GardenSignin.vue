@@ -176,7 +176,7 @@ function handleBackdropClick(e: MouseEvent) {
         </div>
       </div>
 
-      <div class="signin-rewards">
+      <div class="signin-rewards app-scroll">
         <h4 class="signin-rewards__title">今日奖励</h4>
         <div
           v-for="(reward, idx) in todayRewards"

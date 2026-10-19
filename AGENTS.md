@@ -165,7 +165,7 @@ git push origin main && git push self main
 
 ```
 看板/留言板 → 读对应目录 README → 建分支 → 开发
-  → 本地测试 → UI 截图核对 → 更新文档 → docs:check
+  → 本地测试 → UI 截图核对 → ui:check / ui:test → 更新文档 → docs:check
   → commit（带部门声明）→ push origin + self → 留言板留结论
 ```
 
@@ -173,6 +173,7 @@ git push origin main && git push self main
 2. **改 UI 前**：先 `npm run ui:shot -- --target desktop`（或对应配方），
    问题会直接打在终端；用法见 [`tools/ui/README.md`](tools/ui/README.md)；
 3. **改代码后**：跑对应测试（前端 `npm test`，后端 `cd src-tauri && cargo test --lib`）；
+   改 UI 再跑 `npm run ui:check`（秒级静态约定）与 `npm run ui:test`（无头 Edge 回归）；
 4. **提交前**：`npm run docs:check`；改了结构/版本先 `npm run docs:map`；
 5. **提交**：`[主部门] fix: ...`，配套文档同 commit；
 6. **推送**：`git push origin main && git push self main`；
@@ -197,6 +198,8 @@ npm run docs:check                 # 文档/版本/README 一致性
 npm run versions:check             # 六个版本值一致性
 npm run board:digest               # 留言板待办速览
 npm run ui:shot -- --target desktop
+npm run ui:check                   # UI 静态约定（滚动条/z-index/Modal）
+npm run ui:test                    # 无头 Edge UI 回归（发布前必跑）
 ```
 
 前端/后端/PWA/UI 的完整命令见各自 README；不要在本文件复制。

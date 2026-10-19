@@ -12,6 +12,7 @@ import { createApp } from "vue";
 import { createPinia } from "pinia";
 import App from "./App.vue";
 import "../styles/global.css";
+import "../styles/scrollbar.css";
 import "./styles.css";
 import { LS_PREFIX } from "./config";
 

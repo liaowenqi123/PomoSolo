@@ -44,6 +44,10 @@ Rust ↔ TS 字段对齐、序列化注意点见 [`../src-tauri/README.md`](../s
 
 - **圆角统一 20px**；`.container` 需要 `border-radius:20px` + `overflow:hidden` 裁剪内部元素。
 - **z-index 必须用 `styles/global.css` 的 CSS 变量**（`--z-base` / `--z-modal` / …），禁止 magic number。
+- **滚动条只由 `styles/scrollbar.css` 全局兜底**：任何元素意外溢出都会自动得到细滚动条；
+  组件里**不要**再写 `::-webkit-scrollbar` / `scrollbar-width` / `scrollbar-color`。
+  需要“稳定留槽”或阻止滚动链的容器加 `.app-scroll`（旧 `.scrollable` 仍兼容），
+  紧凑菜单可加 `.app-scroll--compact`。
 - **深色容器内文字用显式亮色**，禁用 `var(--text-color)`：它跟随主题，亮色主题下会黑字黑底。
 - **Modal 统一**：`#1a1a1a` 背景 + 白字 + `.app-modal-overlay` 遮罩。
 - **不要给 `.main-content` 加 `overflow:hidden` / `z-index:1`**：会物理裁剪弹窗、破坏层叠上下文。
@@ -58,13 +62,16 @@ Rust ↔ TS 字段对齐、序列化注意点见 [`../src-tauri/README.md`](../s
 npm run dev                 # Vite dev server（前端单独调试）
 npm test                    # Vitest
 npx vue-tsc --noEmit        # 类型检查
+npm run ui:check            # 静态约定：滚动条唯一来源 / z-index magic number / Modal
+npm run ui:test             # 无头 Edge UI 回归：滚动条兜底、z-index 契约、右键/关闭
 npm run ui:shot -- --target desktop
 npm run ui:shot -- --recipe desktop-panels
+npm run ui:shot -- --recipe desktop-music-library --show-scrollbars  # 截图显示滚动条
 ```
 
 改任何 UI 之前先截图/布局审计，用法见 [`../tools/ui/README.md`](../tools/ui/README.md)。
 不要靠读 CSS 猜；历史上面板高度收缩、按钮被挤成两排、文字被裁、弹窗被祖先裁剪
-都是截图后才定位的。
+都是截图后才定位的。`ui:check` 与 `ui:test` 已接入 CI，发布前会拦住回归。
 
 ## 6. 与 PWA 的边界
 

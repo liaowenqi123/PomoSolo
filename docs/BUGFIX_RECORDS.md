@@ -110,6 +110,37 @@
 **验证**：`npm test` 新增 store 用例（断言 path 保留、`musicUpdateTag` 不再被调用）、
 `cargo test --lib` 新增 `test_update_song_tag_preserves_path_and_other_tags`。
 
+### 33. 系统性治理：滚动条收口 + z-index 契约 + UI 回归测试（主部门）
+
+**背景**：滚动条样式长期“打地鼠”——每个组件各写一套 `::-webkit-scrollbar`，
+漏一个就出现原生大滚动条；还有一些 `z-index: 99998/99999` 的临时值。
+用户要求从“修一个”升级为“让这类问题以后不再发生”。
+
+**重构**：
+- 新增 `src/styles/scrollbar.css`，给**所有元素**兜底：
+  Firefox 用 `scrollbar-width/color`，Chromium/WebView2 用
+  `@supports selector(::-webkit-scrollbar)` 交回伪元素控制 8px 细条；
+  触屏 `pointer: coarse` 自动加宽到 12px；
+- 新增 `.app-scroll`（`scrollbar-gutter: stable` + `overscroll-behavior: contain`）
+  与 `.app-scroll--compact`；旧 `.scrollable` 保留为别名；
+- 删除 20 个组件里约 400 行重复滚动条/相关 CSS，所有滚动容器统一加 `app-scroll`；
+- z-index 新增 `--z-fx`(4000) / `--z-space`(4100)，替换
+  `SettingsPanel` 的 `99998` 与 `SpaceTravel` 的 `99999`；
+- 新增 `scripts/check-ui-conventions.mjs`（`npm run ui:check`）：
+  滚动条唯一来源、`overflow-y:auto` 必须有 `app-scroll`、z-index magic number、
+  token 唯一性、Modal 遮罩契约；
+- 新增 `tools/ui/regression.mjs`（`npm run ui:test`）：
+  无头 Edge 断言滚动条兜底/稳定留槽、chrome > sheet、sheet 打开后 chrome 可点、
+  右键菜单不关面板、✕ 关闭、Modal > chrome、无 9999x 临时层级；
+- CI 的 test job 增加 `npm run ui:check` 与 `npm run ui:test`，tag 发版前必过；
+- `ui:check` 是秒级静态契约，`ui:test` 是浏览器行为契约，两者互补。
+
+**验证**：
+- `npm run ui:check` 通过（43 个 Vue/CSS 文件、13 个 z token）；
+- `npm run ui:test` 11/11 通过；
+- `npm test` 61 文件（含新增契约测试）全过；
+- `ui:shot --recipe desktop-music-library --show-scrollbars` 可人工核对滚动条。
+
 ---
 
 ## 2026-10-09

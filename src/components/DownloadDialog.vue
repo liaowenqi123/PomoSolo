@@ -132,7 +132,7 @@ function handleBackdropClick(e: MouseEvent) {
         </button>
       </div>
 
-      <div class="download-dialog__body">
+      <div class="download-dialog__body app-scroll">
         <div class="download-dialog__fields">
           <label class="download-dialog__field">
             <span class="download-dialog__label">歌曲名称 <em>*</em></span>

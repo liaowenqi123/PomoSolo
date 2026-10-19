@@ -111,7 +111,7 @@ function handleBackdropClick(e: MouseEvent) {
         </button>
       </div>
 
-      <div class="achievement-list">
+      <div class="achievement-list app-scroll">
         <div
           v-for="ach in filteredAchievements"
           :key="ach.id"
@@ -393,21 +393,4 @@ function handleBackdropClick(e: MouseEvent) {
   font-weight: 700;
 }
 
-/* ============ 统一滚动条样式 ============ */
-.achievement-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.achievement-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.achievement-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-}
-
-.achievement-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
-}
 </style>

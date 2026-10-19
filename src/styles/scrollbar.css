@@ -1,0 +1,100 @@
+/**
+ * 全局滚动条基线（桌面端 + PWA 共用）
+ *
+ * 为什么放在全局：
+ *   过去每个组件各写一套 ::-webkit-scrollbar，漏一个就出现“原生大滚动条”。
+ *   这里给**所有元素**一个默认细滚动条 —— 以后任何容器意外溢出，也不会裸奔。
+ *
+ * 实现策略（见 MDN ::-webkit-scrollbar）：
+ *   1. 标准属性：Firefox / 未来 Chromium 用 thin + 半透明 thumb；
+ *   2. Chromium / WebView2：@supports 检测 ::-webkit-scrollbar，
+ *      把 scrollbar-width/color 还原为 auto，让伪元素精确控制 8px 宽度；
+ *   3. 触屏（pointer: coarse）：自动加宽到 12px，保证手指能拖。
+ *
+ * 组件不要再写 ::-webkit-scrollbar / scrollbar-width / scrollbar-color；
+ * 需要“稳定留槽”的容器加 .app-scroll（或旧类 .scrollable）。
+ */
+
+:root {
+  --scrollbar-size: 8px;
+  --scrollbar-size-coarse: 12px;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.4);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.62);
+  --scrollbar-radius: 999px;
+}
+
+/* 1) 标准属性：Firefox 等不支持 ::-webkit-scrollbar 的浏览器 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* 2) Chromium / WebView2：交回伪元素精确控制（标准属性非 auto 会覆盖伪元素） */
+@supports selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+
+  *::-webkit-scrollbar {
+    width: var(--scrollbar-size);
+    height: var(--scrollbar-size);
+  }
+
+  *::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.045);
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: var(--scrollbar-radius);
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+/* 3) 触屏 PWA：加宽，保证可拖动 */
+@media (pointer: coarse) {
+  @supports selector(::-webkit-scrollbar) {
+    *::-webkit-scrollbar {
+      width: var(--scrollbar-size-coarse);
+      height: var(--scrollbar-size-coarse);
+    }
+  }
+}
+
+/* 稳定留槽：内容从“不溢出”到“溢出”时，不把布局挤动 6px */
+.app-scroll,
+.scrollable {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+
+.app-scroll--y {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.app-scroll--x {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* 更紧凑的菜单/浮层；仍沿用同一套颜色 token */
+.app-scroll--compact {
+  --scrollbar-size: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* 滚动条没有动画，这里只作为“未来加过渡”的兜底约定 */
+  * {
+    scroll-behavior: auto;
+  }
+}

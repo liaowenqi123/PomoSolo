@@ -17,6 +17,7 @@
 | `server/` | ★ **服务器基础设施脚本**（TLS 证书同步与自愈）；见 [`server/README.md`](./server/README.md) |
 | `docs/` | `project-map` 生成 + 文档一致性检查 |
 | `release/` | 版本号一致性检查 |
+| `check-ui-conventions.mjs` | UI 静态约定：滚动条唯一来源 / z-index magic number / Modal 遮罩 |
 
 > ⚠️ `server/` 里的东西**改错会全站 HTTPS 故障**（2026-10 真出过一次）。
 > 动手前务必读 [`server/README.md`](./server/README.md)，改完跑它的自测套件。
@@ -27,6 +28,8 @@
 npm run docs:map        # 扫描代码，生成 ../docs/PROJECT_MAP.md
 npm run docs:check      # 校验生成物、版本号、目录 README、根文档是否写死版本/数量
 npm run versions:check  # 只校验版本号六处一致
+npm run ui:check        # UI 约定（滚动条/z-index/Modal），CI 同款
+npm run ui:test         # 无头 Edge UI 回归（滚动条/z-index/交互），CI 同款
 ```
 
 - 根 README / AGENTS **不手写**目录树、版本号、测试数量；整体视图统一看

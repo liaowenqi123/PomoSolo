@@ -850,17 +850,6 @@ watch(
   min-height: 0;
 }
 
-.plan-list::-webkit-scrollbar {
-  width: 4px;
-}
-.plan-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-.plan-list::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 2px;
-}
-
 .plan-item {
   display: flex;
   align-items: center;

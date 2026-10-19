@@ -113,7 +113,7 @@ onBeforeUnmount(() => {
             ×
           </button>
         </div>
-        <div class="modal-body">
+        <div class="modal-body app-scroll app-scroll--compact">
           <slot />
         </div>
         <div v-if="$slots.footer" class="modal-footer">
@@ -186,21 +186,6 @@ onBeforeUnmount(() => {
      本体会拒绝收缩、无法滚动，导致文字溢出被裁（教程展开、长内容弹窗均受影响）。
      置 0 后内容统一在此滚动。 */
   min-height: 0;
-}
-
-/* Scrollbar */
-.modal-body::-webkit-scrollbar {
-  width: 6px;
-}
-.modal-body::-webkit-scrollbar-track {
-  background: transparent;
-}
-.modal-body::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-}
-.modal-body::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
 }
 
 .modal-footer {

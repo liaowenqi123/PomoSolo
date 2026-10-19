@@ -29,6 +29,8 @@
 | **Tauri 真窗口截图** | `npm run ui:desktop` | 截**真实 Tauri 进程**的窗口（真 WebView2 + 真 Rust 后端） | 确认"浏览器里的效果"与真机一致 |
 | **Tauri 真窗口驱动** | `npm run ui:drive -- --recipe desktop-quick` | **用代码点击真实窗口**并校验点击真的生效 | 端到端功能核对、真实热区审计 |
 | **Android** | `npm run ui:android` | 手机/模拟器画面 + UI 层级审计 | 安卓端（独立仓库）改完核对 |
+| **UI 回归** | `npm run ui:test` | 无头 Edge 断言：滚动条兜底、z-index 契约、右键/关闭 | **发布前必跑**；已接入 CI |
+| **UI 静态约定** | `npm run ui:check` | 滚动条唯一来源 / z-index magic number / Modal 契约 | 改 CSS 后先跑，秒级 |
 
 > **四者关系**：`ui:shot` 快、可编排、能摆任意状态，但数据是 mock；
 > `ui:desktop` 截真图但不动它；`ui:drive` **既截真图又真的点它**。
@@ -80,6 +82,10 @@ npm run ui:drive -- --recipe desktop-quick
 # ⑦ Android（需模拟器已启动）
 npm run ui:android -- --devices
 npm run ui:android
+
+# ⑧ 发布前 UI 回归（无头 Edge；CI 同款）
+npm run ui:check
+npm run ui:test
 ```
 
 **产物**：`temp-debug/ui-shots/<时间戳>-<标签>/`（已 gitignore）
@@ -326,6 +332,7 @@ Android 端用 `uiautomator dump` 做**同一套判据**（`tiny-target` 按 dp�
 tools/ui/
 ├── README.md                  ← 本文件
 ├── shot.mjs                   Web/PWA 截图 CLI（目标/视口/配方/mock/审计）
+├── regression.mjs             ★ 发布前 UI 回归（滚动条/z-index/交互断言）
 ├── desktop-shot.mjs           Tauri 真窗口截图 CLI
 ├── desktop-drive.mjs          Tauri 真窗口**驱动** CLI（UIA 点击 + 校验 + 热区审计）
 ├── android-shot.mjs           Android 截图 + 层级审计 CLI
@@ -376,6 +383,7 @@ npm run ui:selftest
 --wait-for <js>     等待页面条件
 --no-settle         不等 DOM 静止（默认会等）
 --no-audit          跳过布局审计
+--show-scrollbars   截图显示滚动条（默认隐藏，截图更干净）
 --no-image          只要诊断不要图
 --browser <edge|chrome>   默认 Edge（与桌面端同为 WebView2 内核）
 --keep-open         截完不关浏览器（调试）
