@@ -200,7 +200,7 @@ async function cmdRead() {
   if (args.json) return console.log(JSON.stringify(d, null, 2));
   const p = d.post;
   console.log(c("bold", `#${p.id}  ${p.title}`));
-  console.log("   " + badge(p.status, p.status_label) + c("gray", `  ${p.project_name} · 👤${p.author} · 创建 ${p.created_at} · 更新 ${p.updated_at}`));
+  console.log("   " + badge(p.status, p.status_label) + " " + prioText(p) + c("gray", `  ${p.project_name} · 👤${p.author} · 创建 ${p.created_at} · 更新 ${p.updated_at}`));
   if (p.tags.length) console.log(c("gray", "   标签：" + p.tags.join(", ")));
   console.log("   " + c("gray", postUrl(p.id)));
   console.log("");
