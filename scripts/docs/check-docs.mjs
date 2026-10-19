@@ -38,6 +38,7 @@ const requiredReadmes = [
   "server-planning/README.md",
   "tools/ui/README.md",
   "scripts/README.md",
+  "scripts/server/README.md",
   "docs/README.md",
   "music-player/README.md",
   ".local/README.md",

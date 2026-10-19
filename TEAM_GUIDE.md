@@ -550,7 +550,7 @@ npm run pwa:preview    # 预览产物
 | PWA | `src/pwa/README.md` | alias 复用、浏览器 shim、已知限制 |
 | 服务器接口 | `server-planning/README.md` | 本目录索引；线上实现/历史草案边界 |
 | UI 工具 | `tools/ui/README.md` | 截图、布局审计、真实窗口驱动 |
-| 脚本 | `scripts/README.md` | 构建/联调/留言板/docs/版本检查 |
+| 脚本 | `scripts/README.md` | 构建/联调/留言板/docs/版本检查/服务器证书 |
 | 文档 | `docs/README.md` | 跨模块架构、模块、安全、历史 |
 | 内置音乐 | `music-player/README.md` | 资源、构建复制、tags.json 坑 |
 

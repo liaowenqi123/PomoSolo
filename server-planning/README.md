@@ -41,3 +41,6 @@
 
 SSH、部署目录、容器名、数据库连法、域名/证书链路属于**本机/服务器专属信息**，
 放在 `.local/SERVER.md`（不入库）。本目录只保留可共享的接口与部署要求。
+
+需要版本化的服务器基础设施脚本（证书同步/自愈、certbot hook）在
+[`../scripts/server/README.md`](../scripts/server/README.md)。

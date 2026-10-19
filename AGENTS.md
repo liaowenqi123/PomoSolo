@@ -39,7 +39,7 @@
 | `src/` `src-tauri/src/` | 桌面端前后端源码 |
 | `src/pwa/` | PWA 专属层（复用 `src/`） |
 | `tools/ui/` | UI 取证工具（截图 + 布局审计） |
-| `scripts/` | 构建、迁移、P2P 联调、留言板、文档检查脚本 |
+| `scripts/` | 构建、迁移、P2P 联调、留言板、文档检查、服务器证书脚本 |
 | `docs/` | 架构、模块、安全、排错与历史文档 |
 | `server-planning/` | **服务器接口的权威文档**（REST/WS/P2P/更新源） |
 | `music-player/music/` | 仓库跟踪的内置曲 + `tags.json`（白名单见 `.gitignore`） |
@@ -81,7 +81,7 @@
 | `src/pwa/` | PWA 专属层：alias 复用、浏览器 shim、已知限制 | [`src/pwa/README.md`](src/pwa/README.md) |
 | `server-planning/` | 服务器接口文档（代码不在本仓库） | [`server-planning/README.md`](server-planning/README.md) |
 | `tools/ui/` | UI 截图、布局审计、真实窗口驱动 | [`tools/ui/README.md`](tools/ui/README.md) |
-| `scripts/` | 构建 / P2P 联调 / 留言板 / docs / release 脚本 | [`scripts/README.md`](scripts/README.md) |
+| `scripts/` | 构建 / P2P 联调 / 留言板 / docs / release / 服务器证书脚本 | [`scripts/README.md`](scripts/README.md) |
 | `docs/` | 跨模块架构、模块文档、安全、历史 | [`docs/README.md`](docs/README.md) |
 | `music-player/` | 内置音乐资源与 `tags.json` 迁移坑 | [`music-player/README.md`](music-player/README.md) |
 | `.local/` | 本机/服务器私密区（加速层，不是真相层） | [`.local/README.md`](.local/README.md) |
