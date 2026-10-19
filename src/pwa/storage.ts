@@ -115,12 +115,26 @@ export interface MusicMeta {
   paths: Record<string, string>;
   /** v2：歌名 → 多值标签 */
   multiTags: Record<string, string[]>;
+  /** v2：空目录注册表（新建但还没有歌的目录） */
+  dirs: string[];
 }
 
-const DEFAULT_META: MusicMeta = { tags: {}, customTags: {}, paths: {}, multiTags: {} };
+const DEFAULT_META: MusicMeta = {
+  tags: {},
+  customTags: {},
+  paths: {},
+  multiTags: {},
+  dirs: [],
+};
 
 export function loadMusicMeta(): MusicMeta {
-  return loadJson<MusicMeta>("music-meta", DEFAULT_META);
+  // 旧版本 meta 没有 dirs 字段：合并默认值，避免读取到 undefined
+  const raw = loadJson<Partial<MusicMeta>>("music-meta", {});
+  return {
+    ...DEFAULT_META,
+    ...raw,
+    dirs: Array.isArray(raw.dirs) ? raw.dirs : [],
+  };
 }
 export function saveMusicMeta(meta: MusicMeta): void {
   saveJson("music-meta", meta);

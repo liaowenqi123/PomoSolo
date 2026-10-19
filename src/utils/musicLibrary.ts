@@ -69,15 +69,20 @@ export function isBuiltinSong(name: string): boolean {
 }
 
 /**
- * 由记录集合构建目录树（实时派生；空目录不产生节点；重复路径计数去重）。
+ * 由记录集合构建目录树（实时派生；空路径不产生节点）。
+ *
+ * 计数语义：每个**唯一 key** 计一首。默认 key = path，此时同一路径只计一次；
+ * 调用方传 `key: 歌名` 后，多个共享同一 path 的歌曲会各自计数 —— 这才是
+ * "目录里有多少首歌"的期望语义（历史 bug：同目录多首歌只显示 1）。
  */
-export function buildDirTree(entries: Iterable<{ path: string }>): DirNode[] {
+export function buildDirTree(entries: Iterable<{ path: string; key?: string }>): DirNode[] {
   const roots: DirNode[] = [];
   const index = new Map<string, DirNode>();
   const seen = new Set<string>();
   for (const e of entries) {
-    if (seen.has(e.path)) continue; // 同路径去重（防御：同一首歌只计一次）
-    seen.add(e.path);
+    const key = e.key ?? e.path;
+    if (seen.has(key)) continue; // 同一首歌/同一空目录只计一次
+    seen.add(key);
     const segs = parseDirPath(e.path);
     if (segs.length === 0) continue; // 未分类不产生节点
     let parent: DirNode[] = roots;

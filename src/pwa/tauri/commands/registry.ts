@@ -103,6 +103,7 @@ export const commandRegistry: CommandRegistry = {
   music_move_song_if_default: music.cmdMusicMoveSongIfDefault,
   music_set_song_tags: music.cmdMusicSetSongTags,
   music_rename_dir: music.cmdMusicRenameDir,
+  music_create_dir: music.cmdMusicCreateDir,
   music_delete_dir: music.cmdMusicDeleteDir,
   music_read_song_chunk: music.cmdMusicReadSongChunk,
   music_read_song_chunk_bin: music.cmdMusicReadSongChunkBin,

@@ -20,6 +20,7 @@ import type { ManifestSong } from "./types";
 import { songUrl } from "./sources";
 import { idbGetBlob } from "./idb";
 import { rememberSong, forgetSong } from "./library";
+import { loadMusicMeta } from "../storage";
 
 /** 播放会话快照 localStorage 键（进程被杀/切后台后重启可恢复"哪首歌、播到哪、是否在播"） */
 export const SESSION_KEY = "pomo-pwa:session";
@@ -553,6 +554,7 @@ class BrowserAudioEngine {
   }
 
   emitPlaylist(): void {
+    const meta = loadMusicMeta();
     const songs = this.order.map((name) => {
       const info = this.songInfo.get(name);
       const override = this.tagOverrides.get(name);
@@ -560,10 +562,18 @@ class BrowserAudioEngine {
         name,
         tag: override ? override.name : (info?.tag ?? null),
         tagColor: override ? override.color : (info?.color ?? null),
+        // 与桌面端 PlaylistSong 对齐：目录/多值标签/来源（PWA 从 localStorage 元数据取）
+        path: meta.paths?.[name] ?? "",
+        tags: meta.multiTags?.[name] ?? [],
+        source: info?.source ?? "",
       };
     });
     const current = this.index >= 0 ? this.order[this.index] : undefined;
-    busEmit("music-playlist", { songs, current_song: current });
+    busEmit("music-playlist", {
+      songs,
+      current_song: current,
+      dirs: meta.dirs ?? [],
+    });
   }
 
   /** 删除歌曲：清理本地缓存/IDB/object URL 并刷新歌单（服务器曲库文件本身不受影响） */

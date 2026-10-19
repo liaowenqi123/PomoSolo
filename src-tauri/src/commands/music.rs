@@ -379,13 +379,15 @@ pub async fn music_get_playlist(app: AppHandle) -> Result<(), String> {
     let mut player = music_state.player.lock().await;
 
     let (songs, current_song, current_index) = player.get_playlist_with_tags();
+    let dirs = player.get_dirs();
 
     let _ = app.emit(
         "music-playlist",
         json!({
             "songs": songs,
             "current_song": current_song,
-            "current_index": current_index
+            "current_index": current_index,
+            "dirs": dirs
         }),
     );
 
@@ -795,12 +797,14 @@ pub async fn music_finalize_song(
 /// 推送播放列表事件（复用 music-get-playlist 的格式，目录/标签变更后同步前端）
 async fn emit_playlist(app: &AppHandle, player: &mut AudioPlayer) {
     let (songs, current_song, current_index) = player.get_playlist_with_tags();
+    let dirs = player.get_dirs();
     let _ = app.emit(
         "music-playlist",
         json!({
             "songs": songs,
             "current_song": current_song,
-            "current_index": current_index
+            "current_index": current_index,
+            "dirs": dirs
         }),
     );
 }
@@ -926,6 +930,21 @@ pub async fn music_rename_dir(
         Ok(updated) => {
             emit_playlist(&app, &mut player).await;
             Ok(json!({ "success": true, "updated": updated }))
+        }
+        Err(e) => Ok(json!({ "success": false, "error": e })),
+    }
+}
+
+/// 新建空目录（字段模型；只登记路径，不建 OS 文件夹）
+#[tauri::command]
+pub async fn music_create_dir(app: AppHandle, path: String) -> Result<Value, String> {
+    ensure_init(&app).await?;
+    let music_state = app.state::<MusicState>();
+    let mut player = music_state.player.lock().await;
+    match player.create_dir(&path) {
+        Ok(()) => {
+            emit_playlist(&app, &mut player).await;
+            Ok(json!({ "success": true }))
         }
         Err(e) => Ok(json!({ "success": false, "error": e })),
     }

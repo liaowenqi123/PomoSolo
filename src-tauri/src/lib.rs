@@ -202,6 +202,7 @@ pub fn run() {
             commands::music::music_move_song_if_default,
             commands::music::music_set_song_tags,
             commands::music::music_rename_dir,
+            commands::music::music_create_dir,
             commands::music::music_delete_dir,
             // P2P 传歌（服务器中转分片）
             commands::music::music_read_song_chunk,

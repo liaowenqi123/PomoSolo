@@ -918,6 +918,52 @@ impl AudioPlayer {
             .unwrap_or(serde_json::json!({}))
     }
 
+    /// 空目录注册表（`_dirs`）。
+    ///
+    /// 目录本身是从歌曲 `path` 字段派生的（不落盘实体），但"新建一个还没有歌的目录"
+    /// 也需要一个可见的节点，否则用户建完看不到。这里把空目录路径单独登记。
+    pub fn get_dirs(&self) -> Vec<String> {
+        self.load_tags()
+            .get("_dirs")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn save_dirs(&self, dirs: &[String]) -> Result<(), String> {
+        let mut tags = self.load_tags();
+        if !tags.is_object() {
+            tags = serde_json::json!({});
+        }
+        tags["_dirs"] = serde_json::json!(dirs);
+        self.save_tags(&tags)
+    }
+
+    /// 新建空目录。目录是字段模型，不建 OS 文件夹；只登记到 `_dirs`。
+    pub fn create_dir(&mut self, path: &str) -> Result<(), String> {
+        let path = path.trim().trim_matches('/').to_string();
+        if path.is_empty() {
+            return Err("目录名不能为空".to_string());
+        }
+        if path.split('/').any(|seg| seg.trim().is_empty()) {
+            return Err("目录名不能包含空层级".to_string());
+        }
+        if Self::is_system_dir(&path) {
+            return Err("系统目录已存在".to_string());
+        }
+        let mut dirs = self.get_dirs();
+        if !dirs.iter().any(|d| d == &path) {
+            dirs.push(path);
+            dirs.sort();
+            self.save_dirs(&dirs)?;
+        }
+        Ok(())
+    }
+
     pub fn add_custom_tag(&self, tag_name: &str, color: &str) -> Result<(), String> {
         let mut tags = self.load_tags();
         if !tags.is_object() {
@@ -1143,7 +1189,27 @@ impl AudioPlayer {
                 updated += 1;
             }
         }
-        if updated > 0 {
+
+        // 空目录注册表同步迁移（否则重命名后空目录会"变回旧名/消失"）
+        let mut dirs_updated = false;
+        if let Some(arr) = tags.get_mut("_dirs").and_then(|v| v.as_array_mut()) {
+            for item in arr.iter_mut() {
+                let Some(cur) = item.as_str().map(|s| s.to_string()) else {
+                    continue;
+                };
+                if cur == old_path || cur.starts_with(&prefix) {
+                    let rest = if cur == old_path {
+                        String::new()
+                    } else {
+                        cur[old_path.len()..].to_string()
+                    };
+                    *item = serde_json::json!(format!("{}{}", new_path, rest));
+                    dirs_updated = true;
+                }
+            }
+        }
+
+        if updated > 0 || dirs_updated {
             self.save_tags(&tags)?;
         }
         Ok(updated)
@@ -1179,6 +1245,19 @@ impl AudioPlayer {
                 updated += 1;
             }
         }
+
+        // 空目录注册表：删除该目录及其子目录的登记
+        if let Some(arr) = tags.get_mut("_dirs").and_then(|v| v.as_array_mut()) {
+            let before = arr.len();
+            arr.retain(|v| {
+                let Some(cur) = v.as_str() else { return false };
+                cur != path && !cur.starts_with(&prefix)
+            });
+            if arr.len() != before {
+                updated += before - arr.len();
+            }
+        }
+
         if updated > 0 {
             self.save_tags(&tags)?;
         }
@@ -1804,6 +1883,29 @@ mod tests {
         // 系统目录守卫
         assert!(player.rename_dir("下载", "我的下载").is_err(), "系统目录不可重命名");
         assert!(player.rename_dir("喜欢", "其他").is_err());
+    }
+
+    #[test]
+    fn test_create_dir_registry_and_rename_delete() {
+        let (_dir, mut player) = temp_player_with_files(&["a.mp3"]);
+        player.create_dir("导入/新目录").unwrap();
+        assert_eq!(player.get_dirs(), vec!["导入/新目录"]);
+
+        // 重复创建幂等
+        player.create_dir("导入/新目录").unwrap();
+        assert_eq!(player.get_dirs().len(), 1);
+
+        // 重命名空目录：即使没有歌曲，也要迁移注册表
+        player.rename_dir("导入/新目录", "改名后").unwrap();
+        assert_eq!(player.get_dirs(), vec!["导入/改名后"]);
+
+        // 删除父目录：注册表里的子目录一并移除
+        player.delete_dir("导入").unwrap();
+        assert!(player.get_dirs().is_empty());
+
+        // 系统目录不可新建
+        assert!(player.create_dir("内置").is_err());
+        assert!(player.create_dir("   ").is_err());
     }
 
     #[test]

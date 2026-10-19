@@ -80,10 +80,11 @@ export const RECIPES = {
     views: ["desktop"],
     shots: [
       { name: "00-player", clicks: [] },
-      { name: "01-panel-browse", clicks: [".music-playlist-btn"] },
-      { name: "02-panel-dir", clicks: [".music-playlist-btn", '.music-playlist__tabs button:nth-of-type(1)'] },
-      { name: "03-panel-filter", clicks: [".music-playlist-btn", '.music-playlist__tabs button:nth-of-type(2)'] },
-      { name: "04-panel-playlist", clicks: [".music-playlist-btn", '.music-playlist__tabs button:nth-of-type(3)'] },
+      // 点 📋 默认只开紧凑浮层；再点 ⤢ 才进入全屏音乐库（目录/筛选/批量）
+      { name: "01-panel-browse", clicks: [".music-playlist-btn", ".music-list__btn"] },
+      { name: "02-panel-dir", clicks: [".music-playlist-btn", ".music-list__btn", '.music-playlist__tabs button:nth-of-type(1)'] },
+      { name: "03-panel-filter", clicks: [".music-playlist-btn", ".music-list__btn", '.music-playlist__tabs button:nth-of-type(2)'] },
+      { name: "04-panel-playlist", clicks: [".music-playlist-btn", ".music-list__btn", '.music-playlist__tabs button:nth-of-type(3)'] },
     ],
   },
 

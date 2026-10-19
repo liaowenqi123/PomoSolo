@@ -58,6 +58,8 @@ export interface PlaylistData {
   songs: PlaylistSong[] | string[];
   current_index?: number;
   current_song?: string;
+  /** 空目录注册表（新建但还没有歌的目录） */
+  dirs?: string[];
 }
 
 export interface MusicReadyPayload {
@@ -265,6 +267,11 @@ export function musicSetSongTags(song: string, tags: string[]): Promise<MusicDir
 /** 重命名目录（一级，含子目录迁移；系统目录拒绝） */
 export function musicRenameDir(oldPath: string, newName: string): Promise<MusicDirResult> {
   return invoke<MusicDirResult>("music_rename_dir", { oldPath, newName });
+}
+
+/** 新建空目录（字段模型；只登记路径，不建 OS 文件夹） */
+export function musicCreateDir(path: string): Promise<MusicDirResult> {
+  return invoke<MusicDirResult>("music_create_dir", { path });
 }
 
 /** 删除目录（歌曲归「未分类」，不删文件；系统目录拒绝） */

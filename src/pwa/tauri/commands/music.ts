@@ -206,6 +206,21 @@ export async function cmdMusicMoveSongIfDefault(args: Record<string, unknown>): 
   return { success: true, set: true };
 }
 
+export async function cmdMusicCreateDir(args: Record<string, unknown>): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  const path = normalizePath(args.path);
+  if (!path) return { success: false, error: "目录名不能为空" };
+  const m = meta();
+  const dirs = Array.isArray(m.dirs) ? m.dirs : [];
+  if (!dirs.includes(path)) {
+    m.dirs = [...dirs, path].sort((a, b) => a.localeCompare(b, "zh"));
+    saveMusicMeta(m);
+  }
+  return { success: true };
+}
+
 export async function cmdMusicSetSongTags(args: Record<string, unknown>): Promise<{
   success: boolean;
   error?: string;
@@ -248,7 +263,20 @@ export async function cmdMusicRenameDir(args: Record<string, unknown>): Promise<
       updated += 1;
     }
   }
-  if (updated > 0) saveMusicMeta(m);
+  // 空目录注册表同步迁移
+  let dirsUpdated = false;
+  m.dirs = (m.dirs ?? []).map((d) => {
+    if (d === oldPath) {
+      dirsUpdated = true;
+      return newPath;
+    }
+    if (d.startsWith(`${oldPath}/`)) {
+      dirsUpdated = true;
+      return `${newPath}${d.slice(oldPath.length)}`;
+    }
+    return d;
+  });
+  if (updated > 0 || dirsUpdated) saveMusicMeta(m);
   return { success: true, updated };
 }
 
@@ -267,6 +295,12 @@ export async function cmdMusicDeleteDir(args: Record<string, unknown>): Promise<
       m.paths[s] = "";
       updated += 1;
     }
+  }
+  // 空目录注册表：删除该目录及其子目录
+  const dirs = (m.dirs ?? []).filter((d) => d !== path && !d.startsWith(`${path}/`));
+  if (dirs.length !== (m.dirs ?? []).length) {
+    m.dirs = dirs;
+    updated += 1;
   }
   if (updated > 0) saveMusicMeta(m);
   return { success: true, updated };

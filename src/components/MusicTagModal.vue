@@ -52,6 +52,8 @@ const customInput = ref("");
 const selectedColor = ref<string>(PRESET_COLORS[0]);
 const showCustomColorPicker = ref(false);
 const hueValue = ref<number>(0);
+/** 自定义标签输入的错误提示（长度/重复/空） */
+const customError = ref("");
 
 // 当前标签名（用于高亮 active 项）
 const currentTagName = computed(() => props.currentTag?.name || "自定义");
@@ -192,9 +194,25 @@ function onDeleteTag(tag: string, e: MouseEvent) {
 
 function onAddCustom() {
   const tagName = customInput.value.trim();
-  if (!tagName) return;
-  if (tagName.length > 3) return;
-  if (PRESET_TAGS.includes(tagName) || props.customTags[tagName]) return;
+  if (!tagName) {
+    customError.value = "标签名不能为空";
+    return;
+  }
+  if (tagName.length > 8) {
+    // 旧版限制 3 个字符，超长时静默 return → 用户以为"不能自定义"。
+    // 现在放宽到 8 并给出明确提示。
+    customError.value = "标签名最多 8 个字";
+    return;
+  }
+  if (PRESET_TAGS.includes(tagName)) {
+    customError.value = "这是预设标签，直接点它即可";
+    return;
+  }
+  if (props.customTags[tagName]) {
+    customError.value = "已有同名标签，直接点它即可";
+    return;
+  }
+  customError.value = "";
   const color = selectedColor.value;
   emit("add-tag", tagName, color);
   customInput.value = "";
@@ -207,6 +225,7 @@ watch(
   (v) => {
     if (v) {
       customInput.value = "";
+      customError.value = "";
       selectedColor.value = PRESET_COLORS[0];
       showCustomColorPicker.value = false;
       hueValue.value = 0;
@@ -255,10 +274,13 @@ watch(
             v-model="customInput"
             type="text"
             class="tag-custom-input"
-            placeholder="自定义标签"
-            maxlength="3"
+            placeholder="自定义标签（≤8 字）"
+            maxlength="8"
+            @input="customError = ''"
+            @keydown.enter="onAddCustom"
           />
         </div>
+        <div v-if="customError" class="tag-custom-error">{{ customError }}</div>
 
         <!-- 颜色选择 -->
         <div class="tag-color-section">
@@ -437,6 +459,12 @@ watch(
 .tag-custom-input:focus {
   border-color: rgba(255, 255, 255, 0.5);
   background: rgba(255, 255, 255, 0.18);
+}
+
+.tag-custom-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #ff8a8a;
 }
 
 /* 预设颜色选择 */

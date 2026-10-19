@@ -41,6 +41,7 @@ function makeStore(overrides: Record<string, unknown> = {}) {
         customTags: {} as Record<string, string>,
         // 音乐库管理
         songMeta: {} as Record<string, { path: string; tags: string[]; source: string }>,
+        emptyDirs: [] as string[],
         activeDir: null as string | null,
         selectedTags: new Set<string>(),
         searchQuery: "",
@@ -98,6 +99,7 @@ function makeStore(overrides: Record<string, unknown> = {}) {
         setSongsTags: vi.fn(async () => true),
         addToFavorites: vi.fn(async () => true),
         markP2pSong: vi.fn(),
+        createDir: vi.fn(async () => ({ ok: true })),
         renameDir: vi.fn(),
         deleteDir: vi.fn(),
       },
@@ -338,6 +340,44 @@ describe("MusicPlayer.vue", () => {
     expect(wrapper.find(".music-list").isVisible()).toBe(true);
     expect(wrapper.find(".music-playlist").isVisible()).toBe(false);
 
+    wrapper.unmount();
+  });
+
+  it("全屏音乐库的 ✕ 直接关闭面板（区别于 ← 只收回紧凑列表）", async () => {
+    const wrapper = mountComponent();
+    await openFullLibrary(wrapper);
+    expect(wrapper.find(".music-playlist").isVisible()).toBe(true);
+    await wrapper.find(".music-playlist__close").trigger("click");
+    expect(wrapper.find(".music-playlist").isVisible()).toBe(false);
+    expect(wrapper.find(".music-list").isVisible()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("紧凑浮层也有显式 ✕，关闭后不再显示列表", async () => {
+    const wrapper = mountComponent();
+    await wrapper.find(".music-playlist-btn").trigger("click");
+    expect(wrapper.find(".music-list").isVisible()).toBe(true);
+    await wrapper.find(".music-list__btn--close").trigger("click");
+    expect(wrapper.find(".music-list").isVisible()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("右键菜单内 pointerdown 不会关掉展开的音乐库（回归：点菜单列表消失）", async () => {
+    mockStore = makeStore({
+      playlist: ["a.mp3"],
+      filteredSongs: ["a.mp3"],
+      selection: new Set(["a.mp3"]),
+    });
+    const wrapper = mountComponent();
+    await openFullLibrary(wrapper);
+    await wrapper.find(".music-playlist__item").trigger("contextmenu", { clientX: 100, clientY: 100 });
+    const menu = document.body.querySelector(".music-playlist__ctxmenu") as HTMLElement;
+    expect(menu).toBeTruthy();
+    // 模拟在菜单项上按下：修复前 handleGlobalPointerDown 会先关面板
+    menu.querySelector("button")!.dispatchEvent(
+      new MouseEvent("pointerdown", { bubbles: true }),
+    );
+    expect(wrapper.find(".music-playlist").isVisible()).toBe(true);
     wrapper.unmount();
   });
 
@@ -769,16 +809,42 @@ describe("MusicPlayer.vue", () => {
     });
     const wrapper = mountComponent();
     await openFullLibrary(wrapper);
-    // 目录 tab（默认）
+    // 目录 tab（默认）；按文本找，避免被"新建目录"入口改变索引
     const dirs = wrapper.findAll(".music-playlist__dir");
-    // 全部 / 未分类 / 导入 / 喜欢
-    await dirs[2].trigger("click");
+    const importDir = dirs.find((d) => d.text().includes("导入"))!;
+    await importDir.trigger("click");
     expect(mockStore.toggleDir).toHaveBeenCalledWith("导入");
     // 筛选 tab：标签 chips
     await wrapper.find(".music-playlist__tab.filter").trigger("click");
     const chips = wrapper.findAll(".music-playlist__tagchip");
     await chips[0].trigger("click");
     expect(mockStore.toggleTag).toHaveBeenCalledWith("学习");
+    wrapper.unmount();
+  });
+
+  it("目录计数带单位（N 首），并在当前目录下新建空目录", async () => {
+    mockStore = makeStore({
+      activeDir: "导入",
+      dirTree: [
+        { path: "导入", name: "导入", children: [], count: 3, subtreeCount: 5 },
+      ],
+    });
+    const wrapper = mountComponent();
+    await openFullLibrary(wrapper);
+    const importDir = wrapper
+      .findAll(".music-playlist__dir")
+      .find((d) => d.text().includes("导入"))!;
+    expect(importDir.find(".music-playlist__dir-count").text()).toBe("3 首");
+
+    await wrapper.find(".music-playlist__dir--new").trigger("click");
+    const input = wrapper.find(".music-playlist__newdir-input");
+    expect(input.exists()).toBe(true);
+    await input.setValue("新目录");
+    await wrapper
+      .findAll(".music-playlist__newdir-btn")
+      .find((b) => b.text() === "✓")!
+      .trigger("click");
+    expect(mockStore.createDir).toHaveBeenCalledWith("导入/新目录");
     wrapper.unmount();
   });
 

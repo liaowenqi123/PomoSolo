@@ -83,4 +83,14 @@ describe("musicLibrary buildDirTree（字段投影）", () => {
     const tree = buildDirTree([{ path: "A/B" }, { path: "A/B" }]);
     expect(tree[0].subtreeCount).toBe(1);
   });
+
+  it("同一目录下多首歌各自计数（key=歌名）", () => {
+    const tree = buildDirTree([
+      { path: "内置", key: "a.mp3" },
+      { path: "内置", key: "b.mp3" },
+      { path: "内置", key: "c.mp3" },
+    ]);
+    expect(tree[0].name).toBe("内置");
+    expect(tree[0].subtreeCount).toBe(3);
+  });
 });

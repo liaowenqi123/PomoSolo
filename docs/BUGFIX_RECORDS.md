@@ -4,6 +4,47 @@
 
 ---
 
+## 2026-10-20
+
+### 29. 音乐库交互六项修复（留言板 #3；主部门）
+
+**来源**：用户 v4.8.0 实测，留言板 #3。
+
+**修复**：
+1. **展开音乐库缺关闭按钮**：全屏 sheet header 只有「← 收回紧凑列表」，用户只能点窗口 ✕。
+   新增 header `✕`（`music-playlist__close`）直接关闭面板；紧凑浮层也补 `✕`。
+2. **点右键菜单导致整个展开列表消失**：`handleGlobalPointerDown` 先判断“面板外按下”，
+   而右键菜单 Teleport 到 `body`，不在 `.music-playlist` 内 → 被误判为外部。
+   改为：菜单内按下直接 return；菜单外才关菜单，再走面板外关闭。
+3. **播放列表 / 右键子菜单无滚动条样式**：补 `.music-playlist__collection-items` 与
+   `.music-playlist__ctxmenu-sub` 的 `::-webkit-scrollbar` + `scrollbar-width/color`。
+4. **标签无法自定义**：旧实现 `length > 3` 静默 return，用户以为不能改。
+   放宽到 8 字，空/超长/重名/预设均有内联提示；右键新增「🏷 编辑标签（含新建）…」入口。
+5. **无法新建目录**：目录是歌曲 `path` 的投影，空目录没有节点；后端无 create 命令。
+   新增 `tags.json._dirs` 空目录注册表、Rust `music_create_dir`、前端「＋ 新建目录」内联输入；
+   重命名/删除同步迁移 `_dirs`。目录树计数改为按歌曲名去重（同一目录多首歌不再只算 1）。
+6. **内置目录后的数字 1 不知所云**：目录行改为 `N 首`，tooltip 区分“本目录 / 含子目录”。
+
+**影响文件**：
+- `src/components/MusicPlayer.vue`
+- `src/components/MusicTagModal.vue`
+- `src/utils/musicLibrary.ts`
+- `src/stores/music.ts`
+- `src/api/music.ts`
+- `src-tauri/src/modules/audio_player.rs`
+- `src-tauri/src/commands/music.rs`
+- `src-tauri/src/lib.rs`
+- `src/pwa/{storage.ts,music/engine.ts,tauri/commands/music.ts,tauri/commands/registry.ts}`
+
+**验证**：
+- `npm test`：61 文件 1245 例全过（新增右键菜单 pointerdown 回归、关闭按钮、目录计数/新建目录、`key` 计数用例）；
+- `npx vue-tsc --noEmit`（桌面 + PWA）通过；
+- `cargo test --lib`：新增 `test_create_dir_registry_and_rename_delete` 通过；
+- `npm run ui:shot -- --recipe desktop-music-library`：确认全屏 header 有 ✕、目录计数带“首”、有“＋ 新建目录”。
+  （配方已修正：点 📋 后还需点 ⤢ 才进入全屏音乐库。）
+
+---
+
 ## 2026-10-09
 
 ### 26. 传歌永远走服务器中转、P2P 直连从不启用（PWA部门；根因在共用 store，桌面端同样受益）

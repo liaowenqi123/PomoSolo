@@ -37,6 +37,7 @@ import {
   musicMoveSongIfDefault,
   musicSetSongTags,
   musicRenameDir,
+  musicCreateDir,
   musicDeleteDir,
   musicReadSongChunk,
   musicReceiveSongChunk,
@@ -134,6 +135,8 @@ export const useMusicStore = defineStore("music", () => {
   // ===== 音乐库管理（目录树 / 标签筛选 / 播放集合 Set） =====
   /** 歌曲 v2 元数据（path/tags/source），由 music-playlist 事件填充 */
   const songMeta = ref<Record<string, SongMeta>>({});
+  /** 空目录注册表（新建但还没有歌的目录；由 music-playlist 事件填充） */
+  const emptyDirs = ref<string[]>([]);
   /** 当前目录筛选：null=全部，""=未分类，其他=目录路径 */
   const activeDir = ref<string | null>(null);
   /** 多选标签（AND 叠加） */
@@ -456,9 +459,16 @@ export const useMusicStore = defineStore("music", () => {
 
   // ===== 音乐库查询（表 + 树投影） =====
 
-  /** 目录树（实时由记录派生，不落盘） */
+  /**
+   * 目录树（实时由记录派生，不落盘）。
+   * - 歌曲：key=歌名 → 同一目录下多首歌都计数（修"内置只显示 1 首"）
+   * - 空目录：path 作为 key，只贡献节点、不贡献计数
+   */
   const dirTree = computed<DirNode[]>(() =>
-    buildDirTree(playlist.value.map((n) => ({ path: songMeta.value[n]?.path ?? "" }))),
+    buildDirTree([
+      ...playlist.value.map((n) => ({ path: songMeta.value[n]?.path ?? "", key: n })),
+      ...emptyDirs.value.map((p) => ({ path: p, key: `__empty__:${p}` })),
+    ]),
   );
 
   /** 全部标签及计数 */
@@ -1807,6 +1817,24 @@ export const useMusicStore = defineStore("music", () => {
     }
   }
 
+  /** 新建空目录（字段模型；Rust 只登记 `_dirs`，不建 OS 文件夹） */
+  async function createDir(path: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const result = await musicCreateDir(path);
+      if (result.success) {
+        if (!emptyDirs.value.includes(path)) {
+          emptyDirs.value = [...emptyDirs.value, path].sort((a, b) => a.localeCompare(b, "zh"));
+        }
+        void requestPlaylist();
+        return { ok: true };
+      }
+      return { ok: false, error: result.error };
+    } catch (e) {
+      console.error("[MusicStore] 新建目录失败:", e);
+      return { ok: false, error: String(e) };
+    }
+  }
+
   /** 切换收起状态 */
   function toggleCollapse() {
     isCollapsed.value = !isCollapsed.value;
@@ -1956,6 +1984,9 @@ export const useMusicStore = defineStore("music", () => {
       playlist.value = songs as string[];
       (songs as string[]).forEach((n) => localHasSongs.add(n));
     }
+    // 空目录注册表（新建但还没有歌的目录）
+    emptyDirs.value = Array.isArray(payload.dirs) ? [...payload.dirs] : [];
+
     if (payload.current_song !== undefined) {
       trackName.value = payload.current_song;
     }
@@ -2535,6 +2566,7 @@ export const useMusicStore = defineStore("music", () => {
     customTags,
     // 音乐库管理状态
     songMeta,
+    emptyDirs,
     activeDir,
     selectedTags,
     searchQuery,
@@ -2598,6 +2630,7 @@ export const useMusicStore = defineStore("music", () => {
     setSongsTags,
     addToFavorites,
     markP2pSong,
+    createDir,
     renameDir,
     deleteDir,
     toggleCollapse,

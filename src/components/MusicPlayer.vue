@@ -4,11 +4,11 @@
  * 迁移自 deprecated/electron/src/scripts/modules/musicPlayer.js
  *
  * 播放/暂停/上一首/下一首、音量控制、进度条、播放列表。
- * 音乐播放通过 Rust 后端调用 Python 子进程，前端只管 UI 与状态同步。
+ * 音乐播放由 Rust 后端（rodio + symphonia，纯 Rust）完成，前端只管 UI 与状态同步。
  *
  * 事件监听通过 useTauriEvent 注册，组件卸载时自动取消监听。
  */
-import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from "vue";
 import { useMusicStore } from "@/stores/music";
 import { useSettingsStore } from "@/stores/settings";
 import { useTauriEvent } from "@/api/events";
@@ -306,6 +306,11 @@ const playlistBtnTitle = computed(() => {
   return parts.join(" · ");
 });
 
+/** 关闭音乐库（回到播放器；不是"收回紧凑列表"） */
+function closePlaylist() {
+  isPlaylistOpen.value = false;
+}
+
 function togglePlaylist() {
   isPlaylistOpen.value = !isPlaylistOpen.value;
   if (isPlaylistOpen.value) {
@@ -355,13 +360,83 @@ function toggleExpandDir(path: string) {
   expandedDirs.value = next;
 }
 
+// ===== 新建目录（字段模型；空目录也显示） =====
+const newDirOpen = ref(false);
+const newDirName = ref("");
+const newDirError = ref("");
+const newDirInputRef = ref<HTMLInputElement | null>(null);
+
+function startNewDir() {
+  newDirOpen.value = true;
+  newDirName.value = "";
+  newDirError.value = "";
+  void nextTick(() => newDirInputRef.value?.focus());
+}
+
+function cancelNewDir() {
+  newDirOpen.value = false;
+  newDirName.value = "";
+  newDirError.value = "";
+}
+
+async function confirmNewDir() {
+  const name = newDirName.value.trim();
+  if (!name) {
+    newDirError.value = "目录名不能为空";
+    return;
+  }
+  if (name.includes("/")) {
+    newDirError.value = "目录名不能包含 /（一次建一级）";
+    return;
+  }
+  // 建在当前选中的目录下；「全部 / 未分类」时建在根
+  const parent = store.activeDir && store.activeDir !== "" ? store.activeDir : "";
+  const path = parent ? `${parent}/${name}` : name;
+  const result = await store.createDir(path);
+  if (!result.ok) {
+    newDirError.value = result.error || "新建目录失败";
+    return;
+  }
+  if (parent) {
+    const next = new Set(expandedDirs.value);
+    next.add(parent);
+    expandedDirs.value = next;
+  }
+  showToast(`已新建目录「${path}」`);
+  cancelNewDir();
+}
+
 /** 目录树扁平化（展开节点递归），用于渲染缩进行 */
 const flatDirs = computed(() => {
-  const rows: { path: string; name: string; depth: number; count: number; hasChildren: boolean }[] = [];
+  const rows: {
+    path: string;
+    name: string;
+    depth: number;
+    count: number;
+    directCount: number;
+    subtreeCount: number;
+    hasChildren: boolean;
+  }[] = [];
   const walk = (nodes: unknown, depth: number) => {
     if (!Array.isArray(nodes)) return;
-    for (const n of nodes as { path: string; name: string; children: unknown[]; subtreeCount: number }[]) {
-      rows.push({ path: n.path, name: n.name, depth, count: n.subtreeCount, hasChildren: n.children.length > 0 });
+    for (const n of nodes as {
+      path: string;
+      name: string;
+      children: unknown[];
+      count: number;
+      subtreeCount: number;
+    }[]) {
+      const hasChildren = n.children.length > 0;
+      rows.push({
+        path: n.path,
+        name: n.name,
+        depth,
+        // 父目录显示"含子目录总数"，叶子显示直接数量 —— 两种情况下都是用户想看的数
+        count: hasChildren ? n.subtreeCount : n.count,
+        directCount: n.count,
+        subtreeCount: n.subtreeCount,
+        hasChildren,
+      });
       if (expandedDirs.value.has(n.path) && n.children.length > 0) walk(n.children, depth + 1);
     }
   };
@@ -584,6 +659,27 @@ function ctxFav() {
   void store.moveSongsToDir(songs, "喜欢").then((ok) => {
     if (ok) showToast(`已标记到「喜欢」`);
   });
+}
+
+/**
+ * 🏷 编辑标签（含新建）：打开标签弹窗，复用点击标签 chip 的同一条路径。
+ * 右键菜单是"发现自定义标签"最自然的入口 —— 之前只能点小 chip，
+ * 用户会以为标签不可自定义。
+ */
+function ctxEditTag() {
+  const song = ctxMenu.value.song;
+  closeCtxMenu();
+  const name = displayName(song);
+  if (name.endsWith(" - 番茄钟")) {
+    showToast("内置歌曲标签不可更改");
+    return;
+  }
+  tagEditSong.value = song;
+  const tagData = store.playlistTags[song];
+  tagEditCurrent.value = tagData
+    ? { name: tagData.name || "自定义", color: tagData.color ?? null }
+    : null;
+  tagModalVisible.value = true;
 }
 
 /** 🏷 设置标签草稿切换（右键子菜单） */
@@ -834,6 +930,17 @@ onUnmounted(() => {
  */
 function handleGlobalPointerDown(e: MouseEvent) {
   const target = e.target as HTMLElement;
+
+  /*
+   * 右键菜单在 body 下（Teleport），不在 .music-playlist 内。
+   * 必须先处理它：在菜单内按下时**直接返回**，否则下面"面板外按下即关"的
+   * 判断会把整个展开的音乐库一起关掉（用户实测：点右键多选菜单，列表消失）。
+   */
+  if (ctxMenu.value.visible) {
+    if (target.closest(".music-playlist__ctxmenu")) return;
+    closeCtxMenu();
+  }
+
   if (isVolumeOpen.value && !target.closest(".music-volume")) {
     isVolumeOpen.value = false;
   }
@@ -847,10 +954,6 @@ function handleGlobalPointerDown(e: MouseEvent) {
     !target.closest(".music-playlist-btn")
   ) {
     isPlaylistOpen.value = false;
-  }
-  // 右键菜单：在菜单外按下关闭
-  if (ctxMenu.value.visible && !target.closest(".music-playlist__ctxmenu")) {
-    closeCtxMenu();
   }
 }
 
@@ -1064,6 +1167,12 @@ if (typeof document !== "undefined") {
               aria-label="刷新曲库"
               @click.stop="store.requestPlaylist()"
             >⟳</button>
+            <button
+              class="music-list__btn music-list__btn--close"
+              title="关闭列表"
+              aria-label="关闭列表"
+              @click.stop="closePlaylist"
+            >✕</button>
           </div>
 
           <div class="music-list__items">
@@ -1154,6 +1263,12 @@ if (typeof document !== "undefined") {
                 aria-label="刷新曲库"
                 @click.stop="store.requestPlaylist()"
               >⟳</button>
+              <button
+                class="music-playlist__close"
+                title="关闭音乐库（回到播放器）"
+                aria-label="关闭音乐库"
+                @click.stop="closePlaylist"
+              >✕</button>
             </div>
           </div>
 
@@ -1204,6 +1319,30 @@ if (typeof document !== "undefined") {
                 @click="store.toggleDir('')"
               >🗂 未分类</button>
             </div>
+            <div class="music-playlist__dir-row">
+              <span class="music-playlist__dir-caret music-playlist__dir-caret--leaf">·</span>
+              <button
+                class="music-playlist__dir music-playlist__dir--new"
+                title="在当前目录下新建一个空目录"
+                @click="startNewDir"
+              >＋ 新建目录</button>
+            </div>
+            <div v-if="newDirOpen" class="music-playlist__newdir">
+              <input
+                ref="newDirInputRef"
+                v-model="newDirName"
+                class="music-playlist__newdir-input"
+                type="text"
+                maxlength="24"
+                placeholder="目录名"
+                @input="newDirError = ''"
+                @keydown.enter.prevent="confirmNewDir"
+                @keydown.esc.prevent="cancelNewDir"
+              />
+              <button class="music-playlist__newdir-btn" title="创建" @click="confirmNewDir">✓</button>
+              <button class="music-playlist__newdir-btn" title="取消" @click="cancelNewDir">✕</button>
+            </div>
+            <div v-if="newDirError" class="music-playlist__newdir-error">{{ newDirError }}</div>
             <div v-for="row in flatDirs" :key="row.path" class="music-playlist__dir-row">
               <span
                 v-if="row.hasChildren"
@@ -1215,8 +1354,9 @@ if (typeof document !== "undefined") {
                 class="music-playlist__dir"
                 :class="{ active: store.activeDir === row.path }"
                 :style="{ paddingLeft: depthPadding(row.depth) }"
+                :title="`${row.name}：本目录 ${row.directCount} 首，含子目录 ${row.subtreeCount} 首`"
                 @click="store.toggleDir(row.path)"
-              >📁 {{ row.name }} <span class="music-playlist__dir-count">{{ row.count }}</span></button>
+              >📁 {{ row.name }} <span class="music-playlist__dir-count">{{ row.count }} 首</span></button>
             </div>
           </aside>
 
@@ -1397,7 +1537,8 @@ if (typeof document !== "undefined") {
             📁 {{ row.path }}
           </button>
         </div>
-        <button @click="ctxMenuTagOpen = !ctxMenuTagOpen">🏷 设置标签…</button>
+        <button @click="ctxEditTag()">🏷 编辑标签（含新建）…</button>
+        <button @click="ctxMenuTagOpen = !ctxMenuTagOpen">☑ 批量套用已有标签…</button>
         <div v-if="ctxMenuTagOpen" class="music-playlist__ctxmenu-sub">
           <button
             v-for="t in store.allTags"
@@ -2068,6 +2209,12 @@ if (typeof document !== "undefined") {
   color: #fff;
 }
 
+.music-list__btn--close:hover {
+  background: rgba(233, 69, 96, 0.75);
+  border-color: rgba(233, 69, 96, 0.9);
+  color: #fff;
+}
+
 .music-list__items {
   flex: 1;
   min-height: 0;
@@ -2362,9 +2509,10 @@ if (typeof document !== "undefined") {
   flex-shrink: 0;
 }
 
-/* 返回 / 刷新共用一套图标按钮外观（都是 28×28，达到桌面指针目标下限） */
+/* 返回 / 刷新 / 关闭共用一套图标按钮外观（都是 28×28，达到桌面指针目标下限） */
 .music-playlist__back,
-.music-playlist__refresh {
+.music-playlist__refresh,
+.music-playlist__close {
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: rgba(255, 255, 255, 0.62);
@@ -2382,9 +2530,17 @@ if (typeof document !== "undefined") {
 }
 
 .music-playlist__back:hover,
-.music-playlist__refresh:hover {
+.music-playlist__refresh:hover,
+.music-playlist__close:hover {
   background: rgba(255, 255, 255, 0.12);
   border-color: rgba(233, 69, 96, 0.6);
+  color: #fff;
+}
+
+/* 关闭按钮 hover 用红底：与"返回"区分（返回是收回，不是退出） */
+.music-playlist__close:hover {
+  background: rgba(233, 69, 96, 0.75);
+  border-color: rgba(233, 69, 96, 0.9);
   color: #fff;
 }
 
@@ -2672,6 +2828,61 @@ if (typeof document !== "undefined") {
   margin-left: auto;
 }
 
+/* 新建目录入口 / 内联输入 */
+.music-playlist__dir--new {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.music-playlist__dir--new:hover {
+  color: #fff;
+}
+
+.music-playlist__newdir {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 20px;
+}
+
+.music-playlist__newdir-input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  padding: 4px 6px;
+  outline: none;
+}
+
+.music-playlist__newdir-input:focus {
+  border-color: rgba(233, 69, 96, 0.8);
+}
+
+.music-playlist__newdir-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.music-playlist__newdir-btn:hover {
+  background: rgba(233, 69, 96, 0.35);
+  color: #fff;
+}
+
+.music-playlist__newdir-error {
+  padding: 0 8px 6px 20px;
+  font-size: 11px;
+  color: #ff8a8a;
+}
+
 /* 标签筛选 chips */
 .music-playlist__tags {
   display: flex;
@@ -2913,6 +3124,26 @@ if (typeof document !== "undefined") {
   overflow-y: auto;
   flex: 1;
   min-height: 0;
+  /* 滚动条：与目录树/歌单一致，避免只有播放列表没有滚动条样式 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+
+.music-playlist__collection-items::-webkit-scrollbar {
+  width: 4px;
+}
+
+.music-playlist__collection-items::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.music-playlist__collection-items::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+}
+
+.music-playlist__collection-items::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .music-playlist__collection-item {
@@ -3163,6 +3394,26 @@ if (typeof document !== "undefined") {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   margin-top: 2px;
   padding-top: 2px;
+  /* 右键子菜单（设置标签/移动到目录）的滚动条样式 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+
+.music-playlist__ctxmenu-sub::-webkit-scrollbar {
+  width: 4px;
+}
+
+.music-playlist__ctxmenu-sub::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.music-playlist__ctxmenu-sub::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 2px;
+}
+
+.music-playlist__ctxmenu-sub::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.45);
 }
 
 /* ============ Toast 提示 ============ */
