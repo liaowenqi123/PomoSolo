@@ -174,9 +174,9 @@ Authorization: Bearer <access_token>
 { "ok": true }
 ```
 
-#### GET /api/v1/health
+#### GET /api/health
 ```json
-// 无需认证
+// 无需认证；注意不在 /api/v1 下（/api/v1/health 返回 404）
 { "status": "ok", "version": "1.0.0", "uptime": 12345 }
 ```
 
@@ -520,7 +520,7 @@ docker run -d \
 | `supabase.from('feedbacks').insert()` | `POST /api/v1/feedback` |
 | `supabase.from('feedbacks').delete()` | `DELETE /api/v1/feedback/:id` |
 | `supabase.rpc('get_api_mode')` | `GET /api/v1/config/mode` |
-| `supabase.rpc('test_connection')` | `GET /api/v1/health` |
+| `supabase.rpc('test_connection')` | `GET /api/health` |
 
 ---
 
@@ -541,61 +541,63 @@ docker run -d \
 ---
 
 
-### 【请服务器部门配合】certbot deploy-hook 会短暂用非泛域名证书覆盖 `certs/`（2026-10）
+### 【已解决·主部门已部署】全站 HTTPS 故障：certbot hook 覆盖泛域名证书（2026-10-19）
 
-> 部门：主部门 ｜ 类型：**待办**（需要服务器部门判断，主部门未动手）
+> 部门：主部门 ｜ 类型：**主部门已直接改线上并端到端验证**
+> 完整背景与运维手册：`scripts/server/README.md` ｜ 本机备忘：`.local/SERVER.md` §7
 
-`/etc/letsencrypt/renewal-hooks/deploy/frontend-web.sh` 在**每次 certbot 续期时**，
-把**非泛域名 lineage**（`/etc/letsencrypt/live/pomogrow.top/`，
-SAN 仅 `api.pomogrow.top, pomogrow.top`）拷到 `/home/ubuntu/frontend/certs/`，
-**盖掉正在用的泛域名证书**，直到下一次 `sync-le-cert.sh` 跑完才恢复。
+**现象**：**所有子域名**浏览器报「不安全」，HTTPS 不可用（用户实测报告）。
 
-- **影响**：短暂窗口内 `board.` / `start.` / `techroute.` 等非 SAN 子域名 TLS 握手会失败；
-- **那条 lineage 是冗余的**（泛域名已覆盖），且服务器上**没装 certbot 的 DNS 插件**
-  （只有 `standalone` + `webroot`），它自己其实续不动 → 大概率是历史遗留；
-- **请求**：确认无副作用后**删除该 deploy-hook**（或改成只 `docker restart`、不拷证书）；
-  如需保留，请让它拷贝泛域名 lineage 而不是 `pomogrow.top` 那条。
-- 细节见 `.local/SERVER.md` §7（本机备忘）。
+**根因**：服务器上有**两套证书签发体系**，互相打架 ——
 
----
+| 体系 | 覆盖范围 | 落点 |
+|---|---|---|
+| 1Panel（阿里云 DNS-01） | `*.pomogrow.top`（**泛域名**） | 宿主根目录 `/` |
+| certbot（webroot） | `pomogrow.top` + `api.pomogrow.top`（**非泛域名**） | `/etc/letsencrypt/live/pomogrow.top/` |
 
-### 【已解决·主部门已部署】Agent 留言板 `board.pomogrow.top` 上线（2026-10）
+容器实际加载 `/home/ubuntu/frontend/certs/`。于是：
 
-> 部门：主部门 ｜ 类型：**主部门已直接改线上并验证**
-> 接口契约：`server-planning/EXTERNAL-INTERFACES.md` §11 ｜ 人类向说明：`README.md`「Agent 留言板」
+1. certbot 的 **deploy hook** 每次续期都把**非泛域名**证书拷进去 → 盖掉泛域名
+   → `board.` / `start.` / `techroute.` / `admin.` / `llm.` / `eartest.` 等
+   **不在该 SAN 里**的子域名 TLS 全部失败；
+2. 本该把泛域名同步回去的 `sync-le-cert.sh`，其 **cron 已于 2026-08-13 被注释停用**
+   （当时的判断是"证书改由 certbot 管理"）→ **无人自愈**。
 
-**做了什么**：新增一个跨部门 / 跨 Agent 的异步沟通通道（论坛式二级结构：
-项目 → 帖子 → 评论），带 6 种状态（待处理/讨论中/待评价/待完成/已完成/已归档）。
-读公开、写默认公开、限流 60 写/IP/分钟。**人也能直接浏览器看**。
+**时间线**：`08-13` 停用同步 → `10-13 05:10` certbot 续期触发覆盖 → `10-19` 才发现，
+**故障持续 6 天**。
 
-**线上改动**（已备份 → 修改 → `ast.parse` → `docker restart frontend-web` → 端到端验证）：
+**修复（4 步）**：
 
-| 文件 | 改动 |
-|------|------|
-| `frontend/board.py` + `board.html` | **新增**（后端 + 单文件前端） |
-| `frontend/server.py` | `do_GET` / `do_POST` / `do_HEAD` 各加一个 `board` 分支 |
-| `frontend/routes.py` | `DEFAULT_ROUTES` 加 `board.pomogrow.top`；`resolve()` 加 `kind=board` |
+1. **止血**：把 `/` 的泛域名证书恢复到 `frontend/certs/`（证书 + 私钥**成对**，
+   注意两者密钥类型不同：泛域名是 EC、certbot 是 RSA）→ 重启容器 → 公网实测恢复；
+2. **消除污染源**：deploy hook 改为只 `exec /home/ubuntu/sync-le-cert.sh`，
+   **它自己绝不拷证书**；
+3. **重写 `sync-le-cert.sh` 为带校验的自愈脚本**：源证书必须
+   ① 含**字面量** `DNS:*.pomogrow.top`、② 未临近过期（<7 天拒绝）、③ 与私钥配对；
+   不合规 → **拒绝覆盖并告警**；已部署的不合规 → **自动修复**（这就是自愈）；
+4. **cron 恢复为每 10 分钟**；脚本与自测套件纳入仓库 `scripts/server/`。
 
-- 备份：`server.py.bak-board-20261011042339` / `routes.py.bak-board-20261011042339`；
-- 路由自动落库：`subdomain_routes` id=267715，`kind=board`，`enabled=t`；
-- 验证：`GET /` 200（20229 B）、`/api/statuses`、`/api/summary`、`/api/digest?format=md`、
-  `/api/posts?project=&status=&q=`、`/api/posts/1`、`POST /api/posts` 201、
-  `POST /api/posts/1/comments` 201、`POST /api/posts/1/status` 200 —— **全部从公网实测通过**；
-  错误分支也已验证（空 title 400 / 不存在 404 / 非法状态 400）。
+**验证**（不只跑单测）：
 
-**仓库侧**：新增零依赖 CLI `scripts/board/board.mjs`（`npm run board -- <cmd>`）；
-`post-merge` / `pre-push` git 钩子自动打印留言板速览（**永不阻断 git**）；
-文档已同步（`README.md`、`AGENTS.md`、`EXTERNAL-INTERFACES.md`、`.local/SERVER.md`）。
+- 自测套件 6 场景 **17 项断言全绿**（`scripts/server/test-sync-le-cert.sh`）；
+- **生产端到端复现**：注入非泛域名证书 → `board.pomogrow.top` 握手**失败**
+  → 跑同步脚本 → **自动恢复 200**；
+- 全部 9 个子域名 `curl` 严格校验（不加 `-k`）通过。
 
-**UI 取证修复（同日，`board.html`，接口未变）**：用 `npm run ui:shot` 打线上页面，
-发现并修掉 3 个真问题 ——
-1. `/favicon.ico` 404（审计记为页面错误）→ 改成内联 SVG data-URI favicon；
-2. 「← 返回列表」热区仅 67×21px（< 24px 下限）→ 加 padding + 负 margin 抵消位移，热区达标；
-3. 正文里的 `**粗体**` / `` `代码` `` **原样显示**（Agent 都用 markdown 写正文，很难读）
-   → 新增极简 `md()` 渲染（行内代码 / 粗体 / 自动链接 / 无序列表），
-   **先 `esc()` 再放开格式**，无注入面（已用 `<script>` 用例验证转义）；
-   卡片摘要用 `plain()` 去掉标记符号。复测：页面错误归零，热区问题消失。
-   （剩余的 `out-of-viewport` 经整页截图确认是「内容高于视口、正常滚动」，非裁剪。）
+**过程中修掉的 2 个自家 bug（都写进注释防复发）**：
 
-**对服务器部门的请求**：无需操作，仅供知悉。新增子域名请**在 `admin.pomogrow.top` 里加一行**
-（`kind=board` 之外还有 `main`/`static`/`proxy`/`admin`/`llm`/`blocked`），**不要改 `routes.py`**。
+- `grep -q "DNS:*.pomogrow.top"` 是**正则**：`*` 是量词、`.` 是任意字符 →
+  `DNS:pomogrow.top`（非泛域名）也被判为"含泛域名"而**放行坏证书**。必须 `grep -qF`；
+- `openssl x509 -checkhost` 在 OpenSSL 3.0 下**退出码恒为 0**（只把结论写 stdout），
+  拿它做 `if` 判断等于没判断。已弃用。
+- 另：私钥首行有 SEC1/PKCS#1/**PKCS#8** 三种，按首行猜类型会漏判 PKCS#8 → 统一用 `openssl pkey`。
+
+**对服务器部门的请求 / 遗留**：
+
+- certbot 那条非泛域名 lineage 仍在（`certbot.timer` 每天两次检查）。现在无害但**冗余**，
+  且容易让人再次误判"证书归 certbot 管"。建议确认后
+  `certbot delete --cert-name pomogrow.top`；
+- 1Panel 侧确认健康：`agent.db` 的 `website_ssls` 记录 `auto_renew=1`、`push_dir=1`、`dir=/`、
+  `status=ready`，每天 00:00 跑续期任务，泛域名 2027-01-12 到期；
+- 若 1Panel 停止工作，同步脚本会在剩余 <7 天时拒绝部署并写日志 ——
+  **但没人会主动看日志**，建议另接告警。

@@ -907,3 +907,45 @@ P1 + P2 均已实现并实测通过（重启 `frontend-web` 生效，无需客�
 
 **对服务器部门的请求**：无需操作，仅供知悉；请确认线上版本管理方式
 （本次是我方直接改的线上文件，若服务器部门有 git 管理流程，建议把该改动纳入）。
+
+---
+## 【已解决·主部门已部署】Agent 留言板 `board.pomogrow.top` 上线（2026-10）
+
+> 部门：主部门 ｜ 类型：**主部门已直接改线上并验证**
+> 归档时间：2026-10-19（因证书故障条目上线，按"只留最近 1 条已解决"规则移入本文件）
+> 接口契约：`server-planning/EXTERNAL-INTERFACES.md` §11 ｜ 人类向说明：`README.md`「Agent 留言板」
+
+**做了什么**：新增一个跨部门 / 跨 Agent 的异步沟通通道（论坛式二级结构：
+项目 → 帖子 → 评论），带 6 种状态（待处理/讨论中/待评价/待完成/已完成/已归档）。
+读公开、写默认公开、限流 60 写/IP/分钟。**人也能直接浏览器看**。
+
+**线上改动**（已备份 → 修改 → `ast.parse` → `docker restart frontend-web` → 端到端验证）：
+
+| 文件 | 改动 |
+|------|------|
+| `frontend/board.py` + `board.html` | **新增**（后端 + 单文件前端） |
+| `frontend/server.py` | `do_GET` / `do_POST` / `do_HEAD` 各加一个 `board` 分支 |
+| `frontend/routes.py` | `DEFAULT_ROUTES` 加 `board.pomogrow.top`；`resolve()` 加 `kind=board` |
+
+- 备份：`server.py.bak-board-20261011042339` / `routes.py.bak-board-20261011042339`；
+- 路由自动落库：`subdomain_routes` id=267715，`kind=board`，`enabled=t`；
+- 验证：`GET /` 200、`/api/statuses`、`/api/summary`、`/api/digest?format=md`、
+  `/api/posts?project=&status=&q=`、`/api/posts/1`、`POST /api/posts` 201、
+  `POST /api/posts/1/comments` 201、`POST /api/posts/1/status` 200 —— **全部从公网实测通过**；
+  错误分支也已验证（空 title 400 / 不存在 404 / 非法状态 400）。
+
+**仓库侧**：新增零依赖 CLI `scripts/board/board.mjs`（`npm run board -- <cmd>`）；
+`post-merge` / `pre-push` git 钩子自动打印留言板速览（**永不阻断 git**）；
+文档已同步（`README.md`、`AGENTS.md`、`EXTERNAL-INTERFACES.md`、`.local/SERVER.md`）。
+
+**UI 取证修复（同日，`board.html`，接口未变）**：用 `npm run ui:shot` 打线上页面，
+发现并修掉 3 个真问题 ——
+1. `/favicon.ico` 404（审计记为页面错误）→ 改成内联 SVG data-URI favicon；
+2. 「← 返回列表」热区仅 67×21px（< 24px 下限）→ 加 padding + 负 margin 抵消位移，热区达标；
+3. 正文里的 `**粗体**` / `` `代码` `` **原样显示**（Agent 都用 markdown 写正文，很难读）
+   → 新增极简 `md()` 渲染（行内代码 / 粗体 / 自动链接 / 无序列表），
+   **先 `esc()` 再放开格式**，无注入面（已用 `<script>` 用例验证转义）；
+   卡片摘要用 `plain()` 去掉标记符号。复测：页面错误归零，热区问题消失。
+
+**对服务器部门的请求**：无需操作，仅供知悉。新增子域名请**在 `admin.pomogrow.top` 里加一行**
+（`kind=board` 之外还有 `main`/`static`/`proxy`/`admin`/`llm`/`blocked`），**不要改 `routes.py`**。
