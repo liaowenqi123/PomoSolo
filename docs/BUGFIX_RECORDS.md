@@ -43,6 +43,32 @@
 - `npm run ui:shot -- --recipe desktop-music-library`：确认全屏 header 有 ✕、目录计数带“首”、有“＋ 新建目录”。
   （配方已修正：点 📋 后还需点 ⤢ 才进入全屏音乐库。）
 
+### 30. 留言板优先级拆成两个维度（留言板 #4；服务器部门 + 主部门 CLI）
+
+**来源**：用户留言板 #4 —— “优先级应给分成两个维度，一个是时间紧急性，一个是问题严重性”。
+
+**实现**：
+- `board_posts` 新增 `urgency`（0 不急 / 1 近期 / 2 紧急）与 `severity`
+  （0 轻微 / 1 一般 / 2 严重），保留 `priority = max(urgency, severity)` 兼容旧客户端；
+- 旧 `priority` 自动回填到两个维度（仅当两维度都为 0 时）；
+- `POST /api/posts` 接受 `urgency` / `severity`，只传 `priority` 时两维度都取该值；
+- `/api/statuses` 新增 `urgency_levels` / `severity_levels`；
+- 网页发帖表单拆成两个下拉；列表/详情显示“急/近期/严重/一般”徽标；
+- 摘要/速览按 `severity DESC, urgency DESC` 排序；CLI 新增
+  `--urgency` / `--severity`，终端显示 `〔急:…/重:…〕`。
+
+**影响文件**：
+- 线上：`/home/ubuntu/frontend/board.py` + `board.html`（已备份 `.bak_20261020_priority2`，
+  `ast.parse` + `docker restart frontend-web` 后验证）；
+- 仓库：`scripts/board/board.mjs`、`scripts/README.md`、
+  `server-planning/EXTERNAL-INTERFACES.md`。
+
+**验证**：
+- `GET /api/statuses` 返回两套 levels；`GET /api/posts/4` 返回
+  `urgency/severity/urgency_label/severity_label`；
+- #3 旧 priority=2 已回填为 `urgency=2 / severity=2`，`board:digest` 显示 ❗ + 维度文字；
+- 网页源码已含 `nurgency` / `nseverity` 两个下拉。
+
 ---
 
 ## 2026-10-09

@@ -350,7 +350,7 @@ CLI:       scripts/board/board.mjs（零依赖，npm run board -- <cmd>）
 
 | 接口 | 状态码 | 响应字段（除 `ok` 外） |
 |------|--------|----------------------|
-| `GET /api/statuses` | 200 | `statuses[]`（`key`/`label`/`color`）、`comment_kinds`、`priorities` |
+| `GET /api/statuses` | 200 | `statuses[]`（`key`/`label`/`color`）、`comment_kinds`、`priorities`（兼容字段）、`urgency_levels[]`、`severity_levels[]` |
 | `GET /api/summary` | 200 | `service`、`url`、`server_time`、`total_posts`、`by_status{}`、`statuses[]`、`projects[]`、`attention[]` |
 | `GET /api/digest?format=md` | 200 | **纯文本**（不是 JSON），可直接打印 |
 | `GET /api/projects` | 200 | `projects[]`（`id`/`slug`/`name`/`description`/`sort`/`created_at`/`post_count`/`last_activity`/`counts{}`/`open_count`/`pending_count`）、`total` |
@@ -375,6 +375,18 @@ CLI:       scripts/board/board.mjs（零依赖，npm run board -- <cmd>）
 | `pending_done` | 待完成 |
 | `done` | 已完成 |
 | `archived` | 已归档 |
+
+**优先级（2026-10 起拆成两个正交维度）**：
+
+| 维度 | 字段 | 取值 | 含义 |
+|------|------|------|------|
+| 时间紧急性 | `urgency` | 0 不急 / 1 近期 / 2 紧急 | 多快需要处理 |
+| 问题严重性 | `severity` | 0 轻微 / 1 一般 / 2 严重 | 坏了多大范围/多严重 |
+
+- 发帖可只传 `urgency` / `severity`；旧客户端只传 `priority`（0/1/2）时，两个维度都取该值。
+- `priority` 仍保留在响应里，值为 `max(urgency, severity)`，仅供旧 CLI/旧客户端兼容。
+- 帖子响应新增 `urgency`、`severity`、`urgency_label`、`severity_label`。
+- 列表/摘要/速览的排序改为 `severity DESC, urgency DESC`（原来的“重要/紧急”排序仍可通过 `priority` 理解）。
 
 **评论类型**：`comment` 普通 / `question` 提问 / `answer` 回答 / `review` 评价 / `system` 系统（自动生成）。
 

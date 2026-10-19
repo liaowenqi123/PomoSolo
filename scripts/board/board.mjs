@@ -95,6 +95,23 @@ function pad(s, n) {
 }
 const postUrl = (id) => `${base}/#/post/${id}`;
 
+/** 两个维度取较高者显示旗帜（兼容只有 priority 的旧数据） */
+function prioFlag(p) {
+  const u = p.urgency != null ? p.urgency : (p.priority || 0);
+  const s = p.severity != null ? p.severity : (p.priority || 0);
+  const max = Math.max(u, s);
+  return max === 2 ? c("red", "❗") : max === 1 ? c("yellow", "⭐") : "  ";
+}
+
+/** 终端的维度文字，例：急:紧急/重:严重 */
+function prioText(p) {
+  const u = p.urgency != null ? p.urgency : (p.priority || 0);
+  const s = p.severity != null ? p.severity : (p.priority || 0);
+  const ul = ["不急", "近期", "紧急"][u] || "?";
+  const sl = ["轻微", "一般", "严重"][s] || "?";
+  return c("gray", `〔急:${ul}/重:${sl}〕`);
+}
+
 // ══════════════════ 子命令 ══════════════════
 
 async function cmdDigest() {
@@ -125,8 +142,8 @@ async function cmdDigest() {
       cur = p.status;
       console.log(c("bold", `   ${labels[cur] || cur}`));
     }
-    const flag = p.priority === 2 ? c("red", "❗") : p.priority === 1 ? c("yellow", "⭐") : "  ";
-    console.log(`   ${flag} #${c("cyan", String(p.id))} ${c("bold", trunc(p.title, 62))}`);
+    const flag = prioFlag(p);
+    console.log(`   ${flag} #${c("cyan", String(p.id))} ${prioText(p)} ${c("bold", trunc(p.title, 62))}`);
     console.log(c("gray", `        ${p.project_name} · ${p.author} · 评论 ${p.comment_count} · ${p.updated_at}`));
   }
   console.log("");
@@ -169,8 +186,8 @@ async function cmdPosts() {
   console.log("");
   if (!d.posts.length) { console.log(c("gray", "   （没有符合条件的帖子）")); return; }
   for (const p of d.posts) {
-    const flag = p.priority === 2 ? c("red", "❗") : p.priority === 1 ? c("yellow", "⭐") : "  ";
-    console.log(`   ${flag} #${c("cyan", String(p.id))} ${badge(p.status, p.status_label)} ${c("bold", trunc(p.title, 58))}`);
+    const flag = prioFlag(p);
+    console.log(`   ${flag} #${c("cyan", String(p.id))} ${badge(p.status, p.status_label)} ${prioText(p)} ${c("bold", trunc(p.title, 58))}`);
     console.log(c("gray", `        ${p.project_name} · ${p.author} · 评论 ${p.comment_count} · ${p.updated_at}` +
       (p.tags.length ? ` · ${p.tags.join(",")}` : "")));
   }
@@ -203,14 +220,18 @@ async function cmdRead() {
 }
 
 async function cmdPost() {
-  if (!args.title) die('用法：post --title "标题" [--body "正文"] [--project slug] [--tags a,b] [--priority 0|1|2]');
+  if (!args.title) die('用法：post --title "标题" [--body "正文"] [--project slug] [--tags a,b] [--urgency 0|1|2] [--severity 0|1|2]');
+  const legacy = args.priority ? parseInt(args.priority, 10) : 0;
+  const urgency = args.urgency ? parseInt(args.urgency, 10) : legacy;
+  const severity = args.severity ? parseInt(args.severity, 10) : legacy;
   const r = await post("/api/posts", {
     project: args.project || "",
     title: args.title,
     body: args.body || "",
     author: AUTHOR,
     tags: args.tags || "",
-    priority: args.priority ? parseInt(args.priority, 10) : 0,
+    urgency,
+    severity,
   });
   if (args.json) return console.log(JSON.stringify(r, null, 2));
   console.log(c("green", `✔ 已发帖 #${r.id}`) + c("gray", `  ${r.title}`));
@@ -263,7 +284,7 @@ ${c("bold", "🐘 留言板 CLI")}   ${c("gray", base)}
   posts [--project p] [--status s] [--q 词] [--limit n]
                             帖子列表（二级）
   read <id>                 帖子详情 + 全部评论
-  post --title "..." [--project p] [--body "..."] [--tags a,b] [--priority 0|1|2]
+  post --title "..." [--project p] [--body "..."] [--tags a,b] [--urgency 0|1|2] [--severity 0|1|2]
                             发帖（提问 / 任何内容）
   comment <id> --body "..." [--kind comment|question|answer|review]
                             评论 / 回答 / 评价

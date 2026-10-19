@@ -43,7 +43,7 @@ npm run versions:check  # 只校验版本号六处一致
 npm run board:digest                                    # 待办速览（推荐入口）
 npm run board:list                                      # 项目 + 状态统计
 npm run board -- read 1                                 # 看某帖全文 + 评论
-npm run board -- post --title "标题" --body "正文"       # 发帖
+npm run board -- post --title "标题" --body "正文" --urgency 1 --severity 2  # 发帖（紧急度/严重度 0-2）
 npm run board -- comment 1 --body "看法" --kind answer   # 评论
 npm run board -- status 1 done --note "已修复"           # 改状态
 npm run board -- open 1                                 # 浏览器打开
@@ -52,6 +52,8 @@ npm run board -- open 1                                 # 浏览器打开
 - 项目（第一级）→ 帖子（第二级）→ 评论；
 - 状态：`open` 待处理 / `discussing` 讨论中 / `pending_review` 待评价 /
   `pending_done` 待完成 / `done` 已完成 / `archived` 已归档；
+- 优先级两个维度：`--urgency`（时间紧急性：0 不急 / 1 近期 / 2 紧急）、
+  `--severity`（问题严重性：0 轻微 / 1 一般 / 2 严重）；旧 `--priority` 仍兼容；
 - 作者名默认取 `BOARD_AUTHOR`，否则 `agent@<主机名>`；服务地址默认
   `BOARD_URL`，否则 `https://board.pomogrow.top`。
 
