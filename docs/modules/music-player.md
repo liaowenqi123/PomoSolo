@@ -895,7 +895,7 @@ npm run ui:drive -- --recipe desktop-music-panel
 | 展开音乐库后只有窗口 ✕ 能关，缺"关闭列表"按钮 | 全屏 sheet 的 header 只有 ← 收回紧凑列表 | header 增加显式 `✕`（`music-playlist__close`）；紧凑浮层也补 `✕` |
 | 点右键菜单时整个展开列表消失 | `handleGlobalPointerDown` 先判断"面板外按下"；右键菜单 Teleport 到 body，不在 `.music-playlist` 内 → 被误判为外部 | 指针按下时先判断 ctx menu：菜单内直接 return；菜单外才关菜单，再走面板外关闭 |
 | 播放列表 / 右键"设置标签"子菜单没有滚动条样式 | `.music-playlist__collection-items`、`.music-playlist__ctxmenu-sub` 只有 `overflow-y:auto` | 补 `::-webkit-scrollbar` + `scrollbar-width/color`，与歌单/目录树一致 |
-| 标签无法自定义（超 3 字无反馈） | `onAddCustom` 对 `length > 3` 静默 return | 放宽到 8 字；空/超长/重名/预设都有内联错误提示；回车提交 |
+| 标签无法自定义 / 改完歌曲从目录消失 | v1 `music_update_tag` 整条覆盖（丢 path/多标签）+ 超 3 字静默 return + 内置歌曲被锁 | 前端改走 v2 `music_set_song_tags` 合并；放宽到 8 字并给错误提示；移除内置限制；右键新增「编辑标签（含新建）」 |
 | 找不到自定义标签入口 | 只能点行内小标签 chip | 右键菜单新增「🏷 编辑标签（含新建）…」；批量改已有标签保留为「☑ 批量套用已有标签…」 |
 | 无法新建自定义文件夹 | 目录是歌曲 path 的投影，空目录无节点；后端没有 create 命令 | `tags.json` 增加 `_dirs` 空目录注册表；Rust `music_create_dir`；前端目录树合并空目录 + 内联「＋ 新建目录」；重命名/删除同步迁移注册表 |
 | 内置目录后有一个不明数字 `1` | 目录计数按 path 去重，同目录多首歌只算 1；且数字无单位 | `buildDirTree` 支持 `key`（歌曲名）计数；目录行显示 `N 首`，tooltip 区分"本目录 / 含子目录" |

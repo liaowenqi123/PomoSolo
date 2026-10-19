@@ -669,11 +669,6 @@ function ctxFav() {
 function ctxEditTag() {
   const song = ctxMenu.value.song;
   closeCtxMenu();
-  const name = displayName(song);
-  if (name.endsWith(" - 番茄钟")) {
-    showToast("内置歌曲标签不可更改");
-    return;
-  }
   tagEditSong.value = song;
   const tagData = store.playlistTags[song];
   tagEditCurrent.value = tagData
@@ -776,11 +771,6 @@ function tagStyle(songName: string): Record<string, string> {
 // 点击标签：检查内置歌曲，弹出标签选择弹窗
 function handleTagClick(songName: string, e: MouseEvent) {
   e.stopPropagation();
-  const name = displayName(songName);
-  if (name.endsWith(" - 番茄钟")) {
-    showToast("内置歌曲标签不可更改");
-    return;
-  }
   tagEditSong.value = songName;
   const tagData = store.playlistTags[songName];
   tagEditCurrent.value = tagData

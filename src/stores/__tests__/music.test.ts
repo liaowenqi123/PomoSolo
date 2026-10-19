@@ -29,6 +29,7 @@ const musicApi = vi.hoisted(() => ({
   musicMoveSongs: vi.fn(),
   musicMoveSongIfDefault: vi.fn(),
   musicSetSongTags: vi.fn(),
+  musicCreateDir: vi.fn(),
   musicRenameDir: vi.fn(),
   musicDeleteDir: vi.fn(),
   // P2P 传歌
@@ -131,6 +132,7 @@ describe("useMusicStore", () => {
     musicApi.musicMoveSongs.mockResolvedValue({ success: true, updated: 1 });
     musicApi.musicMoveSongIfDefault.mockResolvedValue({ success: true, set: false });
     musicApi.musicSetSongTags.mockResolvedValue({ success: true });
+    musicApi.musicCreateDir.mockResolvedValue({ success: true });
     musicApi.musicRenameDir.mockResolvedValue({ success: true, updated: 1 });
     musicApi.musicDeleteDir.mockResolvedValue({ success: true, updated: 1 });
     dataApi.readData.mockResolvedValue({});
@@ -247,6 +249,37 @@ describe("useMusicStore", () => {
     musicApi.musicDeleteSong.mockRejectedValue(new Error("boom"));
     const ok = await s.deleteSong("x.mp3");
     expect(ok).toBe(false);
+  });
+
+  it("updateSongTag: 走 v2 并保留 path / 其它标签（不再用 v1 整条覆盖）", async () => {
+    const s = useMusicStore();
+    s.handlePlaylist({
+      songs: [
+        {
+          name: "a.mp3",
+          tag: "学习",
+          tags: ["学习", "安静"],
+          path: "导入/周杰伦",
+          source: "download",
+        },
+      ],
+    });
+    const ok = await s.updateSongTag("a.mp3", "运动", "#ff6b6b");
+    expect(ok).toBe(true);
+    expect(musicApi.musicUpdateTag).not.toHaveBeenCalled();
+    expect(musicApi.musicSetSongTags).toHaveBeenCalledWith("a.mp3", ["运动", "安静"]);
+    expect(s.songMeta["a.mp3"].path).toBe("导入/周杰伦");
+    expect(s.songMeta["a.mp3"].tags).toEqual(["运动", "安静"]);
+    expect(s.playlistTags["a.mp3"]).toEqual({ name: "运动", color: "#ff6b6b" });
+  });
+
+  it("createDir: 成功后加入空目录注册表并刷新歌单", async () => {
+    const s = useMusicStore();
+    const result = await s.createDir("导入/新目录");
+    expect(result.ok).toBe(true);
+    expect(musicApi.musicCreateDir).toHaveBeenCalledWith("导入/新目录");
+    expect(s.emptyDirs).toContain("导入/新目录");
+    expect(musicApi.musicGetPlaylist).toHaveBeenCalled();
   });
 
   it("progress getter: duration>0 返回百分比，否则 0", () => {

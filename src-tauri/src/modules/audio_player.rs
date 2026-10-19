@@ -1007,10 +1007,36 @@ impl AudioPlayer {
                 .unwrap_or_default()
         };
 
-        tags[song_name] = serde_json::json!({
-            "name": tag_name,
-            "color": color
-        });
+        /*
+         * 兼容旧客户端：这里只更新"主标签"，不能整条覆盖记录。
+         * 历史 bug：直接 `tags[song] = {name,color}` 会把 path/source/多标签冲掉，
+         * 用户改一次标签，歌就从目录树里消失。保留其它字段，只把新标签提到 tags[0]。
+         */
+        let map = tags
+            .as_object_mut()
+            .ok_or("tags.json 结构异常".to_string())?;
+        let rec = map
+            .entry(song_name.to_string())
+            .or_insert(serde_json::json!({}));
+        if !rec.is_object() {
+            *rec = serde_json::json!({});
+        }
+        if let Some(obj) = rec.as_object_mut() {
+            obj.insert("name".to_string(), serde_json::json!(tag_name));
+            obj.insert("color".to_string(), serde_json::json!(color));
+            let mut next: Vec<String> = obj
+                .get("tags")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            next.retain(|t| t != tag_name);
+            next.insert(0, tag_name.to_string());
+            obj.insert("tags".to_string(), serde_json::json!(next));
+        }
 
         self.save_tags(&tags)
     }
@@ -1906,6 +1932,27 @@ mod tests {
         // 系统目录不可新建
         assert!(player.create_dir("内置").is_err());
         assert!(player.create_dir("   ").is_err());
+    }
+
+    #[test]
+    fn test_update_song_tag_preserves_path_and_other_tags() {
+        let (_dir, mut player) = temp_player_with_files(&["a.mp3"]);
+        player.set_song_path("a.mp3", "导入").unwrap();
+        player
+            .set_song_tags("a.mp3", &["学习".to_string(), "安静".to_string()])
+            .unwrap();
+
+        player
+            .update_song_tag("a.mp3", "运动", Some("#ff6b6b"))
+            .unwrap();
+
+        let (path, tags, _source) = player.get_song_meta("a.mp3");
+        assert_eq!(path, "导入", "改标签不能把目录归属冲掉");
+        assert_eq!(
+            tags,
+            vec!["运动", "学习", "安静"],
+            "新标签提到首位，其它标签保留（legacy 调用不知道旧主标签，前端会先去掉旧主标签）"
+        );
     }
 
     #[test]

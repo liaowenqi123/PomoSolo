@@ -37,7 +37,7 @@
 - `src/pwa/{storage.ts,music/engine.ts,tauri/commands/music.ts,tauri/commands/registry.ts}`
 
 **验证**：
-- `npm test`：61 文件 1245 例全过（新增右键菜单 pointerdown 回归、关闭按钮、目录计数/新建目录、`key` 计数用例）；
+- `npm test`：61 文件 1247 例全过（新增右键菜单 pointerdown 回归、关闭按钮、目录计数/新建目录、`key` 计数、标签合并用例）；
 - `npx vue-tsc --noEmit`（桌面 + PWA）通过；
 - `cargo test --lib`：新增 `test_create_dir_registry_and_rename_delete` 通过；
 - `npm run ui:shot -- --recipe desktop-music-library`：确认全屏 header 有 ✕、目录计数带“首”、有“＋ 新建目录”。
@@ -90,6 +90,25 @@
 - `GET /bugreport` 200，截图无布局问题；
 - `POST /api/uploads` 返回 `{ok,url,bytes}`，`GET /uploads/...` 返回 `image/png`；
 - 临时发帖（#5/#6）验证图片在详情页实际渲染，验证后已删除帖子与图片（`board_uploads` 计数 0）。
+
+### 32. 改标签把目录/多标签冲掉 + 内置歌曲标签被锁（主部门）
+
+**现象**：用户反馈“音乐标签无法自定义”；进一步排查发现即使改成功，歌曲也会从目录树消失，
+或原本的多个标签只剩一个。
+
+**根因**：`updateSongTag` 调的是 v1 `music_update_tag`，Rust 里直接
+`tags[song] = {name, color}` **整条覆盖**，把 v2 的 `path` / `source` / `tags` 全冲掉；
+另外 UI 对 ` - 番茄钟` 结尾的内置歌曲直接拒绝编辑。
+
+**修复**：
+- 前端 `updateSongTag` 改走 v2 `music_set_song_tags`：保留 `path`/`source` 和其它标签，
+  只把新标签提到首位、替换旧主标签；
+- Rust `update_song_tag` 也改为“合并”而非覆盖（保留 `path`/`source`/其它 `tags`），
+  防止旧客户端/旧 PWA shim 再触发；
+- 移除内置歌曲的标签编辑限制（内置歌同样可以改标签/加自定义标签，目录归属不受影响）。
+
+**验证**：`npm test` 新增 store 用例（断言 path 保留、`musicUpdateTag` 不再被调用）、
+`cargo test --lib` 新增 `test_update_song_tag_preserves_path_and_other_tags`。
 
 ---
 

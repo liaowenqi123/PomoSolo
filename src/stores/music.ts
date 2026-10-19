@@ -3,7 +3,7 @@
  *
  * 迁移自 deprecated/electron/src/scripts/modules/musicPlayer.js 的状态管理部分。
  * 维护播放器运行时状态，所有播放操作通过 src/api/music.ts 调用 Rust 后端
- * （后端再调用 Python 子进程 music.py），前端只管 UI。
+ * （纯 Rust：rodio + symphonia，无 Python 子进程），前端只管 UI。
  *
  * 事件监听由 MusicPlayer.vue 组件通过 useTauriEvent 注册，调用 store 的
  * handle* 方法更新状态，确保组件卸载时自动取消监听。
@@ -29,7 +29,6 @@ import {
   musicGetCustomTags,
   musicAddCustomTag,
   musicDeleteCustomTag,
-  musicUpdateTag,
   musicSetPlaylist,
   musicClearPlaylist,
   musicMoveSong,
@@ -1546,12 +1545,22 @@ export const useMusicStore = defineStore("music", () => {
     color: string | null,
   ): Promise<boolean> {
     try {
-      const result = await musicUpdateTag(songName, tag, color);
+      /*
+       * 必须走 v2 `music_set_song_tags`，不能走 v1 `music_update_tag`：
+       * v1 会整条覆盖记录，把 path/source/多标签一起冲掉（历史 bug：
+       * 改一次标签后歌曲从目录树里消失/标签只剩一个）。
+       * 这里保留现有其它标签，只把"当前主标签"替换成新标签。
+       */
+      const meta = songMeta.value[songName] ?? { path: "", tags: [], source: "" };
+      const oldPrimary = playlistTags.value[songName]?.name;
+      const nextTags = [
+        tag,
+        ...(meta.tags ?? []).filter((t) => t && t !== tag && t !== oldPrimary),
+      ];
+      const result = await musicSetSongTags(songName, nextTags);
       if (result.success) {
         playlistTags.value[songName] = { name: tag, color };
-        // 同步 v2 元数据（单标签 → tags 数组），保证标签筛选可用
-        const meta = songMeta.value[songName] ?? { path: "", tags: [], source: "" };
-        meta.tags = [tag];
+        meta.tags = nextTags;
         songMeta.value[songName] = meta;
         void requestPlaylist();
       }
