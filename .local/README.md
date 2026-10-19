@@ -72,10 +72,11 @@
 ## 4. 安全底线
 
 - 本目录整体被 `.gitignore` 忽略。**提交前确认 `git status` 里不出现 `.local/` 下的文件**：
-  ```bash
-  git status --short | grep -i '\.local/'   # 应无输出（README.md 除外）
-  git check-ignore -v .local/MACHINE.md     # 应打印 .gitignore 命中行
+  ```powershell
+  git status --short | Select-String '\.local/'   # 应只出现 README.md
+  git check-ignore -v .local/MACHINE.md            # 应打印 .gitignore 命中行
   ```
+  （Git Bash 下可用 `git status --short | grep -i '\.local/'`。）
 - **私钥本体一律留在仓库外**（如 `C:\Users\admin\.tauri\pomosolo.key`），
   `.local/SECRETS.md` 只记录**它在哪、怎么用**，不记录**它是什么**；
 - 若误把私密内容写进入库文件并已 push，**必须轮换该凭据**，仅删除文件不算修复。

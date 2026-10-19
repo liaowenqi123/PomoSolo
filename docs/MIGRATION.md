@@ -1,6 +1,8 @@
 # 从 Electron 迁移到 Tauri 指南
 
-> 本文档记录 PomoSolo v3.x（Electron）→ v4.0（Tauri v2 + Vue 3）的迁移映射、已完成清单和待办事项，供后续维护者参考。
+> **状态：历史**
+> 本文档记录 PomoSolo v3.x（Electron）→ v4.0（Tauri v2 + Vue 3）的迁移映射、
+> 已完成清单和待办事项，供后续维护者参考。当前架构见 [`ARCHITECTURE.md`](./ARCHITECTURE.md)。
 
 ---
 

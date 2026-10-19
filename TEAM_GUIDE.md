@@ -3,14 +3,15 @@
 > **这份文档是每一位新加入开发者的第一份必读文档。**
 > 读完本文档 + 各文档入口，你就可以直接投入工作。
 >
-> - 最后更新：2026-09（仓库重构：新增 [AGENTS.md](./AGENTS.md) 单文件入口、`tools/ui/` UI 取证工具、`.local/` 本地私密区）
-> - 当前版本：v4.7.12（Tauri v2 + Vue 3 + Rust）
+> - 最后更新：2026-10（文档分层：根入口只做导航；版本/结构由脚本生成）
+> - 版本号：**本文不写死**。以 `package.json` + `src-tauri/Cargo.toml` +
+>   `src-tauri/tauri.conf.json` + 两个 lock 为准，`npm run versions:check` 校验。
 > - 适用范围：所有在本仓库工作的人，以及通过 SSH 维护服务器的协作者（含 AI 助手）
 > - 本文档沉淀自主部门长期实践，包含**项目理念与红线**——这些是踩过坑换来的，请务必遵守。
 
 > ### 📌 先读 [AGENTS.md](./AGENTS.md)
-> 它是 **agent / 新人的单文件入口**：四个端（桌面端 / PWA / 服务器 / 安卓端）各自代码在哪、
-> 怎么改、怎么验证，以及**什么能上 GitHub、什么只能留在本机**。
+> 它是 **agent / 新人的入口**：四个端分别在哪、各目录 README 怎么找、
+> 仓库级边界与工作流。具体目录怎么改，读该目录的 README。
 > 本文档是**更细的团队规则**（部门分工、声明规则、双仓库、工作流、发版红线），与 AGENTS.md 互补。
 
 ---
@@ -56,7 +57,7 @@
 
 | 端 | 状态 | 说明 |
 |----|------|------|
-| 🖥 桌面端（Windows） | ✅ 已上线（v4.7.12） | Tauri v2 + Vue 3 + 纯 Rust 后端，安装包约 17MB，自动更新 |
+| 🖥 桌面端（Windows） | ✅ 已上线 | Tauri v2 + Vue 3 + 纯 Rust 后端，自动更新 |
 | 🖥 服务器端 | ✅ 运行中 | 自建公网服务器：JWT 认证、REST API、WebSocket（自习室/同步听歌等）、P2P 信令 |
 | 📱 PWA 端 | 🚧 建设中（PWA部门） | 桌面优先的 PWA，代码在 `src/pwa/`（真实复用桌面端 `src/`），部署于 `start.pomogrow.top`（见第 11 节） |
 | 🤖 安卓端 | 🚧 **v1 开发中（原生落地）**（安卓端部门，2026-09-10 成立） | **Kotlin + Jetpack Compose 原生应用**（自研代码，参考桌面端/PWA 但不 copy）；代码在**独立仓库**（见 §3.4）。⚠️ 早期"v0 WebView 壳"方案已移除，仅存于该仓库 git 历史 |
@@ -78,16 +79,18 @@
 | 层级 | 技术 |
 |------|------|
 | 桌面框架 | Tauri v2（Rust 后端，替代 Electron） |
-| 前端 | Vue 3.5 + TypeScript 5.6 + Pinia 2.2 + Vite 6 |
+| 前端 | Vue 3 + TypeScript + Pinia + Vite |
 | 后端语言 | Rust (Edition 2021)，命令层在 `src-tauri/src/commands/` |
 | 音频 | rodio + symphonia（纯 Rust 播放与下载） |
 | P2P | 浏览器原生 RTCPeerConnection + DataChannel（werift 仅测试用） |
 | 加密 | AES-256-GCM + PBKDF2-SHA512、Ed25519（更新签名） |
-| 图表 | Chart.js 4.5 |
+| 图表 | Chart.js |
 | 更新 | 自实现更新器（commands/update.rs，签名验证 + 断点续传） |
-| 服务器 | 自建（规划见 `server-planning/README.md`），Nginx 反向代理，PostgreSQL + Redis |
+| 服务器 | 自建；运行代码不在本仓库，接口/实现见 `server-planning/README.md` |
 
-> 详细架构请读 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) 与 [README.md](./README.md)。
+> 跨端架构见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)；
+> 整体结构由 `npm run docs:map` 生成到 [docs/PROJECT_MAP.md](./docs/PROJECT_MAP.md)；
+> 各目录细节见该目录 README。
 
 ---
 
@@ -96,7 +99,7 @@
 | 部门 | 代号 | 职责 | 代码位置 | 是否默认 |
 |------|------|------|---------|---------|
 | **主部门** | `主` | **负责所有事情**：桌面端开发、构建、发布、CI/CD、仓库与双仓库维护、通用文档维护 | 本仓库全部代码（`src/`、`src-tauri/`、`scripts/`、`docs/` 等） | ✅ **默认部门** |
-| **服务器部门** | `服务器` | 服务器相关问题：认证、REST API、WebSocket、P2P 信令、数据库、部署、Nginx、域名/备案、HTTPS | **运行代码不在本仓库**（维护在服务器上）；接口约定与规划通过本仓库 `server-planning/` 沟通 | ❌ |
+| **服务器部门** | `服务器` | 服务器相关问题：认证、REST API、WebSocket、P2P 信令、数据库、部署、路由/反向代理、域名/备案、HTTPS | **运行代码不在本仓库**（维护在服务器上）；接口约定与规划通过本仓库 `server-planning/` 沟通 | ❌ |
 | **PWA 部门** | `PWA` | 桌面优先的 PWA 端：浏览器内计时 + 音乐 + 自习室 | 本仓库 `src/pwa/`（复用 `src/` 下的组件/store/API） | ❌ |
 | **安卓端部门** | `安卓` | Android 手机端：把 PomoSolo 移植为 **Kotlin + Jetpack Compose 原生应用**（**代码自研**，不 copy 桌面端/PWA 源码）；v1 起原生实现界面与业务，数据真正落盘到 App 私有目录 | **独立 GitHub 仓库** [PomoSolo-Android](https://github.com/liaowenqi123/PomoSolo-Android)（2026-09-10 成立）；本仓库文档/接口仍为沟通权威 | ❌ |
 
@@ -109,13 +112,13 @@
 
 ### 3.2 服务器部门（Server）
 
-- 服务器的**实际运行代码**（认证服务、REST API、WebSocket 服务、P2P 信令、数据库脚本、Nginx 配置）——**不进入本仓库**；
+- 服务器的**实际运行代码**（认证服务、REST API、WebSocket 服务、P2P 信令、数据库脚本、路由）——**不进入本仓库**；
 - 通过本仓库 `server-planning/` 目录**沟通接口与规划**：
   - `EXTERNAL-INTERFACES.md` —— 客户端所有对外接口的唯一权威索引（REST / WebSocket / P2P / 更新源）
   - `API-implementation.md` —— 接口详细实现与迭代记录（含留言区）
   - `API-quickref.md` —— REST 速查
-  - `README.md` —— 服务端需求规格说明
-  - `nginx.conf`、`ws_server.py` —— 参考配置/参考实现
+  - `README.md` —— 本目录索引（线上实现/历史草案边界）
+  - `ws_server.py` —— 参考实现；`nginx.conf` —— 历史参考（线上无 Nginx）
 - 服务器代码**任何部门的开发者都可以通过 SSH 修改**（见第 10 节），但修改后必须留痕。
 
 ### 3.3 PWA 部门（建设中）
@@ -188,7 +191,8 @@
 - **beta 是预发布**：`v4.6.0-beta.0` **小于** `v4.6.0`，beta 用户应能正常升级到正式版；
 - 从 beta 升正式版：先发 `vX.Y.Z-beta.N`，再发 `vX.Y.Z`（正式版）；
 - GitHub Release 的 beta 必须勾选 **prerelease** 标记，避免 `releases/latest` 误指 beta；
-- 当前正式版为 **v4.7.12**。
+- 当前正式版：以 GitHub Releases latest 与 `package.json` 为准；
+  **本文不写死版本号**，避免迭代后滞后。
 
 ### 4.6 反馈闭环
 
@@ -298,9 +302,9 @@
 git push origin main
 git push self main
 
-# 推送 tag
-git push origin v4.7.12
-git push self v4.7.12
+# 推送 tag（<version> 替换为实际版本，如 4.8.0 → v4.8.0）
+git push origin v<version>
+git push self v<version>
 ```
 
 **为什么必须推两个：**
@@ -354,7 +358,8 @@ git remote -v
 
 1. **认领任务**：明确任务归属部门；不明确则默认主部门。
 2. **建分支**：功能/修复使用独立分支（如 `feature/xxx`、`fix/xxx`），稳定后再合并回 `main`。
-3. **开发**：遵循现有代码规范（见 [docs/DEVELOPER_GUIDE.md](./docs/DEVELOPER_GUIDE.md) 与第 6 节硬约束）。
+3. **开发**：先读对应目录 README（`src/README.md` / `src-tauri/README.md` / `src/pwa/README.md`），
+   并遵守第 6 节硬约束。
 4. **本地测试**：
    ```bash
    npm test          # 前端单测（Vitest）
@@ -378,7 +383,7 @@ git remote -v
 |---------|-------------|
 | 接口/协议变化（REST / WebSocket / P2P） | `server-planning/API-implementation.md` + `server-planning/EXTERNAL-INTERFACES.md` |
 | 模块架构 / 流程变化 | `docs/` 下对应架构文档（如 `STUDY_ROOM_ARCHITECTURE.md`） |
-| 功能行为变化 | `README.md` 功能列表、`docs/FEATURES.md` |
+| 功能行为变化 | `docs/FEATURES.md` |
 | Bug 修复 | `docs/BUGFIX_RECORDS.md` |
 | 安全相关 | `docs/SECURITY.md` |
 | 菜园子玩法 | `docs/modules/garden-game-design.md`、`docs/modules/garden.md` |
@@ -440,7 +445,7 @@ git clone ubuntu@115.159.49.112:/home/ubuntu/PomoSolo.git
 | 新增/修改/删除 REST 端点 | 更新 `EXTERNAL-INTERFACES.md` + `API-implementation.md` |
 | WebSocket 消息变化 | 更新 `EXTERNAL-INTERFACES.md` |
 | 认证/Token 规则变化 | 更新 `SECURITY.md` + `EXTERNAL-INTERFACES.md` |
-| 部署/端口/域名变化 | 更新 `server-planning/README.md` |
+| 部署/端口/域名变化 | 更新 `server-planning/README.md` 索引 + `API-implementation.md` |
 | 任何影响客户端的改动 | commit + push（到 self 或本仓库），message 描述清楚 |
 
 ### 10.5 服务器协作带话（强制）
@@ -474,7 +479,7 @@ git clone ubuntu@115.159.49.112:/home/ubuntu/PomoSolo.git
 | 复用 | Vite alias：`@`→`src/`、`@tauri-apps/api/*`→`src/pwa/tauri/*` | 桌面端源码原样编译进 PWA |
 | 音乐 | HTML5 Audio 引擎（`src/pwa/music/engine.ts`） | 替代桌面端 Rust rodio，事件名完全一致 |
 | 网络 | REST + WebSocket 复用 | `src/pwa/http.ts` + `src/pwa/ws.ts`，协议同桌面端 |
-| 部署 | 服务器 Nginx 托管 `pwa-dist/` | 域名/HTTPS 待服务器部门（见 PWA-requirements.md） |
+| 部署 | 服务器静态托管 `pwa-dist/` | 当前由 Python 服务按 `Host` 分发；旧 Nginx 配置仅参考（见 PWA-requirements.md） |
 
 ### 11.3 架构：alias 换层（重点）
 
@@ -487,7 +492,7 @@ src/                      桌面端前端源码（唯一真相源，PWA 原样�
     ├── music/            浏览器音频引擎 + 清单 + 缓存 + IndexedDB 分片
     ├── ws.ts / http.ts   WebSocket / REST 客户端（自动刷新 token）
     ├── App.vue           主壳（桌面端 App.vue 的裁剪版，仍复用全部组件）
-    └── public/           manifest.webmanifest、icons、tracks/（3 首内置曲）、music-manifest.json
+    └── public/           manifest.webmanifest、icons、tracks/（内置曲）、music-manifest.json
 ```
 
 - **invoke 唯一咽喉**：`src/pwa/tauri/commands/registry.ts`，所有 `invoke("cmd")` 在此路由；
@@ -499,7 +504,7 @@ src/                      桌面端前端源码（唯一真相源，PWA 原样�
 ### 11.4 常用命令
 
 ```bash
-npm run pwa:manifest   # 生成音乐清单（41 首：3 内置 + 38 曲库）
+npm run pwa:manifest   # 生成音乐清单（曲目以脚本扫描结果为准）
 npm run pwa:dev        # 开发（http://127.0.0.1:5199）
 npm run pwa:build      # 类型检查 + 构建 → pwa-dist/
 npm run pwa:preview    # 预览产物
@@ -514,7 +519,7 @@ npm run pwa:preview    # 预览产物
   （B站下载待服务器部门代理接口，见 `server-planning/PWA-requirements.md` P3）；
 - 保留：核心计时（单次/计划/正向）、音乐播放 + 标签 + 同步听歌、设置、教程、自习室（含 P2P 传歌）、
   侧栏统计计数；
-- 音乐策略：内置 3 首主题曲离线可播；其余走服务器曲库 `/music/`，播放即进浏览器缓存（离线可听）；
+- 音乐策略：内置主题曲离线可播；其余走服务器曲库 `/music/`，播放即进浏览器缓存（离线可听）；
   与桌面端 tag 改动互不影响（PWA 标签存 localStorage）；
 - 新增 PWA 专属接口：更新 `server-planning/` 文档 → 服务器部门同步 → commit + push 双仓库；
 - **部署/域名/HTTPS 全部等服务器部门**，PWA 端不自行搭建服务（见 `PWA-requirements.md`）。
@@ -527,40 +532,57 @@ npm run pwa:preview    # 预览产物
 
 | 文档 | 说明 |
 |------|------|
-| **`AGENTS.md`** | ★ **单文件入口**：四个端（桌面端/PWA/服务器/安卓端）各自代码在哪、怎么改、怎么验证 + **什么能上 GitHub、什么只能留在本机** |
+| **`AGENTS.md`** | ★ agent/新人入口：四个端、目录 README 导航、仓库级边界与工作流 |
 | **本文件 `TEAM_GUIDE.md`** | 部门分工 + 工作流程 + 双仓库规则 + 项目理念与红线 |
-| `README.md` | 项目总览、技术栈、快速开始、项目结构（**以它为准**） |
+| `README.md` | 根入口：快速开始 + 子目录导航（**不写子目录细节**） |
+| `docs/README.md` | 文档状态表：当前 / 草案 / 历史，先看它再读其它 docs |
+| `docs/PROJECT_MAP.md` | **自动生成**：版本、目录、模块清单、代码规模、架构图 |
 | `tools/ui/README.md` | UI 取证工具：截图 + 布局审计（改 UI 前必看） |
 | `.local/README.md` | 本地私密区契约：什么该放这里、什么必须入库 |
-| `docs/ARCHITECTURE.md` | 整体架构详解 |
 | `server-planning/EXTERNAL-INTERFACES.md` | 对外接口唯一权威索引（REST / WS / P2P / 更新源） |
 
-### 12.2 开发与维护
+### 12.2 按目录
+
+| 目录 | 入口 | 说明 |
+|---|---|---|
+| 桌面端前端 | `src/README.md` | 组件/store/API 封装、UI 约束 |
+| 桌面端后端 | `src-tauri/README.md` | commands/modules、命令注册、构建产物 |
+| PWA | `src/pwa/README.md` | alias 复用、浏览器 shim、已知限制 |
+| 服务器接口 | `server-planning/README.md` | 本目录索引；线上实现/历史草案边界 |
+| UI 工具 | `tools/ui/README.md` | 截图、布局审计、真实窗口驱动 |
+| 脚本 | `scripts/README.md` | 构建/联调/留言板/docs/版本检查 |
+| 文档 | `docs/README.md` | 跨模块架构、模块、安全、历史 |
+| 内置音乐 | `music-player/README.md` | 资源、构建复制、tags.json 坑 |
+
+### 12.3 开发与维护
 
 | 文档 | 说明 |
 |------|------|
-| `docs/DEVELOPER_GUIDE.md` | 开发指南。⚠️ **内含旧版 Electron + Supabase 的历史内容，仅作参考**；当前以 README 为准 |
+| `docs/ARCHITECTURE.md` | 当前跨端架构（进程、IPC、数据流、PWA、服务器集成） |
 | `docs/SECURITY.md` | 安全设计（加密、认证、Token） |
 | `docs/BUGFIX_RECORDS.md` | Bug 修复记录（修 Bug 必须追加） |
 | `docs/FEATURES.md` | 功能清单 |
 | `docs/TAURI_MIGRATION_PITFALLS.md` | Tauri 迁移踩坑记录 |
-| `docs/MIGRATION.md` | 迁移指南 |
 | `docs/modules/` | 模块级文档（music-player、garden、garden-game-design 等） |
 | `docs/AUTO_UPDATE_DESIGN.md` | 自动更新设计（自实现更新器） |
+| `docs/DEVELOPER_GUIDE.md` | ⚠️ Electron + Supabase 历史文档，仅作参考 |
+| `docs/MODAL_SYSTEM.md` / `docs/SUBPROCESS_ORPHAN_ISSUE.md` | ⚠️ 历史文档，不要照着改代码 |
+| `docs/MIGRATION.md` | Electron → Tauri 迁移对照（历史参考） |
 
-### 12.3 服务器部门（server-planning/）
+### 12.4 服务器部门（server-planning/）
 
 | 文档 | 说明 |
 |------|------|
 | `server-planning/EXTERNAL-INTERFACES.md` | **对外接口唯一权威索引**（REST / WS / P2P / 更新源） |
 | `server-planning/API-implementation.md` | 接口详细实现 + 留言区（**含留言区管理规则**，新增留言删旧、只留待办） |
 | `server-planning/MESSAGE-BOARD-ARCHIVE.md` | 留言区历史归档（已解决/已部署记录，按需查阅） |
-| `server-planning/PWA-requirements.md` | PWA 部署与对接要求（域名/HTTPS/静态托管/曲库/CORS） |
+| `server-planning/PWA-requirements.md` | PWA 部署与对接要求（草案/部分落地；Nginx 段仅历史参考） |
 | `server-planning/API-quickref.md` | REST 速查 |
-| `server-planning/README.md` | 服务端需求规格（端口、数据库、Nginx 路由） |
-| `server-planning/nginx.conf` / `ws_server.py` | 参考配置 / 参考实现 |
+| `server-planning/README.md` | 本目录索引（线上实现/历史草案边界） |
+| `server-planning/ws_server.py` | WebSocket 参考实现 |
+| `server-planning/nginx.conf` | **历史参考**（线上无 Nginx） |
 
-### 12.4 文档维护铁律
+### 12.5 文档维护铁律
 
 - **接口相关改动** → 优先改 `server-planning/` 文档（与其他部门沟通的唯一权威通道）；
 - **架构/流程改动** → 改 `docs/` 对应文档；
@@ -598,11 +620,17 @@ cd src-tauri && cargo test   # Rust 测试
 
 ```bash
 npm run tauri:build          # 完整构建（复制音乐资源 → vue-tsc 类型检查 → vite build → tauri build）
-# 产物：src-tauri/target/release/bundle/nsis/*.exe（含签名 .sig）
 ```
 
-> 完整构建需要本地自建 runner 相关环境（构建细节见 `docs/DEVELOPER_GUIDE.md` 发布流程约定一节，涉及 `D:\pomosolo-cache` 与 `d:\actions-runner`）。
-> ⚠️ 本地 cargo test 需在 `src-tauri\target`（工作目录内）跑——`D:\pomosolo-cache\target` 是 CI/构建专用，勿混用。
+产物位置取决于 `CARGO_TARGET_DIR`：
+
+- **本地默认**：`src-tauri/target/release/bundle/nsis/*.exe`（含 `.sig`）；
+- **CI / 自建 runner**：`$CARGO_TARGET_DIR/release/bundle/nsis/`
+  （本机为 `D:\pomosolo-cache\target`）。
+
+> 细节见 `src-tauri/README.md`。⚠️ 本地 `cargo test` 用 `src-tauri\target`
+> （工作目录内）；`D:\pomosolo-cache\target` 是 CI/构建专用，勿混用。
+> runner/缓存/网络坑见 `.local/MACHINE.md` 与 `.local/RELEASE.md`。
 
 ---
 
@@ -615,6 +643,10 @@ npm run tauri:build          # 完整构建（复制音乐资源 → vue-tsc 类
 | `npm test` / `npm run test:watch` | 前端测试（单次 / 监听） |
 | `npm run test:coverage` | 前端测试 + 覆盖率 |
 | `cd src-tauri && cargo test` | Rust 测试 |
+| **文档 / 版本** | |
+| `npm run docs:map` | 扫描代码，生成 `docs/PROJECT_MAP.md` |
+| `npm run docs:check` | 校验生成物、版本号、目录 README、根文档是否写死版本/数量 |
+| `npm run versions:check` | 只校验版本号六处一致 |
 | **UI 取证** | |
 | `npm run ui:shot -- --target desktop` | 桌面端主窗口截图（真实尺寸 520×560）+ 布局审计（**问题直接打在终端**） |
 | `npm run ui:shot -- --recipe desktop-panels` | 所有面板各截一张 |
@@ -625,7 +657,7 @@ npm run tauri:build          # 完整构建（复制音乐资源 → vue-tsc 类
 | `npm run ui:selftest` | UI 工具自测（不需服务器/设备） |
 | **交付** | |
 | `git push origin main && git push self main` | 推送双仓库 |
-| `git tag -a v4.x.x -m "..." && git push origin v4.x.x && git push self v4.x.x` | 发版打 tag |
+| `git tag -a v<version> -m "..." && git push origin v<version> && git push self v<version>` | 发版打 tag |
 | `fuck-u-code analyze <dir> -f markdown -o <file> -l zh -t 20` | 发版前代码质量核验 |
 
 ---
@@ -671,31 +703,38 @@ npm run tauri:build          # 完整构建（复制音乐资源 → vue-tsc 类
    fuck-u-code analyze <dir> -f markdown -o <file> -l zh -t 20
    ```
    修复可低风险重构的冗长代码；核心逻辑高分文件（music.ts / garden.rs / downloader.rs / update.rs）发版前不宜大动；报告放 `.fuckucode-report/` 文件夹，**分析完即删**。
-2. **版本号 6 处同步更新**（历史教训：曾漏改 README badge 停在旧版）：
+2. **版本号 6 处版本值（5 个文件）同步更新**：
    - `package.json`
    - `package-lock.json`（顶部两处）
    - `src-tauri/Cargo.toml`
    - `src-tauri/Cargo.lock`
    - `src-tauri/tauri.conf.json`
-   - `README.md` 顶部 Release badge
+
+   **README badge 已改为 GitHub 动态版本，不再手写。** 改完运行
+   `npm run versions:check` 确认一致；CI 也会在 test job 跑 `docs:check`。
 3. **红线核验**：任何改动更新链路后，用**真实发布物**（exe + latest.json + pubkey）做端到端验签（`temp-debug/verify_sig.py`，minisign 格式：RWT 行解码 42B = "Ed"+key_id8+公钥32，公钥在 [10..42]；RUT 行解码 74B = "ED"+key_id8+签名64；"ED" 大写 = 预哈希模式 = Ed25519(blake2b-512(文件))）。**禁止只依赖单测**。
 
 ### 16.2 标准发版命令
 
 ```bash
-# 1. 更新版本号（16.1 清单第 2 项，6 处一致）
+# 1. 更新版本号（16.1 清单第 2 项，6 处版本值一致）
+npm run versions:check
+
 # 2. 确认文档已同步（见 9.2）
+npm run docs:map      # 代码结构变了才需要
+npm run docs:check
+
 # 3. commit（含文档改动）
-git add -A && git commit -m "[主部门] chore: v4.8.0 发布准备"
+git add -A && git commit -m "[主部门] chore: <version> 发布准备"
 
 # 4. 推送双仓库
 git push origin main
 git push self main
 
 # 5. 打 tag 并推送双仓库（⚠️ 版本号补丁 commit 后若 tag 已存在，需 git tag -f 移动并 force push tag）
-git tag -a v4.8.0 -m "release notes"
-git push origin v4.8.0
-git push self v4.8.0
+git tag -a v<version> -m "release notes"
+git push origin v<version>
+git push self v<version>
 
 # 6. CI 自动完成构建 + Release（.github/workflows/ci.yml）
 ```
@@ -714,7 +753,7 @@ git push self v4.8.0
 > 15 个 superseded run 全部堆积排队，v4.7.12 发版被阻塞数小时（见 `docs/BUGFIX_RECORDS.md` 第 21 条）。
 
 1. **同一分支/tag 连续 push 自动取消前序 run**：ci.yml 已配置 `concurrency: group=ci-${{ github.ref }}, cancel-in-progress: true`——同一分支新 push 会**自动取消**上一个仍在跑/排队的 run，队列不会堆积；tag 单独成组（`refs/tags/v*`），重推同名 tag 同样取消旧 run；
-2. **纯文档改动不触发 CI**：push 仅涉及 `docs/`、`server-planning/`、`**/*.md`、`temp-debug/`、`.fuckucode-report/`、`coverage/` 时跳过 CI（paths-ignore）。⚠️ 发版 tag 前确认该 tag 的提交包含代码改动，否则纯文档 tag 会跳过 CI、**不会创建 Release**；
+2. **纯文档改动不触发主 CI**：push 仅涉及 `docs/`、`server-planning/`、`**/*.md`、`temp-debug/`、`.fuckucode-report/`、`coverage/` 时跳过主 CI（paths-ignore）。但 `.github/workflows/docs.yml` 会单独跑 `node scripts/docs/check-docs.mjs`，所以文档/版本不一致仍会红。⚠️ 发版 tag 前确认该 tag 的提交包含代码改动，否则纯文档 tag 会跳过主 CI、**不会创建 Release**；
 3. **小步迭代请批量推送或走分支**：频繁逐 commit 推 main 会反复排队占用本地 runner（虽会自动取消旧的，仍浪费时间与机器）。建议攒 3-5 个 commit 一起推，或推 feature 分支再合并；合并/推送前确认 runner 在线；
 4. **runner 宕机期间的积压处理**：push 不会自动消失，会排队到 6h 超时。发现积压时：
    - 先确认 runner 是否在跑（任务管理器找 `Runner.Listener` / `Runner.Worker`，或 `D:\actions-runner\_diag` 日志时间）；
@@ -724,7 +763,7 @@ git push self v4.8.0
 ### 16.4 服务器部署（发版后必须做）
 
 ```bash
-# 1. 上传安装包 + 服务器版 latest.json（url 指向 http://115.159.49.112/updates/、signature 复用 GitHub 同一签名、UTF-8 无 BOM）
+# 1. 上传安装包 + 服务器版 latest.json（url 指向 https://api.pomogrow.top/updates/、signature 复用 GitHub 同一签名、UTF-8 无 BOM）
 scp PomoSolo_<版本>_x64-setup.exe ubuntu@115.159.49.112:/home/ubuntu/frontend/updates/
 # latest.json 用 python json.dumps 生成（UTF-8 无 BOM）
 
@@ -743,7 +782,8 @@ scp PomoSolo_<版本>_x64-setup.exe ubuntu@115.159.49.112:/home/ubuntu/frontend/
 - `gh release create` **不能带 assets 参数**（会 EOF），先建 release 再分开上传 asset；
 - 下载 GitHub 大文件（exe）卡死时，用 `Invoke-WebRequest`（约 2-3 分钟）替代 curl/gh release download。
 
-> 完整细节见 `docs/DEVELOPER_GUIDE.md`「发布流程约定（强制）」一节。
+> 构建/产物细节见 `src-tauri/README.md`；runner/缓存/网络坑见 `.local/MACHINE.md`；
+> 发版前置与红线见 `.local/RELEASE.md`。`docs/DEVELOPER_GUIDE.md` 是 Electron 时代历史文档，不再作为发布依据。
 
 ---
 
@@ -753,10 +793,12 @@ scp PomoSolo_<版本>_x64-setup.exe ubuntu@115.159.49.112:/home/ubuntu/frontend/
 
 - [ ] 读完本文件（TEAM_GUIDE.md），**重点读第 4 节理念与红线、第 5 节技术现状、第 6 节硬约束**
 - [ ] 通读 `README.md`，跑起项目（第 13 节三步）
+- [ ] 读 `docs/README.md`，知道哪些文档是当前/草案/历史；看 `docs/PROJECT_MAP.md` 建立整体视图
 - [ ] 确认自己的**部门归属**（未声明 = 主部门）
 - [ ] 确认本地双仓库配置：`git remote -v` 能看到 `origin` + `self`
 - [ ] 看一遍 `server-planning/EXTERNAL-INTERFACES.md`，知道客户端与服务器的接口长什么样
 - [ ] 浏览 `docs/` 下与手头任务相关的架构文档
+- [ ] 跑一次 `npm run docs:check`，确认本地文档/版本一致
 - [ ] 认领第一个任务，按第 9 节流程开工
 
 **每天开工前默念四件事：**

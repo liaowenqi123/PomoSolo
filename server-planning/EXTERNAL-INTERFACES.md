@@ -44,7 +44,7 @@ WebSocket:       wss://api.pomogrow.top/ws?token=<access_token>
 | GET | `/api/v1/config/mode` | 否 | 返回 `{ "mode": "cloud" \| "local" }` |
 | GET | `/api/v1/config/deepseek-key` | 是(admin) | 获取 DeepSeek API Key（非 admin 403） |
 | PUT | `/api/v1/config/deepseek-key` | 是(admin) | 更新 DeepSeek API Key `{ api_key }` |
-| GET | `/api/v1/health` | 否 | `{ status, version, uptime }` |
+| GET | `/api/health` | 否 | `{ status, version, uptime }`（**不在 `/api/v1` 下**；`/api/v1/health` 返回 404） |
 | GET | `/api/status` | 否 | 服务器详细信息（服务名/版本/python/平台/ws_port） |
 | GET | `/api/v1/settings` | 是 | 拉取云端设置 `{ settings, updated_at }` |
 | PUT | `/api/v1/settings` | 是 | 上传设置 `{ settings }` |

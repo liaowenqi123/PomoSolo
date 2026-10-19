@@ -1,350 +1,121 @@
-# AGENTS.md —— PomoSolo 项目 agent 入口
+# AGENTS.md —— PomoSolo agent 入口
 
-> **在这个文件夹里启动任何 agent，请先读本文件。**
-> 它回答：项目由哪几个端组成、各端代码在哪、怎么改、怎么验证、
-> **什么能上 GitHub、什么只能留在本机**。
+> **范围**：本仓库（桌面端 + PWA + 服务器接口文档）。
+> 服务器**运行代码**、安卓端代码都**不在**本仓库。
 >
-> 人读同样适用。更细的团队规则见 [`TEAM_GUIDE.md`](./TEAM_GUIDE.md)（737 行，权威）。
-> 部门：主部门 ｜ 维护：任何结构变化请同步本文件并 commit + push 双仓库。
+> 本文件只做**导航 + 仓库级约束**。某个目录怎么改，读该目录的 README；
+> 整体结构、版本号、模块数量由 `npm run docs:map` 生成到
+> [`docs/PROJECT_MAP.md`](docs/PROJECT_MAP.md)，**不要在这里手写**。
 
 ---
 
 ## 0. 30 秒速览
 
-PomoSolo 是一款番茄钟专注应用，**由四个端组成，但只有两个端的代码在这个仓库里**：
+| 端 | 代码位置 | 在本仓库？ | 技术形态 |
+|---|---|---|---|
+| 🖥 **桌面端**（Windows） | `src/` + `src-tauri/` | ✅ | Tauri v2 + Vue 3 + 纯 Rust |
+| 📱 **PWA 端** | `src/pwa/`（复用 `src/`） | ✅ | Vite + Vue 3 + `vite-plugin-pwa` |
+| ☁️ **服务器端** | 服务器上维护；本仓库只有 `server-planning/` 文档 | ❌ | Python 标准库 + PostgreSQL（详见 `server-planning/README.md`） |
+| 🤖 **安卓端** | 独立仓库 [PomoSolo-Android](https://github.com/liaowenqi123/PomoSolo-Android) | ❌ | Kotlin + Jetpack Compose 原生 |
+| 💬 **Agent 留言板** | <https://board.pomogrow.top>；CLI 在 `scripts/board/` | CLI ✅ / 服务端 ❌ | Python + PostgreSQL |
 
-| 端 | 代码位置 | 在本仓库？ | 语言/框架 | 状态 |
-|----|---------|-----------|----------|------|
-| 🖥 **桌面端**（Windows） | `src/` + `src-tauri/` | ✅ 是 | Tauri v2 + Vue 3 + TS + 纯 Rust | 已上线 v4.8.0 |
-| 📱 **PWA 端** | `src/pwa/`（复用 `src/`） | ✅ 是 | Vite + Vue 3 + `vite-plugin-pwa` | 建设中，部署 `start.pomogrow.top` |
-| ☁️ **服务器端** | **不在仓库**，代码在服务器 `115.159.49.112` | ❌ 否（只有接口文档在 `server-planning/`） | Python 标准库 `ThreadingHTTPServer` + PostgreSQL（**无 Nginx / 无框架**） | 运行中 |
-| 🤖 **安卓端** | **独立仓库** `PomoSolo-Android`，本机在 `C:\Users\admin\AndroidStudioProjects\pomodoro` | ❌ 否 | Kotlin + Jetpack Compose（**原生，不是 WebView 壳**） | v1 开发中 |
-| 💬 **Agent 留言板** | 服务器 `board.pomogrow.top`；本机 CLI 在 `scripts/board/` | CLI ✅ / 服务端 ❌ | Python + PostgreSQL + 单文件前端 | 已上线 |
+**第一次进来按这个顺序读**：
 
-**两个 git 远程**（都要推）：
-
-| 远程 | 地址 | 作用 |
-|------|------|------|
-| `origin` | `https://github.com/liaowenqi123/PomoSolo.git` | GitHub 主仓库，触发 CI/CD 与 Release |
-| `self` | `ubuntu@115.159.49.112:/home/ubuntu/PomoSolo.git` | 服务器上的裸仓，**服务器部署的代码来源** |
-
-> 服务器访问 GitHub 慢 → 部署从 `self` 拉。**只推一边会造成线上与仓库不一致。**
+1. 本文件（边界 + 工作流）；
+2. 你将要改的目录的 README（见 §2）；
+3. [`docs/README.md`](docs/README.md)（文档状态：当前 / 草案 / 历史）；
+4. 需要整体视图时看 [`docs/PROJECT_MAP.md`](docs/PROJECT_MAP.md)（自动生成）。
 
 ---
 
 ## 1. ★ 什么能上 GitHub、什么不能
 
-这是本文件最重要的一节。**判断口诀**：*换一台机器就不一样*或*泄漏会造成损失* → 不入库。
+**判断口诀**：*换一台机器就不一样*或*泄漏会造成损失* → 不入库。
 
-### ✅ 可以入库（GitHub 共享）
+### ✅ 可以入库
 
 | 位置 | 内容 |
-|------|------|
+|---|---|
 | `src/` `src-tauri/src/` | 桌面端前后端源码 |
 | `src/pwa/` | PWA 专属层（复用 `src/`） |
 | `tools/ui/` | UI 取证工具（截图 + 布局审计） |
-| `scripts/` | 构建/迁移/P2P 联调脚本 |
-| `docs/` | 架构、模块、安全、踩坑记录 |
+| `scripts/` | 构建、迁移、P2P 联调、留言板、文档检查脚本 |
+| `docs/` | 架构、模块、安全、排错与历史文档 |
 | `server-planning/` | **服务器接口的权威文档**（REST/WS/P2P/更新源） |
-| `music-player/music/` | 3 首内置曲 + `tags.json` |
-| `deprecated/` | 冻结的历史存档（含 5 个成品 exe，~157MB，**有意保留**） |
+| `music-player/music/` | 仓库跟踪的内置曲 + `tags.json`（白名单见 `.gitignore`） |
+| `deprecated/` | 冻结的历史存档（含成品 exe，有意保留） |
 | `.github/workflows/ci.yml` | CI 配置 |
-| `.local/README.md` | 本地私密区的**契约说明**（唯一的例外，见下） |
+| `.local/README.md` | 本地私密区契约（唯一入库的 `.local` 文件） |
 
-### ❌ 不入库（只在本机）
+### ❌ 不入库
 
 | 位置 | 内容 | 为什么 |
-|------|------|--------|
-| **`.local/`**（除 `README.md`） | 本机工具链路径、服务器 SSH 细节、测试账号、**密钥位置引用**、发版踩坑 | 机器/服务器专属，泄漏有风险 |
-| `temp-debug/` | 一次性调试脚本、临时产物 | 用完即弃 |
-| `temp-debug/ui-shots/` | **UI 截图产物** | 一次性取证，不是交付物 |
+|---|---|---|
+| **`.local/`**（除 `README.md`） | 本机工具链路径、SSH 细节、测试账号、密钥**位置引用**、发版踩坑 | 机器/服务器专属，泄漏有风险 |
+| `temp-debug/` | 一次性调试脚本、临时产物、`ui-shots/` | 用完即弃 |
 | `node_modules/` `dist/` `pwa-dist/` `coverage/` | 依赖与构建输出 | 可重建 |
 | `src-tauri/target/` `src-tauri/resources/` | Rust 编译产物 / 构建时复制的资源 | 可重建 |
-| `deprecated/**/build/` `deprecated/**/__pycache__/` | PyInstaller 构建中间产物 | 纯噪声（已移出跟踪） |
+| `deprecated/**/build/` `deprecated/**/__pycache__/` | PyInstaller 构建中间产物 | 纯噪声 |
 | `deprecated/old-builds/` | 旧安装包 | 体积大 |
 
 ### 🔴 密钥一律留在仓库外
 
 | 敏感物 | 位置（**仓库外**） |
-|--------|------------------|
-| **Tauri 更新签名私钥**（最敏感：可伪造更新包） | `C:\Users\admin\.tauri\pomosolo.key` |
+|---|---|
+| Tauri 更新签名私钥（最敏感：可伪造更新包） | `C:\Users\admin\.tauri\pomosolo.key` |
 | 服务器 SSH 私钥 | `C:\Users\admin\.ssh\id_rsa`（`ssh ubuntu-tencent`） |
 | GitHub SSH 私钥 | `C:\Users\admin\.ssh\id_ed25519` |
 | CI Secrets | GitHub 仓库设置（`TAURI_SIGNING_PRIVATE_KEY` / `SERVER_*`） |
 
-> **`.local/SECRETS.md` 只记录「密钥在哪、怎么用」，绝不记录「密钥是什么」。**
+> `.local/SECRETS.md` 只记录「密钥在哪、怎么用」，**绝不记录「密钥是什么」**。
 > 提交前自查：`git status --short | Select-String '\.local/'` 应只出现 `README.md`。
 
 ---
 
-## 2. 先看 UI，再改代码
+## 2. 目录与入口（按范围拆开）
 
-**这个项目以前改样式只能靠读 CSS 猜** —— 历史上多次 UI bug（面板高度收缩、
-按钮被挤成两排、文字被裁、弹窗被祖先裁剪）都是用户实测才发现的。
+| 目录 | 范围 | 先读 |
+|---|---|---|
+| `src/` | 桌面端前端：组件、store、Tauri invoke 封装、UI 约束 | [`src/README.md`](src/README.md) |
+| `src-tauri/` | 桌面端后端：commands、Rust modules、构建产物 | [`src-tauri/README.md`](src-tauri/README.md) |
+| `src/pwa/` | PWA 专属层：alias 复用、浏览器 shim、已知限制 | [`src/pwa/README.md`](src/pwa/README.md) |
+| `server-planning/` | 服务器接口文档（代码不在本仓库） | [`server-planning/README.md`](server-planning/README.md) |
+| `tools/ui/` | UI 截图、布局审计、真实窗口驱动 | [`tools/ui/README.md`](tools/ui/README.md) |
+| `scripts/` | 构建 / P2P 联调 / 留言板 / docs / release 脚本 | [`scripts/README.md`](scripts/README.md) |
+| `docs/` | 跨模块架构、模块文档、安全、历史 | [`docs/README.md`](docs/README.md) |
+| `music-player/` | 内置音乐资源与 `tags.json` 迁移坑 | [`music-player/README.md`](music-player/README.md) |
+| `.local/` | 本机/服务器私密区（加速层，不是真相层） | [`.local/README.md`](.local/README.md) |
+| `deprecated/` | 冻结历史，不改不删 | [`deprecated/README.md`](deprecated/README.md) |
 
-现在有了取证工具，**改任何 UI 之前先截图看一眼**：
-
-```bash
-# 桌面端主窗口（真实尺寸 520×560；自动起 dev server + 注入 Tauri IPC mock）
-npm run ui:shot -- --target desktop
-
-# 所有面板各截一张（设置/统计/教程/AI/图表/自习室/登录/深色）
-npm run ui:shot -- --recipe desktop-panels
-
-# PWA 断点全覆盖（含断点边界 ±1px）
-npm run ui:shot -- --recipe pwa-screens
-
-# 真实 Tauri 窗口：只截图（需先 npm run tauri:dev）
-npm run ui:desktop
-
-# 真实 Tauri 窗口：用代码点击它并校验点击真的生效（自动起 dev server + 应用）
-npm run ui:drive -- --recipe desktop-quick
-
-# Android（需模拟器已启动）
-npm run ui:android
-```
-
-**产物**：`temp-debug/ui-shots/<时间戳>-<标签>/`
-→ **问题会直接打在终端**（按类型分组、按元素去重）；完整表格在产物的 `index.md`。
-
-工具会**自动审计**这些（判据对应历史上真出过的 bug）：
-`overlay-blocking`（整屏遮罩挡住界面）、`text-clip`（文字被裁）、
-`overflow-x/y`（内容溢出未滚动）、`out-of-viewport`（元素越界）、
-`covered`（元素被浮层盖住点不到）、`tiny-target`（点击热区过小）、`tiny-font`。
-
-> 完整说明见 **[`tools/ui/README.md`](./tools/ui/README.md)**。
-> 零新增依赖：用 Node 自带 `fetch` + 全局 `WebSocket` 直驱 CDP，复用本机 Chrome/Edge。
-
-### 真实窗口驱动的两条注意
-
-- **`ui:drive` 默认用 UIA InvokePattern 点击，会绕过命中测试** ——
-  它能证明"功能逻辑通"，**不能**证明"用户点得到"。要测遮挡/热区加 `--allow-sendinput`（会移动光标）；
-- **热区阈值分两种，别用错**：`24` = 桌面指针下限（WCAG 2.5.8，默认）；
-  `44` = 触摸目标（PWA/手机规矩）。对 520×560 桌面窗口用 44 会产出大量噪声。
+> **根 README 只做入口**。不要把子目录的结构、版本、测试数、模块清单加回根 README；
+> 这些内容会随迭代过期，统一由 `npm run docs:map` 生成。
 
 ---
 
-## 3. 四端：怎么改
+## 3. 仓库级硬规则
 
-### 3.1 🖥 桌面端（本仓库）
+### 双仓库推送（强制）
 
-**改前端**（`src/`）：
-```bash
-npm run dev          # Vite dev server → http://127.0.0.1:18421
-npm run tauri:dev    # 完整 Tauri（含 Rust 后端，会打开真实窗口）
-```
-`src/` 结构：`api/`（invoke 封装，约 160 个命令）→ `stores/`（Pinia）→ `components/`（Vue SFC）。
-样式 token 与 z-index 层级体系在 `src/styles/global.css`。
-
-**改后端**（`src-tauri/src/`）—— 新增一个 Tauri 命令的四步：
-1. 在 `commands/<领域>.rs` 加 `#[tauri::command]` 函数；
-2. 在 `lib.rs` 的 `generate_handler!` 宏里注册（**漏了这步前端会报命令不存在**）；
-3. 在 `src/api/<领域>.ts` 封装 `invoke()` 并写 TS 类型；
-4. 在 `stores/` 或 `components/` 消费。
-
-**验证**：
-```bash
-npm test                          # 前端 Vitest（61 文件 1218 例）
-cd src-tauri && cargo test --lib  # Rust（304 例）
-npx vue-tsc --noEmit              # 类型检查
-npm run ui:selftest               # UI 工具自测
-```
-
-**构建**：`npm run tauri:build` → 产物在 `D:\pomosolo-cache\target\release\bundle\nsis\`（CI 用的共享 target）。
-
-### 3.2 📱 PWA 端（本仓库 `src/pwa/`）
-
-**核心机制：真实复用，不 copy。** 通过 Vite alias 把桌面端 `src/` 原样编译进 PWA：
-
-| alias | 指向 | 作用 |
-|-------|------|------|
-| `@` | `src/` | 组件/store/API **原样复用** |
-| `@tauri-apps/api` | `src/pwa/tauri/` | 浏览器 shim：`invoke` 路由到 localStorage/REST/WS/HTML5 Audio |
-
-→ **重构桌面端 `src/` 时 PWA 自动同步**。所以**不要在 `src/pwa/` 里复制组件**。
+| 远程 | 地址 | 作用 |
+|---|---|---|
+| `origin` | `https://github.com/liaowenqi123/PomoSolo.git` | GitHub 主仓库，触发 CI/CD 与 Release |
+| `self` | `ubuntu@115.159.49.112:/home/ubuntu/PomoSolo.git` | 服务器裸仓，部署代码来源 |
 
 ```bash
-npm run pwa:dev      # http://127.0.0.1:5199
-npm run pwa:build    # 类型检查(src/pwa + 桌面端) + 构建 → pwa-dist/
+git push origin main && git push self main
 ```
 
-**版本号策略**：只在"要发布 PWA"时改 `src/pwa/config.ts` 的 `PWA_VERSION`，
-**日常 commit 不要动**（服务器部门约定：看到版本号变化即发布）。
-
-详见 [`src/pwa/README.md`](./src/pwa/README.md) 与 [`server-planning/PWA-requirements.md`](./server-planning/PWA-requirements.md)。
-
-### 3.3 ☁️ 服务器端（**代码不在本仓库**）
-
-**服务器运行代码维护在服务器上，不进仓库。** 本仓库 `server-planning/` 只承载
-**接口约定与规划**：
-
-| 文档 | 作用 |
-|------|------|
-| `server-planning/EXTERNAL-INTERFACES.md` | ★ **对外接口唯一权威索引**（REST / WebSocket / P2P / 更新源） |
-| `server-planning/API-implementation.md` | 接口实现记录 + **留言区**（与其他部门沟通的唯一通道） |
-| `server-planning/API-quickref.md` | REST 速查 |
-| `server-planning/README.md` | 服务端需求规格（端口/数据库/Nginx 路由） |
-| `server-planning/PWA-requirements.md` | PWA 部署要求 |
-| `server-planning/nginx.conf` / `ws_server.py` | 参考配置 / 参考实现 |
-
-**怎么改服务器代码**：
-```bash
-ssh ubuntu-tencent            # 别名在 ~/.ssh/config；等价 ubuntu@115.159.49.112
-```
-标准流程（**强制留痕**）：
-```
-备份原文件（.bak_<版本>）
-  → 修改
-  → 语法校验：python3 -B -c "ast.parse(open('x.py').read())"
-  → sudo docker restart frontend-web
-  → 端到端验证
-  → 在 server-planning/API-implementation.md 留言区记录并推送
-```
-
-> ⚠️ **直接 SSH 改动不留痕** —— 客户端开发者看不到服务器的 git 历史，
-> 接口变了会静默故障。只要改到**其他部门相关**的接口/约定，
-> 必须二选一：写文档 或 在 `self` 仓 commit。详见 `TEAM_GUIDE.md` §10.3。
->
-> 服务器细节（部署目录、容器名、数据库连法、域名）见 **`.local/SERVER.md`**。
-
-**测服务器侧行为（不用开客户端）**：传歌链路横跨「DJ 读分片 → 服务器转发 →
-听众重组」，手工验证要开两个客户端 + 建房间 + 请求 DJ，成本极高且不可重复。
-现有一套虚拟客户端工具，说**真协议**（字段逐条对照
-`src-tauri/src/commands/music_sync.rs`）打**真服务器**：
-
-```bash
-cd scripts/p2p-test && npm install
-node transfer-test.mjs --scenario all                        # 中转/扇出/续传/wait_all + SHA-256 校验
-node transfer-test.mjs --scenario listener-only --room <id>  # 真实应用当 DJ，虚拟听众拉歌
-```
-
-实测基线（中转 ≈0.28 MB/s、瓶颈在中转而非客户端、多听众未去重等）与已知限制见
-[`scripts/p2p-test/README.md`](./scripts/p2p-test/README.md) 与
-[`docs/STUDY_ROOM_ARCHITECTURE.md`](./docs/STUDY_ROOM_ARCHITECTURE.md) §7。
-
-### 3.4 🤖 安卓端（**独立仓库**）
-
-**代码不在本仓库**：`https://github.com/liaowenqi123/PomoSolo-Android`
-本机路径：`C:\Users\admin\AndroidStudioProjects\pomodoro`
-
-**它是 Kotlin + Jetpack Compose 原生应用（v1），不是 WebView 壳。**
-（本仓库 `README.md` / `TEAM_GUIDE.md` 里"v0 WebView 壳"的说法**已过时** ——
-该方案已从安卓仓库移除，只留在它的 git 历史里。以安卓仓库 README 为准。）
-
-```bash
-# 构建 + 安装 + 启动（MuMu 竖屏设备）
-$AND = 'C:\Users\admin\AndroidStudioProjects\pomodoro'
-$ADB = 'C:\Users\admin\AppData\Local\Android\Sdk\platform-tools\adb.exe'
-& "$AND\gradlew.bat" -p $AND assembleDebug
-& $ADB -s 127.0.0.1:16448 install -r "$AND\app\build\outputs\apk\debug\app-debug.apk"
-& $ADB -s 127.0.0.1:16448 shell am start -n com.pomogrow.pomosolo/.MainActivity
-
-# 截图 + UI 层级审计（用本仓库的工具）
-npm run ui:android
-```
-
-**设备端口规则**：MuMu 从 `16384` 起，每多开一个实例 **+32**。
-`16448` = 竖屏手机（长期用它做 UI 验证）；`16480` = 横屏，**需先 `adb connect`**。
-
-**协作边界**：
-- **共享**：产品功能定义、服务器接口（REST/WS/P2P）、账号体系 → **接口改动必须同步 `server-planning/`**；
-- **参考不复制**：桌面端 Vue/Rust 源码只作界面/交互参考，不 copy；
-- 提交也要带部门声明 `[安卓端部门]`。
-
-> **在安卓仓库内**自己维护：`README.md`（现状）、`docs/CHANGELOG.md`（逐轮改版记录）、
-> `docs/TEST-ENV.local.md`（已 gitignore，设备与测试账号）。
-> 即 `C:\Users\admin\AndroidStudioProjects\pomodoro\docs\` 下，**不在本仓库**。
-> 本机视角的完整备忘见 **`.local/ANDROID.md`**。
-
----
-
-## 4. 本机 / 服务器专属信息在 `.local/`
-
-**本文件（AGENTS.md）是真相层，`.local/` 是加速层** ——
-缺了 `.local/` 项目照样能跑通、能发版，只是要重新查一遍环境。
-
-| 文件 | 内容 |
-|------|------|
-| `.local/README.md` | ★ 契约（唯一入库文件）：放什么、不放什么、怎么用 |
-| `.local/MACHINE.md` | 本机工具链路径、可用浏览器、adb、CI runner、缓存目录、网络坑 |
-| `.local/SERVER.md` | 服务器 SSH / 部署目录 / 容器 / 数据库 / 域名 |
-| `.local/SECRETS.md` | 敏感物清单 + **位置**（不写值） |
-| `.local/ACCOUNTS.md` | 测试账号与联调前置 |
-| `.local/ANDROID.md` | 安卓仓库路径、构建/安装/截图命令、设备表 |
-| `.local/RELEASE.md` | 发版前置条件、版本号 6 处同步、红线核验、本机网络坑 |
-
----
-
-## 5. 硬约束（改代码前必读）
-
-来自 `TEAM_GUIDE.md` §6，违反会引入诡异 bug：
-
-### UI 与样式
-- **圆角统一 20px**；`.container` 需 `border-radius:20px` + `overflow:hidden` 裁剪内部元素；
-- **z-index 必须用 `global.css` 的 CSS 变量**（`--z-base` / `--z-modal` / …），**禁止 magic number**；
-- **深色容器内文字用显式亮色**，**禁用 `var(--text-color)`**（它跟随主题，亮色主题下会变黑字黑底）；
-- **Modal 风格统一**：`#1a1a1a` 背景 + 白字 + `.app-modal-overlay` 遮罩；
-- **不要给 `.main-content` 加 `overflow:hidden` / `z-index:1`** —— 会物理裁剪弹窗、破坏层叠上下文。
-
-### Rust ↔ 前端对齐
-- **Tauri 命令返回值序列化不做 camelCase 自动转换**（只有参数做）→
-  Rust 结构体字段名必须与前端 JS 读取名**严格对齐**；需要 camelCase 时显式加
-  `#[serde(rename_all = "camelCase")]`（历史教训：字段名不匹配导致整个面板渲染崩溃）。
-
-### 弹层 / 浮层的关闭语义（容易踩，务必遵守）
-
-- **用 `pointerdown`（或 `mousedown`）判定"点外部关闭"，禁止用 `click`**。
-  `click` 是 **mouseup 语义**：在面板内按下、移到面板外再松开，`click` 会在
-  共同祖先触发 → 面板被误关。典型受害场景是**拖拽**（把东西拖出去 /
-  从外面拖进来）、以及"按下了又不想点、往外滑走再松手"。
-  用 `mousedown`/`pointerdown` 就没有这个问题：面板内按下 → 不关（不论在哪松手）；
-  面板外按下 → 立刻关（响应也更跟手）。
-- **`in-app 面板` 不做"窗口失焦自动关"** —— 只提供「按下外部 + Esc」两种零瞄准退出。
-  只有**独立窗口**语义的才需要失焦关闭。要做失焦关闭时，同样必须是
-  **在窗口外按下鼠标**、而不是在窗口外松开鼠标（理由同上）。
-- Esc 的层级：全屏层 → 先收回上一层 → 再按一次才关闭。
-
-### 工程约定
-- 音乐下载/播放**必须是纯 Rust**，禁止引入 Python（you-get.exe / manual_downloader.exe）或 ffmpeg.exe；
-- 临时文件放 `temp-debug/`；本机长期配置放 `.local/`；**不要散落在正式代码目录**；
-- 不要为了"统一"去改 `deprecated/` 下的代码 —— 它是冻结的历史参考。
-
-### ⚠️ 已知坑：跑应用会改写 `music-player/music/tags.json`
-
-**dev 模式启动应用后，它会把这个已跟踪的文件从 v1 格式迁移成 v2**
-（`_customTags` + 字符串值 → `{name,color}` 对象；v4.8 音乐库升级引入）。
-后果：`git status` 里总是多出一个改动，`git add -A` 会顺手把它提交进去。
-
-**已装好入库的 git 钩子来拦这件事 —— 克隆后需各人执行一次：**
-
-```bash
-git config core.hooksPath scripts/git-hooks
-```
-
-> 这条命令同时会装上下面的**留言板提示钩子**（`post-merge` / `pre-push`），见 §6「工作前后看留言板」。
-
-装了之后，若提交里包含 `tags.json` 且提交信息没提它，会被拦下并给出三种处理方式。
-需要有意提交 v2 迁移时：提交信息里写「tags.json」/「音乐库迁移」，或
-`SKIP_TAGS_GUARD=1 git commit ...`。
-
-- 若不慎已提交：`git restore --source=HEAD~1 --staged --worktree music-player/music/tags.json` 再 `git commit --amend`；
-- **根治办法**（尚未实施）：让应用把运行时音乐元数据写到 app data 目录，
-  而不是仓库里的 `music-player/music/`；或在 dev 模式下把该文件指向临时副本。
-
----
-
-## 6. 工作流（改完怎么交付）
-
-```
-认领任务 → 建分支 → 开发 → 本地测试 → 截图核对 UI → 更新文档 → commit（带部门声明）
-  → push origin + self → 合并/PR → 发版（可选）
-```
+- 服务器访问 GitHub 慢，部署从 `self` 拉；**只推一边会造成线上与仓库不一致**。
+- `self` 可能被服务器部门直接提交而领先 → **严禁 force push main**；
+  正确做法：`git merge origin/main --no-edit` 产生 merge commit 再 push。
+- 不要攒多个 commit 一起推，更不要只 commit 不 push 过夜。
 
 ### 部门声明（强制）
-每次正式输出都要声明部门，格式 `[部门] 类型: 描述`：
+
+格式 `[部门] 类型: 描述`：
 
 | 部门 | 代号 | 默认？ |
-|------|------|--------|
+|---|---|---|
 | 主部门 | `主部门` | ✅ 默认（未声明即主部门） |
 | 服务器部门 | `服务器部门` | |
 | PWA 部门 | `PWA部门` | |
@@ -352,142 +123,107 @@ git config core.hooksPath scripts/git-hooks
 
 类型前缀：`feat:` / `fix:` / `docs:` / `refactor:` / `style:` / `chore:` / `perf:`；描述用中文。
 
-```bash
-git commit -m "[主部门] fix: 修复计时器暂停后时间重置的问题"
-```
+### 文档与版本（防漂移）
 
-### 双仓库推送（强制，每次工作完立即推）
-```bash
-git push origin main && git push self main
-```
-> 不要攒多个 commit 一起推，更不要"只 commit 不 push"过夜 ——
-> 服务器部署依赖 `self`，GitHub CI/Release 依赖 `origin`。
-> ⚠️ `self` 裸仓可能被服务器部门直接提交而领先于 `origin` →
-> **严禁 force push main**，正确解法：`git merge origin/main --no-edit` 产生 merge commit 再 push。
+- **改代码必须同步改文档**；文档落后于代码时禁止发版。
+- **手写文档不写当前版本号、测试数量、目录树、模块清单**：
+  - 整体结构/版本：`npm run docs:map` → [`docs/PROJECT_MAP.md`](docs/PROJECT_MAP.md)；
+  - 一致性检查：`npm run docs:check`；
+  - 版本号六处一致：`npm run versions:check`。
+- 根 README / 本文件由 `docs:check` 拦截“手写版本/数量”。
+- 历史文档必须有 `> 状态：历史` 横幅；状态表见 [`docs/README.md`](docs/README.md)。
 
-### ★ 工作前后看留言板（跨 Agent 沟通）
+### 目录与临时文件
 
-**问题不只存在于代码里。** 多个部门 / 多个 Agent 并行推进时，
-"这个坑我已经踩过了"、"这个接口还没定"、"这个 bug 我在查" 常常只活在
-某个 Agent 的上下文里 —— 不写下来，下一个人就要重新踩一遍。
+- 临时文件放 `temp-debug/`；本机长期配置放 `.local/`；不要散落在正式代码目录。
+- `.local/` 是**加速层**：缺了它项目照样能跑，只是要重新查环境；
+  真相永远在入库文件里。
+- 不要为了“统一”去改 `deprecated/` 下的代码。
 
-**留言板 `https://board.pomogrow.top` 就是这条异步通道**：谁遇到问题就开一帖，
-别人（人或 AI）在下面讨论、评价，状态跟着推进走。
+### 跨部门接口
 
-```
-工作开始 → npm run board:digest   （看有没有人已经答了 / 有没有坑）
-工作结束 → npm run board:digest   （把新结论、新坑、待办写回去）
-```
+- 接口/协议（REST/WS/P2P/更新源）的唯一权威索引是
+  [`server-planning/EXTERNAL-INTERFACES.md`](server-planning/EXTERNAL-INTERFACES.md)；
+- 改接口 → 同步 `EXTERNAL-INTERFACES.md` + `API-implementation.md`，
+  并在留言板留痕；
+- 服务器代码改动必须留痕（文档或 `self` 仓 commit），否则客户端看不到变更。
 
-**pull 后 / push 前会自动打印一次**（`post-merge` / `pre-push` 钩子，永不阻断 git）。
-装了 `core.hooksPath` 就有（见 §5）。想临时关掉：`BOARD_HOOKS=0`。
+### 各目录的红线（动手前读对应 README）
 
-```bash
-npm run board:digest                                    # 待办速览
-npm run board:list                                      # 项目 + 状态统计
-npm run board -- read 1                                 # 看某帖全文 + 评论
-npm run board -- post --title "标题" --body "正文"       # 发帖
-npm run board -- comment 1 --body "看法" --kind answer   # 评论
-npm run board -- status 1 done --note "已修复"           # 改状态
-```
-
-**二级结构**：项目（第一级，如 `pomosolo` = 番茄钟）→ 帖子（第二级）→ 评论。
-**状态**：`open` 待处理 / `discussing` 讨论中 / `pending_review` 待评价 /
-`pending_done` 待完成 / `done` 已完成 / `archived` 已归档。
-**人也能看**：浏览器直接打开 <https://board.pomogrow.top>，读是公开的。
-
-> 接口契约（REST，别的 Agent 可直接调）见
-> [`server-planning/EXTERNAL-INTERFACES.md`](./server-planning/EXTERNAL-INTERFACES.md)，
-> 人类向说明见 [`README.md`](./README.md) 「Agent 留言板」一节。
-> 服务器侧细节（路由机制 / 全部子域名 / 证书链路）见 `.local/SERVER.md`。
-
-### 文档同步（铁律）
-**改代码必须同步改文档**，文档落后于代码时**禁止发版**：
-
-| 改了什么 | 必须同步更新 |
-|---------|-------------|
-| 接口/协议（REST/WS/P2P） | `server-planning/API-implementation.md` + `EXTERNAL-INTERFACES.md` |
-| 模块架构/流程 | `docs/` 下对应架构文档 |
-| 功能行为 | `README.md` 功能列表 + `docs/FEATURES.md` |
-| Bug 修复 | `docs/BUGFIX_RECORDS.md` |
-| 安全相关 | `docs/SECURITY.md` |
-| **仓库结构 / 协作边界** | **本文件 `AGENTS.md`** |
-
-### 发版
-发版流程与红线见 `TEAM_GUIDE.md` §16 与 **`.local/RELEASE.md`**。
-**最重的一条红线**：改动过更新链路（版本解析/下载/验签）后，
-必须用**真实发布物**做端到端验签，**禁止只依赖单测**
-（历史教训：签名验证 bug 导致老用户只能手动卸载重装）。
+- **UI**：圆角、z-index 变量、深色容器亮色文字、Modal 风格、
+  `pointerdown` 关闭语义、`.main-content` 裁剪坑 → [`src/README.md`](src/README.md)；
+- **Rust**：纯 Rust 音频/下载/前台检测，禁止 Python/ffmpeg；
+  返回值 serde 字段严格对齐 → [`src-tauri/README.md`](src-tauri/README.md)；
+- **PWA**：真实复用、不 copy；浏览器 shim 是唯一传输层替换点 →
+  [`src/pwa/README.md`](src/pwa/README.md)；
+- **服务器接口**：线上实现与历史草案的边界 →
+  [`server-planning/README.md`](server-planning/README.md)。
 
 ---
 
-## 7. 文档地图
+## 4. 工作流
 
-### 必读
-| 文档 | 说明 |
-|------|------|
-| **本文件 `AGENTS.md`** | ★ agent/新人入口：四端导航 + 入库边界 + 硬约束 |
-| `TEAM_GUIDE.md` | 团队协作权威：部门分工、工作流、双仓库、红线（737 行） |
-| `README.md` | 项目总览、技术栈、快速开始、项目结构 |
-| `tools/ui/README.md` | UI 取证工具用法 |
-| `.local/README.md` | 本地私密区契约 |
+```
+看板/留言板 → 读对应目录 README → 建分支 → 开发
+  → 本地测试 → UI 截图核对 → 更新文档 → docs:check
+  → commit（带部门声明）→ push origin + self → 留言板留结论
+```
 
-### 架构与模块
-| 文档 | 说明 |
-|------|------|
-| `docs/ARCHITECTURE.md` | 整体架构详解 |
-| `docs/FEATURES.md` | 功能清单 |
-| `docs/modules/` | 模块级文档（music-player、garden、sidebar-and-modes、cloud-and-charts、window-system、modal-system） |
-| `docs/SECURITY.md` | 安全设计（加密、认证、Token） |
-| `docs/STUDY_ROOM_ARCHITECTURE.md` | 自习室架构 |
-| `docs/GARDEN_DATA_ARCHITECTURE.md` | 菜园子数据架构 |
-| `docs/AUTO_UPDATE_DESIGN.md` | 自实现更新器设计 |
+1. **开工前**：`npm run board:digest`，看有没有人已经答了 / 有没有坑；
+2. **改 UI 前**：先 `npm run ui:shot -- --target desktop`（或对应配方），
+   问题会直接打在终端；用法见 [`tools/ui/README.md`](tools/ui/README.md)；
+3. **改代码后**：跑对应测试（前端 `npm test`，后端 `cd src-tauri && cargo test --lib`）；
+4. **提交前**：`npm run docs:check`；改了结构/版本先 `npm run docs:map`；
+5. **提交**：`[主部门] fix: ...`，配套文档同 commit；
+6. **推送**：`git push origin main && git push self main`；
+7. **收工**：把新结论/新坑/待办写回留言板（`npm run board -- post/comment/status`）。
 
-### 排错与历史
-| 文档 | 说明 |
-|------|------|
-| `docs/BUGFIX_RECORDS.md` | Bug 修复记录（修 Bug 必须追加） |
-| `docs/TAURI_MIGRATION_PITFALLS.md` | Tauri 迁移踩坑总录 |
-| `docs/SUBPROCESS_ORPHAN_ISSUE.md` | 子进程孤儿问题 |
-| `docs/MIGRATION.md` | Electron → Tauri 迁移对照表 |
-| `deprecated/README.md` | 归档说明与体积记录 |
-
-### ⚠️ 历史文档（已加横幅标注，不要照着改代码）
-| 文档 | 问题 |
-|------|------|
-| `docs/DEVELOPER_GUIDE.md` | **大部分是 Electron + Supabase 时代内容**，目录结构/模块/进程通信/构建打包均与实际不符。唯一仍有价值的是本地 runner 与缓存目录那段 |
-| `docs/MODAL_SYSTEM.md` | 描述**旧 Electron 弹窗系统**（`modal.js` / `AnimatedModal` / `window.modalManager`）。当前 Vue 弹窗见 `docs/modules/modal-system.md` |
-| `docs/SUBPROCESS_ORPHAN_ISSUE.md` | 分析**旧 Electron + Python 子进程残留**。当前是纯 Rust、无 Python 子进程，**该问题不可能发生** |
-| `README.md` / `TEAM_GUIDE.md` 里的安卓端描述 | 曾经说"v0 WebView 壳"，**实际已是原生 v1**（已于 2026-09 修正，若再见到旧表述属遗漏） |
-
-### 服务器
-`server-planning/` 全部 9 个文件，入口是 `EXTERNAL-INTERFACES.md`。
+> 克隆后先装钩子（`tags.json` 防误提交 + 留言板提示）：
+> `git config core.hooksPath scripts/git-hooks`。
+> 钩子永不阻断 git；临时关闭用 `BOARD_HOOKS=0`。
 
 ---
 
-## 8. 常见任务速查
+## 5. 常用命令（只列根级）
 
-| 我想… | 怎么做 |
-|-------|--------|
-| 看 UI 现在长什么样 | `npm run ui:shot -- --target desktop`（**问题会直接打在终端**） |
-| 看某个面板 | `npm run ui:shot -- --recipe desktop-panels` |
-| 核对真机效果 | `npm run tauri:dev` 另开终端 → `npm run ui:desktop` |
-| **验证点击真的能用** | `npm run ui:drive -- --recipe desktop-quick`（真实窗口 + UIA 点击 + 校验） |
-| 查真实点击热区 | `npm run ui:drive -- --recipe desktop-plain`（看终端的热区审计） |
-| 查手机端 | `npm run ui:android`（先开模拟器） |
-| **测多客户端传歌**（不开客户端） | `cd scripts/p2p-test && npm install && node transfer-test.mjs --scenario all` |
-| **工作前后看留言板** | `npm run board:digest`（pull 后 / push 前自动提示，见 §6） |
-| **提问 / 报坑 / 记待办** | `npm run board -- post --title "..." --body "..."` |
-| 看全部子域名 / 服务器路由机制 | `.local/SERVER.md`（或服务器上 `/home/ubuntu/README.md`） |
-| 改样式 | 改 `src/styles/global.css` token 或组件 scoped 样式 → 截图核对 |
-| 加一个 Tauri 命令 | 见 §3.1 四步（**别忘了 `lib.rs` 注册**） |
-| 改服务器接口 | 改 `server-planning/EXTERNAL-INTERFACES.md` + 留言区，然后通知服务器部门 |
-| 改安卓端 | 切到 `C:\Users\admin\AndroidStudioProjects\pomodoro`，见 §3.4 |
-| 跑测试 | `npm test` + `cd src-tauri && cargo test --lib` |
-| 发版 | `TEAM_GUIDE.md` §16 + `.local/RELEASE.md` |
-| 找密钥 | `.local/SECRETS.md`（只有位置，没有值） |
-| 找本机路径 | `.local/MACHINE.md` |
+```bash
+npm install
+npm run tauri:dev                  # 桌面端开发（含 Rust）
+npm run dev                        # 仅前端 Vite
+npm test                           # 前端 Vitest
+npm run tauri:build                # 构建安装包
+npm run docs:map                   # 生成整体结构总览
+npm run docs:check                 # 文档/版本/README 一致性
+npm run versions:check             # 六个版本值一致性
+npm run board:digest               # 留言板待办速览
+npm run ui:shot -- --target desktop
+```
+
+前端/后端/PWA/UI 的完整命令见各自 README；不要在本文件复制。
 
 ---
 
-*本文件由主部门维护。仓库结构、协作边界、入库规则变化时，请同步更新本文件并 commit + push 双仓库。*
+## 6. 版本与“整体内容”的单一来源
+
+| 内容 | 唯一来源 |
+|---|---|
+| 桌面端版本 | `package.json` + `src-tauri/Cargo.toml` + `src-tauri/tauri.conf.json` + 两个 lock；`npm run versions:check` |
+| PWA 版本 | `src/pwa/config.ts` 的 `PWA_VERSION`（独立，只在发布 PWA 时改） |
+| 目录结构 / 模块清单 / 代码规模 | `npm run docs:map` → [`docs/PROJECT_MAP.md`](docs/PROJECT_MAP.md) |
+| 对外接口 | [`server-planning/EXTERNAL-INTERFACES.md`](server-planning/EXTERNAL-INTERFACES.md) |
+| 当前任务 / 跨 Agent 讨论 | <https://board.pomogrow.top> |
+
+> 发布 badge 用 GitHub 动态版本，不再在 README 写死版本号。
+
+---
+
+## 7. 历史文档
+
+[`docs/README.md`](docs/README.md) 有完整的“当前 / 草案 / 历史”状态表。
+典型历史文档：`DEVELOPER_GUIDE.md`（Electron + Supabase）、`MODAL_SYSTEM.md`
+（旧 Electron 弹窗）、`SUBPROCESS_ORPHAN_ISSUE.md`（旧 Python 子进程）。
+它们只作背景，**不要照着改代码**。
+
+---
+
+*本文件由主部门维护。仓库结构、协作边界、入库规则变化时，请同步更新并 commit + push 双仓库。*

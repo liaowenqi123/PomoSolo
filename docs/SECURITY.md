@@ -1,6 +1,8 @@
 # PomoSolo 安全设计
 
-> 本文档描述 PomoSolo v4.0（Tauri v2 + Vue 3）的安全机制、与旧版 Electron 的对比、已知限制和威胁模型。
+> **状态：当前**
+> 本文档描述 PomoSolo（Tauri v2 + Vue 3 + Rust）的安全机制、与旧版 Electron 的对比、
+> 已知限制和威胁模型。版本号不在这里写死。
 
 ---
 

@@ -1,6 +1,6 @@
 # PomoSolo PWA（PWA部门）
 
-> 部门：PWA部门 ｜ 状态：v1 开发中 ｜ 部署：`start.pomogrow.top`（等服务器部门）
+> 部门：PWA部门 ｜ 状态：开发中 ｜ 部署：`start.pomogrow.top`
 
 桌面优先的 PWA：**核心计时 + 音乐播放/标签/同步听歌 + 设置 + 教程 + 自习室（含 P2P 传歌）+ 侧栏统计计数**。
 砍去：菜园子、专注模式/前台检测、统计/图表面板、AI、窗口/迷你模式、B站下载（排队中）。
@@ -55,8 +55,8 @@ src/
     ├── public/
     │   ├── manifest.webmanifest  PWA 清单
     │   ├── icons/                128 / 512 图标
-    │   ├── tracks/               3 首内置主题曲（离线可播）
-    │   └── music-manifest.json   音乐清单（构建时生成，41 首）
+    │   ├── tracks/               内置主题曲（离线可播）
+    │   └── music-manifest.json   音乐清单（构建时由脚本扫描生成）
     └── scripts/
         └── generate-music-manifest.mjs  读 music-player/music + tags.json → 清单
 ```
@@ -84,7 +84,7 @@ PWA 自己的引擎/WS 客户端经 `eventBus.ts` 喂给 `listen()`，MusicPlaye
 与桌面端完全一致。
 
 ### 音乐（浏览器缓存策略）
-- 3 首主题曲内置（`/tracks/`），**离线可播**；
+- 内置主题曲随构建发布（`/tracks/`），**离线可播**；
 - 其余曲目走服务器曲库 `/music/`，播放即进 Cache Storage（`pomo-pwa-music-v1`），缓存后离线可听；
 - SW 只预缓存外壳（排除 mp3），避免首屏 14.5MB 拖慢；
 - 标签改动存 localStorage，与桌面端互不影响；
@@ -150,14 +150,14 @@ PWA 外壳是**流式全窗口布局**（不做整壳缩放），按断点分级
 
 - 无 Rust 能力：无本地文件系统/前台检测/系统通知（`window.showNotification` 用浏览器 Notification）；
 - 认证：**不保存明文密码**，靠 refresh token（30 天滚动）自动登录；
-- 服务器曲库未托管前，library 歌曲播放失败（内置 3 首不受影响）；
+- 服务器曲库未托管前，library 歌曲播放失败（内置曲不受影响）；
 - 登录态变化时 WS 自动用新 token 重连；登出调用 `ws.disconnect()`；
-- **WS 自动 wss**（v0.1.1）：HTTPS 页面或后端为 https 时自动 `wss://`（与主部门 v4.7.12 修 Rust 侧 TLS 为同源问题）；
+- **WS 自动 wss**：HTTPS 页面或后端为 https 时自动 `wss://`（与桌面端 Rust 侧 TLS 为同源问题）；
 - 开发默认指向 `https://api.pomogrow.top`（后端权威域名），联调需服务器 CORS（见 PWA-requirements P2）。
 
 ## 测试
 
-- PWA 复用层的逻辑由桌面端 vitest 套件覆盖（`npm test`，61 文件 1227 用例全绿）；
+- PWA 复用层的逻辑由桌面端 vitest 套件覆盖；运行 `npm test` 查看实际结果；
 - 传歌 P2P 的**事件时序**有专门用例锁定（`src/stores/__tests__/music.test.ts`
   「加入房间快照」组：`music:state`/`music:sync_state` 先于 `music:dj_changed` 到达时必须仍带
   `p2p` 标志请求，且只发一次；身份始终不来时上限内降级中转；等待期间切歌则不发过期请求）；

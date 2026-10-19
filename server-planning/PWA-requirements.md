@@ -1,7 +1,12 @@
 # PWA 部署与对接要求（给服务器部门）
 
+> **状态：草案 / 部分落地（2026-08）** —— Nginx 段是历史参考。
+> 线上没有 Nginx：静态文件、REST、WebSocket 都由 Python 服务按 `Host` 分发。
+> 当前接口与部署事实以 [`EXTERNAL-INTERFACES.md`](./EXTERNAL-INTERFACES.md) 与
+> [`API-implementation.md`](./API-implementation.md) 为准。
+>
 > 部门：PWA部门 —— 2026-08
-> 关联文档：`EXTERNAL-INTERFACES.md`（接口协议总表）、`nginx.conf`（现有反代配置）
+> 关联文档：`EXTERNAL-INTERFACES.md`（接口协议总表）、`nginx.conf`（历史反代配置，仅参考）
 
 ## 1. 背景
 
@@ -15,7 +20,7 @@ PomoSolo 推出 **桌面优先的 PWA 版**，代码在 `src/pwa/`（与桌面�
 
 - PWA 构建产物：`npm run pwa:build` → 输出到仓库根 **`pwa-dist/`**（当前约若干 MB，含 3 首内置主题曲）。
 - 内置离线能力：3 首番茄钟主题曲随构建发布（`/tracks/`），**离线可播**。
-- 其余 38 首曲库歌曲：来源标记为 `library`，播放时请求 **`/music/<URL编码的歌名>`**（同源）。
+- 其余曲库歌曲：来源标记为 `library`，播放时请求 **`/music/<URL编码的歌名>`**（同源）。
 - 登录/自习室/同步听歌/云同步：走既有 `/api/v1/*` REST + `/ws` WebSocket，**协议与桌面端完全一致**（见 EXTERNAL-INTERFACES.md），PWA 端已实现，只等域名/HTTPS 就绪即可用。
 - **WS 协议跟随安全上下文**：PWA 端已修复"HTTPS 页面发起 ws:// 被浏览器拒绝"问题（v0.1.1，
   与主部门 v4.7.12 修 Rust 侧 TLS 同源）——页面为 HTTPS 或后端为 https 时自动走 **wss://**。
@@ -25,7 +30,8 @@ PomoSolo 推出 **桌面优先的 PWA 版**，代码在 `src/pwa/`（与桌面�
 
 ### P0 · 域名 + HTTPS + 静态托管（启动 PWA 的前提）
 
-1. 为 **`start.pomogrow.top`** 配置 DNS（CNAME/A 记录 → `115.159.49.112`）与 Nginx vhost。
+1. 为 **`start.pomogrow.top`** 配置 DNS（CNAME/A 记录 → `115.159.49.112`）与静态托管
+   （当前由 Python 服务按 `Host` 分发；下方 Nginx vhost 仅历史参考）。
 2. **必须启用 HTTPS**（Let's Encrypt 等）：Service Worker / PWA 安装 / `crypto` 能力强制要求安全上下文，
    否则"添加到主屏幕"与离线能力不可用。
 3. 将 **`pwa-dist/`** 目录作为该站点根目录托管（`index.html` 在根）。
@@ -133,11 +139,11 @@ location / {
 | 静态 | `/music/*` | 曲库（P1） |
 | 静态 | `/tracks/*` | 内置主题曲（随 PWA 发布） |
 | 静态 | `/music-manifest.json` | 音乐清单（随 PWA 发布） |
-| 静态 | `/health` | 健康检查 |
+| 静态/API | `/api/health` | 健康检查（不在 `/api/v1` 下） |
 
 ## 5. 验收标准
 
-1. `https://start.pomogrow.top/` 可打开 PWA，可"添加到主屏幕"，离线（断网）仍能打开外壳并播放 3 首内置曲。
+1. `https://start.pomogrow.top/` 可打开 PWA，可"添加到主屏幕"，离线（断网）仍能打开外壳并播放内置曲。
 2. `/music/渡口 - 蔡琴.mp3` 可直链播放。
 3. 登录 / 自习室 / 同步听歌 / 云同步在该域名下与桌面端行为一致。
 4. 开发模式下 `127.0.0.1:5199` 能跨域联调（P2）。
@@ -146,6 +152,7 @@ location / {
 
 - 构建：`npm run pwa:build`（先 `pwa:manifest` 生成清单 → `vue-tsc` 类型检查 → `vite build`）。
 - 产物目录：**`pwa-dist/`（已在 .gitignore，不入库）**——建议**服务器自行构建**：
-  服务器拉取仓库后 `npm ci && npm run pwa:build`，再把 `pwa-dist/` 拷到 vhost 根（或 nginx `root` 直接指向 `pwa-dist/`）。
-- 构建产物清单：`index.html`、`assets/*`、`sw.js`、`workbox-*.js`、`manifest.webmanifest`、`music-manifest.json`、`icons/`、`tracks/`（3 首内置曲）。
+  服务器拉取仓库后 `npm ci && npm run pwa:build`，再把 `pwa-dist/` 拷到静态托管根目录
+  （当前线上由 Python 服务按 `Host` 分发；旧 Nginx `root` 写法仅参考）。
+- 构建产物清单：`index.html`、`assets/*`、`sw.js`、`workbox-*.js`、`manifest.webmanifest`、`music-manifest.json`、`icons/`、`tracks/`（内置曲）。
 - ⚠️ 若服务器上 `npm ci` 拉不到依赖（离线内网），可改由 PWA 部门在本地构建后把 `pwa-dist/` 压缩包交付（不走 git）。

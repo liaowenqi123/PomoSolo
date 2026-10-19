@@ -1,0 +1,32 @@
+name: Docs
+
+# 主 CI 对 **/*.md 做了 paths-ignore；这里单独跑轻量文档检查，
+# 防止根 README/AGENTS 又写死版本号/测试数，或 PROJECT_MAP.md 过期。
+on:
+  push:
+    paths:
+      - "**/*.md"
+      - "scripts/docs/**"
+      - "scripts/release/**"
+      - "package.json"
+      - ".github/workflows/docs.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    name: Docs consistency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 脚本只用 Node 内置模块，不需要 npm ci
+      - name: Check docs / versions
+        run: node scripts/docs/check-docs.mjs

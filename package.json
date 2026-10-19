@@ -23,6 +23,9 @@
     "ui:drive": "node tools/ui/desktop-drive.mjs",
     "ui:android": "node tools/ui/android-shot.mjs",
     "ui:selftest": "node tools/ui/lib/_selftest.mjs && node tools/ui/lib/_android-audit-selftest.mjs",
+    "docs:map": "node scripts/docs/generate-project-map.mjs",
+    "docs:check": "node scripts/docs/check-docs.mjs",
+    "versions:check": "node scripts/release/check-versions.mjs",
     "board": "node scripts/board/board.mjs",
     "board:digest": "node scripts/board/board.mjs digest",
     "board:list": "node scripts/board/board.mjs list"
