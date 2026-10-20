@@ -63,7 +63,7 @@ flowchart LR
 | Vue 组件 | 38 | `src/components/**/*.vue` |
 | Tauri command 文件 | 15 | `src-tauri/src/commands/*.rs` |
 | Rust module 文件 | 7 | `src-tauri/src/modules/*.rs` |
-| 前端测试文件 | 61 | `src/**/*.test.ts` |
+| 前端测试文件 | 65 | `src/**/*.test.ts` |
 
 > 这里只统计结构规模，不代替测试结果。测试请运行 `npm test` / `cargo test --lib`。
 

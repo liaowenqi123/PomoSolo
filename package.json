@@ -21,6 +21,7 @@
     "ui:shot": "node tools/ui/shot.mjs",
     "ui:test": "node tools/ui/regression.mjs",
     "ui:check": "node scripts/check-ui-conventions.mjs",
+    "ui:styles": "node tools/ui/style-coverage.mjs",
     "ui:desktop": "node tools/ui/desktop-shot.mjs",
     "ui:drive": "node tools/ui/desktop-drive.mjs",
     "ui:android": "node tools/ui/android-shot.mjs",

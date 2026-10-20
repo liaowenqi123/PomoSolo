@@ -138,8 +138,41 @@
 **验证**：
 - `npm run ui:check` 通过（43 个 Vue/CSS 文件、13 个 z token）；
 - `npm run ui:test` 11/11 通过；
-- `npm test` 61 文件（含新增契约测试）全过；
+- `npm test` 65 文件 / 1276 例全过（后续测试补齐后）；
 - `ui:shot --recipe desktop-music-library --show-scrollbars` 可人工核对滚动条。
+
+### 34. 明确端优先级：桌面 > 安卓 > PWA（主部门）
+
+**背景**：PWA 长期被当成“第三款正式产品”描述，实际它只是苹果生态（iOS/iPadOS
+装不了桌面端）的妥协替代品，不应反过来影响桌面端。
+
+**落文档**：
+- `README.md` 首屏增加一行优先级；
+- `AGENTS.md` §0 增加优先级列 + 硬约束段；
+- `TEAM_GUIDE.md` §2 增加“端优先级（硬约束）”表；
+- `src/README.md` §6 与 `src/pwa/README.md` 顶部同步；
+- `vitest.config.ts` 的 coverage 明确排除 `src/pwa/**`，不让 P2 稀释桌面端覆盖率。
+
+### 35. 测试补齐：组件/API 单测 + 覆盖率门禁 + CSS 使用率报告（主部门）
+
+**新增测试**：
+- `MusicTagModal.test.ts` 12 例：标签选择、自定义长度/重名/空、颜色、删除、遮罩/Esc；
+- `WheelPicker.test.ts` 5 例：渲染、滚轮、disabled、min/max clamp、外部值同步；
+- `p2pTest.test.ts` 5 例：在线列表/请求/反向/双向/结果上报；
+- `musicLibraryApi.test.ts` 7 例：peek/auto-next/play-at、集合、移动、标签、目录、P2P 分片。
+
+**覆盖率**：
+- 分母排除 PWA、入口、类型、测试文件；
+- 阈值 statements/lines 85%、branches 80%、functions 75%；
+- 当前 85.78% / 81.42% / 76.73%（1276 例）。
+
+**样式覆盖**：
+- 新增 `npm run ui:styles`（`tools/ui/style-coverage.mjs`）：CDP
+  `CSS.startRuleUsageTracking` 统计主要界面状态下的 CSS 规则命中率，
+  输出 `temp-debug/style-coverage/` 报告；
+- CSS 命中率是**状态相关**指标，只诊断死样式、不作为门禁；
+- 样式硬门禁仍是 `npm run ui:check`（契约）与 `npm run ui:test`（行为）；
+- CI 测试 job 跑 `ui:styles`（`continue-on-error`）并上传报告 artifact。
 
 ---
 

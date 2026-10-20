@@ -11,13 +11,18 @@
 
 ## 0. 30 秒速览
 
-| 端 | 代码位置 | 在本仓库？ | 技术形态 |
-|---|---|---|---|
-| 🖥 **桌面端**（Windows） | `src/` + `src-tauri/` | ✅ | Tauri v2 + Vue 3 + 纯 Rust |
-| 📱 **PWA 端** | `src/pwa/`（复用 `src/`） | ✅ | Vite + Vue 3 + `vite-plugin-pwa` |
-| ☁️ **服务器端** | 服务器上维护；本仓库只有 `server-planning/` 文档 | ❌ | Python 标准库 + PostgreSQL（详见 `server-planning/README.md`） |
-| 🤖 **安卓端** | 独立仓库 [PomoSolo-Android](https://github.com/liaowenqi123/PomoSolo-Android) | ❌ | Kotlin + Jetpack Compose 原生 |
-| 💬 **Agent 留言板** | <https://board.pomogrow.top>；CLI 在 `scripts/board/` | CLI ✅ / 服务端 ❌ | Python + PostgreSQL |
+| 端 | 优先级 | 代码位置 | 在本仓库？ | 技术形态 |
+|---|---|---|---|---|
+| 🖥 **桌面端**（Windows） | **P0 · 最高** | `src/` + `src-tauri/` | ✅ | Tauri v2 + Vue 3 + 纯 Rust |
+| 🤖 **安卓端** | **P1 · 第二** | 独立仓库 [PomoSolo-Android](https://github.com/liaowenqi123/PomoSolo-Android) | ❌ | Kotlin + Jetpack Compose 原生 |
+| 📱 **PWA 端** | **P2 · 最低** | `src/pwa/`（复用 `src/`） | ✅ | Vite + Vue 3 + `vite-plugin-pwa` |
+| ☁️ **服务器端** | 支撑 | 服务器上维护；本仓库只有 `server-planning/` 文档 | ❌ | Python 标准库 + PostgreSQL（详见 `server-planning/README.md`） |
+| 💬 **Agent 留言板** | 支撑 | <https://board.pomogrow.top>；CLI 在 `scripts/board/` | CLI ✅ / 服务端 ❌ | Python + PostgreSQL |
+
+> **端优先级是硬约束：桌面端 > 安卓端 > PWA。**
+> PWA 不是第三款“正式产品”，而是**为苹果生态（iOS/iPadOS 无法安装桌面端）做的妥协替代品**；
+> 它复用 `src/` 只为降低维护成本，**不允许为了 PWA 牺牲桌面端体验、稳定性或发布节奏**。
+> 涉及取舍时，默认保桌面端；PWA 的构建/测试/兼容性优先级最低。
 
 **第一次进来按这个顺序读**：
 
@@ -192,6 +197,7 @@ npm install
 npm run tauri:dev                  # 桌面端开发（含 Rust）
 npm run dev                        # 仅前端 Vite
 npm test                           # 前端 Vitest
+npm run test:coverage              # 覆盖率门禁（PWA 不计入）
 npm run tauri:build                # 构建安装包
 npm run docs:map                   # 生成整体结构总览
 npm run docs:check                 # 文档/版本/README 一致性
@@ -200,6 +206,7 @@ npm run board:digest               # 留言板待办速览
 npm run ui:shot -- --target desktop
 npm run ui:check                   # UI 静态约定（滚动条/z-index/Modal）
 npm run ui:test                    # 无头 Edge UI 回归（发布前必跑）
+npm run ui:styles                  # CSS 规则命中率报告（只诊断，不门禁）
 ```
 
 前端/后端/PWA/UI 的完整命令见各自 README；不要在本文件复制。

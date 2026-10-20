@@ -61,9 +61,11 @@ Rust ↔ TS 字段对齐、序列化注意点见 [`../src-tauri/README.md`](../s
 ```bash
 npm run dev                 # Vite dev server（前端单独调试）
 npm test                    # Vitest
+npm run test:coverage       # 覆盖率（PWA 不计入；阈值 85/80/75）
 npx vue-tsc --noEmit        # 类型检查
 npm run ui:check            # 静态约定：滚动条唯一来源 / z-index magic number / Modal
 npm run ui:test             # 无头 Edge UI 回归：滚动条兜底、z-index 契约、右键/关闭
+npm run ui:styles           # CSS 规则命中率报告（状态相关，只诊断不门禁）
 npm run ui:shot -- --target desktop
 npm run ui:shot -- --recipe desktop-panels
 npm run ui:shot -- --recipe desktop-music-library --show-scrollbars  # 截图显示滚动条
@@ -73,7 +75,15 @@ npm run ui:shot -- --recipe desktop-music-library --show-scrollbars  # 截图显
 不要靠读 CSS 猜；历史上面板高度收缩、按钮被挤成两排、文字被裁、弹窗被祖先裁剪
 都是截图后才定位的。`ui:check` 与 `ui:test` 已接入 CI，发布前会拦住回归。
 
+**覆盖率口径**：`vitest.config.ts` 的分母只算桌面端可执行代码，排除 `src/pwa/**`
+（P2 最低，见 [`pwa/README.md`](pwa/README.md)）、入口文件、类型文件和测试文件；
+阈值 statements/lines 85%、branches 80%、functions 75%。CSS 没有传统“行覆盖率”语义，
+样式防线由 `ui:check`（契约）、`ui:test`（行为）、`ui:styles`（规则命中率报告）三层组成。
+
 ## 6. 与 PWA 的边界
+
+> **端优先级：桌面端（P0）> 安卓端（P1）> PWA（P2，最低）。**
+> PWA 只是苹果生态的妥协替代品；不要把 PWA 的兼容性/构建需求反向塞进桌面端核心路径。
 
 PWA 通过 Vite alias 把本目录的 `components/` / `stores/` / `api/` **原样编译**进 PWA。
 因此：

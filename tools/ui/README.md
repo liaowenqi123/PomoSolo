@@ -31,6 +31,7 @@
 | **Android** | `npm run ui:android` | 手机/模拟器画面 + UI 层级审计 | 安卓端（独立仓库）改完核对 |
 | **UI 回归** | `npm run ui:test` | 无头 Edge 断言：滚动条兜底、z-index 契约、右键/关闭 | **发布前必跑**；已接入 CI |
 | **UI 静态约定** | `npm run ui:check` | 滚动条唯一来源 / z-index magic number / Modal 契约 | 改 CSS 后先跑，秒级 |
+| **CSS 使用率报告** | `npm run ui:styles` | CDP 统计主要界面状态下命中的 CSS 规则，列出未命中选择器 | 排查死样式；**状态相关，不作门禁** |
 
 > **四者关系**：`ui:shot` 快、可编排、能摆任意状态，但数据是 mock；
 > `ui:desktop` 截真图但不动它；`ui:drive` **既截真图又真的点它**。
@@ -86,6 +87,7 @@ npm run ui:android
 # ⑧ 发布前 UI 回归（无头 Edge；CI 同款）
 npm run ui:check
 npm run ui:test
+npm run ui:styles   # 可选：CSS 规则命中率报告（不作门禁）
 ```
 
 **产物**：`temp-debug/ui-shots/<时间戳>-<标签>/`（已 gitignore）
@@ -333,6 +335,7 @@ tools/ui/
 ├── README.md                  ← 本文件
 ├── shot.mjs                   Web/PWA 截图 CLI（目标/视口/配方/mock/审计）
 ├── regression.mjs             ★ 发布前 UI 回归（滚动条/z-index/交互断言）
+├── style-coverage.mjs         CSS 规则命中率报告（诊断，不作门禁）
 ├── desktop-shot.mjs           Tauri 真窗口截图 CLI
 ├── desktop-drive.mjs          Tauri 真窗口**驱动** CLI（UIA 点击 + 校验 + 热区审计）
 ├── android-shot.mjs           Android 截图 + 层级审计 CLI

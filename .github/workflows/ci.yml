@@ -80,6 +80,19 @@ jobs:
       - name: UI regression (Edge headless)
         run: npm run ui:test
 
+      # CSS 规则命中率是状态相关指标：只产出报告，不作为门禁
+      - name: CSS rule usage report (advisory)
+        run: npm run ui:styles
+        continue-on-error: true
+
+      - name: Upload style coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: style-coverage-report
+          path: temp-debug/style-coverage/
+          retention-days: 14
+
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4

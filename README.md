@@ -3,6 +3,10 @@
 Windows 桌面番茄钟。桌面端是 Tauri v2 + Vue 3 + 纯 Rust；PWA 在 `src/pwa/` 复用前端；
 服务器运行代码与安卓端代码不在本仓库。
 
+> **端优先级：桌面端（P0）> 安卓端（P1）> PWA（P2）。**
+> PWA 是为苹果生态妥协的替代品，不是主产品；不要为了 PWA 牺牲桌面端。
+> 详细约束见 [`AGENTS.md`](AGENTS.md) §0 与 [`src/pwa/README.md`](src/pwa/README.md)。
+
 [![Release](https://img.shields.io/github/v/release/liaowenqi123/PomoSolo?label=release)](https://github.com/liaowenqi123/PomoSolo/releases/latest)
 [Agent 入口](AGENTS.md) · [文档索引](docs/README.md) · [项目结构（自动生成）](docs/PROJECT_MAP.md)
 
